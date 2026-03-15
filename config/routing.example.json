@@ -1,0 +1,7 @@
+{
+  "inboxes": {
+    "INBOX_SITE": "automation-kb",
+    "INBOX_MEMORY": "e-factory-memory",
+    "INBOX_AGENT": "e-factory-agent"
+  }
+}
