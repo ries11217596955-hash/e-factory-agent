@@ -1,9 +1,25 @@
 {
   "agent": "SITE_AUDITOR_AGENT",
-  "version": "1.0.1",
+  "version": "2.1.0",
   "status": "baseline_workable",
   "delivery": "AGENT_PACKAGE_STANDARD",
   "root_resolver": "PSScriptRoot",
   "output_contract": "outbox_relative_to_agent_root",
-  "target_repo": "automation-kb"
+  "target_repo": "automation-kb",
+  "fetch_mode": "github_api_zip_token_first",
+  "capabilities": [
+    "github_api_zip_fetch",
+    "inventory_build",
+    "semantic_audit",
+    "broken_links_audit",
+    "orphan_pages_detection",
+    "live_screenshots_optional",
+    "zip_report_pack"
+  ],
+  "limitations": [
+    "scope_filter_not_cleaned",
+    "screenshot_stderr_noise_possible",
+    "not_yet_eleventy_collection_aware",
+    "not_yet_render_graph_complete"
+  ]
 }
