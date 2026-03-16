@@ -1,0 +1,9 @@
+{
+  "agent": "SITE_AUDITOR_AGENT",
+  "version": "1.0.1",
+  "status": "baseline_workable",
+  "delivery": "AGENT_PACKAGE_STANDARD",
+  "root_resolver": "PSScriptRoot",
+  "output_contract": "outbox_relative_to_agent_root",
+  "target_repo": "automation-kb"
+}
