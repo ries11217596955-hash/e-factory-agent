@@ -60,7 +60,6 @@ steps:
     if: steps.claim.outputs.NO_JOB != 'true'
     shell: pwsh
     run: |
-      $zip = "${{ steps.claim.outputs.ZIP_PATH }}"
       $root = $env:GITHUB_WORKSPACE
 
       & "$root/agents/gh_batch/RUN_BATCH.ps1" `
