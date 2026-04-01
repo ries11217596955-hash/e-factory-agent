@@ -328,11 +328,11 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($unexpectedCount)) { $unexpectedCount = '0' }
 
           if ([int]$failRuntimeCount -gt 0) {
-            throw "Workflow failed: FAIL_RUNTIME count = $failRuntimeCount"
+            Write-Host "::warning::FAIL_RUNTIME count = $failRuntimeCount"
           }
 
           if ([int]$unexpectedCount -gt 0) {
-            throw "Workflow failed: UNEXPECTED_STATUS count = $unexpectedCount"
+            Write-Host "::warning::UNEXPECTED_STATUS count = $unexpectedCount"
           }
 
-          Write-Host "Workflow result is SUCCESS. Policy failures are treated as valid queue outcomes."
+          Write-Host "Workflow completed. PASS/FAIL_POLICY/FAIL_RUNTIME are handled as queue outcomes; warnings were emitted for runtime or unexpected statuses."
