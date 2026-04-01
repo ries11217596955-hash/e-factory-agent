@@ -58,25 +58,40 @@ jobs:
             throw "Missing repository secret: GH_BATCH_PAT"
           }
 
-      - name: Preflight inbox
+      - name: Preflight paths
         shell: pwsh
         run: |
-          $root  = $env:GITHUB_WORKSPACE
-          $inbox = Join-Path $root 'inbox'
+          $root   = $env:GITHUB_WORKSPACE
+          $inbox  = Join-Path $root 'inbox'
+          $done   = Join-Path $root 'done'
+          $logs   = Join-Path $root 'logs'
+          $script = Join-Path $root 'agents\gh_batch\RUN_BATCH.ps1'
+
           if (-not (Test-Path -LiteralPath $inbox)) {
             throw "Inbox folder not found: $inbox"
           }
-
-          $zips = @(Get-ChildItem -LiteralPath $inbox -File -Filter '*.zip' | Sort-Object LastWriteTime)
-          Write-Host "ZIP count in inbox: $($zips.Count)"
-
-          if ($zips.Count -eq 0) {
-            throw "No ZIP files found in inbox."
+          if (-not (Test-Path -LiteralPath $script)) {
+            throw "RUN_BATCH.ps1 not found: $script"
           }
 
-          Write-Host "Selected ZIP: $($zips[0].Name)"
+          New-Item -ItemType Directory -Path $done -Force | Out-Null
+          New-Item -ItemType Directory -Path $logs -Force | Out-Null
 
-      - name: Run real GH_BATCH
+      - name: Count inbox ZIPs before run
+        id: count_before
+        shell: pwsh
+        run: |
+          $inbox = Join-Path $env:GITHUB_WORKSPACE 'inbox'
+          $zips = @(Get-ChildItem -LiteralPath $inbox -File -Filter '*.zip' | Sort-Object LastWriteTime)
+          $count = $zips.Count
+          "ZIP_COUNT=$count" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "ZIP count before run: $count"
+          if ($count -eq 0) {
+            Write-Host "No ZIP files in inbox. Exiting cleanly."
+          }
+
+      - name: Run GH_BATCH for all ZIPs
+        if: steps.count_before.outputs.ZIP_COUNT != '0'
         shell: pwsh
         env:
           GH_BATCH_PAT: ${{ secrets.GH_BATCH_PAT }}
@@ -87,21 +102,45 @@ jobs:
           $done   = Join-Path $root 'done'
           $logs   = Join-Path $root 'logs'
 
-          if (-not (Test-Path -LiteralPath $script)) {
-            throw "RUN_BATCH.ps1 not found: $script"
+          $iteration = 0
+          $maxIterations = 50
+
+          while ($true) {
+            $zips = @(Get-ChildItem -LiteralPath $inbox -File -Filter '*.zip' | Sort-Object LastWriteTime)
+            if ($zips.Count -eq 0) {
+              Write-Host "Inbox is empty. Batch loop finished."
+              break
+            }
+
+            $iteration++
+            if ($iteration -gt $maxIterations) {
+              throw "Safety stop: exceeded maxIterations=$maxIterations"
+            }
+
+            Write-Host "Iteration $iteration. Next ZIP: $($zips[0].Name)"
+
+            & $script `
+              -InboxDir $inbox `
+              -DoneDir $done `
+              -LogsDir $logs `
+              -RepoOwner 'ries11217596955-hash' `
+              -RepoName 'automation-kb' `
+              -Branch 'main' `
+              -RememberToken:$false
+
+            $remaining = @(Get-ChildItem -LiteralPath $inbox -File -Filter '*.zip').Count
+            Write-Host "Remaining ZIP count: $remaining"
           }
 
-          New-Item -ItemType Directory -Path $done -Force | Out-Null
-          New-Item -ItemType Directory -Path $logs -Force | Out-Null
-
-          & $script `
-            -InboxDir $inbox `
-            -DoneDir $done `
-            -LogsDir $logs `
-            -RepoOwner 'ries11217596955-hash' `
-            -RepoName 'automation-kb' `
-            -Branch 'main' `
-            -RememberToken:$false
+      - name: Count inbox ZIPs after run
+        id: count_after
+        shell: pwsh
+        run: |
+          $inbox = Join-Path $env:GITHUB_WORKSPACE 'inbox'
+          $zips = @(Get-ChildItem -LiteralPath $inbox -File -Filter '*.zip')
+          $count = $zips.Count
+          "ZIP_COUNT_AFTER=$count" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "ZIP count after run: $count"
 
       - name: Commit queue state back to repo-agent
         shell: pwsh
