@@ -16,6 +16,21 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        - name: Guard empty inbox
+  shell: pwsh
+  run: |
+    $inbox = Join-Path $env:GITHUB_WORKSPACE "inbox"
+    $zips = @()
+    if (Test-Path $inbox) {
+      $zips = @(Get-ChildItem -LiteralPath $inbox -File -Filter "*.zip")
+    }
+
+    if ($zips.Count -eq 0) {
+      Write-Host "No ZIP files in inbox. Clean exit."
+      exit 0
+    }
+
+    Write-Host "ZIP count in inbox: $($zips.Count)"
 
       # 🔒 защита от самозапуска
       - name: Guard self-trigger
