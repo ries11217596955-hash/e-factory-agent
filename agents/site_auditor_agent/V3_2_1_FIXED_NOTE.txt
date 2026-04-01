@@ -1,0 +1,4 @@
+SITE_AUDITOR_AGENT v3.2.1 FIXED
+- Fixed PowerShell ArrayList issue in advice_engine.ps1
+- Replaced += on issue bucket with ArrayList.Add()
+- PS5.1-safe accumulation

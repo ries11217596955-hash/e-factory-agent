@@ -1,0 +1,5 @@
+{
+  "allowed_scope": ["src/"],
+  "forbidden_paths": ["_site", "node_modules", ".git", ".cache", "dist", "coverage", "tmp", "temp"],
+  "text_extensions": [".md", ".html", ".njk", ".json", ".js", ".css", ".xml", ".txt", ".yml", ".yaml", ".svg", ".csv", ".11tydata.js"]
+}

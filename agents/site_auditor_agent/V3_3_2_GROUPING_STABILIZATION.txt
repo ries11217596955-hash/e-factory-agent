@@ -1,0 +1,5 @@
+SITE_AUDITOR_AGENT v3.3.2 GROUPING STABILIZATION
+- stabilize orphan grouping for posts/tools/news/hubs families
+- sanitize short or noisy scope tokens
+- avoid single-item batch suffixes
+- keep grouping/actions/execution_order/suppression

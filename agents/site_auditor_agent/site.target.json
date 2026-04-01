@@ -1,0 +1,68 @@
+{
+  "site_identity": {
+    "name": "automation-kb",
+    "site_type": "knowledge_library",
+    "default_language": "en"
+  },
+  "required_routes": [
+    "/",
+    "/posts/",
+    "/tools/",
+    "/news/"
+  ],
+  "required_clusters": [
+    {
+      "id": "posts",
+      "label": "Articles cluster",
+      "hub_routes": [
+        "/posts/"
+      ],
+      "min_pages": 10
+    },
+    {
+      "id": "tools",
+      "label": "Tools cluster",
+      "hub_routes": [
+        "/tools/"
+      ],
+      "min_pages": 5
+    },
+    {
+      "id": "news",
+      "label": "News cluster",
+      "hub_routes": [
+        "/news/"
+      ],
+      "min_pages": 5
+    }
+  ],
+  "required_page_types": [
+    "home",
+    "hub",
+    "article"
+  ],
+  "navigation_requirements": {
+    "home_must_link_to_hubs": true,
+    "required_routes_must_be_reachable": true
+  },
+  "metadata_requirements": {
+    "title_required": true,
+    "description_required": true,
+    "canonical_required": false
+  },
+  "stage_rules": {
+    "Skeleton": {
+      "min_required_route_coverage_percent": 0
+    },
+    "Structure": {
+      "min_required_route_coverage_percent": 50
+    },
+    "Coverage": {
+      "min_required_route_coverage_percent": 80
+    },
+    "Hardening": {
+      "min_required_route_coverage_percent": 100,
+      "max_critical_blockers": 0
+    }
+  }
+}

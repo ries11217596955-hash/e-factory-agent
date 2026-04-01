@@ -1,0 +1,16 @@
+{
+  "agent": "GH_BATCH",
+  "source_of_truth": "agents/gh_batch/",
+  "entrypoint": "RUN_BATCH.ps1",
+  "status": "active_packaged_unit",
+  "verified_facts": [
+    "standalone batch agent package",
+    "safe auto-fix options present",
+    "allowed scope config present",
+    "RUN_REPORT json support documented"
+  ],
+  "not_verified": [
+    "end-to-end runtime PASS in this patch"
+  ],
+  "package_origin": "GH_BATCH_SMARTFIX_PATCH.zip"
+}

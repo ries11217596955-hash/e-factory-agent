@@ -1,0 +1,5 @@
+SITE_AUDITOR_AGENT v3.4.1 ZIP PATH PRESERVATION FIX
+- detect GitHub zipball wrapper prefix once
+- strip only the single wrapper folder from each entry path
+- preserve all downstream relative paths 1:1 (src/posts/... stays src/posts/...)
+- keep repo-root and report-output hard-fails

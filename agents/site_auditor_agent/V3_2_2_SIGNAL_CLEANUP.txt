@@ -1,0 +1,5 @@
+SITE_AUDITOR_AGENT v3.2.2 SIGNAL CLEANUP
+- suppress service/debug/non-publishable routes from HOW_TO_FIX
+- suppress template-expression broken links
+- downgrade low-value orphan issues to P2
+- add suppressed_count and suppressed list to HOW_TO_FIX

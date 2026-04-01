@@ -1,0 +1,5 @@
+SITE_AUDITOR_AGENT v3.3.6 REPO ROOT NORMALIZATION
+- Expand-RepoZipToTarget now prefers -TargetPath over -ExtractRoot
+- repository is extracted directly into the expected repo root
+- added hard fail if repo root is missing/empty after fetch
+- added hard fail if inventory is empty or publishable pages are zero

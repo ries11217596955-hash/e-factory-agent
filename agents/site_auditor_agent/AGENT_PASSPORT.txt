@@ -1,0 +1,8 @@
+﻿AgentName: SITE_AUDITOR_AGENT
+Version: v3.6
+Status: DONOR_BASELINE
+EntryPoint: run.ps1
+Core: agent.ps1
+Modules: inventory.ps1, links_audit.ps1, semantic_audit.ps1, render_audit.ps1, target_stage.ps1, screenshot.ps1
+OperatorLayer: advice_engine.ps1
+OutputContract: audit_result.json, HOW_TO_FIX.json, 00_PRIORITY_ACTIONS.txt, 01_TOP_ISSUES.txt, 11A_EXECUTIVE_SUMMARY.txt, REPORT.txt, DONE.ok/DONE.fail

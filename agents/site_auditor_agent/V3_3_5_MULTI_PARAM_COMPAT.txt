@@ -1,0 +1,4 @@
+SITE_AUDITOR_AGENT v3.3.5 MULTI PARAM COMPAT
+- Expand-RepoZipToTarget accepts -ExtractRoot, -TargetPath, and -TargetDir
+- resolves all to internal $TargetDir
+- keeps safe zip extraction and short temp-root behavior

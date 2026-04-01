@@ -1,0 +1,4 @@
+SITE_AUDITOR_AGENT v3.3.4 CONTRACT FIX
+- restored backward-compatible Expand-RepoZipToTarget parameter contract
+- function now accepts -ExtractRoot again and aliases it to $TargetDir internally
+- keeps v3.3.3 zip safe extraction logic unchanged

@@ -1,0 +1,16 @@
+AGENT REPO PHASE-2 STRUCTURE PATCH
+
+Purpose
+- materialize the canonical source layout that the current README already describes
+- create real source-of-truth folders for the two active agents
+- prepare releases/ as release-only storage
+
+Apply
+1) Upload the full archive preserving paths.
+2) Commit the added folders under agents/ and releases/.
+3) Then run one cleanup commit using DELETE_ROOT_FILES.txt.
+
+Important
+- Do not treat package presence as runtime PASS.
+- After this patch, agents/ is the canonical source location.
+- Root RUN_BATCH.ps1 and mini-agent/RUN_BATCH.ps1 become legacy copies and should be removed in the cleanup commit.

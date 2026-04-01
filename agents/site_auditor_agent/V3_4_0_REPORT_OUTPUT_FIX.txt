@@ -1,0 +1,6 @@
+SITE_AUDITOR_AGENT v3.4.0 REPORT OUTPUT FIX
+- reportDir is created before audit stages
+- 01_INVENTORY.json is persisted immediately after inventory build
+- 01A_INVENTORY_DEBUG.json is added for publishable diagnostics
+- partial report pack is always zipped even on hard-fail
+- RUN_FAILURE.json is written on exception
