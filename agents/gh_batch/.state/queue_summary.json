@@ -1,8 +1,8 @@
 {
   "iterations": 4,
-  "pass_count": 1,
-  "fail_policy_count": 3,
-  "fail_runtime_count": 0,
+  "pass_count": 0,
+  "fail_policy_count": 0,
+  "fail_runtime_count": 4,
   "unexpected_count": 0,
-  "finished_at": "2026-04-01 13:24:45.433"
+  "finished_at": "2026-04-01 16:57:08.856"
 }
