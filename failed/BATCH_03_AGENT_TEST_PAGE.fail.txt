@@ -1,0 +1,14 @@
+ZIP_NAME=BATCH_03_AGENT_TEST_PAGE.zip
+FAILED_AT=2026-04-01 18:16:40.054
+SOURCE=D:\a\e-factory-agent\e-factory-agent\inbox\processing\BATCH_03_AGENT_TEST_PAGE.zip
+FAILED_PATH=D:\a\e-factory-agent\e-factory-agent\failed\BATCH_03_AGENT_TEST_PAGE.zip
+STATUS=FAIL_RUNTIME
+REASON_CODE=WORKFLOW_SCRIPT_INVOCATION_ERROR
+MESSAGE=Workflow failed while invoking RUN_BATCH.ps1
+REASON_START
+InvalidOperation: D:\a\e-factory-agent\e-factory-agent\agents\gh_batch\RUN_BATCH.ps1:9
+Line |
+   9 |  if (-not $result['apply_changed']) {
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | Cannot index into a null array.
+REASON_END

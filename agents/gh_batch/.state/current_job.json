@@ -1,8 +1,8 @@
 {
-  "iteration": 1,
-  "zip_name": "WEBOPS_BATCH_01_REPAIR_REDIRECTS_AND_HIDE_MANIFEST.zip",
-  "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\WEBOPS_BATCH_01_REPAIR_REDIRECTS_AND_HIDE_MANIFEST.zip",
-  "finished_at": "2026-04-01 18:08:35.435",
+  "iteration": 3,
+  "zip_name": "BATCH_03_AGENT_TEST_PAGE.zip",
+  "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\BATCH_03_AGENT_TEST_PAGE.zip",
+  "finished_at": "2026-04-01 18:16:40.057",
   "status": "FAIL_RUNTIME",
   "reason_code": "WORKFLOW_SCRIPT_INVOCATION_ERROR"
 }
