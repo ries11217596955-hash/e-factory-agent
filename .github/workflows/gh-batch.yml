@@ -3,8 +3,7 @@ name: GH_BATCH Real
 on:
   push:
     paths:
-      paths:
-  - 'inbox/*.zip'
+      - 'inbox/*.zip'
   workflow_dispatch:
 
 permissions:
@@ -18,6 +17,7 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      # 🔒 защита от самозапуска
       - name: Guard self-trigger
         shell: pwsh
         run: |
@@ -37,8 +37,8 @@ jobs:
         run: |
           $inbox = Join-Path $env:GITHUB_WORKSPACE "inbox"
           if (!(Test-Path $inbox)) {
-            Write-Host "No inbox folder"
-            exit 0
+            Write-Error "No inbox folder"
+            exit 1
           }
 
       - name: Run GH_BATCH
@@ -46,7 +46,7 @@ jobs:
         run: |
           Write-Host "Running GH_BATCH..."
 
-          $script = Join-Path $env:GITHUB_WORKSPACE "agents\gh_batch\RUN_BATCH.ps1"
+          $script = Join-Path $env:GITHUB_WORKSPACE "scripts\RUN_BATCH.ps1"
 
           if (!(Test-Path $script)) {
             Write-Error "RUN_BATCH.ps1 not found"
