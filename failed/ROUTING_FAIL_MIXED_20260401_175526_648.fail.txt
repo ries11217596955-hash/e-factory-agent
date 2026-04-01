@@ -1,0 +1,14 @@
+ZIP_NAME=ROUTING_FAIL_MIXED_20260401_175526_648.zip
+FAILED_AT=2026-04-01 17:55:26.649
+SOURCE=D:\a\e-factory-agent\e-factory-agent\inbox\processing\ROUTING_FAIL_MIXED.zip
+FAILED_PATH=D:\a\e-factory-agent\e-factory-agent\failed\ROUTING_FAIL_MIXED_20260401_175526_648.zip
+STATUS=FAIL_RUNTIME
+REASON_CODE=WORKFLOW_SCRIPT_INVOCATION_ERROR
+MESSAGE=Workflow failed while invoking RUN_BATCH.ps1
+REASON_START
+InvalidOperation: D:\a\e-factory-agent\e-factory-agent\agents\gh_batch\RUN_BATCH.ps1:9
+Line |
+   9 |  if (-not $result['apply_changed']) {
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | Cannot index into a null array.
+REASON_END
