@@ -1,7 +1,7 @@
 {
-  "iteration": 1,
-  "zip_name": "TEST_Batch_03_FAIL.zip",
-  "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\TEST_Batch_03_FAIL.zip",
-  "finished_at": "2026-04-01 12:29:05",
+  "iteration": 5,
+  "zip_name": "BATCH_E_EMPTY_STRUCT.zip",
+  "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\BATCH_E_EMPTY_STRUCT.zip",
+  "finished_at": "2026-04-01 12:33:14",
   "status": "DONE"
 }
