@@ -8,6 +8,9 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: write
+
 jobs:
   run-gh-batch:
     runs-on: windows-latest
@@ -17,6 +20,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Git identity
+        shell: pwsh
         run: |
           git config user.name "gh-batch-bot"
           git config user.email "gh-batch@bot.local"
@@ -29,10 +33,10 @@ jobs:
           $found = git log --grep="GH_BATCH:$batch" -n 1
 
           if ($found) {
-            echo "DUPLICATE=true" >> $env:GITHUB_OUTPUT
-            echo "Batch already processed: $batch"
+            "DUPLICATE=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            Write-Host "Batch already processed: $batch"
           } else {
-            echo "DUPLICATE=false" >> $env:GITHUB_OUTPUT
+            "DUPLICATE=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           }
 
       - name: Run GH_BATCH script
@@ -42,12 +46,8 @@ jobs:
           $batch = "${{ github.event.inputs.batch_name }}"
           Write-Host "Running GH_BATCH for $batch"
 
-          # 👉 здесь вызываем твой реальный скрипт
-          # пример:
-          # powershell -ExecutionPolicy Bypass -File agents/gh_batch/RUN_BATCH.ps1 -BatchName $batch
-
-          # временный mock (чтобы протестировать пайплайн)
-          New-Item -ItemType File -Path "batch_result_$batch.txt" -Force
+          # mock
+          New-Item -ItemType File -Path "batch_result_$batch.txt" -Force | Out-Null
 
       - name: Commit results
         if: steps.dupcheck.outputs.DUPLICATE == 'false'
@@ -57,11 +57,13 @@ jobs:
 
           git add .
           git commit -m "GH_BATCH:$batch"
-          git push
+          git push origin HEAD:${{ github.ref_name }}
 
       - name: Mark duplicate
         if: steps.dupcheck.outputs.DUPLICATE == 'true'
-        run: echo "SKIP_DUPLICATE"
+        shell: pwsh
+        run: |
+          "SKIP_DUPLICATE" | Out-File -FilePath "gh_batch_status.txt" -Encoding utf8
 
       - name: Upload log artifact
         uses: actions/upload-artifact@v4
