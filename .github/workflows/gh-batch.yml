@@ -13,13 +13,23 @@ jobs:
   run-gh-batch:
     runs-on: windows-latest
 
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-if ($env:GITHUB_ACTOR -eq "github-actions[bot]") {
-  Write-Host "Skip self-trigger"
-  exit 0
-}
+   steps:
+  - name: Checkout repo
+    uses: actions/checkout@v4
+
+  - name: Guard self-trigger
+    shell: pwsh
+    run: |
+      if ($env:GITHUB_ACTOR -eq "github-actions[bot]") {
+        Write-Host "Skip self-trigger"
+        exit 0
+      }
+
+  - name: Setup Git identity
+    shell: pwsh
+    run: |
+      git config user.name "gh-batch-bot"
+      git config user.email "gh-batch@bot.local"
       - name: Setup Git identity
         shell: pwsh
         run: |
