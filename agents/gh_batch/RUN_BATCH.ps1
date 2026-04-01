@@ -72,59 +72,385 @@ function Get-UsableTempRoot {
     throw 'Could not find a writable temp root.'
 }
 
-function Normalize-RelativePath {
-    param(
-        [Parameter(Mandatory)][string]$BasePath,
-        [Parameter(Mandatory)][string]$FullPath
-    )
-
-    $baseFull = [System.IO.Path]::GetFullPath($BasePath)
-    $fileFull = [System.IO.Path]::GetFullPath($FullPath)
-
-    if (-not $baseFull.EndsWith([System.IO.Path]::DirectorySeparatorChar)) {
-        $baseFull = $baseFull + [System.IO.Path]::DirectorySeparatorChar
+function New-RunResult {
+    return [ordered]@{
+        status               = 'FAIL_RUNTIME'
+        outcome_class        = 'FAIL_RUNTIME'
+        reason_code          = 'INTERNAL_INIT'
+        execution_mode       = 'FAIL_RUNTIME'
+        zip_name             = ''
+        zip_source_path      = ''
+        batch_hash           = ''
+        expanded_file_count  = 0
+        expanded_root        = ''
+        accepted_paths       = @()
+        rejected_paths       = @()
+        forbidden_paths      = @()
+        allowed_paths_only   = $false
+        profile              = 'UNKNOWN'
+        profile_reason       = ''
+        apply_changed        = $false
+        staged_targets       = @()
+        commit_created       = $false
+        commit_sha           = ''
+        fail_reason          = ''
+        message              = ''
+        log_file             = ''
+        report_file          = ''
+        run_id               = ''
+        timestamp            = ''
     }
-
-    if (-not $fileFull.StartsWith($baseFull, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "File outside expanded root: $fileFull"
-    }
-
-    $relative = $fileFull.Substring($baseFull.Length)
-    $relative = $relative -replace '\\','/'
-    $relative = $relative.Trim()
-
-    if ([string]::IsNullOrWhiteSpace($relative)) {
-        throw "Resolved empty relative path for '$FullPath'"
-    }
-
-    if ($relative.StartsWith('/')) {
-        $relative = $relative.TrimStart('/')
-    }
-
-    if ($relative -match '^[A-Za-z]:') {
-        throw "Absolute drive path not allowed: $relative"
-    }
-
-    if ($relative.StartsWith('../') -or $relative -eq '..' -or $relative -like '*/../*') {
-        throw "Path traversal not allowed: $relative"
-    }
-
-    return $relative
 }
 
-function Test-AllowedBatchPath {
+function New-ResultTerminal {
+    param(
+        [Parameter(Mandatory)][hashtable]$Result,
+        [Parameter(Mandatory)][string]$Status,
+        [Parameter(Mandatory)][string]$OutcomeClass,
+        [Parameter(Mandatory)][string]$ReasonCode,
+        [Parameter(Mandatory)][string]$ExecutionMode,
+        [Parameter(Mandatory)][string]$Message
+    )
+
+    $Result['status'] = $Status
+    $Result['outcome_class'] = $OutcomeClass
+    $Result['reason_code'] = $ReasonCode
+    $Result['execution_mode'] = $ExecutionMode
+    $Result['message'] = $Message
+    if ($OutcomeClass -eq 'FAIL_POLICY' -or $OutcomeClass -eq 'FAIL_RUNTIME') {
+        $Result['fail_reason'] = $Message
+    }
+}
+
+function Get-FileSha256Hex {
+    param(
+        [Parameter(Mandatory)][string]$Path
+    )
+
+    if (Get-Command -Name Get-FileHash -ErrorAction SilentlyContinue) {
+        return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+
+    $stream = $null
+    $sha = $null
+    try {
+        $stream = [System.IO.File]::OpenRead($Path)
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        $hashBytes = $sha.ComputeHash($stream)
+        return ([System.BitConverter]::ToString($hashBytes).Replace('-', '').ToLowerInvariant())
+    }
+    finally {
+        if ($null -ne $stream) {
+            $stream.Dispose()
+        }
+        if ($null -ne $sha) {
+            $sha.Dispose()
+        }
+    }
+}
+
+function Normalize-RelativePath {
     param(
         [Parameter(Mandatory)][string]$RelativePath
     )
 
+    $path = $RelativePath -replace '\','/'
+    $path = $path.Trim()
+
+    while ($path.StartsWith('/')) {
+        $path = $path.Substring(1)
+    }
+
+    if ([string]::IsNullOrWhiteSpace($path)) {
+        throw 'FAIL_POLICY: empty relative path.'
+    }
+
+    if ($path -match '^[A-Za-z]:') {
+        throw "FAIL_POLICY: absolute drive path not allowed: $path"
+    }
+
+    if ($path.StartsWith('../') -or $path.StartsWith('..\') -or $path -eq '..' -or $path -like '*/../*' -or $path -like '*\..\*') {
+        throw "FAIL_POLICY: path traversal not allowed: $path"
+    }
+
+    return $path
+}
+
+function Get-AgentConfig {
+    param(
+        [Parameter(Mandatory)][string]$ScriptRoot
+    )
+
+    $configPath = Join-Path $ScriptRoot 'agent.config.json'
+    $config = [ordered]@{
+        allowed_scope    = @('src/')
+        text_extensions  = @('.md','.html','.njk','.json','.js','.css','.xml','.txt','.yml','.yaml','.svg','.csv','.11tydata.js')
+        forbidden_paths  = @('_site','node_modules','.git','.cache','dist','coverage','tmp','temp')
+    }
+
+    if (-not (Test-Path -LiteralPath $configPath)) {
+        return $config
+    }
+
+    try {
+        $raw = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8
+        $parsed = $raw | ConvertFrom-Json
+
+        if ($parsed.allowed_scope) {
+            $config['allowed_scope'] = @($parsed.allowed_scope)
+        }
+        if ($parsed.text_extensions) {
+            $config['text_extensions'] = @($parsed.text_extensions)
+        }
+        if ($parsed.forbidden_paths) {
+            $config['forbidden_paths'] = @($parsed.forbidden_paths)
+        }
+    }
+    catch {
+    }
+
+    return $config
+}
+
+function Get-ZipEntries {
+    param(
+        [Parameter(Mandatory)][string]$ZipFilePath
+    )
+
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+    $archive = $null
+    try {
+        $archive = [System.IO.Compression.ZipFile]::OpenRead($ZipFilePath)
+        $entries = @()
+
+        foreach ($entry in $archive.Entries) {
+            if ([string]::IsNullOrWhiteSpace($entry.FullName)) {
+                continue
+            }
+
+            $entryName = $entry.FullName -replace '\','/'
+            if ($entryName.EndsWith('/')) {
+                continue
+            }
+
+            $normalized = Normalize-RelativePath -RelativePath $entryName
+
+            $entries += [pscustomobject]@{
+                RelativePath = $normalized
+                Length       = [int64]$entry.Length
+            }
+        }
+
+        return @($entries)
+    }
+    finally {
+        if ($null -ne $archive) {
+            $archive.Dispose()
+        }
+    }
+}
+
+function Get-WrapperNormalizedEntries {
+    param(
+        [Parameter(Mandatory)][object[]]$Entries
+    )
+
+    $segments = @()
+    foreach ($entry in $Entries) {
+        $parts = @($entry.RelativePath.Split('/'))
+        if ($parts.Count -gt 1) {
+            $segments += $parts[0]
+        }
+        else {
+            $segments += ''
+        }
+    }
+
+    $distinct = @($segments | Select-Object -Unique)
+
+    if ($distinct.Count -ne 1) {
+        return @($Entries)
+    }
+
+    $wrapper = [string]$distinct[0]
+    if ([string]::IsNullOrWhiteSpace($wrapper)) {
+        return @($Entries)
+    }
+
+    $normalized = @()
+    foreach ($entry in $Entries) {
+        $path = [string]$entry.RelativePath
+        if ($path.StartsWith($wrapper + '/')) {
+            $stripped = $path.Substring($wrapper.Length + 1)
+            if ([string]::IsNullOrWhiteSpace($stripped)) {
+                continue
+            }
+            $normalized += [pscustomobject]@{
+                RelativePath = $stripped
+                Length       = [int64]$entry.Length
+            }
+        }
+        else {
+            return @($Entries)
+        }
+    }
+
+    return @($normalized)
+}
+
+function Test-AllowedBatchPath {
+    param(
+        [Parameter(Mandatory)][string]$RelativePath,
+        [Parameter(Mandatory)][hashtable]$Config
+    )
+
     if ($RelativePath -eq 'README.txt') { return $true }
     if ($RelativePath -eq 'README.md')  { return $true }
-    if ($RelativePath -like 'src/*')    { return $true }
+
+    foreach ($scope in @($Config['allowed_scope'])) {
+        $normalizedScope = ($scope -replace '\','/').Trim()
+        if ([string]::IsNullOrWhiteSpace($normalizedScope)) {
+            continue
+        }
+
+        if (-not $normalizedScope.EndsWith('/')) {
+            $normalizedScope = $normalizedScope + '/'
+        }
+
+        if ($RelativePath.StartsWith($normalizedScope, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return $true
+        }
+    }
 
     return $false
 }
 
-function Get-BatchInventory {
+function Get-PathClassification {
+    param(
+        [Parameter(Mandatory)][object[]]$Entries,
+        [Parameter(Mandatory)][hashtable]$Config
+    )
+
+    $accepted = @()
+    $rejected = @()
+
+    foreach ($entry in $Entries) {
+        if (Test-AllowedBatchPath -RelativePath $entry.RelativePath -Config $Config) {
+            $accepted += [string]$entry.RelativePath
+        }
+        else {
+            $rejected += [string]$entry.RelativePath
+        }
+    }
+
+    return [ordered]@{
+        AcceptedPaths    = @($accepted)
+        RejectedPaths    = @($rejected)
+        AllowedPathsOnly = ($rejected.Count -eq 0 -and $accepted.Count -gt 0)
+    }
+}
+
+function Get-FileExtensionNormalized {
+    param(
+        [Parameter(Mandatory)][string]$RelativePath
+    )
+
+    $path = $RelativePath.ToLowerInvariant()
+
+    if ($path.EndsWith('.11tydata.js')) {
+        return '.11tydata.js'
+    }
+
+    return ([System.IO.Path]::GetExtension($path)).ToLowerInvariant()
+}
+
+function Get-ProfileClassification {
+    param(
+        [Parameter(Mandatory)][object[]]$Entries,
+        [Parameter(Mandatory)][string[]]$AcceptedPaths,
+        [Parameter(Mandatory)][hashtable]$Config
+    )
+
+    if ($AcceptedPaths.Count -eq 0) {
+        return [ordered]@{
+            Profile = 'UNSUPPORTED_PROFILE'
+            Reason  = 'NO_ACCEPTED_PATHS'
+        }
+    }
+
+    if ($AcceptedPaths.Count -gt 10) {
+        return [ordered]@{
+            Profile = 'UNSUPPORTED_PROFILE'
+            Reason  = 'TOO_MANY_FILES'
+        }
+    }
+
+    $dirSet = @{}
+    foreach ($path in $AcceptedPaths) {
+        $parent = [System.IO.Path]::GetDirectoryName(($path -replace '/','\'))
+        if (-not [string]::IsNullOrWhiteSpace($parent)) {
+            $dirSet[$parent.ToLowerInvariant()] = $true
+        }
+    }
+
+    if ($dirSet.Keys.Count -gt 5) {
+        return [ordered]@{
+            Profile = 'UNSUPPORTED_PROFILE'
+            Reason  = 'TOO_MANY_DIRECTORIES'
+        }
+    }
+
+    $allowedExtSet = @{}
+    foreach ($ext in @($Config['text_extensions'])) {
+        $allowedExtSet[[string]$ext.ToLowerInvariant()] = $true
+    }
+
+    foreach ($path in $AcceptedPaths) {
+        $lower = $path.ToLowerInvariant()
+
+        if ($lower -eq 'readme.txt' -or $lower -eq 'readme.md') {
+            continue
+        }
+
+        $ext = Get-FileExtensionNormalized -RelativePath $path
+        if ([string]::IsNullOrWhiteSpace($ext)) {
+            return [ordered]@{
+                Profile = 'UNSUPPORTED_PROFILE'
+                Reason  = ('NO_EXTENSION:{0}' -f $path)
+            }
+        }
+
+        if (-not $allowedExtSet.ContainsKey($ext)) {
+            return [ordered]@{
+                Profile = 'UNSUPPORTED_PROFILE'
+                Reason  = ('UNSUPPORTED_EXTENSION:{0}' -f $ext)
+            }
+        }
+    }
+
+    return [ordered]@{
+        Profile = 'SAFE_MICRO_FIX_V1'
+        Reason  = 'TEXT_ONLY_ALLOWED_SCOPE'
+    }
+}
+
+function Expand-ZipToStaging {
+    param(
+        [Parameter(Mandatory)][string]$ZipFilePath,
+        [Parameter(Mandatory)][string]$DestinationPath
+    )
+
+    if (Test-Path -LiteralPath $DestinationPath) {
+        Remove-Item -LiteralPath $DestinationPath -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    New-Dir -Path $DestinationPath
+    Expand-Archive -LiteralPath $ZipFilePath -DestinationPath $DestinationPath -Force
+}
+
+function Get-InventoryFromExpandedRoot {
     param(
         [Parameter(Mandatory)][string]$SourceRoot
     )
@@ -134,17 +460,29 @@ function Get-BatchInventory {
     $files = @(Get-ChildItem -LiteralPath $SourceRoot -File -Recurse -Force)
 
     foreach ($file in $files) {
-        $relativePath = Normalize-RelativePath -BasePath $SourceRoot -FullPath $file.FullName
-        $key = $relativePath.ToLowerInvariant()
+        $baseFull = [System.IO.Path]::GetFullPath($SourceRoot)
+        $fileFull = [System.IO.Path]::GetFullPath($file.FullName)
+
+        if (-not $baseFull.EndsWith([System.IO.Path]::DirectorySeparatorChar)) {
+            $baseFull = $baseFull + [System.IO.Path]::DirectorySeparatorChar
+        }
+
+        if (-not $fileFull.StartsWith($baseFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "FAIL_RUNTIME: expanded file outside staging root: $fileFull"
+        }
+
+        $relative = $fileFull.Substring($baseFull.Length) -replace '\','/'
+        $relative = Normalize-RelativePath -RelativePath $relative
+        $key = $relative.ToLowerInvariant()
 
         if ($dups.ContainsKey($key)) {
-            throw "Duplicate path after normalization: $relativePath"
+            throw "FAIL_POLICY: duplicate path after normalization: $relative"
         }
 
         $dups[$key] = $true
 
         $items += [pscustomobject]@{
-            RelativePath = $relativePath
+            RelativePath = $relative
             FullPath     = $file.FullName
             Length       = [int64]$file.Length
         }
@@ -153,37 +491,60 @@ function Get-BatchInventory {
     return @($items)
 }
 
-function Validate-BatchPolicy {
+function Copy-AllowedFilesToRepo {
     param(
-        [Parameter(Mandatory)][object[]]$Inventory
+        [Parameter(Mandatory)][string]$StagingRoot,
+        [Parameter(Mandatory)][string[]]$AcceptedPaths,
+        [Parameter(Mandatory)][string]$RepoRoot
     )
 
-    $allowed = @()
-    $rejected = @()
+    $copied = @()
 
-    foreach ($item in $Inventory) {
-        if (Test-AllowedBatchPath -RelativePath $item.RelativePath) {
-            $allowed += $item
+    foreach ($relativePath in $AcceptedPaths) {
+        $sourcePath = Join-Path $StagingRoot ($relativePath -replace '/','\')
+        if (-not (Test-Path -LiteralPath $sourcePath)) {
+            throw "FAIL_RUNTIME: accepted file missing in staging: $relativePath"
         }
-        else {
-            $rejected += $item
+
+        $targetPath = Join-Path $RepoRoot ($relativePath -replace '/','\')
+        $targetDir = Split-Path -Parent $targetPath
+        if (-not [string]::IsNullOrWhiteSpace($targetDir)) {
+            New-Dir -Path $targetDir
         }
+
+        Copy-Item -LiteralPath $sourcePath -Destination $targetPath -Force
+        $copied += $relativePath
     }
 
-    if ($rejected.Count -gt 0) {
-        $sample = ($rejected | Select-Object -ExpandProperty RelativePath | Select-Object -First 20) -join ', '
-        throw "FAIL_POLICY: forbidden path(s) detected: $sample"
-    }
+    return @($copied)
+}
 
-    if ($allowed.Count -eq 0) {
-        throw 'FAIL_POLICY: no deployable files found. Batch must contain README and/or src/**'
-    }
+function Get-GitStatusLines {
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot
+    )
 
-    return @($allowed)
+    Push-Location $RepoRoot
+    try {
+        $output = & git status --porcelain
+        if ($LASTEXITCODE -ne 0) {
+            throw 'git status failed.'
+        }
+
+        if ($null -eq $output) {
+            return @()
+        }
+
+        return @($output)
+    }
+    finally {
+        Pop-Location
+    }
 }
 
 $scriptRoot = Resolve-ScriptRoot
 $repoRoot   = Split-Path -Parent (Split-Path -Parent $scriptRoot)
+$config     = Get-AgentConfig -ScriptRoot $scriptRoot
 
 if ([string]::IsNullOrWhiteSpace($LogsDir)) {
     $LogsDir = Join-Path $repoRoot 'logs'
@@ -215,40 +576,22 @@ function Write-Log {
 
 function Write-RunReport {
     param(
-        [Parameter(Mandatory)][string]$Status,
-        [AllowEmptyString()][string]$FailReason = '',
-        [string]$ZipName = '',
-        [string]$ZipSourcePath = '',
-        [int]$ExpandedFileCount = 0,
-        [string]$ExpandedRoot = '',
-        [string]$LogFilePath = '',
-        [string[]]$AcceptedPaths = @(),
-        [string[]]$RejectedPaths = @()
+        [Parameter(Mandatory)][hashtable]$Result
     )
 
-    $payload = [ordered]@{
-        status              = $Status
-        fail_reason         = $FailReason
-        zip_name            = $ZipName
-        zip_source_path     = $ZipSourcePath
-        expanded_file_count = $ExpandedFileCount
-        expanded_root       = $ExpandedRoot
-        accepted_paths      = @($AcceptedPaths)
-        rejected_paths      = @($RejectedPaths)
-        log_file            = $LogFilePath
-        report_file         = $jsonReportFile
-        run_id              = $runId
-        timestamp           = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff')
-    }
+    $Result['log_file'] = $logFile
+    $Result['report_file'] = $jsonReportFile
+    $Result['run_id'] = $runId
+    $Result['timestamp'] = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff')
 
-    $json = $payload | ConvertTo-Json -Depth 10
+    $json = $Result | ConvertTo-Json -Depth 12
     Set-Content -LiteralPath $jsonReportFile -Value $json -Encoding UTF8
 }
 
-$zipName = ''
-$expandedFileCount = 0
-$acceptedPaths = @()
-$rejectedPaths = @()
+$result = New-RunResult
+$result['log_file'] = $logFile
+$result['report_file'] = $jsonReportFile
+$result['run_id'] = $runId
 
 try {
     Write-Log -Message 'START'
@@ -258,98 +601,182 @@ try {
     Write-Log -Message ("Run id: {0}" -f $runId)
 
     if ([string]::IsNullOrWhiteSpace($ZipPath)) {
-        Write-RunReport `
-            -Status 'PASS_NO_JOB' `
-            -FailReason '' `
-            -ZipName '' `
-            -ZipSourcePath '' `
-            -ExpandedFileCount 0 `
-            -ExpandedRoot '' `
-            -LogFilePath $logFile `
-            -AcceptedPaths @() `
-            -RejectedPaths @()
+        New-ResultTerminal -Result $result `
+            -Status 'PASS' `
+            -OutcomeClass 'PASS' `
+            -ReasonCode 'NO_JOB' `
+            -ExecutionMode 'NO_WORK' `
+            -Message 'No ZIP path supplied.'
+        Write-RunReport -Result $result
         exit 0
     }
 
     if (-not (Test-Path -LiteralPath $ZipPath)) {
-        throw "FAIL_RUNTIME: ZIP not found: $ZipPath"
-    }
-
-    $zipName = [System.IO.Path]::GetFileName($ZipPath)
-
-    Write-Log -Message ("Selected ZIP: {0}" -f $ZipPath)
-
-    if ($WhatIfOnly) {
-        Write-Log -Message 'WhatIfOnly set. No validation will be performed.' -Level WARN
-        Write-RunReport `
-            -Status 'WHATIF' `
-            -FailReason '' `
-            -ZipName $zipName `
-            -ZipSourcePath $ZipPath `
-            -ExpandedFileCount 0 `
-            -ExpandedRoot '' `
-            -LogFilePath $logFile `
-            -AcceptedPaths @() `
-            -RejectedPaths @()
+        New-ResultTerminal -Result $result `
+            -Status 'FAIL_RUNTIME' `
+            -OutcomeClass 'FAIL_RUNTIME' `
+            -ReasonCode 'ZIP_NOT_FOUND' `
+            -ExecutionMode 'FAIL_RUNTIME' `
+            -Message ("ZIP not found: {0}" -f $ZipPath)
+        Write-RunReport -Result $result
         exit 0
     }
 
-    if (Test-Path -LiteralPath $expandRoot) {
-        Remove-Item -LiteralPath $expandRoot -Recurse -Force
+    $zipName = [System.IO.Path]::GetFileName($ZipPath)
+    $result['zip_name'] = $zipName
+    $result['zip_source_path'] = $ZipPath
+    $result['batch_hash'] = Get-FileSha256Hex -Path $ZipPath
+
+    Write-Log -Message ("Selected ZIP: {0}" -f $ZipPath)
+    Write-Log -Message ("Batch hash: {0}" -f $result['batch_hash'])
+
+    if ($WhatIfOnly) {
+        New-ResultTerminal -Result $result `
+            -Status 'PASS' `
+            -OutcomeClass 'PASS' `
+            -ReasonCode 'WHATIF' `
+            -ExecutionMode 'NO_WORK' `
+            -Message 'WhatIfOnly set. No validation or apply performed.'
+        Write-RunReport -Result $result
+        exit 0
     }
-    New-Dir -Path $expandRoot
 
-    Expand-Archive -LiteralPath $ZipPath -DestinationPath $expandRoot -Force
-    Write-Log -Message ("ZIP expanded to: {0}" -f $expandRoot)
-
-    $inventory = @(Get-BatchInventory -SourceRoot $expandRoot)
-    $expandedFileCount = $inventory.Count
-    Write-Log -Message ("Expanded file count: {0}" -f $expandedFileCount)
-
-    $validated = @(Validate-BatchPolicy -Inventory $inventory)
-    $acceptedPaths = @($validated | Select-Object -ExpandProperty RelativePath)
-    $rejectedPaths = @()
-
-    if ($acceptedPaths.Count -gt 0) {
-        Write-Log -Message ("Accepted paths: {0}" -f ($acceptedPaths -join ', '))
+    $entries = @(Get-ZipEntries -ZipFilePath $ZipPath)
+    if ($entries.Count -eq 0) {
+        New-ResultTerminal -Result $result `
+            -Status 'FAIL_POLICY' `
+            -OutcomeClass 'FAIL_POLICY' `
+            -ReasonCode 'ARCHIVE_EMPTY' `
+            -ExecutionMode 'REJECT_POLICY' `
+            -Message 'Batch archive is empty.'
+        Write-RunReport -Result $result
+        exit 0
     }
 
-    Write-RunReport `
+    $entries = @(Get-WrapperNormalizedEntries -Entries $entries)
+    $result['expanded_file_count'] = $entries.Count
+    Write-Log -Message ("Archive entries after normalization: {0}" -f $entries.Count)
+
+    $pathClass = Get-PathClassification -Entries $entries -Config $config
+    $result['accepted_paths'] = @($pathClass['AcceptedPaths'])
+    $result['rejected_paths'] = @($pathClass['RejectedPaths'])
+    $result['forbidden_paths'] = @($pathClass['RejectedPaths'])
+    $result['allowed_paths_only'] = [bool]$pathClass['AllowedPathsOnly']
+
+    if (-not $result['allowed_paths_only']) {
+        $sample = @($result['rejected_paths'] | Select-Object -First 20)
+        New-ResultTerminal -Result $result `
+            -Status 'FAIL_POLICY' `
+            -OutcomeClass 'FAIL_POLICY' `
+            -ReasonCode 'FORBIDDEN_PATH' `
+            -ExecutionMode 'REJECT_POLICY' `
+            -Message ("Forbidden path(s) detected: {0}" -f ($sample -join ', '))
+        Write-RunReport -Result $result
+        exit 0
+    }
+
+    $profileClass = Get-ProfileClassification -Entries $entries -AcceptedPaths @($result['accepted_paths']) -Config $config
+    $result['profile'] = [string]$profileClass['Profile']
+    $result['profile_reason'] = [string]$profileClass['Reason']
+
+    if ($result['profile'] -ne 'SAFE_MICRO_FIX_V1') {
+        New-ResultTerminal -Result $result `
+            -Status 'FAIL_POLICY' `
+            -OutcomeClass 'FAIL_POLICY' `
+            -ReasonCode 'UNSUPPORTED_PROFILE' `
+            -ExecutionMode 'REJECT_POLICY' `
+            -Message ("Batch profile unsupported for v1: {0}" -f $result['profile_reason'])
+        Write-RunReport -Result $result
+        exit 0
+    }
+
+    Write-Log -Message ("Profile matched: {0}" -f $result['profile'])
+    Write-Log -Message ("Accepted paths: {0}" -f (($result['accepted_paths']) -join ', '))
+
+    Expand-ZipToStaging -ZipFilePath $ZipPath -DestinationPath $expandRoot
+    $expandedInventory = @(Get-InventoryFromExpandedRoot -SourceRoot $expandRoot)
+    $expandedInventory = @(Get-WrapperNormalizedEntries -Entries $expandedInventory)
+
+    $expandedMap = @{}
+    foreach ($entry in $expandedInventory) {
+        $expandedMap[[string]$entry.RelativePath.ToLowerInvariant()] = $entry
+    }
+
+    foreach ($acceptedPath in @($result['accepted_paths'])) {
+        $key = [string]$acceptedPath.ToLowerInvariant()
+        if (-not $expandedMap.ContainsKey($key)) {
+            New-ResultTerminal -Result $result `
+                -Status 'FAIL_RUNTIME' `
+                -OutcomeClass 'FAIL_RUNTIME' `
+                -ReasonCode 'EXPANDED_PATH_MISMATCH' `
+                -ExecutionMode 'FAIL_RUNTIME' `
+                -Message ("Expanded archive path mismatch for accepted path: {0}" -f $acceptedPath)
+            Write-RunReport -Result $result
+            exit 0
+        }
+    }
+
+    $result['expanded_root'] = $expandRoot
+    $copied = Copy-AllowedFilesToRepo -StagingRoot $expandRoot -AcceptedPaths @($result['accepted_paths']) -RepoRoot $repoRoot
+    $result['staged_targets'] = @($copied)
+
+    $gitStatusLines = @(Get-GitStatusLines -RepoRoot $repoRoot)
+    $result['apply_changed'] = ($gitStatusLines.Count -gt 0)
+
+    if (-not $result['apply_changed']) {
+        New-ResultTerminal -Result $result `
+            -Status 'FAIL_POLICY' `
+            -OutcomeClass 'FAIL_POLICY' `
+            -ReasonCode 'NO_EFFECT' `
+            -ExecutionMode 'REJECT_POLICY' `
+            -Message 'Batch applied cleanly but produced no repository diff.'
+        Write-RunReport -Result $result
+        exit 0
+    }
+
+    New-ResultTerminal -Result $result `
         -Status 'PASS' `
-        -FailReason '' `
-        -ZipName $zipName `
-        -ZipSourcePath $ZipPath `
-        -ExpandedFileCount $expandedFileCount `
-        -ExpandedRoot $expandRoot `
-        -LogFilePath $logFile `
-        -AcceptedPaths $acceptedPaths `
-        -RejectedPaths $rejectedPaths
-
+        -OutcomeClass 'PASS' `
+        -ReasonCode 'SAFE_MICRO_FIX_APPLIED' `
+        -ExecutionMode 'AUTO_APPLY' `
+        -Message 'Safe micro-fix batch applied to repository working tree.'
+    Write-RunReport -Result $result
     Write-Log -Message 'DONE'
     exit 0
 }
 catch {
-    $errText = $_.Exception.Message
+    $errMessage = $_.Exception.Message
+    Write-Log -Message $errMessage -Level ERROR
 
-    if ($errText -match 'FAIL_POLICY:') {
-        $status = 'FAIL_POLICY'
+    $reasonCode = 'UNHANDLED_EXCEPTION'
+    if ($errMessage -like 'FAIL_POLICY:*') {
+        $reasonCode = 'ARCHIVE_SHAPE'
+        New-ResultTerminal -Result $result `
+            -Status 'FAIL_POLICY' `
+            -OutcomeClass 'FAIL_POLICY' `
+            -ReasonCode $reasonCode `
+            -ExecutionMode 'REJECT_POLICY' `
+            -Message $errMessage
     }
     else {
-        $status = 'FAIL_RUNTIME'
+        if ($errMessage -like '*git status failed*') {
+            $reasonCode = 'GIT_STATUS_FAILED'
+        }
+        elseif ($errMessage -like '*Expand-Archive*' -or $errMessage -like '*archive*') {
+            $reasonCode = 'UNPACK_FAILED'
+        }
+        elseif ($errMessage -like '*Copy-Item*' -or $errMessage -like '*accepted file missing*') {
+            $reasonCode = 'APPLY_FAILED'
+        }
+
+        New-ResultTerminal -Result $result `
+            -Status 'FAIL_RUNTIME' `
+            -OutcomeClass 'FAIL_RUNTIME' `
+            -ReasonCode $reasonCode `
+            -ExecutionMode 'FAIL_RUNTIME' `
+            -Message $errMessage
     }
 
-    Write-Log -Message $errText -Level ERROR
-
-    Write-RunReport `
-        -Status $status `
-        -FailReason $errText `
-        -ZipName $zipName `
-        -ZipSourcePath $ZipPath `
-        -ExpandedFileCount $expandedFileCount `
-        -ExpandedRoot $expandRoot `
-        -LogFilePath $logFile `
-        -AcceptedPaths $acceptedPaths `
-        -RejectedPaths $rejectedPaths
-
-    exit 1
+    Write-RunReport -Result $result
+    exit 0
 }
