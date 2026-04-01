@@ -1,5 +1,0 @@
-SITE_AUDITOR_AGENT v3.3 GROUPING + ACTIONS
-- group orphan pages into batched repair actions
-- group broken links by source route into single edit passes
-- add execution_order with priority/action/target
-- keep suppression layer from v3.2.2
