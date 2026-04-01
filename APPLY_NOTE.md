@@ -1,35 +1,21 @@
-# APPLY NOTE — e-factory-agent
+# APPLY NOTE — AGENT REPO CLEANUP PATCH
 
-CommitId: COMMIT-2026-03-16-SITE-AUDITOR-V2_1-CLEAN-BASELINE
-CoreRev: KERNEL.AGENTOPS + AGENT.FETCH.GITHUB_API_ZIP.TOKEN_FIRST v1.0
+Mode: DEVELOPMENT
+Intent: convert repo from mixed archive storage into a cleaner source-oriented agent repo.
 
-## What to update in repo
+What this patch does:
+- creates canonical source folders for the two active agents
+- materializes source-of-truth files under `agents/`
+- adds repo layout / cleanup guidance under `docs/`
+- prepares `releases/` as the only intended place for future ZIP packages
+- updates root README and repo manifest
 
-Replace / add these files in repo root:
-- `AGENT_VERSION.json`
-- `README.md`
-- `APPLY_NOTE.md`
-- `SITE_AUDITOR_AGENT_v2_1_CLEAN.zip`
+What this patch does not do automatically:
+- delete old ZIP files already sitting in repo root
+- verify runtime PASS for either agent
+- rewrite historical release archives
 
-## Agent line status
-
-Line: `SITE_AUDITOR_AGENT`
-Status: `BASELINE_WORKABLE`
-
-## Validated runtime path
-
-- config -> OK
-- token -> OK
-- module load -> OK
-- GitHub API ZIP fetch -> OK
-- inventory -> OK
-- semantic audit -> OK
-- broken links audit -> OK
-- screenshots -> OK (browser-noise tolerated)
-- packaging -> OK
-
-## Current limitations to keep explicit
-
-- scope filtering still noisy
-- screenshots are browser-dependent
-- line is workable baseline, not final deep-audit release
+After upload:
+- keep `agents/` as source of truth
+- stop adding new release ZIP files to repo root
+- use `DELETE_ROOT_FILES.txt` as the cleanup checklist for the next commit

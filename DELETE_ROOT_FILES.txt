@@ -1,0 +1,30 @@
+DELETE OR MOVE OUT OF REPO ROOT AFTER THIS PATCH
+
+Root release archives to remove from root:
+- GH_BATCH.zip
+- GH_BATCH_SMARTFIX_PATCH.zip
+- SITE_AUDITOR_AGENT_PACKAGE_FIXED.zip
+- SITE_AUDITOR_AGENT_v2_1_CLEAN.zip
+- SITE_AUDITOR_AGENT_v3.6_CLEAN.zip
+- SITE_AUDITOR_AGENT_v3_0_1_RUNTIME.zip
+- SITE_AUDITOR_AGENT_v3_0_2_FIX1_RUNTIME.zip
+- SITE_AUDITOR_AGENT_v3_0_3_RUNTIME.zip
+- SITE_AUDITOR_AGENT_v3_0_4_RUNTIME.zip
+- SITE_AUDITOR_AGENT_v3_0_RUNTIME.zip
+- SITE_AUDITOR_AGENT_v3_4_1_ZIP_PATH_PRESERVATION_FIX.zip
+- SITE_AUDITOR_AGENT_v3_6_OPERATOR_MODE_REAL.zip
+
+Legacy / misleading root items to remove after canonical source folders are in place:
+- RUN_BATCH.ps1                (root copy; source now lives in agents/gh_batch/)
+- mini-agent/RUN_BATCH.ps1     (placeholder; misleading duplicate)
+
+Optional cleanup targets if they remain only placeholder shells:
+- agent/
+- config/
+- docs/        (replace with new docs from this patch)
+- inbox/
+- logs/
+- runtime/
+- scripts/
+- templates/
+- tests/

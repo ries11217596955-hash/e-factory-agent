@@ -1,7 +1,18 @@
 Thumbs.db
 .DS_Store
-*.log
 *.tmp
-runtime/*.tmp
-runtime/*.cache
-logs/*.tmp
+*.cache
+*.log
+
+# runtime / logs
+logs/**
+runtime/**
+**/logs/**
+**/outbox/**
+**/inbox/**
+**/.state/github_token.txt
+
+# local temp
+$tmp/
+*.bak
+*.ps1.bak

@@ -1,25 +1,15 @@
 {
-  "agent": "SITE_AUDITOR_AGENT",
-  "version": "2.1.0",
-  "status": "baseline_workable",
-  "delivery": "AGENT_PACKAGE_STANDARD",
-  "root_resolver": "PSScriptRoot",
-  "output_contract": "outbox_relative_to_agent_root",
-  "target_repo": "automation-kb",
-  "fetch_mode": "github_api_zip_token_first",
-  "capabilities": [
-    "github_api_zip_fetch",
-    "inventory_build",
-    "semantic_audit",
-    "broken_links_audit",
-    "orphan_pages_detection",
-    "live_screenshots_optional",
-    "zip_report_pack"
+  "repo": "e-factory-agent",
+  "status": "cleanup_in_progress",
+  "current_focus": "canonicalize active agents and remove root archive clutter",
+  "active_agents": [
+    "GH_BATCH",
+    "SITE_AUDITOR_AGENT"
   ],
-  "limitations": [
-    "scope_filter_not_cleaned",
-    "screenshot_stderr_noise_possible",
-    "not_yet_eleventy_collection_aware",
-    "not_yet_render_graph_complete"
-  ]
+  "source_layout": {
+    "gh_batch": "agents/gh_batch/",
+    "site_auditor_agent": "agents/site_auditor_agent/"
+  },
+  "releases_root": "releases/",
+  "runtime_truth_note": "Runtime PASS/FAIL must come from evidence or validator outputs, not from packaging presence."
 }
