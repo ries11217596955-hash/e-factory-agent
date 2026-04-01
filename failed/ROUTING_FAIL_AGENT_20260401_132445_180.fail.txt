@@ -1,0 +1,8 @@
+ZIP_NAME=ROUTING_FAIL_AGENT_20260401_132445_180.zip
+FAILED_AT=2026-04-01 13:24:45.186
+SOURCE=D:\a\e-factory-agent\e-factory-agent\inbox\processing\ROUTING_FAIL_AGENT.zip
+FAILED_PATH=D:\a\e-factory-agent\e-factory-agent\failed\ROUTING_FAIL_AGENT_20260401_132445_180.zip
+STATUS=FAIL_POLICY
+REASON_START
+FAIL_POLICY: forbidden path(s) detected: agents/gh_batch/evil.ps1
+REASON_END
