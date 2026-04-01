@@ -13,23 +13,18 @@ jobs:
   run-gh-batch:
     runs-on: windows-latest
 
-   steps:
-  - name: Checkout repo
-    uses: actions/checkout@v4
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-  - name: Guard self-trigger
-    shell: pwsh
-    run: |
-      if ($env:GITHUB_ACTOR -eq "github-actions[bot]") {
-        Write-Host "Skip self-trigger"
-        exit 0
-      }
+      - name: Guard self-trigger
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_ACTOR -eq "github-actions[bot]") {
+            Write-Host "Skip self-trigger"
+            exit 0
+          }
 
-  - name: Setup Git identity
-    shell: pwsh
-    run: |
-      git config user.name "gh-batch-bot"
-      git config user.email "gh-batch@bot.local"
       - name: Setup Git identity
         shell: pwsh
         run: |
@@ -50,7 +45,7 @@ jobs:
         run: |
           Write-Host "Running GH_BATCH..."
 
-          $script = Join-Path $env:GITHUB_WORKSPACE "scripts\RUN_BATCH.ps1"
+          $script = Join-Path $env:GITHUB_WORKSPACE "agents\gh_batch\RUN_BATCH.ps1"
 
           if (!(Test-Path $script)) {
             Write-Error "RUN_BATCH.ps1 not found"
@@ -65,4 +60,3 @@ jobs:
           git add .
           git commit -m "GH_BATCH_RUN auto" || echo "no changes"
           git push
-
