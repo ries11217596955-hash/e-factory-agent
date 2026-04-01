@@ -1,7 +1,7 @@
 {
-  "iteration": 5,
-  "zip_name": "BATCH_E_EMPTY_STRUCT.zip",
-  "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\BATCH_E_EMPTY_STRUCT.zip",
-  "finished_at": "2026-04-01 12:33:14",
+  "iteration": 3,
+  "zip_name": "PASS_POLICY__SRC_ONLY.zip",
+  "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\PASS_POLICY__SRC_ONLY.zip",
+  "finished_at": "2026-04-01 12:44:27",
   "status": "DONE"
 }
