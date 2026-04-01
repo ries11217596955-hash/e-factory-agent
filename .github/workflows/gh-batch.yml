@@ -1,6 +1,11 @@
 name: GH_BATCH Real
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'inbox/*.zip'
   workflow_dispatch:
     inputs:
       run_label:
@@ -10,6 +15,10 @@ on:
 
 permissions:
   contents: write
+
+concurrency:
+  group: gh-batch-main
+  cancel-in-progress: false
 
 jobs:
   run-gh-batch:
@@ -26,6 +35,19 @@ jobs:
         run: |
           git config user.name "gh-batch-bot"
           git config user.email "gh-batch@bot.local"
+
+      - name: Resolve run label
+        id: meta
+        shell: pwsh
+        run: |
+          $manualLabel = "${{ github.event.inputs.run_label }}"
+          if ([string]::IsNullOrWhiteSpace($manualLabel)) {
+            $label = "auto-$($env:GITHUB_RUN_NUMBER)"
+          } else {
+            $label = $manualLabel
+          }
+          "RUN_LABEL=$label" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Run label: $label"
 
       - name: Preflight secret
         shell: pwsh
@@ -84,7 +106,7 @@ jobs:
       - name: Commit queue state back to repo-agent
         shell: pwsh
         run: |
-          $label = "${{ github.event.inputs.run_label }}"
+          $label = "${{ steps.meta.outputs.RUN_LABEL }}"
 
           git add inbox done logs agents/gh_batch/.state
 
@@ -100,7 +122,7 @@ jobs:
       - name: Upload run artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: gh-batch-${{ github.event.inputs.run_label }}
+          name: gh-batch-${{ steps.meta.outputs.RUN_LABEL }}
           path: |
             done/**
             logs/**
