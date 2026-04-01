@@ -26,6 +26,30 @@ jobs:
             exit 0
           }
 
+      - name: Init forensic context
+        id: forensic
+        shell: pwsh
+        run: |
+          $stamp = Get-Date -Format 'yyyyMMdd_HHmmss_fff'
+          $runId = [guid]::NewGuid().ToString('N')
+          $root = $env:RUNNER_TEMP
+          $forensicDir = Join-Path $root ("GH_BATCH_FORENSICS_{0}_{1}" -f $stamp, $runId)
+          $packPath = Join-Path $root ("GH_BATCH_RUNPACK_{0}_{1}.zip" -f $stamp, $runId)
+
+          New-Item -ItemType Directory -Force -Path $forensicDir | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $forensicDir 'reports') | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $forensicDir 'errors') | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $forensicDir 'snapshots') | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $forensicDir 'git') | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $forensicDir 'meta') | Out-Null
+
+          @"
+          RUN_STAMP=$stamp
+          RUN_ID=$runId
+          FORENSIC_DIR=$forensicDir
+          PACK_PATH=$packPath
+          "@ | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
       - name: Setup dirs
         shell: pwsh
         run: |
@@ -37,20 +61,99 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$root/logs" | Out-Null
           New-Item -ItemType Directory -Force -Path "$root/agents/gh_batch/.state" | Out-Null
 
+      - name: Snapshot before run
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = $env:GITHUB_WORKSPACE
+          $forensicDir = "${{ steps.forensic.outputs.FORENSIC_DIR }}"
+          $snapDir = Join-Path $forensicDir 'snapshots'
+
+          function Get-DirInventory {
+            param(
+              [Parameter(Mandatory)][string]$BasePath
+            )
+
+            if (-not (Test-Path -LiteralPath $BasePath)) {
+              return @()
+            }
+
+            $baseFull = [System.IO.Path]::GetFullPath($BasePath)
+            if (-not $baseFull.EndsWith([System.IO.Path]::DirectorySeparatorChar)) {
+              $baseFull += [System.IO.Path]::DirectorySeparatorChar
+            }
+
+            $rows = @()
+            $items = @(Get-ChildItem -LiteralPath $BasePath -Recurse -Force -File | Sort-Object FullName)
+            foreach ($item in $items) {
+              $full = [System.IO.Path]::GetFullPath($item.FullName)
+              $rel = $full.Substring($baseFull.Length) -replace '\\','/'
+              $rows += [ordered]@{
+                path = $rel
+                size = [int64]$item.Length
+                last_write = $item.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss.fff')
+              }
+            }
+            return $rows
+          }
+
+          $before = [ordered]@{
+            captured_at = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff')
+            inbox_new   = @(Get-DirInventory -BasePath (Join-Path $root 'inbox/new'))
+            done        = @(Get-DirInventory -BasePath (Join-Path $root 'done'))
+            failed      = @(Get-DirInventory -BasePath (Join-Path $root 'failed'))
+          }
+
+          $json = $before | ConvertTo-Json -Depth 12
+          Set-Content -LiteralPath (Join-Path $snapDir 'QUEUE_BEFORE.json') -Value $json -Encoding UTF8
+
+          $md = @(
+            "# Queue Before"
+            ""
+            "CapturedAt: $($before.captured_at)"
+            "InboxNewCount: $($before.inbox_new.Count)"
+            "DoneCount: $($before.done.Count)"
+            "FailedCount: $($before.failed.Count)"
+            ""
+            "## inbox/new"
+          )
+
+          foreach ($row in $before.inbox_new) {
+            $md += "- $($row.path) [$($row.size) bytes]"
+          }
+
+          $md += ""
+          $md += "## done"
+          foreach ($row in ($before.done | Select-Object -First 50)) {
+            $md += "- $($row.path) [$($row.size) bytes]"
+          }
+
+          $md += ""
+          $md += "## failed"
+          foreach ($row in ($before.failed | Select-Object -First 50)) {
+            $md += "- $($row.path) [$($row.size) bytes]"
+          }
+
+          Set-Content -LiteralPath (Join-Path $snapDir 'QUEUE_BEFORE.md') -Value ($md -join "`r`n") -Encoding UTF8
+
       - name: Drain queue
         id: drain
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
 
-          $root      = $env:GITHUB_WORKSPACE
-          $newDir    = "$root/inbox/new"
-          $procDir   = "$root/inbox/processing"
-          $doneDir   = "$root/done"
-          $failedDir = "$root/failed"
-          $logsDir   = "$root/logs"
-          $stateDir  = "$root/agents/gh_batch/.state"
-          $script    = "$root/agents/gh_batch/RUN_BATCH.ps1"
+          $root        = $env:GITHUB_WORKSPACE
+          $newDir      = "$root/inbox/new"
+          $procDir     = "$root/inbox/processing"
+          $doneDir     = "$root/done"
+          $failedDir   = "$root/failed"
+          $logsDir     = "$root/logs"
+          $stateDir    = "$root/agents/gh_batch/.state"
+          $script      = "$root/agents/gh_batch/RUN_BATCH.ps1"
+          $forensicDir = "${{ steps.forensic.outputs.FORENSIC_DIR }}"
+          $reportsDir  = Join-Path $forensicDir 'reports'
+          $errorsDir   = Join-Path $forensicDir 'errors'
+          $metaDir     = Join-Path $forensicDir 'meta'
 
           $iteration = 0
           $maxIterations = 100
@@ -59,6 +162,8 @@ jobs:
           $failPolicyCount = 0
           $failRuntimeCount = 0
           $unexpectedCount = 0
+
+          $batchResults = New-Object System.Collections.Generic.List[object]
 
           function Move-WithUniqueName {
             param(
@@ -126,13 +231,15 @@ jobs:
             $failReason = ''
             $reasonCode = ''
             $message = ''
+            $newReport = $null
+            $finalPath = ''
+            $failNotePath = ''
 
             try {
               & $script `
                 -ZipPath $claimedPath `
                 -LogsDir $logsDir
 
-              $newReport = $null
               $afterReports = @(Get-ChildItem -LiteralPath $logsDir -File -Filter 'RUN_REPORT_*.json' | Sort-Object LastWriteTime)
               foreach ($report in $afterReports) {
                 if ($beforeReports -notcontains $report.FullName) {
@@ -150,19 +257,21 @@ jobs:
               $reasonCode = [string]$reportObj.reason_code
               $message = [string]$reportObj.message
 
+              Copy-Item -LiteralPath $newReport -Destination (Join-Path $reportsDir ([System.IO.Path]::GetFileName($newReport))) -Force
+
               if ($status -eq 'PASS') {
-                $donePath = Move-WithUniqueName -SourcePath $claimedPath -TargetDir $doneDir
-                Write-Host "Moved to done: $donePath"
+                $finalPath = Move-WithUniqueName -SourcePath $claimedPath -TargetDir $doneDir
+                Write-Host "Moved to done: $finalPath"
                 $passCount++
               }
               elseif ($status -eq 'FAIL_POLICY') {
-                $failedPath = Move-WithUniqueName -SourcePath $claimedPath -TargetDir $failedDir
-                $failNotePath = Join-Path $failedDir ("{0}.fail.txt" -f [System.IO.Path]::GetFileNameWithoutExtension([System.IO.Path]::GetFileName($failedPath)))
+                $finalPath = Move-WithUniqueName -SourcePath $claimedPath -TargetDir $failedDir
+                $failNotePath = Join-Path $failedDir ("{0}.fail.txt" -f [System.IO.Path]::GetFileNameWithoutExtension([System.IO.Path]::GetFileName($finalPath)))
                 $failBody = @(
-                  "ZIP_NAME=$([System.IO.Path]::GetFileName($failedPath))"
+                  "ZIP_NAME=$([System.IO.Path]::GetFileName($finalPath))"
                   "FAILED_AT=$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff')"
                   "SOURCE=$claimedPath"
-                  "FAILED_PATH=$failedPath"
+                  "FAILED_PATH=$finalPath"
                   "STATUS=$status"
                   "REASON_CODE=$reasonCode"
                   "MESSAGE=$message"
@@ -171,17 +280,18 @@ jobs:
                   "REASON_END"
                 ) -join "`r`n"
                 Set-Content -LiteralPath $failNotePath -Value $failBody -Encoding UTF8
-                Write-Host "Moved to failed: $failedPath"
+                Copy-Item -LiteralPath $failNotePath -Destination (Join-Path $errorsDir ([System.IO.Path]::GetFileName($failNotePath))) -Force
+                Write-Host "Moved to failed: $finalPath"
                 $failPolicyCount++
               }
               elseif ($status -eq 'FAIL_RUNTIME') {
-                $failedPath = Move-WithUniqueName -SourcePath $claimedPath -TargetDir $failedDir
-                $failNotePath = Join-Path $failedDir ("{0}.fail.txt" -f [System.IO.Path]::GetFileNameWithoutExtension([System.IO.Path]::GetFileName($failedPath)))
+                $finalPath = Move-WithUniqueName -SourcePath $claimedPath -TargetDir $failedDir
+                $failNotePath = Join-Path $failedDir ("{0}.fail.txt" -f [System.IO.Path]::GetFileNameWithoutExtension([System.IO.Path]::GetFileName($finalPath)))
                 $failBody = @(
-                  "ZIP_NAME=$([System.IO.Path]::GetFileName($failedPath))"
+                  "ZIP_NAME=$([System.IO.Path]::GetFileName($finalPath))"
                   "FAILED_AT=$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff')"
                   "SOURCE=$claimedPath"
-                  "FAILED_PATH=$failedPath"
+                  "FAILED_PATH=$finalPath"
                   "STATUS=$status"
                   "REASON_CODE=$reasonCode"
                   "MESSAGE=$message"
@@ -190,17 +300,18 @@ jobs:
                   "REASON_END"
                 ) -join "`r`n"
                 Set-Content -LiteralPath $failNotePath -Value $failBody -Encoding UTF8
-                Write-Host "Moved to failed: $failedPath"
+                Copy-Item -LiteralPath $failNotePath -Destination (Join-Path $errorsDir ([System.IO.Path]::GetFileName($failNotePath))) -Force
+                Write-Host "Moved to failed: $finalPath"
                 $failRuntimeCount++
               }
               else {
-                $failedPath = Move-WithUniqueName -SourcePath $claimedPath -TargetDir $failedDir
-                $failNotePath = Join-Path $failedDir ("{0}.fail.txt" -f [System.IO.Path]::GetFileNameWithoutExtension([System.IO.Path]::GetFileName($failedPath)))
+                $finalPath = Move-WithUniqueName -SourcePath $claimedPath -TargetDir $failedDir
+                $failNotePath = Join-Path $failedDir ("{0}.fail.txt" -f [System.IO.Path]::GetFileNameWithoutExtension([System.IO.Path]::GetFileName($finalPath)))
                 $failBody = @(
-                  "ZIP_NAME=$([System.IO.Path]::GetFileName($failedPath))"
+                  "ZIP_NAME=$([System.IO.Path]::GetFileName($finalPath))"
                   "FAILED_AT=$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff')"
                   "SOURCE=$claimedPath"
-                  "FAILED_PATH=$failedPath"
+                  "FAILED_PATH=$finalPath"
                   "STATUS=FAIL_RUNTIME"
                   "REASON_CODE=UNEXPECTED_REPORT_STATUS"
                   "MESSAGE=Unexpected report status returned by RUN_BATCH.ps1"
@@ -209,9 +320,22 @@ jobs:
                   "REASON_END"
                 ) -join "`r`n"
                 Set-Content -LiteralPath $failNotePath -Value $failBody -Encoding UTF8
-                Write-Host "Moved to failed: $failedPath"
+                Copy-Item -LiteralPath $failNotePath -Destination (Join-Path $errorsDir ([System.IO.Path]::GetFileName($failNotePath))) -Force
+                Write-Host "Moved to failed: $finalPath"
                 $unexpectedCount++
               }
+
+              $batchResults.Add([ordered]@{
+                iteration     = $iteration
+                zip_name       = [System.IO.Path]::GetFileName($claimedPath)
+                claimed_path   = $claimedPath
+                final_path     = $finalPath
+                status         = $status
+                reason_code    = $reasonCode
+                message        = $message
+                report_file    = $(if ($newReport) { [System.IO.Path]::GetFileName($newReport) } else { '' })
+                fail_note_file = $(if ($failNotePath) { [System.IO.Path]::GetFileName($failNotePath) } else { '' })
+              }) | Out-Null
 
               $jobDone = [ordered]@{
                 iteration    = $iteration
@@ -229,13 +353,13 @@ jobs:
               Write-Warning $errText
 
               if (Test-Path -LiteralPath $claimedPath) {
-                $failedPath = Move-WithUniqueName -SourcePath $claimedPath -TargetDir $failedDir
-                $failNotePath = Join-Path $failedDir ("{0}.fail.txt" -f [System.IO.Path]::GetFileNameWithoutExtension([System.IO.Path]::GetFileName($failedPath)))
+                $finalPath = Move-WithUniqueName -SourcePath $claimedPath -TargetDir $failedDir
+                $failNotePath = Join-Path $failedDir ("{0}.fail.txt" -f [System.IO.Path]::GetFileNameWithoutExtension([System.IO.Path]::GetFileName($finalPath)))
                 $failBody = @(
-                  "ZIP_NAME=$([System.IO.Path]::GetFileName($failedPath))"
+                  "ZIP_NAME=$([System.IO.Path]::GetFileName($finalPath))"
                   "FAILED_AT=$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff')"
                   "SOURCE=$claimedPath"
-                  "FAILED_PATH=$failedPath"
+                  "FAILED_PATH=$finalPath"
                   "STATUS=FAIL_RUNTIME"
                   "REASON_CODE=WORKFLOW_SCRIPT_INVOCATION_ERROR"
                   "MESSAGE=Workflow failed while invoking RUN_BATCH.ps1"
@@ -244,8 +368,21 @@ jobs:
                   "REASON_END"
                 ) -join "`r`n"
                 Set-Content -LiteralPath $failNotePath -Value $failBody -Encoding UTF8
-                Write-Host "Moved to failed: $failedPath"
+                Copy-Item -LiteralPath $failNotePath -Destination (Join-Path $errorsDir ([System.IO.Path]::GetFileName($failNotePath))) -Force
+                Write-Host "Moved to failed: $finalPath"
               }
+
+              $batchResults.Add([ordered]@{
+                iteration     = $iteration
+                zip_name       = [System.IO.Path]::GetFileName($claimedPath)
+                claimed_path   = $claimedPath
+                final_path     = $finalPath
+                status         = 'FAIL_RUNTIME'
+                reason_code    = 'WORKFLOW_SCRIPT_INVOCATION_ERROR'
+                message        = 'Workflow failed while invoking RUN_BATCH.ps1'
+                report_file    = ''
+                fail_note_file = $(if ($failNotePath) { [System.IO.Path]::GetFileName($failNotePath) } else { '' })
+              }) | Out-Null
 
               $jobFailed = [ordered]@{
                 iteration    = $iteration
@@ -261,16 +398,18 @@ jobs:
             }
           }
 
-          $summary = [ordered]@{
+          $summaryObj = [ordered]@{
             iterations         = $iteration
             pass_count         = $passCount
             fail_policy_count  = $failPolicyCount
             fail_runtime_count = $failRuntimeCount
             unexpected_count   = $unexpectedCount
             finished_at        = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff')
-          } | ConvertTo-Json -Depth 10
+          }
 
-          Set-Content -LiteralPath "$stateDir/queue_summary.json" -Value $summary -Encoding UTF8
+          Set-Content -LiteralPath "$stateDir/queue_summary.json" -Value ($summaryObj | ConvertTo-Json -Depth 10) -Encoding UTF8
+          Set-Content -LiteralPath (Join-Path $metaDir 'BATCH_RESULTS.json') -Value ($batchResults | ConvertTo-Json -Depth 12) -Encoding UTF8
+          Set-Content -LiteralPath (Join-Path $metaDir 'QUEUE_SUMMARY.json') -Value ($summaryObj | ConvertTo-Json -Depth 10) -Encoding UTF8
 
           "ITERATIONS=$iteration" >> $env:GITHUB_OUTPUT
           "PASS_COUNT=$passCount" >> $env:GITHUB_OUTPUT
@@ -282,6 +421,9 @@ jobs:
         if: always()
         shell: pwsh
         run: |
+          $forensicDir = "${{ steps.forensic.outputs.FORENSIC_DIR }}"
+          $metaDir = Join-Path $forensicDir 'meta'
+
           $iterations = "${{ steps.drain.outputs.ITERATIONS }}"
           $passCount = "${{ steps.drain.outputs.PASS_COUNT }}"
           $failPolicyCount = "${{ steps.drain.outputs.FAIL_POLICY_COUNT }}"
@@ -294,7 +436,7 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($failRuntimeCount)) { $failRuntimeCount = '0' }
           if ([string]::IsNullOrWhiteSpace($unexpectedCount)) { $unexpectedCount = '0' }
 
-          @"
+          $summaryText = @"
           # GH_BATCH Summary
 
           - Iterations: $iterations
@@ -302,16 +444,25 @@ jobs:
           - FAIL_POLICY: $failPolicyCount
           - FAIL_RUNTIME: $failRuntimeCount
           - UNEXPECTED_STATUS: $unexpectedCount
-          "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "@
+
+          $summaryText | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          Set-Content -LiteralPath (Join-Path $metaDir 'QUEUE_SUMMARY.md') -Value $summaryText -Encoding UTF8
 
       - name: Commit state and applied changes
         if: always()
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $forensicDir = "${{ steps.forensic.outputs.FORENSIC_DIR }}"
+          $gitDir = Join-Path $forensicDir 'git'
+          $metaDir = Join-Path $forensicDir 'meta'
 
           git config user.name "gh-batch-bot"
           git config user.email "gh-batch@bot.local"
+
+          $statusBefore = git status --porcelain=v1
+          Set-Content -LiteralPath (Join-Path $gitDir 'STATUS_BEFORE_STAGE.txt') -Value (($statusBefore | Out-String).Trim()) -Encoding UTF8
 
           $pathsToAdd = @(
             "inbox"
@@ -319,6 +470,7 @@ jobs:
             "failed"
             "logs"
             "agents/gh_batch/.state"
+            "src"
           )
 
           foreach ($p in $pathsToAdd) {
@@ -335,18 +487,49 @@ jobs:
             git add -A -- "README.md"
           }
 
-          if (Test-Path -LiteralPath "src") {
-            git add -A -- "src"
+          $statusAfterTargeted = git status --porcelain=v1
+          Set-Content -LiteralPath (Join-Path $gitDir 'STATUS_AFTER_TARGETED_STAGE.txt') -Value (($statusAfterTargeted | Out-String).Trim()) -Encoding UTF8
+
+          if (-not [string]::IsNullOrWhiteSpace(($statusAfterTargeted | Out-String))) {
+            Write-Host "Fallback stage-all engaged."
+            git add -A -- .
           }
 
-          $status = git status --porcelain
-          if (-not [string]::IsNullOrWhiteSpace(($status | Out-String))) {
+          $statusAfterFallback = git status --porcelain=v1
+          Set-Content -LiteralPath (Join-Path $gitDir 'STATUS_AFTER_FALLBACK_STAGE.txt') -Value (($statusAfterFallback | Out-String).Trim()) -Encoding UTF8
+
+          $cachedDiff = git diff --cached --name-status
+          Set-Content -LiteralPath (Join-Path $gitDir 'CACHED_DIFF_NAME_STATUS.txt') -Value (($cachedDiff | Out-String).Trim()) -Encoding UTF8
+
+          $commitCreated = $false
+          $commitSha = ''
+          $commitMessage = ''
+          $pushResult = 'NO_COMMIT'
+
+          if (-not [string]::IsNullOrWhiteSpace(($statusAfterFallback | Out-String))) {
             git commit -m "queue update"
             git push
+            $commitCreated = $true
+            $commitSha = (git rev-parse HEAD).Trim()
+            $commitMessage = (git log -1 --pretty=%s).Trim()
+            $pushResult = 'PUSH_OK'
           }
           else {
             Write-Host "No repository changes to commit."
           }
+
+          $headShow = git log -1 --stat
+          Set-Content -LiteralPath (Join-Path $gitDir 'HEAD_LOG_STAT.txt') -Value (($headShow | Out-String).Trim()) -Encoding UTF8
+
+          $commitSummary = [ordered]@{
+            commit_created = $commitCreated
+            commit_sha     = $commitSha
+            commit_message = $commitMessage
+            push_result    = $pushResult
+            captured_at    = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff')
+          }
+
+          Set-Content -LiteralPath (Join-Path $metaDir 'COMMIT_SUMMARY.json') -Value ($commitSummary | ConvertTo-Json -Depth 10) -Encoding UTF8
 
       - name: Final gate
         if: always()
@@ -367,3 +550,126 @@ jobs:
           }
 
           Write-Host "Workflow completed. PASS/FAIL_POLICY/FAIL_RUNTIME are handled as queue outcomes; warnings were emitted for runtime or unexpected statuses."
+
+      - name: Snapshot after run
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = $env:GITHUB_WORKSPACE
+          $forensicDir = "${{ steps.forensic.outputs.FORENSIC_DIR }}"
+          $snapDir = Join-Path $forensicDir 'snapshots'
+
+          function Get-DirInventory {
+            param(
+              [Parameter(Mandatory)][string]$BasePath
+            )
+
+            if (-not (Test-Path -LiteralPath $BasePath)) {
+              return @()
+            }
+
+            $baseFull = [System.IO.Path]::GetFullPath($BasePath)
+            if (-not $baseFull.EndsWith([System.IO.Path]::DirectorySeparatorChar)) {
+              $baseFull += [System.IO.Path]::DirectorySeparatorChar
+            }
+
+            $rows = @()
+            $items = @(Get-ChildItem -LiteralPath $BasePath -Recurse -Force -File | Sort-Object FullName)
+            foreach ($item in $items) {
+              $full = [System.IO.Path]::GetFullPath($item.FullName)
+              $rel = $full.Substring($baseFull.Length) -replace '\\','/'
+              $rows += [ordered]@{
+                path = $rel
+                size = [int64]$item.Length
+                last_write = $item.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss.fff')
+              }
+            }
+            return $rows
+          }
+
+          $after = [ordered]@{
+            captured_at = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff')
+            inbox_new   = @(Get-DirInventory -BasePath (Join-Path $root 'inbox/new'))
+            done        = @(Get-DirInventory -BasePath (Join-Path $root 'done'))
+            failed      = @(Get-DirInventory -BasePath (Join-Path $root 'failed'))
+          }
+
+          $json = $after | ConvertTo-Json -Depth 12
+          Set-Content -LiteralPath (Join-Path $snapDir 'QUEUE_AFTER.json') -Value $json -Encoding UTF8
+
+          $md = @(
+            "# Queue After"
+            ""
+            "CapturedAt: $($after.captured_at)"
+            "InboxNewCount: $($after.inbox_new.Count)"
+            "DoneCount: $($after.done.Count)"
+            "FailedCount: $($after.failed.Count)"
+            ""
+            "## inbox/new"
+          )
+
+          foreach ($row in $after.inbox_new) {
+            $md += "- $($row.path) [$($row.size) bytes]"
+          }
+
+          $md += ""
+          $md += "## done"
+          foreach ($row in ($after.done | Select-Object -First 100)) {
+            $md += "- $($row.path) [$($row.size) bytes]"
+          }
+
+          $md += ""
+          $md += "## failed"
+          foreach ($row in ($after.failed | Select-Object -First 100)) {
+            $md += "- $($row.path) [$($row.size) bytes]"
+          }
+
+          Set-Content -LiteralPath (Join-Path $snapDir 'QUEUE_AFTER.md') -Value ($md -join "`r`n") -Encoding UTF8
+
+      - name: Build forensic pack
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $forensicDir = "${{ steps.forensic.outputs.FORENSIC_DIR }}"
+          $packPath = "${{ steps.forensic.outputs.PACK_PATH }}"
+          $metaDir = Join-Path $forensicDir 'meta'
+
+          $manifest = [ordered]@{
+            run_stamp   = "${{ steps.forensic.outputs.RUN_STAMP }}"
+            run_id      = "${{ steps.forensic.outputs.RUN_ID }}"
+            actor       = "${{ github.actor }}"
+            workflow    = "${{ github.workflow }}"
+            run_number  = "${{ github.run_number }}"
+            run_id_gh   = "${{ github.run_id }}"
+            repository  = "${{ github.repository }}"
+            ref         = "${{ github.ref }}"
+            sha         = "${{ github.sha }}"
+            built_at    = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff')
+          }
+
+          Set-Content -LiteralPath (Join-Path $metaDir 'MANIFEST.json') -Value ($manifest | ConvertTo-Json -Depth 12) -Encoding UTF8
+
+          if (Test-Path -LiteralPath $packPath) {
+            Remove-Item -LiteralPath $packPath -Force -ErrorAction SilentlyContinue
+          }
+
+          Compress-Archive -Path (Join-Path $forensicDir '*') -DestinationPath $packPath -CompressionLevel Optimal -Force
+
+          $packMeta = [ordered]@{
+            pack_path = $packPath
+            pack_name = [System.IO.Path]::GetFileName($packPath)
+            pack_size = (Get-Item -LiteralPath $packPath).Length
+          }
+
+          Set-Content -LiteralPath (Join-Path $metaDir 'PACK_INFO.json') -Value ($packMeta | ConvertTo-Json -Depth 10) -Encoding UTF8
+
+      - name: Upload forensic pack
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: GH_BATCH_RUNPACK_${{ steps.forensic.outputs.RUN_STAMP }}_${{ steps.forensic.outputs.RUN_ID }}
+          path: ${{ steps.forensic.outputs.PACK_PATH }}
+          if-no-files-found: error
+          retention-days: 14
