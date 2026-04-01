@@ -1,10 +1,10 @@
-name: GH_BATCH Pilot
+name: GH_BATCH Real
 
 on:
   workflow_dispatch:
     inputs:
-      batch_name:
-        description: "Unique batch name (e.g. batch-2026-04-01-01)"
+      run_label:
+        description: "Run label for trace (example: run-2026-04-01-01)"
         required: true
         type: string
 
@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Git identity
         shell: pwsh
@@ -25,49 +27,82 @@ jobs:
           git config user.name "gh-batch-bot"
           git config user.email "gh-batch@bot.local"
 
-      - name: Check duplicate batch
-        id: dupcheck
+      - name: Preflight secret
         shell: pwsh
+        env:
+          GH_BATCH_PAT: ${{ secrets.GH_BATCH_PAT }}
         run: |
-          $batch = "${{ github.event.inputs.batch_name }}"
-          $found = git log --grep="GH_BATCH:$batch" -n 1
-
-          if ($found) {
-            "DUPLICATE=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-            Write-Host "Batch already processed: $batch"
-          } else {
-            "DUPLICATE=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          if ([string]::IsNullOrWhiteSpace($env:GH_BATCH_PAT)) {
+            throw "Missing repository secret: GH_BATCH_PAT"
           }
 
-      - name: Run GH_BATCH script
-        if: steps.dupcheck.outputs.DUPLICATE == 'false'
+      - name: Preflight inbox
         shell: pwsh
         run: |
-          $batch = "${{ github.event.inputs.batch_name }}"
-          Write-Host "Running GH_BATCH for $batch"
+          $root  = $env:GITHUB_WORKSPACE
+          $inbox = Join-Path $root 'inbox'
+          if (-not (Test-Path -LiteralPath $inbox)) {
+            throw "Inbox folder not found: $inbox"
+          }
 
-          # mock
-          New-Item -ItemType File -Path "batch_result_$batch.txt" -Force | Out-Null
+          $zips = @(Get-ChildItem -LiteralPath $inbox -File -Filter '*.zip' | Sort-Object LastWriteTime)
+          Write-Host "ZIP count in inbox: $($zips.Count)"
 
-      - name: Commit results
-        if: steps.dupcheck.outputs.DUPLICATE == 'false'
+          if ($zips.Count -eq 0) {
+            throw "No ZIP files found in inbox."
+          }
+
+          Write-Host "Selected ZIP: $($zips[0].Name)"
+
+      - name: Run real GH_BATCH
+        shell: pwsh
+        env:
+          GH_BATCH_PAT: ${{ secrets.GH_BATCH_PAT }}
+        run: |
+          $root   = $env:GITHUB_WORKSPACE
+          $script = Join-Path $root 'agents\gh_batch\RUN_BATCH.ps1'
+          $inbox  = Join-Path $root 'inbox'
+          $done   = Join-Path $root 'done'
+          $logs   = Join-Path $root 'logs'
+
+          if (-not (Test-Path -LiteralPath $script)) {
+            throw "RUN_BATCH.ps1 not found: $script"
+          }
+
+          New-Item -ItemType Directory -Path $done -Force | Out-Null
+          New-Item -ItemType Directory -Path $logs -Force | Out-Null
+
+          & $script `
+            -InboxDir $inbox `
+            -DoneDir $done `
+            -LogsDir $logs `
+            -RepoOwner 'ries11217596955-hash' `
+            -RepoName 'automation-kb' `
+            -Branch 'main' `
+            -RememberToken:$false
+
+      - name: Commit queue state back to repo-agent
         shell: pwsh
         run: |
-          $batch = "${{ github.event.inputs.batch_name }}"
+          $label = "${{ github.event.inputs.run_label }}"
 
-          git add .
-          git commit -m "GH_BATCH:$batch"
+          git add inbox done logs agents/gh_batch/.state
+
+          $hasChanges = git status --porcelain
+          if ([string]::IsNullOrWhiteSpace($hasChanges)) {
+            Write-Host "No queue-state changes to commit."
+            exit 0
+          }
+
+          git commit -m "GH_BATCH_RUN:$label"
           git push origin HEAD:${{ github.ref_name }}
 
-      - name: Mark duplicate
-        if: steps.dupcheck.outputs.DUPLICATE == 'true'
-        shell: pwsh
-        run: |
-          "SKIP_DUPLICATE" | Out-File -FilePath "gh_batch_status.txt" -Encoding utf8
-
-      - name: Upload log artifact
+      - name: Upload run artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: gh-batch-log
+          name: gh-batch-${{ github.event.inputs.run_label }}
           path: |
-            *.txt
+            done/**
+            logs/**
+            agents/gh_batch/.state/**
+          if-no-files-found: warn
