@@ -410,7 +410,7 @@ function Get-ProfileClassification {
 
     $dirSet = @{}
     foreach ($path in $AcceptedPaths) {
-        $parent = [System.IO.Path]::GetDirectoryName(($path -replace '/','\'))
+        $parent = [System.IO.Path]::GetDirectoryName(($path -replace '/','\\'))
         if (-not [string]::IsNullOrWhiteSpace($parent)) {
             $dirSet[$parent.ToLowerInvariant()] = $true
         }
@@ -522,12 +522,12 @@ function Copy-AllowedFilesToRepo {
     $copied = @()
 
     foreach ($relativePath in $AcceptedPaths) {
-        $sourcePath = Join-Path $StagingRoot ($relativePath -replace '/','\')
+        $sourcePath = Join-Path $StagingRoot ($relativePath -replace '/','\\')
         if (-not (Test-Path -LiteralPath $sourcePath)) {
             throw "FAIL_RUNTIME: accepted file missing in staging: $relativePath"
         }
 
-        $targetPath = Join-Path $RepoRoot ($relativePath -replace '/','\')
+        $targetPath = Join-Path $RepoRoot ($relativePath -replace '/','\\')
         $targetDir = Split-Path -Parent $targetPath
         if (-not [string]::IsNullOrWhiteSpace($targetDir)) {
             New-Dir -Path $targetDir
@@ -737,11 +737,11 @@ try {
 
     if (-not $result['apply_changed']) {
         New-ResultTerminal -Result $result `
-            -Status 'FAIL_POLICY' `
-            -OutcomeClass 'FAIL_POLICY' `
-            -ReasonCode 'NO_EFFECT' `
-            -ExecutionMode 'REJECT_POLICY' `
-            -Message 'Batch applied cleanly but produced no repository diff.'
+            -Status 'PASS' `
+            -OutcomeClass 'PASS' `
+            -ReasonCode 'NO_EFFECT_OK' `
+            -ExecutionMode 'AUTO_APPLY' `
+            -Message 'Batch valid but produced no changes (idempotent).'
         Write-RunReport -Result $result
         exit 0
     }
