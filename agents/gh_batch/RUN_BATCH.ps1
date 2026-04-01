@@ -243,7 +243,7 @@ catch {
     Write-Log -Message $errText -Level ERROR
 
     Write-RunReport `
-        -Status 'FAIL' `
+        -Status 'FAIL_RUNTIME' `
         -FailReason $errText `
         -ZipName $zipName `
         -ZipSourcePath $zipSourcePath `
