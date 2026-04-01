@@ -154,7 +154,7 @@ function Normalize-RelativePath {
         [Parameter(Mandatory)][string]$RelativePath
     )
 
-    $path = $RelativePath -replace '\','/'
+    $path = $RelativePath -replace '\\','/'
     $path = $path.Trim()
 
     while ($path.StartsWith('/')) {
@@ -217,20 +217,37 @@ function Get-ZipEntries {
         [Parameter(Mandatory)][string]$ZipFilePath
     )
 
-    Add-Type -AssemblyName System.IO.Compression
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    if (-not (Test-Path -LiteralPath $ZipFilePath)) {
+        throw "FAIL_RUNTIME: ZIP_NOT_FOUND: $ZipFilePath"
+    }
+
+    try {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction Stop
+    }
+    catch {
+        throw 'FAIL_RUNTIME: ZIP_LIB_LOAD_FAILED'
+    }
 
     $archive = $null
-    try {
-        $archive = [System.IO.Compression.ZipFile]::OpenRead($ZipFilePath)
-        $entries = @()
+    $entries = @()
 
+    try {
+        $archive = [System.IO.Compression.ZipFile]::Open(
+            $ZipFilePath,
+            [System.IO.Compression.ZipArchiveMode]::Read
+        )
+    }
+    catch {
+        throw "FAIL_RUNTIME: ZIP_OPEN_FAILED: $ZipFilePath"
+    }
+
+    try {
         foreach ($entry in $archive.Entries) {
             if ([string]::IsNullOrWhiteSpace($entry.FullName)) {
                 continue
             }
 
-            $entryName = $entry.FullName -replace '\','/'
+            $entryName = $entry.FullName -replace '\\','/'
             if ($entryName.EndsWith('/')) {
                 continue
             }
@@ -242,14 +259,18 @@ function Get-ZipEntries {
                 Length       = [int64]$entry.Length
             }
         }
-
-        return @($entries)
     }
     finally {
         if ($null -ne $archive) {
             $archive.Dispose()
         }
     }
+
+    if ($entries.Count -eq 0) {
+        throw 'FAIL_POLICY: ARCHIVE_EMPTY_OR_UNREADABLE'
+    }
+
+    return @($entries)
 }
 
 function Get-WrapperNormalizedEntries {
@@ -310,7 +331,7 @@ function Test-AllowedBatchPath {
     if ($RelativePath -eq 'README.md')  { return $true }
 
     foreach ($scope in @($Config['allowed_scope'])) {
-        $normalizedScope = ($scope -replace '\','/').Trim()
+        $normalizedScope = ($scope -replace '\\','/').Trim()
         if ([string]::IsNullOrWhiteSpace($normalizedScope)) {
             continue
         }
@@ -471,7 +492,7 @@ function Get-InventoryFromExpandedRoot {
             throw "FAIL_RUNTIME: expanded file outside staging root: $fileFull"
         }
 
-        $relative = $fileFull.Substring($baseFull.Length) -replace '\','/'
+        $relative = $fileFull.Substring($baseFull.Length) -replace '\\','/'
         $relative = Normalize-RelativePath -RelativePath $relative
         $key = $relative.ToLowerInvariant()
 
@@ -641,17 +662,8 @@ try {
         exit 0
     }
 
+    Write-Log -Message 'Reading ZIP entries...'
     $entries = @(Get-ZipEntries -ZipFilePath $ZipPath)
-    if ($entries.Count -eq 0) {
-        New-ResultTerminal -Result $result `
-            -Status 'FAIL_POLICY' `
-            -OutcomeClass 'FAIL_POLICY' `
-            -ReasonCode 'ARCHIVE_EMPTY' `
-            -ExecutionMode 'REJECT_POLICY' `
-            -Message 'Batch archive is empty.'
-        Write-RunReport -Result $result
-        exit 0
-    }
 
     $entries = @(Get-WrapperNormalizedEntries -Entries $entries)
     $result['expanded_file_count'] = $entries.Count
@@ -759,7 +771,16 @@ catch {
             -Message $errMessage
     }
     else {
-        if ($errMessage -like '*git status failed*') {
+        if ($errMessage -like '*ZIP_LIB_LOAD_FAILED*') {
+            $reasonCode = 'ZIP_LIB_LOAD_FAILED'
+        }
+        elseif ($errMessage -like '*ZIP_OPEN_FAILED*') {
+            $reasonCode = 'ZIP_OPEN_FAILED'
+        }
+        elseif ($errMessage -like '*ZIP_NOT_FOUND*') {
+            $reasonCode = 'ZIP_NOT_FOUND'
+        }
+        elseif ($errMessage -like '*git status failed*') {
             $reasonCode = 'GIT_STATUS_FAILED'
         }
         elseif ($errMessage -like '*Expand-Archive*' -or $errMessage -like '*archive*') {
