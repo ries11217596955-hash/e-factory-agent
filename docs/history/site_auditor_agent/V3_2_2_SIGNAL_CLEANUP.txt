@@ -1,0 +1,4 @@
+History note moved out of source root.
+Version: 3.2.2
+Topic: signal cleanup.
+Status: historical release note, not canonical source.

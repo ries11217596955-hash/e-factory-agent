@@ -1,0 +1,4 @@
+History note moved out of source root.
+Version: 3.3.6
+Topic: repo root normalization.
+Status: historical release note, not canonical source.

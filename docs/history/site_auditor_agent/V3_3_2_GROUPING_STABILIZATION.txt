@@ -1,0 +1,4 @@
+History note moved out of source root.
+Version: 3.3.2
+Topic: grouping stabilization.
+Status: historical release note, not canonical source.

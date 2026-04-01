@@ -1,0 +1,4 @@
+History note moved out of source root.
+Version: 3.5
+Topic: repair intelligence.
+Status: historical release note, not canonical source.

@@ -1,0 +1,34 @@
+FINAL CLEANUP DELETE LIST
+
+DELETE THESE LEGACY FILES / ITEMS FROM THE REPO AFTER UPLOADING THIS PATCH:
+
+1. mini-agent/RUN_BATCH.ps1
+
+2. Move these files out of agents/site_auditor_agent/ and then delete the originals there:
+- V3_2_1_FIXED_NOTE.txt
+- V3_2_2_SIGNAL_CLEANUP.txt
+- V3_3_1_SMART_GROUPING.txt
+- V3_3_2_GROUPING_STABILIZATION.txt
+- V3_3_3_ZIP_SAFE_EXTRACTION.txt
+- V3_3_4_CONTRACT_FIX.txt
+- V3_3_5_MULTI_PARAM_COMPAT.txt
+- V3_3_6_REPO_ROOT_NORMALIZATION.txt
+- V3_3_7_WRAPPER_ROOT_FIX.txt
+- V3_3_8_PUBLISHABLE_OVERRIDE.txt
+- V3_3_9_FULLFILE_INVENTORY.txt
+- V3_3_GROUPING_ACTIONS.txt
+- V3_4_0_REPORT_OUTPUT_FIX.txt
+- V3_4_1_ZIP_PATH_PRESERVATION_FIX.txt
+- V3_5_REPAIR_INTELLIGENCE.txt
+
+OPTIONAL:
+Remove placeholder folders only if they are not used operationally:
+- agent/
+- inbox/
+- logs/
+- runtime/
+- scripts/
+- templates/
+- tests/
+
+Keep them if they are part of your intended repo contract.

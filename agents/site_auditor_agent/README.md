@@ -1,21 +1,19 @@
 # SITE_AUDITOR_AGENT
 
-Status: active packaged unit
-Source of truth for this repo: `agents/site_auditor_agent/`
-Entrypoint: `run.ps1`
+Canonical source folder for the active site audit agent.
 
-Purpose:
-- repo fetch through GitHub API ZIP
-- inventory and semantic audit
-- links / render / screenshot audit
-- packaged report delivery
+Contains:
+- current executable scripts
+- current config/passport/version files
+- current run entrypoint
 
-Verified package facts:
-- `AGENT_PASSPORT.txt` present
-- `run.ps1` and `agent.ps1` present
-- module scripts extracted into this folder
-- output contract documented as `audit_result.json`, `HOW_TO_FIX.json`, priority reports, `REPORT.txt`, `DONE.ok/DONE.fail`
+Does not contain:
+- packaged ZIP releases
+- broad repo-level docs
+- historical version-note clutter
 
-Boundary:
-- package presence does not equal verified runtime PASS
-- release ZIPs should not be treated as source of truth once files are materialized here
+History notes were moved to:
+- `docs/history/site_auditor_agent/`
+
+Releases belong in:
+- `releases/site_auditor_agent/`
