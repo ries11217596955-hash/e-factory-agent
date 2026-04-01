@@ -1,0 +1,15 @@
+ZIP_NAME=ROUTING_PASS_SRC (1)_20260401_184218_845.zip
+FAILED_AT=2026-04-01 18:42:18.847
+SOURCE=D:\a\e-factory-agent\e-factory-agent\inbox\processing\ROUTING_PASS_SRC (1).zip
+FAILED_PATH=D:\a\e-factory-agent\e-factory-agent\failed\ROUTING_PASS_SRC (1)_20260401_184218_845.zip
+STATUS=FAIL_RUNTIME
+REASON_CODE=WORKFLOW_SCRIPT_INVOCATION_ERROR
+MESSAGE=Workflow failed while invoking RUN_BATCH.ps1
+REASON_START
+Exception: D:\a\_temp\27cd314e-5cc3-475b-8f93-7ca83a534556.ps1:110
+Line |
+ 110 |        throw "FAIL_RUNTIME: RUN_REPORT not produced for $claimedPath"
+     |        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | FAIL_RUNTIME: RUN_REPORT not produced for D:\a\e-factory-agent\e-factory-agent\inbox\processing\ROUTING_PASS_SRC
+     | (1).zip
+REASON_END
