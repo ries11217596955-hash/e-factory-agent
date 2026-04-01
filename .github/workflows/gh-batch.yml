@@ -35,36 +35,116 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$root/done" | Out-Null
           New-Item -ItemType Directory -Force -Path "$root/failed" | Out-Null
           New-Item -ItemType Directory -Force -Path "$root/logs" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$root/agents/gh_batch/.state" | Out-Null
 
-      - name: Claim ZIP
-        id: claim
+      - name: Drain queue
         shell: pwsh
         run: |
-          $new = "$env:GITHUB_WORKSPACE/inbox/new"
-          $proc = "$env:GITHUB_WORKSPACE/inbox/processing"
+          $ErrorActionPreference = 'Stop'
 
-          $zip = Get-ChildItem $new -Filter *.zip | Sort-Object LastWriteTime | Select-Object -First 1
+          $root      = $env:GITHUB_WORKSPACE
+          $newDir    = "$root/inbox/new"
+          $procDir   = "$root/inbox/processing"
+          $doneDir   = "$root/done"
+          $failedDir = "$root/failed"
+          $logsDir   = "$root/logs"
+          $stateDir  = "$root/agents/gh_batch/.state"
+          $script    = "$root/agents/gh_batch/RUN_BATCH.ps1"
 
-          if (-not $zip) {
-            "NO_JOB=true" >> $env:GITHUB_OUTPUT
-            exit 0
+          $iteration = 0
+          $maxIterations = 100
+
+          while ($true) {
+            $queue = @()
+            if (Test-Path -LiteralPath $newDir) {
+              $queue = @(Get-ChildItem -LiteralPath $newDir -File -Filter '*.zip' | Sort-Object LastWriteTime)
+            }
+
+            if ($queue.Count -eq 0) {
+              Write-Host "Queue drained. inbox/new is empty."
+              break
+            }
+
+            $iteration++
+            if ($iteration -gt $maxIterations) {
+              throw "Safety stop: exceeded maxIterations=$maxIterations"
+            }
+
+            $zip = $queue[0]
+            $claimedPath = Join-Path $procDir $zip.Name
+
+            if (Test-Path -LiteralPath $claimedPath) {
+              $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+              $claimedPath = Join-Path $procDir ("{0}_{1}.zip" -f [System.IO.Path]::GetFileNameWithoutExtension($zip.Name), $stamp)
+            }
+
+            Move-Item -LiteralPath $zip.FullName -Destination $claimedPath -Force
+            Write-Host "Claimed ZIP: $claimedPath"
+
+            $jobState = [ordered]@{
+              iteration      = $iteration
+              zip_name       = [System.IO.Path]::GetFileName($claimedPath)
+              claimed_path   = $claimedPath
+              claimed_at     = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+              status         = 'PROCESSING'
+            } | ConvertTo-Json -Depth 10
+
+            Set-Content -LiteralPath "$stateDir/current_job.json" -Value $jobState -Encoding UTF8
+
+            try {
+              & $script `
+                -InboxDir $procDir `
+                -DoneDir $doneDir `
+                -LogsDir $logsDir
+
+              $jobDone = [ordered]@{
+                iteration      = $iteration
+                zip_name       = [System.IO.Path]::GetFileName($claimedPath)
+                claimed_path   = $claimedPath
+                finished_at    = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+                status         = 'DONE'
+              } | ConvertTo-Json -Depth 10
+
+              Set-Content -LiteralPath "$stateDir/current_job.json" -Value $jobDone -Encoding UTF8
+            }
+            catch {
+              $errText = $_ | Out-String
+              Write-Warning $errText
+
+              $failedZipPath = Join-Path $failedDir ([System.IO.Path]::GetFileName($claimedPath))
+              if (Test-Path -LiteralPath $failedZipPath) {
+                $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+                $failedZipPath = Join-Path $failedDir ("{0}_{1}.zip" -f [System.IO.Path]::GetFileNameWithoutExtension([System.IO.Path]::GetFileName($claimedPath)), $stamp)
+              }
+
+              if (Test-Path -LiteralPath $claimedPath) {
+                Move-Item -LiteralPath $claimedPath -Destination $failedZipPath -Force
+              }
+
+              $failNotePath = Join-Path $failedDir ("{0}.fail.txt" -f [System.IO.Path]::GetFileNameWithoutExtension([System.IO.Path]::GetFileName($failedZipPath)))
+              $failBody = @(
+                "ZIP_NAME=$([System.IO.Path]::GetFileName($failedZipPath))"
+                "FAILED_AT=$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+                "SOURCE=$claimedPath"
+                "FAILED_PATH=$failedZipPath"
+                "REASON_START"
+                $errText.Trim()
+                "REASON_END"
+              ) -join "`r`n"
+
+              Set-Content -LiteralPath $failNotePath -Value $failBody -Encoding UTF8
+
+              $jobFailed = [ordered]@{
+                iteration      = $iteration
+                zip_name       = [System.IO.Path]::GetFileName($failedZipPath)
+                failed_path    = $failedZipPath
+                finished_at    = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+                status         = 'FAILED'
+              } | ConvertTo-Json -Depth 10
+
+              Set-Content -LiteralPath "$stateDir/current_job.json" -Value $jobFailed -Encoding UTF8
+            }
           }
-
-          $target = Join-Path $proc $zip.Name
-          Move-Item $zip.FullName $target -Force
-
-          "ZIP_PATH=$target" >> $env:GITHUB_OUTPUT
-
-      - name: Run batch
-        if: steps.claim.outputs.NO_JOB != 'true'
-        shell: pwsh
-        run: |
-          $root = $env:GITHUB_WORKSPACE
-
-          & "$root/agents/gh_batch/RUN_BATCH.ps1" `
-            -InboxDir "$root/inbox/processing" `
-            -DoneDir "$root/done" `
-            -LogsDir "$root/logs"
 
       - name: Commit state
         shell: pwsh
@@ -72,7 +152,7 @@ jobs:
           git config user.name "gh-batch-bot"
           git config user.email "gh-batch@bot.local"
 
-          git add .
+          git add inbox done failed logs agents/gh_batch/.state
 
           if (git status --porcelain) {
             git commit -m "queue update"
