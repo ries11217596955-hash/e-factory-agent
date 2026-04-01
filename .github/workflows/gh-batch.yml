@@ -1,0 +1,71 @@
+name: GH_BATCH Pilot
+
+on:
+  workflow_dispatch:
+    inputs:
+      batch_name:
+        description: "Unique batch name (e.g. batch-2026-04-01-01)"
+        required: true
+        type: string
+
+jobs:
+  run-gh-batch:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Git identity
+        run: |
+          git config user.name "gh-batch-bot"
+          git config user.email "gh-batch@bot.local"
+
+      - name: Check duplicate batch
+        id: dupcheck
+        shell: pwsh
+        run: |
+          $batch = "${{ github.event.inputs.batch_name }}"
+          $found = git log --grep="GH_BATCH:$batch" -n 1
+
+          if ($found) {
+            echo "DUPLICATE=true" >> $env:GITHUB_OUTPUT
+            echo "Batch already processed: $batch"
+          } else {
+            echo "DUPLICATE=false" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Run GH_BATCH script
+        if: steps.dupcheck.outputs.DUPLICATE == 'false'
+        shell: pwsh
+        run: |
+          $batch = "${{ github.event.inputs.batch_name }}"
+          Write-Host "Running GH_BATCH for $batch"
+
+          # 👉 здесь вызываем твой реальный скрипт
+          # пример:
+          # powershell -ExecutionPolicy Bypass -File agents/gh_batch/RUN_BATCH.ps1 -BatchName $batch
+
+          # временный mock (чтобы протестировать пайплайн)
+          New-Item -ItemType File -Path "batch_result_$batch.txt" -Force
+
+      - name: Commit results
+        if: steps.dupcheck.outputs.DUPLICATE == 'false'
+        shell: pwsh
+        run: |
+          $batch = "${{ github.event.inputs.batch_name }}"
+
+          git add .
+          git commit -m "GH_BATCH:$batch"
+          git push
+
+      - name: Mark duplicate
+        if: steps.dupcheck.outputs.DUPLICATE == 'true'
+        run: echo "SKIP_DUPLICATE"
+
+      - name: Upload log artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gh-batch-log
+          path: |
+            *.txt
