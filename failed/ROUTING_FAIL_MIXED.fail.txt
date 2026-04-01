@@ -1,0 +1,13 @@
+ZIP_NAME=ROUTING_FAIL_MIXED.zip
+FAILED_AT=2026-04-01 13:08:01
+SOURCE=D:\a\e-factory-agent\e-factory-agent\inbox\processing\ROUTING_FAIL_MIXED.zip
+FAILED_PATH=D:\a\e-factory-agent\e-factory-agent\failed\ROUTING_FAIL_MIXED.zip
+STATUS=FAIL_RUNTIME
+REASON_START
+Exception: D:\a\_temp\55f12396-5c45-4613-b94d-f623637f5047.ps1:92
+Line |
+  92 |        throw "FAIL_RUNTIME: RUN_REPORT not produced for $claimedPath"
+     |        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | FAIL_RUNTIME: RUN_REPORT not produced for
+     | D:\a\e-factory-agent\e-factory-agent\inbox\processing\ROUTING_FAIL_MIXED.zip
+REASON_END
