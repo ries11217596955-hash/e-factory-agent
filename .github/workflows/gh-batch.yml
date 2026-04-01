@@ -52,3 +52,7 @@ jobs:
           git add .
           git commit -m "GH_BATCH_RUN auto" || echo "no changes"
           git push
+if ($env:GITHUB_ACTOR -eq "github-actions[bot]") {
+  Write-Host "Skip self-trigger"
+  exit 0
+}
