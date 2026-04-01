@@ -124,6 +124,8 @@ jobs:
 
             $status = ''
             $failReason = ''
+            $reasonCode = ''
+            $message = ''
 
             try {
               & $script `
@@ -145,6 +147,8 @@ jobs:
               $reportObj = Get-Content -LiteralPath $newReport -Raw -Encoding UTF8 | ConvertFrom-Json
               $status = [string]$reportObj.status
               $failReason = [string]$reportObj.fail_reason
+              $reasonCode = [string]$reportObj.reason_code
+              $message = [string]$reportObj.message
 
               if ($status -eq 'PASS') {
                 $donePath = Move-WithUniqueName -SourcePath $claimedPath -TargetDir $doneDir
@@ -160,6 +164,8 @@ jobs:
                   "SOURCE=$claimedPath"
                   "FAILED_PATH=$failedPath"
                   "STATUS=$status"
+                  "REASON_CODE=$reasonCode"
+                  "MESSAGE=$message"
                   "REASON_START"
                   $failReason
                   "REASON_END"
@@ -177,6 +183,8 @@ jobs:
                   "SOURCE=$claimedPath"
                   "FAILED_PATH=$failedPath"
                   "STATUS=$status"
+                  "REASON_CODE=$reasonCode"
+                  "MESSAGE=$message"
                   "REASON_START"
                   $failReason
                   "REASON_END"
@@ -194,6 +202,8 @@ jobs:
                   "SOURCE=$claimedPath"
                   "FAILED_PATH=$failedPath"
                   "STATUS=FAIL_RUNTIME"
+                  "REASON_CODE=UNEXPECTED_REPORT_STATUS"
+                  "MESSAGE=Unexpected report status returned by RUN_BATCH.ps1"
                   "REASON_START"
                   "Unexpected report status: $status"
                   "REASON_END"
@@ -209,6 +219,7 @@ jobs:
                 claimed_path = $claimedPath
                 finished_at  = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff')
                 status       = $status
+                reason_code  = $reasonCode
               } | ConvertTo-Json -Depth 10
 
               Set-Content -LiteralPath "$stateDir/current_job.json" -Value $jobDone -Encoding UTF8
@@ -226,6 +237,8 @@ jobs:
                   "SOURCE=$claimedPath"
                   "FAILED_PATH=$failedPath"
                   "STATUS=FAIL_RUNTIME"
+                  "REASON_CODE=WORKFLOW_SCRIPT_INVOCATION_ERROR"
+                  "MESSAGE=Workflow failed while invoking RUN_BATCH.ps1"
                   "REASON_START"
                   $errText.Trim()
                   "REASON_END"
@@ -240,6 +253,7 @@ jobs:
                 claimed_path = $claimedPath
                 finished_at  = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff')
                 status       = 'FAIL_RUNTIME'
+                reason_code  = 'WORKFLOW_SCRIPT_INVOCATION_ERROR'
               } | ConvertTo-Json -Depth 10
 
               Set-Content -LiteralPath "$stateDir/current_job.json" -Value $jobFailed -Encoding UTF8
@@ -248,12 +262,12 @@ jobs:
           }
 
           $summary = [ordered]@{
-            iterations       = $iteration
-            pass_count       = $passCount
-            fail_policy_count= $failPolicyCount
+            iterations         = $iteration
+            pass_count         = $passCount
+            fail_policy_count  = $failPolicyCount
             fail_runtime_count = $failRuntimeCount
-            unexpected_count = $unexpectedCount
-            finished_at      = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff')
+            unexpected_count   = $unexpectedCount
+            finished_at        = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff')
           } | ConvertTo-Json -Depth 10
 
           Set-Content -LiteralPath "$stateDir/queue_summary.json" -Value $summary -Encoding UTF8
@@ -290,13 +304,13 @@ jobs:
           - UNEXPECTED_STATUS: $unexpectedCount
           "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
 
-      - name: Commit state
+      - name: Commit state and applied changes
         shell: pwsh
         run: |
           git config user.name "gh-batch-bot"
           git config user.email "gh-batch@bot.local"
 
-          git add inbox done failed logs agents/gh_batch/.state
+          git add -A -- inbox done failed logs agents/gh_batch/.state README.txt README.md src
 
           if (git status --porcelain) {
             git commit -m "queue update"
