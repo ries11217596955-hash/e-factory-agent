@@ -54,6 +54,26 @@ jobs:
           $iteration = 0
           $maxIterations = 100
 
+          function Move-WithUniqueName {
+            param(
+              [Parameter(Mandatory)][string]$SourcePath,
+              [Parameter(Mandatory)][string]$TargetDir
+            )
+
+            $name = [System.IO.Path]::GetFileName($SourcePath)
+            $targetPath = Join-Path $TargetDir $name
+
+            if (Test-Path -LiteralPath $targetPath) {
+              $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+              $base = [System.IO.Path]::GetFileNameWithoutExtension($name)
+              $ext  = [System.IO.Path]::GetExtension($name)
+              $targetPath = Join-Path $TargetDir ("{0}_{1}{2}" -f $base, $stamp, $ext)
+            }
+
+            Move-Item -LiteralPath $SourcePath -Destination $targetPath -Force
+            return $targetPath
+          }
+
           while ($true) {
             $queue = @()
             if (Test-Path -LiteralPath $newDir) {
@@ -82,27 +102,73 @@ jobs:
             Write-Host "Claimed ZIP: $claimedPath"
 
             $jobState = [ordered]@{
-              iteration      = $iteration
-              zip_name       = [System.IO.Path]::GetFileName($claimedPath)
-              claimed_path   = $claimedPath
-              claimed_at     = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
-              status         = 'PROCESSING'
+              iteration    = $iteration
+              zip_name     = [System.IO.Path]::GetFileName($claimedPath)
+              claimed_path = $claimedPath
+              claimed_at   = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+              status       = 'PROCESSING'
             } | ConvertTo-Json -Depth 10
 
             Set-Content -LiteralPath "$stateDir/current_job.json" -Value $jobState -Encoding UTF8
 
+            $beforeReports = @()
+            if (Test-Path -LiteralPath $logsDir) {
+              $beforeReports = @(Get-ChildItem -LiteralPath $logsDir -File -Filter 'RUN_REPORT_*.json' | Select-Object -ExpandProperty FullName)
+            }
+
             try {
               & $script `
-                -InboxDir $procDir `
-                -DoneDir $doneDir `
+                -ZipPath $claimedPath `
                 -LogsDir $logsDir
 
+              $newReport = $null
+              $afterReports = @(Get-ChildItem -LiteralPath $logsDir -File -Filter 'RUN_REPORT_*.json' | Sort-Object LastWriteTime)
+              foreach ($report in $afterReports) {
+                if ($beforeReports -notcontains $report.FullName) {
+                  $newReport = $report.FullName
+                }
+              }
+
+              if ($null -eq $newReport) {
+                throw "FAIL_RUNTIME: RUN_REPORT not produced for $claimedPath"
+              }
+
+              $reportObj = Get-Content -LiteralPath $newReport -Raw -Encoding UTF8 | ConvertFrom-Json
+              $status = [string]$reportObj.status
+
+              if ($status -eq 'PASS') {
+                $donePath = Move-WithUniqueName -SourcePath $claimedPath -TargetDir $doneDir
+                Write-Host "Moved to done: $donePath"
+              }
+              elseif ($status -eq 'PASS_NO_JOB') {
+                Write-Host "PASS_NO_JOB returned unexpectedly for claimed ZIP. Treating as runtime fail."
+                $failedPath = Move-WithUniqueName -SourcePath $claimedPath -TargetDir $failedDir
+                $failNotePath = Join-Path $failedDir ("{0}.fail.txt" -f [System.IO.Path]::GetFileNameWithoutExtension([System.IO.Path]::GetFileName($failedPath)))
+                Set-Content -LiteralPath $failNotePath -Value "FAIL_RUNTIME: PASS_NO_JOB returned for claimed ZIP" -Encoding UTF8
+              }
+              else {
+                $failedPath = Move-WithUniqueName -SourcePath $claimedPath -TargetDir $failedDir
+                $failNotePath = Join-Path $failedDir ("{0}.fail.txt" -f [System.IO.Path]::GetFileNameWithoutExtension([System.IO.Path]::GetFileName($failedPath)))
+                $failBody = @(
+                  "ZIP_NAME=$([System.IO.Path]::GetFileName($failedPath))"
+                  "FAILED_AT=$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+                  "SOURCE=$claimedPath"
+                  "FAILED_PATH=$failedPath"
+                  "STATUS=$status"
+                  "REASON_START"
+                  ([string]$reportObj.fail_reason)
+                  "REASON_END"
+                ) -join "`r`n"
+                Set-Content -LiteralPath $failNotePath -Value $failBody -Encoding UTF8
+                Write-Host "Moved to failed: $failedPath"
+              }
+
               $jobDone = [ordered]@{
-                iteration      = $iteration
-                zip_name       = [System.IO.Path]::GetFileName($claimedPath)
-                claimed_path   = $claimedPath
-                finished_at    = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
-                status         = 'DONE'
+                iteration    = $iteration
+                zip_name     = [System.IO.Path]::GetFileName($claimedPath)
+                claimed_path = $claimedPath
+                finished_at  = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+                status       = $status
               } | ConvertTo-Json -Depth 10
 
               Set-Content -LiteralPath "$stateDir/current_job.json" -Value $jobDone -Encoding UTF8
@@ -111,35 +177,28 @@ jobs:
               $errText = $_ | Out-String
               Write-Warning $errText
 
-              $failedZipPath = Join-Path $failedDir ([System.IO.Path]::GetFileName($claimedPath))
-              if (Test-Path -LiteralPath $failedZipPath) {
-                $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
-                $failedZipPath = Join-Path $failedDir ("{0}_{1}.zip" -f [System.IO.Path]::GetFileNameWithoutExtension([System.IO.Path]::GetFileName($claimedPath)), $stamp)
-              }
-
               if (Test-Path -LiteralPath $claimedPath) {
-                Move-Item -LiteralPath $claimedPath -Destination $failedZipPath -Force
+                $failedPath = Move-WithUniqueName -SourcePath $claimedPath -TargetDir $failedDir
+                $failNotePath = Join-Path $failedDir ("{0}.fail.txt" -f [System.IO.Path]::GetFileNameWithoutExtension([System.IO.Path]::GetFileName($failedPath)))
+                $failBody = @(
+                  "ZIP_NAME=$([System.IO.Path]::GetFileName($failedPath))"
+                  "FAILED_AT=$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+                  "SOURCE=$claimedPath"
+                  "FAILED_PATH=$failedPath"
+                  "STATUS=FAIL_RUNTIME"
+                  "REASON_START"
+                  $errText.Trim()
+                  "REASON_END"
+                ) -join "`r`n"
+                Set-Content -LiteralPath $failNotePath -Value $failBody -Encoding UTF8
               }
-
-              $failNotePath = Join-Path $failedDir ("{0}.fail.txt" -f [System.IO.Path]::GetFileNameWithoutExtension([System.IO.Path]::GetFileName($failedZipPath)))
-              $failBody = @(
-                "ZIP_NAME=$([System.IO.Path]::GetFileName($failedZipPath))"
-                "FAILED_AT=$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-                "SOURCE=$claimedPath"
-                "FAILED_PATH=$failedZipPath"
-                "REASON_START"
-                $errText.Trim()
-                "REASON_END"
-              ) -join "`r`n"
-
-              Set-Content -LiteralPath $failNotePath -Value $failBody -Encoding UTF8
 
               $jobFailed = [ordered]@{
-                iteration      = $iteration
-                zip_name       = [System.IO.Path]::GetFileName($failedZipPath)
-                failed_path    = $failedZipPath
-                finished_at    = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
-                status         = 'FAILED'
+                iteration    = $iteration
+                zip_name     = [System.IO.Path]::GetFileName($claimedPath)
+                claimed_path = $claimedPath
+                finished_at  = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+                status       = 'FAIL_RUNTIME'
               } | ConvertTo-Json -Depth 10
 
               Set-Content -LiteralPath "$stateDir/current_job.json" -Value $jobFailed -Encoding UTF8
