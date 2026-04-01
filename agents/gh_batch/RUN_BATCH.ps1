@@ -194,10 +194,12 @@ $TempRoot = Get-UsableTempRoot -PreferredPath $TempRoot
 New-Dir -Path $LogsDir
 New-Dir -Path $TempRoot
 
-$runStamp       = Get-Date -Format 'yyyyMMdd_HHmmss'
-$logFile        = Join-Path $LogsDir ("RUN_BATCH_{0}.log" -f $runStamp)
-$jsonReportFile = Join-Path $LogsDir ("RUN_REPORT_{0}.json" -f $runStamp)
-$expandRoot     = Join-Path $TempRoot ("EXPAND_{0}" -f $runStamp)
+$runStamp = Get-Date -Format 'yyyyMMdd_HHmmss_fff'
+$runId    = [guid]::NewGuid().ToString('N')
+
+$logFile        = Join-Path $LogsDir ("RUN_BATCH_{0}_{1}.log" -f $runStamp, $runId)
+$jsonReportFile = Join-Path $LogsDir ("RUN_REPORT_{0}_{1}.json" -f $runStamp, $runId)
+$expandRoot     = Join-Path $TempRoot ("EXPAND_{0}_{1}" -f $runStamp, $runId)
 
 function Write-Log {
     param(
@@ -205,7 +207,7 @@ function Write-Log {
         [ValidateSet('INFO','WARN','ERROR')][string]$Level = 'INFO'
     )
 
-    $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff'
     $line = "[{0}] [{1}] {2}" -f $ts, $Level, $Message
     Write-Host $line
     Add-Content -LiteralPath $logFile -Value $line -Encoding UTF8
@@ -234,7 +236,9 @@ function Write-RunReport {
         accepted_paths      = @($AcceptedPaths)
         rejected_paths      = @($RejectedPaths)
         log_file            = $LogFilePath
-        timestamp           = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+        report_file         = $jsonReportFile
+        run_id              = $runId
+        timestamp           = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff')
     }
 
     $json = $payload | ConvertTo-Json -Depth 10
@@ -251,6 +255,7 @@ try {
     Write-Log -Message ("Repo root: {0}" -f $repoRoot)
     Write-Log -Message ("Logs dir: {0}" -f $LogsDir)
     Write-Log -Message ("Temp root: {0}" -f $TempRoot)
+    Write-Log -Message ("Run id: {0}" -f $runId)
 
     if ([string]::IsNullOrWhiteSpace($ZipPath)) {
         Write-RunReport `
