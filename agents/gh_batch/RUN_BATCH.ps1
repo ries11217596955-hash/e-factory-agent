@@ -27,6 +27,7 @@ function New-Dir {
     param(
         [Parameter(Mandatory)][string]$Path
     )
+
     if (-not (Test-Path -LiteralPath $Path)) {
         New-Item -ItemType Directory -Path $Path -Force | Out-Null
     }
@@ -112,13 +113,13 @@ function Write-Log {
 function Write-RunReport {
     param(
         [Parameter(Mandatory)][string]$Status,
-        [Parameter(Mandatory)][string]$FailReason,
-        [string]$ZipName,
-        [string]$ZipSourcePath,
-        [string]$ZipDonePath,
-        [int]$ExpandedFileCount,
-        [string]$ExpandedRoot,
-        [string]$LogFilePath
+        [AllowEmptyString()][string]$FailReason = '',
+        [string]$ZipName = '',
+        [string]$ZipSourcePath = '',
+        [string]$ZipDonePath = '',
+        [int]$ExpandedFileCount = 0,
+        [string]$ExpandedRoot = '',
+        [string]$LogFilePath = ''
     )
 
     $payload = [ordered]@{
@@ -142,6 +143,7 @@ function Write-RunReport {
 
 function Get-OldestZip {
     $zips = @()
+
     if (Test-Path -LiteralPath $InboxDir) {
         $zips = @(Get-ChildItem -LiteralPath $InboxDir -File -Filter '*.zip' | Sort-Object LastWriteTime)
     }
@@ -160,7 +162,7 @@ $zipDonePath = ''
 $expandedFileCount = 0
 
 try {
-    Write-Log -Message "START"
+    Write-Log -Message 'START'
     Write-Log -Message ("Repo root: {0}" -f $repoRoot)
     Write-Log -Message ("Queue dir: {0}" -f $InboxDir)
     Write-Log -Message ("Done dir: {0}" -f $DoneDir)
@@ -170,7 +172,7 @@ try {
     $zip = Get-OldestZip
 
     if ($null -eq $zip) {
-        Write-Log -Message "No ZIP found in processing queue." -Level WARN
+        Write-Log -Message 'No ZIP found in processing queue.' -Level WARN
         Write-RunReport `
             -Status 'PASS_NO_JOB' `
             -FailReason '' `
@@ -189,7 +191,7 @@ try {
     Write-Log -Message ("Selected ZIP: {0}" -f $zipSourcePath)
 
     if ($WhatIfOnly) {
-        Write-Log -Message "WhatIfOnly set. No file move will be performed." -Level WARN
+        Write-Log -Message 'WhatIfOnly set. No file move will be performed.' -Level WARN
         Write-RunReport `
             -Status 'WHATIF' `
             -FailReason '' `
@@ -233,7 +235,7 @@ try {
         -ExpandedRoot $expandRoot `
         -LogFilePath $logFile
 
-    Write-Log -Message "DONE"
+    Write-Log -Message 'DONE'
     exit 0
 }
 catch {
