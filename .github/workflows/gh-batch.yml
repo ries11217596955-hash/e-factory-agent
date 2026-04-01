@@ -2,23 +2,12 @@ name: GH_BATCH Real
 
 on:
   push:
-    branches:
-      - main
     paths:
-      - 'inbox/*.zip'
+      - 'inbox/**'
   workflow_dispatch:
-    inputs:
-      run_label:
-        description: "Run label for trace (example: run-2026-04-01-01)"
-        required: true
-        type: string
 
 permissions:
   contents: write
-
-concurrency:
-  group: gh-batch-main
-  cancel-in-progress: false
 
 jobs:
   run-gh-batch:
@@ -27,8 +16,6 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Setup Git identity
         shell: pwsh
@@ -36,177 +23,32 @@ jobs:
           git config user.name "gh-batch-bot"
           git config user.email "gh-batch@bot.local"
 
-      - name: Resolve run label
-        id: meta
+      - name: Preflight inbox
         shell: pwsh
         run: |
-          $manualLabel = "${{ github.event.inputs.run_label }}"
-          if ([string]::IsNullOrWhiteSpace($manualLabel)) {
-            $label = "auto-$($env:GITHUB_RUN_NUMBER)"
-          } else {
-            $label = $manualLabel
-          }
-          "RUN_LABEL=$label" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          Write-Host "Run label: $label"
-
-      - name: Preflight secret
-        shell: pwsh
-        env:
-          GH_BATCH_PAT: ${{ secrets.GH_BATCH_PAT }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:GH_BATCH_PAT)) {
-            throw "Missing repository secret: GH_BATCH_PAT"
-          }
-
-      - name: Preflight paths
-        shell: pwsh
-        run: |
-          $root   = $env:GITHUB_WORKSPACE
-          $inbox  = Join-Path $root 'inbox'
-          $done   = Join-Path $root 'done'
-          $failed = Join-Path $root 'failed'
-          $logs   = Join-Path $root 'logs'
-          $script = Join-Path $root 'agents\gh_batch\RUN_BATCH.ps1'
-
-          if (-not (Test-Path -LiteralPath $inbox)) {
-            throw "Inbox folder not found: $inbox"
-          }
-          if (-not (Test-Path -LiteralPath $script)) {
-            throw "RUN_BATCH.ps1 not found: $script"
-          }
-
-          New-Item -ItemType Directory -Path $done -Force | Out-Null
-          New-Item -ItemType Directory -Path $failed -Force | Out-Null
-          New-Item -ItemType Directory -Path $logs -Force | Out-Null
-
-      - name: Count inbox ZIPs before run
-        id: count_before
-        shell: pwsh
-        run: |
-          $inbox = Join-Path $env:GITHUB_WORKSPACE 'inbox'
-          $zips = @(Get-ChildItem -LiteralPath $inbox -File -Filter '*.zip' | Sort-Object LastWriteTime)
-          $count = $zips.Count
-          "ZIP_COUNT=$count" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          Write-Host "ZIP count before run: $count"
-          if ($count -eq 0) {
-            Write-Host "No ZIP files in inbox. Exiting cleanly."
-          }
-
-      - name: Run GH_BATCH for all ZIPs with failed-queue handling
-        if: steps.count_before.outputs.ZIP_COUNT != '0'
-        shell: pwsh
-        env:
-          GH_BATCH_PAT: ${{ secrets.GH_BATCH_PAT }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-
-          $root      = $env:GITHUB_WORKSPACE
-          $script    = Join-Path $root 'agents\gh_batch\RUN_BATCH.ps1'
-          $inbox     = Join-Path $root 'inbox'
-          $done      = Join-Path $root 'done'
-          $failed    = Join-Path $root 'failed'
-          $logs      = Join-Path $root 'logs'
-          $runLabel  = "${{ steps.meta.outputs.RUN_LABEL }}"
-
-          $iteration = 0
-          $maxIterations = 100
-
-          while ($true) {
-            $zips = @(Get-ChildItem -LiteralPath $inbox -File -Filter '*.zip' | Sort-Object LastWriteTime)
-            if ($zips.Count -eq 0) {
-              Write-Host "Inbox is empty. Batch loop finished."
-              break
-            }
-
-            $iteration++
-            if ($iteration -gt $maxIterations) {
-              throw "Safety stop: exceeded maxIterations=$maxIterations"
-            }
-
-            $currentZip = $zips[0]
-            Write-Host "Iteration $iteration. Next ZIP: $($currentZip.Name)"
-
-            try {
-              & $script `
-                -InboxDir $inbox `
-                -DoneDir $done `
-                -LogsDir $logs `
-                -RepoOwner 'ries11217596955-hash' `
-                -RepoName 'automation-kb' `
-                -Branch 'main' `
-                -RememberToken:$false
-
-              Write-Host "Processed successfully: $($currentZip.Name)"
-            }
-            catch {
-              $errText = $_ | Out-String
-              Write-Warning "Batch failed: $($currentZip.Name)"
-              Write-Warning $errText
-
-              $failedZipPath = Join-Path $failed $currentZip.Name
-
-              if (Test-Path -LiteralPath $failedZipPath) {
-                $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
-                $failedZipPath = Join-Path $failed ("{0}_{1}.zip" -f [System.IO.Path]::GetFileNameWithoutExtension($currentZip.Name), $stamp)
-              }
-
-              Move-Item -LiteralPath $currentZip.FullName -Destination $failedZipPath -Force
-
-              $failNoteName = [System.IO.Path]::GetFileNameWithoutExtension($currentZip.Name) + ".fail.txt"
-              $failNotePath = Join-Path $failed $failNoteName
-
-              $failBody = @(
-                "RUN_LABEL=$runLabel"
-                "ZIP_NAME=$($currentZip.Name)"
-                "FAILED_AT=$(Get-Date -Format s)"
-                "SOURCE=inbox/$($currentZip.Name)"
-                "MOVED_TO=$failedZipPath"
-                "REASON_START"
-                $errText.Trim()
-                "REASON_END"
-              ) -join "`r`n"
-
-              Set-Content -LiteralPath $failNotePath -Value $failBody -Encoding UTF8
-
-              $remaining = @(Get-ChildItem -LiteralPath $inbox -File -Filter '*.zip').Count
-              Write-Host "Moved failed ZIP to failed/: $($currentZip.Name)"
-              Write-Host "Remaining ZIP count after fail move: $remaining"
-            }
-          }
-
-      - name: Count inbox ZIPs after run
-        id: count_after
-        shell: pwsh
-        run: |
-          $inbox = Join-Path $env:GITHUB_WORKSPACE 'inbox'
-          $zips = @(Get-ChildItem -LiteralPath $inbox -File -Filter '*.zip')
-          $count = $zips.Count
-          "ZIP_COUNT_AFTER=$count" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          Write-Host "ZIP count after run: $count"
-
-      - name: Commit queue state back to repo-agent
-        shell: pwsh
-        run: |
-          $label = "${{ steps.meta.outputs.RUN_LABEL }}"
-
-          git add inbox done failed logs agents/gh_batch/.state
-
-          $hasChanges = git status --porcelain
-          if ([string]::IsNullOrWhiteSpace($hasChanges)) {
-            Write-Host "No queue-state changes to commit."
+          $inbox = Join-Path $env:GITHUB_WORKSPACE "inbox"
+          if (!(Test-Path $inbox)) {
+            Write-Host "No inbox folder"
             exit 0
           }
 
-          git commit -m "GH_BATCH_RUN:$label"
-          git push origin HEAD:${{ github.ref_name }}
+      - name: Run GH_BATCH
+        shell: pwsh
+        run: |
+          Write-Host "Running GH_BATCH..."
 
-      - name: Upload run artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: gh-batch-${{ steps.meta.outputs.RUN_LABEL }}
-          path: |
-            done/**
-            failed/**
-            logs/**
-            agents/gh_batch/.state/**
-          if-no-files-found: warn
+          $script = Join-Path $env:GITHUB_WORKSPACE "scripts\RUN_BATCH.ps1"
+
+          if (!(Test-Path $script)) {
+            Write-Error "RUN_BATCH.ps1 not found"
+            exit 1
+          }
+
+          & $script
+
+      - name: Commit changes
+        shell: pwsh
+        run: |
+          git add .
+          git commit -m "GH_BATCH_RUN auto" || echo "no changes"
+          git push
