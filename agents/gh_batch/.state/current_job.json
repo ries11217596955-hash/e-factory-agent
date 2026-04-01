@@ -1,8 +1,8 @@
 {
-  "iteration": 4,
-  "zip_name": "ROUTING_PASS_SRC (1).zip",
-  "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\ROUTING_PASS_SRC (1).zip",
-  "finished_at": "2026-04-01 17:55:26.688",
+  "iteration": 1,
+  "zip_name": "WEBOPS_BATCH_01_REPAIR_REDIRECTS_AND_HIDE_MANIFEST.zip",
+  "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\WEBOPS_BATCH_01_REPAIR_REDIRECTS_AND_HIDE_MANIFEST.zip",
+  "finished_at": "2026-04-01 18:07:55.769",
   "status": "FAIL_RUNTIME",
   "reason_code": "WORKFLOW_SCRIPT_INVOCATION_ERROR"
 }
