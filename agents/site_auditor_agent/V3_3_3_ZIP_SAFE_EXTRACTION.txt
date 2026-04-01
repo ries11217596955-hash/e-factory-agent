@@ -1,4 +1,0 @@
-SITE_AUDITOR_AGENT v3.3.3 ZIP SAFE EXTRACTION
-- safe per-entry zip extraction with directory precreate
-- short temp extraction root forced to C:\_sa_tmp
-- explicit ZIP_EXTRACT_FAIL_SAFE marker on extraction failure
