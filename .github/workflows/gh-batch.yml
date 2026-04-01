@@ -1,82 +1,80 @@
 name: GH_BATCH Real
 
 on:
-push:
-branches:
-- main
-paths:
-- 'inbox/new/*.zip'
-workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'inbox/new/*.zip'
+  workflow_dispatch:
 
 permissions:
-contents: write
+  contents: write
 
 jobs:
-run-gh-batch:
-runs-on: windows-latest
+  run-gh-batch:
+    runs-on: windows-latest
 
-```
-steps:
-  - uses: actions/checkout@v4
+    steps:
+      - uses: actions/checkout@v4
 
-  - name: Guard self-trigger
-    shell: pwsh
-    run: |
-      if ($env:GITHUB_ACTOR -eq "github-actions[bot]") {
-        Write-Host "Skip self-trigger"
-        exit 0
-      }
+      - name: Guard self-trigger
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_ACTOR -eq "github-actions[bot]") {
+            Write-Host "Skip self-trigger"
+            exit 0
+          }
 
-  - name: Setup dirs
-    shell: pwsh
-    run: |
-      $root = $env:GITHUB_WORKSPACE
-      New-Item -ItemType Directory -Force -Path "$root/inbox/new" | Out-Null
-      New-Item -ItemType Directory -Force -Path "$root/inbox/processing" | Out-Null
-      New-Item -ItemType Directory -Force -Path "$root/done" | Out-Null
-      New-Item -ItemType Directory -Force -Path "$root/failed" | Out-Null
-      New-Item -ItemType Directory -Force -Path "$root/logs" | Out-Null
+      - name: Setup dirs
+        shell: pwsh
+        run: |
+          $root = $env:GITHUB_WORKSPACE
+          New-Item -ItemType Directory -Force -Path "$root/inbox/new" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$root/inbox/processing" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$root/done" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$root/failed" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$root/logs" | Out-Null
 
-  - name: Claim ZIP
-    id: claim
-    shell: pwsh
-    run: |
-      $new = "$env:GITHUB_WORKSPACE/inbox/new"
-      $proc = "$env:GITHUB_WORKSPACE/inbox/processing"
+      - name: Claim ZIP
+        id: claim
+        shell: pwsh
+        run: |
+          $new = "$env:GITHUB_WORKSPACE/inbox/new"
+          $proc = "$env:GITHUB_WORKSPACE/inbox/processing"
 
-      $zip = Get-ChildItem $new -Filter *.zip | Sort-Object LastWriteTime | Select-Object -First 1
+          $zip = Get-ChildItem $new -Filter *.zip | Sort-Object LastWriteTime | Select-Object -First 1
 
-      if (-not $zip) {
-        echo "NO_JOB=true" >> $env:GITHUB_OUTPUT
-        exit 0
-      }
+          if (-not $zip) {
+            "NO_JOB=true" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
 
-      $target = Join-Path $proc $zip.Name
-      Move-Item $zip.FullName $target -Force
+          $target = Join-Path $proc $zip.Name
+          Move-Item $zip.FullName $target -Force
 
-      echo "ZIP_PATH=$target" >> $env:GITHUB_OUTPUT
+          "ZIP_PATH=$target" >> $env:GITHUB_OUTPUT
 
-  - name: Run batch
-    if: steps.claim.outputs.NO_JOB != 'true'
-    shell: pwsh
-    run: |
-      $root = $env:GITHUB_WORKSPACE
+      - name: Run batch
+        if: steps.claim.outputs.NO_JOB != 'true'
+        shell: pwsh
+        run: |
+          $root = $env:GITHUB_WORKSPACE
 
-      & "$root/agents/gh_batch/RUN_BATCH.ps1" `
-        -InboxDir "$root/inbox/processing" `
-        -DoneDir "$root/done" `
-        -LogsDir "$root/logs"
+          & "$root/agents/gh_batch/RUN_BATCH.ps1" `
+            -InboxDir "$root/inbox/processing" `
+            -DoneDir "$root/done" `
+            -LogsDir "$root/logs"
 
-  - name: Commit state
-    shell: pwsh
-    run: |
-      git config user.name "gh-batch-bot"
-      git config user.email "gh-batch@bot.local"
+      - name: Commit state
+        shell: pwsh
+        run: |
+          git config user.name "gh-batch-bot"
+          git config user.email "gh-batch@bot.local"
 
-      git add .
+          git add .
 
-      if (git status --porcelain) {
-        git commit -m "queue update"
-        git push
-      }
-```
+          if (git status --porcelain) {
+            git commit -m "queue update"
+            git push
+          }
