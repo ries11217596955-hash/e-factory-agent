@@ -3,7 +3,8 @@ name: GH_BATCH Real
 on:
   push:
     paths:
-      - 'inbox/**'
+      paths:
+  - 'inbox/*.zip'
   workflow_dispatch:
 
 permissions:
