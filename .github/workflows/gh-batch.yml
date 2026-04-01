@@ -107,35 +107,6 @@ jobs:
           $json = $before | ConvertTo-Json -Depth 12
           Set-Content -LiteralPath (Join-Path $snapDir 'QUEUE_BEFORE.json') -Value $json -Encoding UTF8
 
-          $md = @(
-            "# Queue Before"
-            ""
-            "CapturedAt: $($before.captured_at)"
-            "InboxNewCount: $($before.inbox_new.Count)"
-            "DoneCount: $($before.done.Count)"
-            "FailedCount: $($before.failed.Count)"
-            ""
-            "## inbox/new"
-          )
-
-          foreach ($row in $before.inbox_new) {
-            $md += "- $($row.path) [$($row.size) bytes]"
-          }
-
-          $md += ""
-          $md += "## done"
-          foreach ($row in ($before.done | Select-Object -First 50)) {
-            $md += "- $($row.path) [$($row.size) bytes]"
-          }
-
-          $md += ""
-          $md += "## failed"
-          foreach ($row in ($before.failed | Select-Object -First 50)) {
-            $md += "- $($row.path) [$($row.size) bytes]"
-          }
-
-          Set-Content -LiteralPath (Join-Path $snapDir 'QUEUE_BEFORE.md') -Value ($md -join "`r`n") -Encoding UTF8
-
       - name: Drain queue
         id: drain
         shell: pwsh
@@ -252,9 +223,9 @@ jobs:
               }
 
               $reportObj = Get-Content -LiteralPath $newReport -Raw -Encoding UTF8 | ConvertFrom-Json
-              $status = [string]$reportObj.status
+              $status = ([string]$reportObj.status).Trim().ToUpper()
               $failReason = [string]$reportObj.fail_reason
-              $reasonCode = [string]$reportObj.reason_code
+              $reasonCode = ([string]$reportObj.reason_code).Trim().ToUpper()
               $message = [string]$reportObj.message
 
               Copy-Item -LiteralPath $newReport -Destination (Join-Path $reportsDir ([System.IO.Path]::GetFileName($newReport))) -Force
@@ -598,35 +569,6 @@ jobs:
           $json = $after | ConvertTo-Json -Depth 12
           Set-Content -LiteralPath (Join-Path $snapDir 'QUEUE_AFTER.json') -Value $json -Encoding UTF8
 
-          $md = @(
-            "# Queue After"
-            ""
-            "CapturedAt: $($after.captured_at)"
-            "InboxNewCount: $($after.inbox_new.Count)"
-            "DoneCount: $($after.done.Count)"
-            "FailedCount: $($after.failed.Count)"
-            ""
-            "## inbox/new"
-          )
-
-          foreach ($row in $after.inbox_new) {
-            $md += "- $($row.path) [$($row.size) bytes]"
-          }
-
-          $md += ""
-          $md += "## done"
-          foreach ($row in ($after.done | Select-Object -First 100)) {
-            $md += "- $($row.path) [$($row.size) bytes]"
-          }
-
-          $md += ""
-          $md += "## failed"
-          foreach ($row in ($after.failed | Select-Object -First 100)) {
-            $md += "- $($row.path) [$($row.size) bytes]"
-          }
-
-          Set-Content -LiteralPath (Join-Path $snapDir 'QUEUE_AFTER.md') -Value ($md -join "`r`n") -Encoding UTF8
-
       - name: Build forensic pack
         if: always()
         shell: pwsh
@@ -656,14 +598,6 @@ jobs:
           }
 
           Compress-Archive -Path (Join-Path $forensicDir '*') -DestinationPath $packPath -CompressionLevel Optimal -Force
-
-          $packMeta = [ordered]@{
-            pack_path = $packPath
-            pack_name = [System.IO.Path]::GetFileName($packPath)
-            pack_size = (Get-Item -LiteralPath $packPath).Length
-          }
-
-          Set-Content -LiteralPath (Join-Path $metaDir 'PACK_INFO.json') -Value ($packMeta | ConvertTo-Json -Depth 10) -Encoding UTF8
 
       - name: Upload forensic pack
         if: always()
