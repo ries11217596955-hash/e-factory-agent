@@ -1,4 +1,0 @@
-SITE_AUDITOR_AGENT v3.3.9 FULLFILE INVENTORY
-- full replacement of inventory.ps1
-- deterministic publishable rule: src/*.md|html|njk => publishable unless falsey permalink or service endpoint
-- removes drift from prior micro-patches
