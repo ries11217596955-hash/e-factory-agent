@@ -1,5 +1,0 @@
-SITE_AUDITOR_AGENT v3.5 REPAIR INTELLIGENCE
-- upgraded HOW_TO_FIX to action-oriented grouped repair plan
-- added impact-based severity policy
-- added executive summary and top actions
-- preserved stable runtime from v3.4.1
