@@ -1,0 +1,14 @@
+ZIP_NAME=WEBOPS_BATCH_01_REPAIR_REDIRECTS_AND_HIDE_MANIFEST_20260401_180835_407.zip
+FAILED_AT=2026-04-01 18:08:35.413
+SOURCE=D:\a\e-factory-agent\e-factory-agent\inbox\processing\WEBOPS_BATCH_01_REPAIR_REDIRECTS_AND_HIDE_MANIFEST.zip
+FAILED_PATH=D:\a\e-factory-agent\e-factory-agent\failed\WEBOPS_BATCH_01_REPAIR_REDIRECTS_AND_HIDE_MANIFEST_20260401_180835_407.zip
+STATUS=FAIL_RUNTIME
+REASON_CODE=WORKFLOW_SCRIPT_INVOCATION_ERROR
+MESSAGE=Workflow failed while invoking RUN_BATCH.ps1
+REASON_START
+InvalidOperation: D:\a\e-factory-agent\e-factory-agent\agents\gh_batch\RUN_BATCH.ps1:9
+Line |
+   9 |  if (-not $result['apply_changed']) {
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | Cannot index into a null array.
+REASON_END
