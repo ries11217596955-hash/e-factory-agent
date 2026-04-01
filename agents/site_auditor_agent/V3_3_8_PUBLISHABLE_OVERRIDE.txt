@@ -1,4 +1,0 @@
-SITE_AUDITOR_AGENT v3.3.8 PUBLISHABLE OVERRIDE
-- any .md file under src/ is treated as publishable
-- frontmatter/layout/slug are no longer required for publishable=true
-- keeps runtime hard-fails from v3.3.6/v3.3.7

@@ -1,5 +1,0 @@
-SITE_AUDITOR_AGENT v3.3.7 WRAPPER ROOT FIX
-- GitHub zipball wrapper folder is stripped during extraction
-- repo is normalized to TargetDir/src instead of TargetDir/<repo-hash>/src
-- added REPO_SRC_ROOT_MISSING hard fail
-- keeps repo-root truth hard-fails from v3.3.6
