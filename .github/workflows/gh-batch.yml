@@ -305,16 +305,47 @@ jobs:
           "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
 
       - name: Commit state and applied changes
+        if: always()
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+
           git config user.name "gh-batch-bot"
           git config user.email "gh-batch@bot.local"
 
-          git add -A -- inbox done failed logs agents/gh_batch/.state README.txt README.md src
+          $pathsToAdd = @(
+            "inbox"
+            "done"
+            "failed"
+            "logs"
+            "agents/gh_batch/.state"
+          )
 
-          if (git status --porcelain) {
+          foreach ($p in $pathsToAdd) {
+            if (Test-Path -LiteralPath $p) {
+              git add -A -- $p
+            }
+          }
+
+          if (Test-Path -LiteralPath "README.txt") {
+            git add -A -- "README.txt"
+          }
+
+          if (Test-Path -LiteralPath "README.md") {
+            git add -A -- "README.md"
+          }
+
+          if (Test-Path -LiteralPath "src") {
+            git add -A -- "src"
+          }
+
+          $status = git status --porcelain
+          if (-not [string]::IsNullOrWhiteSpace(($status | Out-String))) {
             git commit -m "queue update"
             git push
+          }
+          else {
+            Write-Host "No repository changes to commit."
           }
 
       - name: Final gate
