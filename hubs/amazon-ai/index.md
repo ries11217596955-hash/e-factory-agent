@@ -1,38 +1,45 @@
 ---
-title: AI for Amazon hub
-layout: base.njk
+title: AI for Amazon (Start Here)
+layout: hub.njk
 ---
 
-# AI for Amazon
+# AI for Amazon — Start Here
 
-Marketplace automation: keywords → listings → reviews.
+## What you get
+- more traffic (SEO + ranking)
+- higher conversion (listing optimization)
+- stable growth loops (reviews + pricing)
 
-## Choose your path
+## Who this is for
+- Amazon sellers
+- small brands
+- operators managing listings
 
-### I need traffic (ranking / visibility)
-- /posts/2026-04-02-how-to-rank-amazon-listing/
-- /posts/2026-04-02-how-to-find-amazon-keywords/
+## Start based on your problem
+
+### 🚫 No traffic
+→ /posts/2026-04-02-how-to-rank-amazon-listing/
+
+### 💸 Traffic but no sales
+→ /posts/2026-04-02-how-to-optimize-amazon-listing/
+
+### ❓ Don’t know keywords
+→ /posts/2026-04-02-best-amazon-keyword-tools/
+
+### ⚠️ Listing not ranking
+→ /posts/2026-04-02-why-amazon-listing-not-ranking/
+
+---
+
+## Core flows
+
+- Keyword research → Listing → Reviews → Repeat
 - /posts/2026-04-02-amazon-seo-strategy/
-→ then go to /hubs/amazon-ai/keyword-research/
 
-### I need conversion (listing not performing)
-- /posts/2026-04-02-how-to-optimize-amazon-listing/
-- /posts/2026-04-02-amazon-listing-optimization-strategy/
-- /posts/2026-04-02-why-conversion-low-amazon/
-→ then go to /hubs/amazon-ai/listing-optimization/
+---
 
-### I need feedback (reviews / issues)
-- /posts/2026-04-02-amazon-review-analysis/
-- /posts/2026-04-02-amazon-negative-review-clustering/
-- /posts/2026-04-02-amazon-sentiment-analysis/
-→ then go to /hubs/amazon-ai/review-monitoring/
+## Tools (when to use)
 
-## Tools (when ready)
-- /posts/2026-04-02-best-amazon-keyword-tools/
-- /posts/2026-04-02-best-amazon-listing-optimization-tools/
-- /posts/2026-04-02-best-tools-for-amazon-seo/
-
-## Core clusters
-- /hubs/amazon-ai/keyword-research/
-- /hubs/amazon-ai/listing-optimization/
-- /hubs/amazon-ai/review-monitoring/
+- Need keywords → keyword tools
+- Need optimization → listing tools
+- Need monitoring → review tools
