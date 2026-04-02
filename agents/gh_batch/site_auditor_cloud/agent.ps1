@@ -65,9 +65,10 @@ function New-List {
 
 function Add-UniqueItem {
     param(
-        [Parameter(Mandatory=$true)][System.Collections.Generic.List[string]]$List,
-        [Parameter(Mandatory=$true)][string]$Text
+        [object]$List,
+        [string]$Text
     )
+    if ($null -eq $List) { return }
     if ([string]::IsNullOrWhiteSpace($Text)) { return }
     if (-not $List.Contains($Text)) {
         $null = $List.Add($Text)
