@@ -1,4 +1,8 @@
-name: SITE_AUDITOR - Fixed List
+- name: Install Node deps
+  run: |
+    cd agents/gh_batch/site_auditor_cloud
+    npm install
+    npx playwright install chromium
 
 on:
   workflow_dispatch:
