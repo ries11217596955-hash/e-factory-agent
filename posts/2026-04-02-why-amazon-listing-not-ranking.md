@@ -6,47 +6,39 @@ tags: ["amazon-ai","traffic"]
 
 # Why Amazon Listing Not Ranking
 
-## Problem
-Users search this when facing a specific Amazon issue.
+## Root causes
+- missing keyword coverage
+- weak title placement
+- low CTR or conversion
 
-## Real example
+## Diagnose fast
+1. Compare with top 5 listings.
+2. Check keyword presence in title/bullets.
+3. Check image clarity vs competitors.
+4. Check review sentiment.
 
-If your listing is not ranking:
-
-- your title may miss core keywords  
-- competitors may dominate clusters  
-- your listing structure may be weak  
-
-## Step-by-step solution
-
-1. Check top 3 competitors  
-2. Extract keyword patterns  
-3. Compare with your listing  
-4. Identify gaps  
-5. Rewrite based on clusters  
+## Fix order
+1. Keywords (coverage)
+2. Title (placement)
+3. Bullets/images (conversion)
+4. Reviews (feedback loop)
 
 ## Common mistakes
+- changing everything at once
+- adding irrelevant keywords
+- ignoring images
 
-- keyword stuffing  
-- irrelevant keywords  
-- weak titles or bullets  
-- ignoring search intent  
-
-## Pro tip
-
-Always build structure first, then insert keywords.
+## Mini-case
+Fixing title + image improved ranking without changing price.
 
 ## Recommended tools
-
 - /posts/2026-04-02-best-amazon-keyword-tools/
 - /posts/2026-04-02-best-amazon-listing-optimization-tools/
 
 ## Next steps
-
-- /hubs/amazon-ai/keyword-research/  
-- /hubs/amazon-ai/listing-optimization/  
-- /hubs/amazon-ai/review-monitoring/  
+- /hubs/amazon-ai/keyword-research/
+- /hubs/amazon-ai/listing-optimization/
+- /hubs/amazon-ai/review-monitoring/
 
 ## Related
-
 - /hubs/amazon-ai/

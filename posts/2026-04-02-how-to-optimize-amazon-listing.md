@@ -1,52 +1,53 @@
 ---
-title: How To Optimize Amazon Listing
+title: How to Optimize Amazon Listing
 layout: post.njk
 tags: ["amazon-ai","traffic"]
 ---
 
-# How To Optimize Amazon Listing
+# How to Optimize Amazon Listing
 
 ## Problem
-Users search this when facing a specific Amazon issue.
+Listing has traffic but low conversion.
 
 ## Real example
+High impressions, low sales because:
+- weak main image
+- generic bullets
+- no clear use-case positioning
 
-If your listing is not ranking:
+## Framework
+1. Clarity → can a buyer understand the product in 5 seconds?
+2. Structure → title + bullets + images support one story
+3. Proof → reviews and specifics support claims
 
-- your title may miss core keywords  
-- competitors may dominate clusters  
-- your listing structure may be weak  
+## Step-by-step
+1. Rewrite title for clarity (not just keywords).
+2. Rebuild bullets: benefit → proof → detail.
+3. Replace main image with clear product + context.
+4. Add 1–2 use-case images.
+5. Align description with bullets (no contradictions).
 
-## Step-by-step solution
-
-1. Check top 3 competitors  
-2. Extract keyword patterns  
-3. Compare with your listing  
-4. Identify gaps  
-5. Rewrite based on clusters  
+## Checklist
+- Title readable aloud
+- Bullets each have one clear benefit
+- Images show use-case
+- No vague claims
 
 ## Common mistakes
+- focusing only on keywords
+- copying competitor phrasing
+- too many claims, no proof
 
-- keyword stuffing  
-- irrelevant keywords  
-- weak titles or bullets  
-- ignoring search intent  
-
-## Pro tip
-
-Always build structure first, then insert keywords.
+## Mini-case
+Changing main image + bullets improved conversion without increasing traffic.
 
 ## Recommended tools
-
-- /posts/2026-04-02-best-amazon-keyword-tools/
 - /posts/2026-04-02-best-amazon-listing-optimization-tools/
 
 ## Next steps
-
-- /hubs/amazon-ai/keyword-research/  
-- /hubs/amazon-ai/listing-optimization/  
-- /hubs/amazon-ai/review-monitoring/  
+- /hubs/amazon-ai/listing-optimization/
+- /hubs/amazon-ai/review-monitoring/
+- /hubs/amazon-ai/keyword-research/
 
 ## Related
-
 - /hubs/amazon-ai/

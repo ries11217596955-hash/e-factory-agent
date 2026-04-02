@@ -1,52 +1,44 @@
 ---
-title: Amazon Seo Strategy
+title: Amazon SEO Strategy
 layout: post.njk
 tags: ["amazon-ai","traffic"]
 ---
 
-# Amazon Seo Strategy
+# Amazon SEO Strategy
 
-## Problem
-Users search this when facing a specific Amazon issue.
+## Goal
+Align keywords, listing, and feedback into one system.
 
-## Real example
+## System view
+1. Keywords → demand
+2. Listing → conversion
+3. Reviews → feedback loop
 
-If your listing is not ranking:
+## Strategy steps
+1. Build keyword clusters.
+2. Map clusters to listing structure.
+3. Validate with conversion.
+4. Adjust based on reviews.
 
-- your title may miss core keywords  
-- competitors may dominate clusters  
-- your listing structure may be weak  
-
-## Step-by-step solution
-
-1. Check top 3 competitors  
-2. Extract keyword patterns  
-3. Compare with your listing  
-4. Identify gaps  
-5. Rewrite based on clusters  
+## Signals that matter
+- relevance (keywords)
+- CTR (title/image)
+- conversion (listing)
+- feedback (reviews)
 
 ## Common mistakes
+- optimizing one layer only
+- ignoring feedback loop
+- overfitting keywords
 
-- keyword stuffing  
-- irrelevant keywords  
-- weak titles or bullets  
-- ignoring search intent  
-
-## Pro tip
-
-Always build structure first, then insert keywords.
-
-## Recommended tools
-
-- /posts/2026-04-02-best-amazon-keyword-tools/
-- /posts/2026-04-02-best-amazon-listing-optimization-tools/
+## Mini-framework
+Repeat:
+clusters → listing → feedback → refine
 
 ## Next steps
-
-- /hubs/amazon-ai/keyword-research/  
-- /hubs/amazon-ai/listing-optimization/  
-- /hubs/amazon-ai/review-monitoring/  
+- /hubs/amazon-ai/keyword-research/
+- /hubs/amazon-ai/listing-optimization/
+- /hubs/amazon-ai/review-monitoring/
 
 ## Related
-
 - /hubs/amazon-ai/
