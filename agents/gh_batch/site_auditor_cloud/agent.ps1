@@ -13,7 +13,7 @@ function Build-RouteInventory {
         '/tools/',
         '/start-here/',
         '/search/'
-    )
+    ) | Select-Object -Unique
 
     $full = @()
 
@@ -88,26 +88,43 @@ function Invoke-SiteAuditor {
         throw "visual_manifest.json missing"
     }
 
-    $manifest = Read-JsonFile -Path $manifestPath
+    $manifest = @(Read-JsonFile -Path $manifestPath)
     $captureSummary = $null
 
     if (Test-Path $captureSummaryPath) {
         $captureSummary = Read-JsonFile -Path $captureSummaryPath
     }
 
-    $screens = Get-ChildItem -Path $ScreensDir -Filter *.png -File -ErrorAction SilentlyContinue
-    $screenshotCount = @($screens).Count
+    $screens = @(Get-ChildItem -Path $ScreensDir -Filter *.png -File -ErrorAction SilentlyContinue)
+    $screenshotCount = $screens.Count
 
-    $lowCoverageRoutes = @()
     $failedRoutes = @()
+    $lowCoverageRoutes = @()
+    $suspectShortPages = @()
+    $suspectEmptyTitles = @()
+    $suspectFooterMissing = @()
 
-    foreach ($item in @($manifest)) {
-        if ($item.lowCoverage -eq $true) {
-            $lowCoverageRoutes += [string]$item.url
-        }
+    foreach ($item in $manifest) {
         if ($item.status -ne 'ok') {
             $failedRoutes += [string]$item.url
         }
+        if ($item.lowCoverage -eq $true) {
+            $lowCoverageRoutes += [string]$item.url
+        }
+        if ($item.suspectShortPage -eq $true) {
+            $suspectShortPages += [string]$item.url
+        }
+        if ($item.suspectEmptyTitle -eq $true) {
+            $suspectEmptyTitles += [string]$item.url
+        }
+        if ($item.suspectFooterMissing -eq $true) {
+            $suspectFooterMissing += [string]$item.url
+        }
+    }
+
+    $coverageScore = 0
+    if (@($routes).Count -gt 0) {
+        $coverageScore = [math]::Round(($screenshotCount / @($routes).Count), 2)
     }
 
     $status = "FAIL_VISUAL"
@@ -116,25 +133,76 @@ function Invoke-SiteAuditor {
         $status = "PASS_V3_SCREENSHOT"
     }
 
-    if ($lowCoverageRoutes.Count -gt 0) {
+    if ($failedRoutes.Count -gt 0 -and $screenshotCount -eq 0) {
+        $status = "FAIL_VISUAL"
+    }
+    elseif ($lowCoverageRoutes.Count -gt 0) {
         $status = "PASS_V3_SCREENSHOT_LOW_COVERAGE"
     }
 
-    if ($failedRoutes.Count -gt 0 -and $screenshotCount -eq 0) {
-        $status = "FAIL_VISUAL"
+    $findings = @()
+
+    foreach ($url in $failedRoutes) {
+        $findings += @{
+            severity = "high"
+            kind = "capture_fail"
+            url = $url
+            note = "Route failed during visual capture"
+        }
+    }
+
+    foreach ($url in $lowCoverageRoutes) {
+        $findings += @{
+            severity = "medium"
+            kind = "low_coverage"
+            url = $url
+            note = "Route has fewer than 3 screenshots"
+        }
+    }
+
+    foreach ($url in $suspectShortPages) {
+        $findings += @{
+            severity = "medium"
+            kind = "short_page"
+            url = $url
+            note = "Route body text appears too short"
+        }
+    }
+
+    foreach ($url in $suspectEmptyTitles) {
+        $findings += @{
+            severity = "medium"
+            kind = "empty_title"
+            url = $url
+            note = "Route title appears empty"
+        }
+    }
+
+    foreach ($url in $suspectFooterMissing) {
+        $findings += @{
+            severity = "low"
+            kind = "footer_missing"
+            url = $url
+            note = "Footer element was not detected"
+        }
     }
 
     $summary = @{
         base_url = $BaseUrl
         route_count = @($routes).Count
         screenshots_count = $screenshotCount
+        coverage_score = $coverageScore
         failed_routes = $failedRoutes
         low_coverage_routes = $lowCoverageRoutes
+        suspect_short_pages = $suspectShortPages
+        suspect_empty_titles = $suspectEmptyTitles
+        suspect_footer_missing = $suspectFooterMissing
         capture_summary_present = [bool]$captureSummary
         status = $status
     }
 
     Save-Json -Path (Join-Path $ReportsDir "visual_summary.json") -Data $summary
+    Save-Json -Path (Join-Path $ReportsDir "visual_findings.json") -Data $findings
     Save-Json -Path (Join-Path $ReportsDir "final-status.json") -Data @{ status = $status }
 
     @(
@@ -142,8 +210,12 @@ function Invoke-SiteAuditor {
         "BASE URL: $BaseUrl"
         "ROUTES: $(@($routes).Count)"
         "SCREENSHOTS: $screenshotCount"
+        "COVERAGE SCORE: $coverageScore"
         "FAILED ROUTES: $($failedRoutes.Count)"
         "LOW COVERAGE ROUTES: $($lowCoverageRoutes.Count)"
+        "SUSPECT SHORT PAGES: $($suspectShortPages.Count)"
+        "SUSPECT EMPTY TITLES: $($suspectEmptyTitles.Count)"
+        "SUSPECT FOOTER MISSING: $($suspectFooterMissing.Count)"
         "STATUS: $status"
     ) | Out-File -FilePath (Join-Path $ReportsDir "REPORT.txt") -Encoding utf8
 
