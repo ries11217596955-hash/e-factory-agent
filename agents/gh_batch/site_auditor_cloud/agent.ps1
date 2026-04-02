@@ -106,28 +106,42 @@ function Increase-Severity {
     return $sev
 }
 
+function Test-HasMetricValue {
+    param($Value)
+
+    return ($null -ne $Value -and $Value -ne '')
+}
+
+function Test-HasContentMetrics {
+    param($Item)
+
+    if (-not $Item) { return $false }
+
+    if ($Item.contentMetricsPresent -eq $true) {
+        return $true
+    }
+
+    if ((Test-HasMetricValue -Value $Item.bodyTextLength) -and
+        (Test-HasMetricValue -Value $Item.links) -and
+        (Test-HasMetricValue -Value $Item.images)) {
+        return $true
+    }
+
+    return $false
+}
+
 function Test-ContentMissing {
     param($Item)
 
-    if (-not $Item) { return $true }
+    if (-not $Item) { return $false }
     if ($Item.status -ne 'ok') { return $false }
+    if (-not (Test-HasContentMetrics -Item $Item)) { return $false }
 
-    $bodyTextLength = 0
-    if ($null -ne $Item.bodyTextLength) {
-        $bodyTextLength = [int]$Item.bodyTextLength
-    }
-
-    $links = 0
-    if ($null -ne $Item.links) {
-        $links = [int]$Item.links
-    }
-
-    $images = 0
-    if ($null -ne $Item.images) {
-        $images = [int]$Item.images
-    }
-
+    $bodyTextLength = [int]$Item.bodyTextLength
+    $links = [int]$Item.links
+    $images = [int]$Item.images
     $title = ""
+
     if ($null -ne $Item.title) {
         $title = [string]$Item.title
     }
@@ -151,7 +165,9 @@ function Get-VisualHealthScore {
         return 0
     }
 
-    if (Test-ContentMissing -Item $Item) {
+    $hasMetrics = Test-HasContentMetrics -Item $Item
+
+    if ($hasMetrics -and (Test-ContentMissing -Item $Item)) {
         return 0
     }
 
@@ -161,43 +177,33 @@ function Get-VisualHealthScore {
         $score -= 20
     }
 
-    if ($Item.suspectShortPage -eq $true) {
-        $score -= 20
-    }
+    if ($hasMetrics) {
+        if ($Item.suspectShortPage -eq $true) {
+            $score -= 20
+        }
 
-    if ($Item.suspectEmptyTitle -eq $true) {
-        $score -= 15
-    }
+        if ($Item.suspectEmptyTitle -eq $true) {
+            $score -= 15
+        }
 
-    if ($Item.suspectFooterMissing -eq $true) {
-        $score -= 10
-    }
+        if ($Item.suspectFooterMissing -eq $true) {
+            $score -= 10
+        }
 
-    $bodyTextLength = 0
-    if ($null -ne $Item.bodyTextLength) {
         $bodyTextLength = [int]$Item.bodyTextLength
-    }
+        if ($bodyTextLength -lt 800) {
+            $score -= 10
+        }
 
-    if ($bodyTextLength -lt 800) {
-        $score -= 10
-    }
-
-    $links = 0
-    if ($null -ne $Item.links) {
         $links = [int]$Item.links
-    }
+        if ($links -eq 0) {
+            $score -= 10
+        }
 
-    if ($links -eq 0) {
-        $score -= 10
-    }
-
-    $images = 0
-    if ($null -ne $Item.images) {
         $images = [int]$Item.images
-    }
-
-    if ($images -eq 0) {
-        $score -= 5
+        if ($images -eq 0) {
+            $score -= 5
+        }
     }
 
     if ($score -lt 0) {
@@ -296,6 +302,7 @@ function Invoke-SiteAuditor {
     $suspectEmptyTitles = @()
     $suspectFooterMissing = @()
     $contentEmptyRoutes = @()
+    $missingMetricRoutes = @()
 
     $routeScores = @()
     $findings = @()
@@ -303,9 +310,30 @@ function Invoke-SiteAuditor {
     foreach ($item in $manifest) {
         $url = [string]$item.url
         $importance = Get-RouteImportance -Url $url
+        $hasMetrics = Test-HasContentMetrics -Item $item
         $contentMissing = Test-ContentMissing -Item $item
         $score = Get-VisualHealthScore -Item $item
         $band = Get-ScoreBand -Score $score
+
+        $bodyTextLength = $null
+        if (Test-HasMetricValue -Value $item.bodyTextLength) {
+            $bodyTextLength = [int]$item.bodyTextLength
+        }
+
+        $linksValue = $null
+        if (Test-HasMetricValue -Value $item.links) {
+            $linksValue = [int]$item.links
+        }
+
+        $imagesValue = $null
+        if (Test-HasMetricValue -Value $item.images) {
+            $imagesValue = [int]$item.images
+        }
+
+        $titleValue = $null
+        if (Test-HasMetricValue -Value $item.title) {
+            $titleValue = [string]$item.title
+        }
 
         $routeScores += @{
             url = $url
@@ -315,10 +343,11 @@ function Invoke-SiteAuditor {
             score_band = $band
             status = [string]$item.status
             screenshot_count = [int]$item.screenshotCount
-            body_text_length = [int]$item.bodyTextLength
-            links = [int]$item.links
-            images = [int]$item.images
-            title = [string]$item.title
+            content_metrics_present = $hasMetrics
+            body_text_length = $bodyTextLength
+            links = $linksValue
+            images = $imagesValue
+            title = $titleValue
             content_missing = $contentMissing
         }
 
@@ -331,6 +360,16 @@ function Invoke-SiteAuditor {
                 -RouteImportance $importance `
                 -Note "Route failed during visual capture"
             continue
+        }
+
+        if (-not $hasMetrics) {
+            $missingMetricRoutes += $url
+            $findings += New-Finding `
+                -Severity "medium" `
+                -Kind "content_metrics_missing" `
+                -Url $url `
+                -RouteImportance $importance `
+                -Note "Content verdict skipped because capture did not return DOM metrics"
         }
 
         if ($contentMissing -eq $true) {
@@ -353,7 +392,7 @@ function Invoke-SiteAuditor {
                 -Note "Route has fewer than 3 screenshots"
         }
 
-        if ($item.suspectShortPage -eq $true) {
+        if ($hasMetrics -and $item.suspectShortPage -eq $true) {
             $suspectShortPages += $url
             $findings += New-Finding `
                 -Severity "medium" `
@@ -363,7 +402,7 @@ function Invoke-SiteAuditor {
                 -Note "Route body text appears too short"
         }
 
-        if ($item.suspectEmptyTitle -eq $true) {
+        if ($hasMetrics -and $item.suspectEmptyTitle -eq $true) {
             $suspectEmptyTitles += $url
             $findings += New-Finding `
                 -Severity "medium" `
@@ -373,7 +412,7 @@ function Invoke-SiteAuditor {
                 -Note "Route title appears empty"
         }
 
-        if ($item.suspectFooterMissing -eq $true) {
+        if ($hasMetrics -and $item.suspectFooterMissing -eq $true) {
             $suspectFooterMissing += $url
             $findings += New-Finding `
                 -Severity "low" `
@@ -383,12 +422,7 @@ function Invoke-SiteAuditor {
                 -Note "Footer element was not detected"
         }
 
-        $linksValue = 0
-        if ($null -ne $item.links) {
-            $linksValue = [int]$item.links
-        }
-
-        if ($linksValue -eq 0) {
+        if ($hasMetrics -and $linksValue -eq 0) {
             $findings += New-Finding `
                 -Severity "medium" `
                 -Kind "no_links" `
@@ -397,12 +431,7 @@ function Invoke-SiteAuditor {
                 -Note "Route has zero links"
         }
 
-        $imagesValue = 0
-        if ($null -ne $item.images) {
-            $imagesValue = [int]$item.images
-        }
-
-        if ($imagesValue -eq 0) {
+        if ($hasMetrics -and $imagesValue -eq 0) {
             $findings += New-Finding `
                 -Severity "low" `
                 -Kind "no_images" `
@@ -458,6 +487,7 @@ function Invoke-SiteAuditor {
         suspect_empty_titles = $suspectEmptyTitles
         suspect_footer_missing = $suspectFooterMissing
         content_empty_routes = $contentEmptyRoutes
+        content_metrics_missing_routes = $missingMetricRoutes
         capture_summary_present = [bool]$captureSummary
         findings_high = $highSeverityCount
         findings_medium = $mediumSeverityCount
@@ -480,6 +510,7 @@ function Invoke-SiteAuditor {
         "FAILED ROUTES: $($failedRoutes.Count)"
         "LOW COVERAGE ROUTES: $($lowCoverageRoutes.Count)"
         "CONTENT EMPTY ROUTES: $($contentEmptyRoutes.Count)"
+        "CONTENT METRICS MISSING ROUTES: $($missingMetricRoutes.Count)"
         "HIGH FINDINGS: $highSeverityCount"
         "MEDIUM FINDINGS: $mediumSeverityCount"
         "LOW FINDINGS: $lowSeverityCount"
