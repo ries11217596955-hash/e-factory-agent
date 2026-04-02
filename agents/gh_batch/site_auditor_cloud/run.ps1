@@ -4,26 +4,54 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-Set-StrictMode -Version Latest
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $agentPath = Join-Path $scriptRoot 'agent.ps1'
 
+Write-Host "=== PREFLIGHT ==="
+Write-Host "scriptRoot: $scriptRoot"
+Write-Host "agentPath: $agentPath"
+
 if (-not (Test-Path $agentPath)) {
-  throw "agent.ps1 not found: $agentPath"
+  throw "agent.ps1 NOT FOUND: $agentPath"
+}
+
+if (-not $env:GH_PAT) {
+  throw "GH_PAT is EMPTY"
 }
 
 . $agentPath
 
-$repoList = @(
-  'ries11217596955-hash/automation-kb'
-  'ries11217596955-hash/e-factory-agent'
-  'ries11217596955-hash/e-factory-memory'
-)
+# гарантируем папку reports ДО запуска
+if (-not (Test-Path $ReportsDir)) {
+  New-Item -ItemType Directory -Path $ReportsDir -Force | Out-Null
+}
 
-$token = $env:GH_PAT
+try {
+  $repoList = @(
+    'ries11217596955-hash/automation-kb'
+    'ries11217596955-hash/e-factory-agent'
+    'ries11217596955-hash/e-factory-memory'
+  )
 
-Invoke-SiteAuditor `
-  -ReportsDir $ReportsDir `
-  -RepoList $repoList `
-  -Token $token
+  Invoke-SiteAuditor `
+    -ReportsDir $ReportsDir `
+    -RepoList $repoList `
+    -Token $env:GH_PAT
+
+  Write-Host "=== RUN PASS ==="
+}
+catch {
+  Write-Host "=== RUN FAIL ==="
+  Write-Host $_.Exception.Message
+
+  # даже при падении пишем файл
+  $fail = @{
+    status = "FAIL_RUNTIME"
+    error  = $_.Exception.Message
+  }
+
+  $fail | ConvertTo-Json -Depth 5 | Out-File "$ReportsDir\FAIL.json"
+
+  throw
+}
