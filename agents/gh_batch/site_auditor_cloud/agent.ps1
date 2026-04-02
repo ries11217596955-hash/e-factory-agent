@@ -76,9 +76,8 @@ function Convert-ToStringArray {
 
   if ($null -eq $InputObject) { return @() }
 
-  $items = @($InputObject)
   $result = New-Object System.Collections.Generic.List[string]
-  foreach ($item in $items) {
+  foreach ($item in @($InputObject)) {
     if ($null -eq $item) { continue }
     $result.Add([string]$item) | Out-Null
   }
@@ -412,7 +411,6 @@ function Get-HubMap {
   )
 
   $normalized = @(Convert-ToStringArray -InputObject $PagePaths)
-
   $hubBuckets = @{}
 
   foreach ($path in $normalized) {
@@ -512,8 +510,9 @@ function Get-AuditV2 {
     $TreeItems
   )
 
-  $repoText = [string]$Repo
   $items = @(Normalize-TreeItems -TreeItems $TreeItems)
+  if ($null -eq $items) { $items = @() }
+
   $paths = @($items | ForEach-Object { [string]$_.path })
   $blobPaths = @($items | Where-Object { $_.type -eq 'blob' } | ForEach-Object { [string]$_.path })
 
@@ -530,12 +529,13 @@ function Get-AuditV2 {
   $routeDepthMap = New-Object System.Collections.Generic.List[object]
   $maxDepth = 0
   foreach ($page in $pagePaths) {
-    $route = Convert-PagePathToRoute -Path ([string]$page)
+    $pageText = [string]$page
+    $route = Convert-PagePathToRoute -Path $pageText
     $depth = Get-RouteDepth -Route $route
     if ($depth -gt $maxDepth) { $maxDepth = $depth }
 
     $routeDepthMap.Add([pscustomobject]@{
-      path  = [string]$page
+      path  = $pageText
       route = [string]$route
       depth = [int]$depth
     }) | Out-Null
@@ -561,7 +561,7 @@ function Get-AuditV2 {
   }
 
   $minimalAudit = [pscustomobject]@{
-    repo                = $repoText
+    repo                = [string]$Repo
     has_src             = $hasSrc
     has_hubs            = $hasHubs
     has_index_md        = $hasIndexMd
@@ -574,14 +574,14 @@ function Get-AuditV2 {
 
   $structureScore = Get-StructureScore `
     -MinimalAudit $minimalAudit `
-    -PagePaths @($pagePaths) `
-    -HubMap @($hubMap) `
-    -OrphanPages @($orphanPages) `
-    -EmptyDirectories @($emptyDirs)
+    -PagePaths $pagePaths `
+    -HubMap $hubMap `
+    -OrphanPages $orphanPages `
+    -EmptyDirectories $emptyDirs
 
   return [pscustomobject]@{
     audit_version        = 'v2'
-    repo                 = $repoText
+    repo                 = [string]$Repo
     has_src              = $hasSrc
     has_hubs             = $hasHubs
     has_index_md         = $hasIndexMd
@@ -632,9 +632,9 @@ function Invoke-SiteAuditor {
   $summary = New-Object System.Collections.Generic.List[object]
   $auditResults = New-Object System.Collections.Generic.List[object]
 
-  $repoItems = @(Convert-ToStringArray -InputObject $RepoList)
+  $RepoList = @(Convert-ToStringArray -InputObject $RepoList)
 
-  foreach ($repo in $repoItems) {
+  foreach ($repo in $RepoList) {
     $repoSlug = $repo.Replace('/','__')
 
     $repoMetaUrl = "https://api.github.com/repos/$repo"
@@ -703,7 +703,7 @@ function Invoke-SiteAuditor {
 
       if ($treeResult.ok -and $treeResult.body_json) {
         try {
-          $treeItems = @($treeResult.body_json.tree)
+          $treeItems = @(Normalize-TreeItems -TreeItems @($treeResult.body_json.tree))
         }
         catch {
           $treeItems = @()
