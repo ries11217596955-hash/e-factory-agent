@@ -68,6 +68,50 @@ function Get-PreviewText {
   return $text
 }
 
+
+function Convert-ToStringArray {
+  param(
+    [AllowNull()]$InputObject
+  )
+
+  if ($null -eq $InputObject) { return @() }
+
+  $items = @($InputObject)
+  $result = New-Object System.Collections.Generic.List[string]
+  foreach ($item in $items) {
+    if ($null -eq $item) { continue }
+    $result.Add([string]$item) | Out-Null
+  }
+
+  return @($result)
+}
+
+function Normalize-TreeItems {
+  param(
+    [AllowNull()]$TreeItems
+  )
+
+  if ($null -eq $TreeItems) { return @() }
+
+  $result = New-Object System.Collections.Generic.List[object]
+  foreach ($item in @($TreeItems)) {
+    if ($null -eq $item) { continue }
+
+    $path = ''
+    $type = ''
+    try { $path = [string]$item.path } catch { $path = '' }
+    try { $type = [string]$item.type } catch { $type = '' }
+
+    $result.Add([pscustomobject]@{
+      path = $path
+      type = $type
+      raw  = $item
+    }) | Out-Null
+  }
+
+  return @($result)
+}
+
 function Invoke-GitHubApi {
   param(
     [Parameter(Mandatory=$true)][string]$Method,
@@ -195,10 +239,11 @@ function Write-StepTrace {
 
 function Get-RepoInventoryStats {
   param(
-    [Parameter(Mandatory=$true)][array]$TreeItems
+    $TreeItems
   )
 
-  $blobItems = @($TreeItems | Where-Object { $_.type -eq 'blob' })
+  $items = @(Normalize-TreeItems -TreeItems $TreeItems)
+  $blobItems = @($items | Where-Object { $_.type -eq 'blob' })
 
   $stats = [ordered]@{
     inventory_count = $blobItems.Count
@@ -254,10 +299,11 @@ function Get-RepoInventoryStats {
 
 function Get-PagePaths {
   param(
-    [Parameter(Mandatory=$true)][array]$TreeItems
+    $TreeItems
   )
 
-  $blobPaths = @($TreeItems | Where-Object { $_.type -eq 'blob' } | ForEach-Object { [string]$_.path })
+  $items = @(Normalize-TreeItems -TreeItems $TreeItems)
+  $blobPaths = @($items | Where-Object { $_.type -eq 'blob' } | ForEach-Object { [string]$_.path })
 
   $pages = @(
     $blobPaths | Where-Object {
@@ -331,20 +377,22 @@ function Get-RouteDepth {
 
 function Get-DirectoryList {
   param(
-    [Parameter(Mandatory=$true)][array]$TreeItems
+    $TreeItems
   )
 
-  $dirs = @($TreeItems | Where-Object { $_.type -eq 'tree' } | ForEach-Object { [string]$_.path })
+  $items = @(Normalize-TreeItems -TreeItems $TreeItems)
+  $dirs = @($items | Where-Object { $_.type -eq 'tree' } | ForEach-Object { [string]$_.path })
   return @($dirs | Sort-Object -Unique | ForEach-Object { [string]$_ })
 }
 
 function Get-EmptyDirectories {
   param(
-    [Parameter(Mandatory=$true)][array]$TreeItems
+    $TreeItems
   )
 
-  $dirs = @(Get-DirectoryList -TreeItems $TreeItems)
-  $allPaths = @($TreeItems | ForEach-Object { [string]$_.path })
+  $items = @(Normalize-TreeItems -TreeItems $TreeItems)
+  $dirs = @(Get-DirectoryList -TreeItems $items)
+  $allPaths = @($items | ForEach-Object { [string]$_.path })
 
   $empty = New-Object System.Collections.Generic.List[string]
   foreach ($dir in $dirs) {
@@ -363,7 +411,7 @@ function Get-HubMap {
     $PagePaths
   )
 
-  $normalized = @($PagePaths | ForEach-Object { [string]$_ })
+  $normalized = @(Convert-ToStringArray -InputObject $PagePaths)
 
   $hubBuckets = @{}
 
@@ -399,7 +447,7 @@ function Get-OrphanPages {
     $PagePaths
   )
 
-  $normalized = @($PagePaths | ForEach-Object { [string]$_ })
+  $normalized = @(Convert-ToStringArray -InputObject $PagePaths)
   $orphans = New-Object System.Collections.Generic.List[string]
 
   foreach ($path in $normalized) {
@@ -460,22 +508,24 @@ function Get-StructureScore {
 
 function Get-AuditV2 {
   param(
-    [Parameter(Mandatory=$true)][string]$Repo,
-    [Parameter(Mandatory=$true)][array]$TreeItems
+    $Repo,
+    $TreeItems
   )
 
-  $paths = @($TreeItems | ForEach-Object { [string]$_.path })
-  $blobPaths = @($TreeItems | Where-Object { $_.type -eq 'blob' } | ForEach-Object { [string]$_.path })
+  $repoText = [string]$Repo
+  $items = @(Normalize-TreeItems -TreeItems $TreeItems)
+  $paths = @($items | ForEach-Object { [string]$_.path })
+  $blobPaths = @($items | Where-Object { $_.type -eq 'blob' } | ForEach-Object { [string]$_.path })
 
   $hasSrc = @($paths | Where-Object { $_ -eq 'src' -or $_.StartsWith('src/') }).Count -gt 0
   $hasHubs = @($paths | Where-Object { $_ -eq 'src/hubs' -or $_.StartsWith('src/hubs/') }).Count -gt 0
   $hasIndexMd = @($blobPaths | Where-Object { $_ -eq 'src/index.md' }).Count -gt 0
   $hasIndexNjk = @($blobPaths | Where-Object { $_ -eq 'src/index.njk' }).Count -gt 0
 
-  $pagePaths = @(Get-PagePaths -TreeItems $TreeItems)
-  $hubMap = @(Get-HubMap -PagePaths @($pagePaths))
-  $orphanPages = @(Get-OrphanPages -PagePaths @($pagePaths))
-  $emptyDirs = @(Get-EmptyDirectories -TreeItems $TreeItems)
+  $pagePaths = @(Get-PagePaths -TreeItems $items)
+  $hubMap = @(Get-HubMap -PagePaths $pagePaths)
+  $orphanPages = @(Get-OrphanPages -PagePaths $pagePaths)
+  $emptyDirs = @(Get-EmptyDirectories -TreeItems $items)
 
   $routeDepthMap = New-Object System.Collections.Generic.List[object]
   $maxDepth = 0
@@ -511,7 +561,7 @@ function Get-AuditV2 {
   }
 
   $minimalAudit = [pscustomobject]@{
-    repo                = $Repo
+    repo                = $repoText
     has_src             = $hasSrc
     has_hubs            = $hasHubs
     has_index_md        = $hasIndexMd
@@ -531,7 +581,7 @@ function Get-AuditV2 {
 
   return [pscustomobject]@{
     audit_version        = 'v2'
-    repo                 = $Repo
+    repo                 = $repoText
     has_src              = $hasSrc
     has_hubs             = $hasHubs
     has_index_md         = $hasIndexMd
@@ -582,7 +632,9 @@ function Invoke-SiteAuditor {
   $summary = New-Object System.Collections.Generic.List[object]
   $auditResults = New-Object System.Collections.Generic.List[object]
 
-  foreach ($repo in $RepoList) {
+  $repoItems = @(Convert-ToStringArray -InputObject $RepoList)
+
+  foreach ($repo in $repoItems) {
     $repoSlug = $repo.Replace('/','__')
 
     $repoMetaUrl = "https://api.github.com/repos/$repo"
