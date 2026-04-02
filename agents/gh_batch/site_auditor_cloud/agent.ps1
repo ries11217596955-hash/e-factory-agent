@@ -4,18 +4,30 @@
 
 function Convert-ToStringArray {
     param($input)
-
     if (-not $input) { return @() }
-
     return @($input | ForEach-Object { [string]$_ })
 }
 
 function Normalize-TreeItems {
     param($items)
-
     if (-not $items) { return @() }
-
     return @($items | ForEach-Object { $_ })
+}
+
+# =========================
+# WRITE REPORT
+# =========================
+
+function Save-Json {
+    param($path, $data)
+    $json = $data | ConvertTo-Json -Depth 10
+    $json | Out-File -Encoding utf8 $path
+}
+
+function Ensure-ReportsDir {
+    if (-not (Test-Path "reports")) {
+        New-Item -ItemType Directory -Path "reports" | Out-Null
+    }
 }
 
 # =========================
@@ -28,15 +40,15 @@ function Invoke-SiteAuditor {
         $Token
     )
 
-    $RepoList = Convert-ToStringArray $RepoList
+    Ensure-ReportsDir
 
+    $RepoList = Convert-ToStringArray $RepoList
     $results = @()
 
     foreach ($repo in $RepoList) {
 
         Write-Host "AUDIT REPO: $repo"
 
-        # --- FETCH TREE ---
         $treeItems = @()
 
         try {
@@ -58,11 +70,28 @@ function Invoke-SiteAuditor {
             continue
         }
 
-        # --- AUDIT V2 ---
         $audit = Get-AuditV2 -Repo $repo -TreeItems $treeItems
-
         $results += $audit
     }
+
+    # =========================
+    # SAVE REPORTS
+    # =========================
+
+    $summary = @{
+        repos_total = $RepoList.Count
+        repos_processed = $results.Count
+        audit_version = "v2"
+        status = if ($results.Count -gt 0) { "PASS_AUDIT_V2" } else { "FAIL_RUNTIME" }
+    }
+
+    Save-Json "reports/audit_result.json" $results
+    Save-Json "reports/pipeline-summary.json" $summary
+
+    $summary.status | Out-File "reports/final-status.json"
+
+    "SITE AUDIT REPORT" | Out-File "reports/REPORT.txt"
+    $results | Out-File "reports/REPORT.txt" -Append
 
     return $results
 }
@@ -101,7 +130,6 @@ function Get-AuditV2 {
 
 function Get-PagePaths {
     param($TreeItems)
-
     $TreeItems = Normalize-TreeItems $TreeItems
 
     return @(
@@ -113,7 +141,6 @@ function Get-PagePaths {
 
 function Get-HubMap {
     param($PagePaths)
-
     $PagePaths = Convert-ToStringArray $PagePaths
 
     $map = @{}
@@ -123,11 +150,7 @@ function Get-HubMap {
             $parts = $p.Split('/')
             if ($parts.Count -gt 1) {
                 $hub = $parts[1]
-
-                if (-not $map.ContainsKey($hub)) {
-                    $map[$hub] = @()
-                }
-
+                if (-not $map.ContainsKey($hub)) { $map[$hub] = @() }
                 $map[$hub] += $p
             }
         }
@@ -138,7 +161,6 @@ function Get-HubMap {
 
 function Get-OrphanPages {
     param($PagePaths)
-
     $PagePaths = Convert-ToStringArray $PagePaths
 
     return @(
@@ -149,7 +171,6 @@ function Get-OrphanPages {
 
 function Get-EmptyDirectories {
     param($TreeItems)
-
     $TreeItems = Normalize-TreeItems $TreeItems
 
     $dirs = @(
