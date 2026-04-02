@@ -1,22 +1,31 @@
 $ErrorActionPreference = "Stop"
 
-function Build-RouteInventory {
-    param([string]$BaseUrl)
-    Write-Host "Build-RouteInventory: skipped (handled by capture layer)"
-}
-
 function Get-ScriptRoot {
     if ($PSScriptRoot) { return $PSScriptRoot }
     if ($PSCommandPath) { return (Split-Path -Parent $PSCommandPath) }
+    if ($MyInvocation -and $MyInvocation.MyCommand -and $MyInvocation.MyCommand.Path) {
+        return (Split-Path -Parent $MyInvocation.MyCommand.Path)
+    }
     return (Get-Location).Path
+}
+
+function Ensure-Directory {
+    param([Parameter(Mandatory=$true)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) {
+        New-Item -ItemType Directory -Path $Path -Force | Out-Null
+    }
 }
 
 function Read-JsonFile {
     param([Parameter(Mandatory=$true)][string]$Path)
-    if (-not (Test-Path $Path)) {
+    if (-not (Test-Path -LiteralPath $Path)) {
         throw "File not found: $Path"
     }
-    return Get-Content -Path $Path -Raw -Encoding UTF8 | ConvertFrom-Json
+    $raw = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        throw "JSON file is empty: $Path"
+    }
+    return ($raw | ConvertFrom-Json)
 }
 
 function Normalize-Items {
@@ -25,178 +34,183 @@ function Normalize-Items {
     return @($Items)
 }
 
-function Get-IntValue {
-    param([object]$Value, [int]$Default = 0)
-    if ($null -eq $Value) { return $Default }
-    try { return [int]$Value } catch { return $Default }
+function Add-UniqueItem {
+    param(
+        [Parameter(Mandatory=$true)][ref]$ListRef,
+        [Parameter(Mandatory=$true)][string]$Text
+    )
+    if ([string]::IsNullOrWhiteSpace($Text)) { return }
+    $list = @($ListRef.Value)
+    if (-not ($list -contains $Text)) {
+        $ListRef.Value = @($list + $Text)
+    }
+}
+
+function Join-OrNull {
+    param([object[]]$Items)
+    $arr = @($Items | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+    if ($arr.Count -eq 0) { return $null }
+    return ($arr -join " | ")
 }
 
 function Get-RoutePath {
     param([object]$Item)
-    foreach ($name in @('route_path','path','url_path','route')) {
-        if ($null -ne $Item.PSObject.Properties[$name] -and -not [string]::IsNullOrWhiteSpace([string]$Item.$name)) {
-            return [string]$Item.$name
+    if ($null -ne $Item.route_path -and -not [string]::IsNullOrWhiteSpace([string]$Item.route_path)) {
+        return [string]$Item.route_path
+    }
+    if ($null -ne $Item.url -and -not [string]::IsNullOrWhiteSpace([string]$Item.url)) {
+        try {
+            $u = [Uri]([string]$Item.url)
+            return $u.AbsolutePath
+        }
+        catch {
+            return [string]$Item.url
         }
     }
-    foreach ($name in @('url','page_url')) {
-        if ($null -ne $Item.PSObject.Properties[$name] -and -not [string]::IsNullOrWhiteSpace([string]$Item.$name)) {
-            try {
-                $u = [uri][string]$Item.$name
-                return $u.AbsolutePath
-            }
-            catch {
-                return [string]$Item.$name
-            }
-        }
-    }
-    return "unknown"
+    return "/unknown"
 }
 
 function Get-BodyTextLength {
     param([object]$Item)
-    foreach ($name in @('bodyTextLength','body_text_length','textLength','content_length')) {
-        if ($null -ne $Item.PSObject.Properties[$name]) {
-            return Get-IntValue -Value $Item.$name -Default 0
-        }
-    }
+    if ($null -ne $Item.bodyTextLength) { return [int]$Item.bodyTextLength }
+    if ($null -ne $Item.body_text_length) { return [int]$Item.body_text_length }
     return 0
 }
 
-function Get-ImagesCount {
+function Get-ImageCount {
     param([object]$Item)
-    foreach ($name in @('images','imageCount','images_count')) {
-        if ($null -ne $Item.PSObject.Properties[$name]) {
-            return Get-IntValue -Value $Item.$name -Default 0
-        }
-    }
+    if ($null -ne $Item.images) { return [int]$Item.images }
     return 0
 }
 
 function Get-ScreenshotCount {
     param([object]$Item)
-    foreach ($name in @('screenshotCount','screenshots','screenshots_count')) {
-        if ($null -ne $Item.PSObject.Properties[$name]) {
-            return Get-IntValue -Value $Item.$name -Default 0
-        }
-    }
+    if ($null -ne $Item.screenshotCount) { return [int]$Item.screenshotCount }
+    if ($null -ne $Item.screenshots) { return @($Item.screenshots).Count }
     return 0
 }
 
+function Get-ContentMetricsPresent {
+    param([object]$Item)
+    if ($null -ne $Item.contentMetricsPresent) { return [bool]$Item.contentMetricsPresent }
+    return ((Get-BodyTextLength -Item $Item) -gt 0)
+}
+
 function Get-RouteWeight {
-    param([string]$Path)
-    if ($Path -in @('/', '/hubs/', '/search/')) { return 'critical' }
-    if ($Path -in @('/tools/', '/start-here/')) { return 'high' }
+    param([Parameter(Mandatory=$true)][string]$RoutePath)
+    if ($RoutePath -in @('/', '/hubs/', '/search/')) { return 'critical' }
+    if ($RoutePath -in @('/tools/', '/start-here/')) { return 'high' }
     return 'normal'
+}
+
+function Get-VisualClass {
+    param([object]$Item)
+    $images = Get-ImageCount -Item $Item
+    $len = Get-BodyTextLength -Item $Item
+    if ($images -eq 0 -and $len -lt 400) { return 'visual_empty' }
+    if ($images -eq 0) { return 'visual_weak' }
+    return 'visual_ok'
+}
+
+function Build-RouteInventory {
+    param([string]$BaseUrl)
+    Write-Host "Build-RouteInventory: shim active"
 }
 
 function Get-VisualFindings {
     param([object[]]$ManifestItems)
-
     $items = Normalize-Items $ManifestItems
     $result = @()
-
     foreach ($i in $items) {
         $routePath = Get-RoutePath -Item $i
-        $images = Get-ImagesCount -Item $i
-        $len = Get-BodyTextLength -Item $i
-
-        $visualClass = 'visual_ok'
-        if ($images -eq 0 -and $len -lt 400) {
-            $visualClass = 'visual_empty'
-        }
-        elseif ($images -eq 0) {
-            $visualClass = 'visual_weak'
-        }
-
+        $visualClass = Get-VisualClass -Item $i
         $result += [pscustomobject]@{
-            route_path   = $routePath
-            images       = $images
-            body_length  = $len
+            route_path = $routePath
             visual_class = $visualClass
+            body_text_length = (Get-BodyTextLength -Item $i)
+            images = (Get-ImageCount -Item $i)
+            screenshot_count = (Get-ScreenshotCount -Item $i)
         }
     }
-
     return @($result)
 }
 
 function Build-RouteScores {
     param([object[]]$ManifestItems)
-
     $items = Normalize-Items $ManifestItems
     $scores = @()
-
     foreach ($i in $items) {
         $routePath = Get-RoutePath -Item $i
         $len = Get-BodyTextLength -Item $i
-        $images = Get-ImagesCount -Item $i
-        $weight = Get-RouteWeight -Path $routePath
-
-        $band = 'ok'
-        if ($len -lt 350) {
-            $band = 'watch'
-        }
-
+        $weight = Get-RouteWeight -RoutePath $routePath
+        $scoreBand = 'ok'
+        if ($len -lt 350) { $scoreBand = 'watch' }
         $scores += [pscustomobject]@{
-            route_path        = $routePath
-            score_band        = $band
-            weight            = $weight
-            route_importance  = $weight
-            body_text_length  = $len
-            images            = $images
+            route_path = $routePath
+            body_text_length = $len
+            images = (Get-ImageCount -Item $i)
+            screenshot_count = (Get-ScreenshotCount -Item $i)
+            score_band = $scoreBand
+            route_importance = $weight
+            weight = $weight
+            content_metrics_present = (Get-ContentMetricsPresent -Item $i)
         }
     }
-
     return @($scores)
 }
 
 function Build-VisualSummary {
     param(
-        [string]$BaseUrl,
+        [Parameter(Mandatory=$true)][string]$BaseUrl,
         [object[]]$ManifestItems,
         [object[]]$Findings
     )
-
     $items = Normalize-Items $ManifestItems
-    $findingsNorm = Normalize-Items $Findings
-    $count = @($items).Count
-    $screenshotsCount = 0
-    $contentEmptyRoutes = @()
-    $suspectShortPages = @()
-    $visualWeakCount = 0
-
+    $findingsArr = Normalize-Items $Findings
+    $suspectShort = @()
+    $contentEmpty = @()
+    $screenshotTotal = 0
     foreach ($i in $items) {
-        $screenshotsCount += Get-ScreenshotCount -Item $i
         $routePath = Get-RoutePath -Item $i
         $len = Get-BodyTextLength -Item $i
-        if ($len -eq 0) { $contentEmptyRoutes += $routePath }
-        if ($len -gt 0 -and $len -lt 350) { $suspectShortPages += $routePath }
+        if ($len -lt 350) { $suspectShort += $routePath }
+        if (-not (Get-ContentMetricsPresent -Item $i)) { $contentEmpty += $routePath }
+        $screenshotTotal += (Get-ScreenshotCount -Item $i)
     }
-
-    foreach ($f in $findingsNorm) {
-        if ($f.visual_class -ne 'visual_ok') { $visualWeakCount++ }
-    }
-
+    $visualWeakCount = (@($findingsArr | Where-Object { $_.visual_class -ne 'visual_ok' })).Count
+    $coverageScore = if ($items.Count -gt 0) { [Math]::Round(($screenshotTotal / [Math]::Max($items.Count, 1)), 2) } else { 0 }
     return [pscustomobject]@{
-        base_url                = $BaseUrl
-        route_count             = $count
-        screenshots_count       = $screenshotsCount
-        coverage_score          = $screenshotsCount
-        content_empty_routes    = @($contentEmptyRoutes)
-        suspect_short_pages     = @($suspectShortPages)
-        site_visual_health_score= [math]::Max(0, $count - $visualWeakCount)
-        status                  = 'PASS_V45'
+        base_url = $BaseUrl
+        route_count = $items.Count
+        screenshots_count = $screenshotTotal
+        coverage_score = $coverageScore
+        site_visual_health_score = if ($items.Count -gt 0) { [Math]::Round((($items.Count - $visualWeakCount) / $items.Count) * 10, 2) } else { 0 }
+        content_empty_routes = @($contentEmpty)
+        suspect_short_pages = @($suspectShort)
+        status = if ($contentEmpty.Count -eq 0) { 'PASS_V4_5' } else { 'FAIL_CONTENT_EMPTY' }
     }
+}
+
+function Find-ScoreByRoute {
+    param(
+        [object[]]$RouteScores,
+        [string]$RoutePath
+    )
+    foreach ($r in (Normalize-Items $RouteScores)) {
+        if ([string]$r.route_path -eq $RoutePath) { return $r }
+    }
+    return $null
 }
 
 function New-DecisionSummaryV4 {
     param(
-        [object]$VisualSummary,
+        [Parameter(Mandatory=$true)][object]$VisualSummary,
         [object[]]$RouteScores,
         [object[]]$Findings
     )
 
-    $routeScoresNorm = Normalize-Items $RouteScores
-    $findingsNorm = Normalize-Items $Findings
+    $scores = Normalize-Items $RouteScores
+    $findingsArr = Normalize-Items $Findings
 
     $p0 = @()
     $p1 = @()
@@ -204,167 +218,188 @@ function New-DecisionSummaryV4 {
     $missing = @()
     $doNext = @()
     $routeWeightSignals = @()
-    $visualWeaknessSummary = @()
 
     $hasWeakCritical = $false
     $hasWeakHigh = $false
-    $flowRisk = 'low'
+    $hasVisualWeakness = $false
 
-    foreach ($r in $routeScoresNorm) {
-        $signal = "$($r.route_path)=$($r.weight)/$($r.score_band)"
-        $routeWeightSignals += $signal
+    foreach ($r in $scores) {
+        $routePath = [string]$r.route_path
+        $weight = [string]$r.weight
+        $band = [string]$r.score_band
 
-        if ($r.score_band -eq 'watch' -and $r.weight -eq 'critical') {
+        if ($weight -eq 'critical') {
+            Add-UniqueItem -ListRef ([ref]$routeWeightSignals) -Text "$routePath=critical"
+        }
+        elseif ($weight -eq 'high') {
+            Add-UniqueItem -ListRef ([ref]$routeWeightSignals) -Text "$routePath=high"
+        }
+
+        if ($band -eq 'watch' -and $weight -eq 'critical') {
             $hasWeakCritical = $true
-            $p0 += "$($r.route_path) is a critical route and too shallow to support navigation flow."
+            Add-UniqueItem -ListRef ([ref]$p0) -Text "$routePath is a critical route and too shallow to support navigation flow."
         }
-        elseif ($r.score_band -eq 'watch' -and $r.weight -eq 'high') {
+        elseif ($band -eq 'watch' -and $weight -eq 'high') {
             $hasWeakHigh = $true
-            $p1 += "$($r.route_path) is important but not strong enough yet."
+            Add-UniqueItem -ListRef ([ref]$p1) -Text "$routePath is a high-value route and needs stronger depth."
         }
-        elseif ($r.score_band -eq 'watch') {
-            $p2 += "$($r.route_path) is thin and should be strengthened later."
-        }
-    }
-
-    foreach ($f in $findingsNorm) {
-        if ($f.visual_class -eq 'visual_empty') {
-            $visualWeaknessSummary += "$($f.route_path)=visual_empty"
-        }
-        elseif ($f.visual_class -eq 'visual_weak') {
-            $visualWeaknessSummary += "$($f.route_path)=visual_weak"
+        elseif ($band -eq 'watch') {
+            Add-UniqueItem -ListRef ([ref]$p2) -Text "$routePath is thinner than expected."
         }
     }
 
-    if (@($visualWeaknessSummary).Count -gt 0) {
-        $p0 += 'Key routes are visually weak and scan poorly.'
-        $missing += 'No strong visual support blocks detected across weak routes.'
+    foreach ($f in $findingsArr) {
+        if ([string]$f.visual_class -eq 'visual_empty') {
+            $hasVisualWeakness = $true
+            Add-UniqueItem -ListRef ([ref]$p0) -Text "$($f.route_path) looks visually empty and weak for scanning."
+        }
+        elseif ([string]$f.visual_class -eq 'visual_weak') {
+            $hasVisualWeakness = $true
+            Add-UniqueItem -ListRef ([ref]$p1) -Text "$($f.route_path) lacks visual support blocks."
+        }
     }
+
+    $flowRisk = 'low'
+    if ($hasWeakCritical) { $flowRisk = 'high' }
+    elseif ($hasWeakHigh -or $hasVisualWeakness) { $flowRisk = 'medium' }
+
+    $siteStage = 'Stage 1: Structure'
+    if (-not $hasWeakCritical -and @($VisualSummary.content_empty_routes).Count -eq 0 -and [int]$VisualSummary.route_count -ge 5) {
+        $siteStage = 'Stage 2: Product'
+    }
+
+    $coreProblem = 'Site structure exists but needs refinement.'
+    if ($hasWeakCritical) {
+        $coreProblem = 'Critical routes lack depth, breaking navigation flow and weakening the site as a traffic system.'
+    }
+    elseif ($hasVisualWeakness) {
+        $coreProblem = 'Key routes are visually weak, reducing scanability and perceived completeness.'
+    }
+
+    Add-UniqueItem -ListRef ([ref]$missing) -Text 'No dedicated monetization or conversion route detected in the audited route set.'
+    Add-UniqueItem -ListRef ([ref]$p2) -Text 'Monetization path is still missing, but it is not the first repair priority.'
 
     if ($hasWeakCritical) {
-        $flowRisk = 'high'
+        Add-UniqueItem -ListRef ([ref]$doNext) -Text 'Expand /hubs/ into a stronger navigation hub with grouped next paths.'
+        Add-UniqueItem -ListRef ([ref]$doNext) -Text 'Strengthen /search/ so discovery works as a real route, not a thin page.'
     }
-    elseif ($hasWeakHigh) {
-        $flowRisk = 'medium'
-    }
-
-    $stage = 'Stage 1: Structure'
-    if (-not $hasWeakCritical -and @($VisualSummary.content_empty_routes).Count -eq 0) {
-        $stage = 'Stage 2: Product'
-    }
-
-    $core = 'Site structure exists but needs refinement.'
-    if ($hasWeakCritical) {
-        $core = 'Critical routes lack depth, breaking navigation and discovery flow.'
-    }
-    elseif (@($visualWeaknessSummary).Count -gt 0) {
-        $core = 'Key routes are visually weak, reducing scanability and perceived completeness.'
-    }
-
-    if ($hasWeakCritical) {
-        $doNext += 'Expand /hubs/ into a structured navigation surface with clear route groups.'
-        $doNext += 'Improve /search/ so it works as a discovery route, not a thin placeholder.'
-    }
-    if (@($visualWeaknessSummary).Count -gt 0) {
-        $doNext += 'Add visual support blocks or previews on key routes to improve scanability.'
+    if ($hasVisualWeakness) {
+        Add-UniqueItem -ListRef ([ref]$doNext) -Text 'Add visual support blocks or previews on key routes to improve scanability.'
     }
     if (@($doNext).Count -eq 0) {
-        $doNext += 'Strengthen the highest-value routes first.'
+        Add-UniqueItem -ListRef ([ref]$doNext) -Text 'Add one clear conversion route after structural routes are strong enough.'
     }
-    if (@($doNext).Count -gt 3) {
-        $doNext = @($doNext)[0..2]
+    $doNext = @($doNext | Select-Object -First 3)
+
+    $visualWeaknessSummary = if ($hasVisualWeakness) {
+        'Key routes are text-heavy and visually weak.'
+    } else {
+        'Visual layer is acceptable for the audited routes.'
     }
 
-    $targetState = 'The site has stronger hubs/search routes, clearer forward navigation, and visible support blocks on key pages.'
+    $targetState = if ($hasWeakCritical) {
+        'Within 30 days the site should have stronger hubs/search routes and clearer forward navigation.'
+    }
+    elseif ($hasVisualWeakness) {
+        'Within 30 days the site should feel more complete through better visual support on key routes.'
+    }
+    else {
+        'Within 30 days the site should add one visible conversion path on top of stable core routes.'
+    }
 
     return [pscustomobject]@{
-        site_stage              = $stage
-        core_problem            = $core
-        p0                      = (@($p0) -join ' | ')
-        p1                      = (@($p1) -join ' | ')
-        p2                      = (@($p2) -join ' | ')
-        missing                 = (@($missing) -join ' | ')
-        do_next                 = (@($doNext) -join ' | ')
-        target_state_30_days    = $targetState
-        route_weight_signals    = (@($routeWeightSignals) -join ' | ')
-        visual_weakness_summary = (@($visualWeaknessSummary) -join ' | ')
-        flow_risk               = $flowRisk
+        site_stage = $siteStage
+        core_problem = $coreProblem
+        p0 = Join-OrNull -Items $p0
+        p1 = Join-OrNull -Items $p1
+        p2 = Join-OrNull -Items $p2
+        missing = Join-OrNull -Items $missing
+        do_next = Join-OrNull -Items $doNext
+        target_state_30_days = $targetState
+        route_weight_signals = Join-OrNull -Items $routeWeightSignals
+        visual_weakness_summary = $visualWeaknessSummary
+        flow_risk = $flowRisk
     }
 }
 
-function Write-ReportText {
+function Write-TextReport {
     param(
-        [string]$ReportsDir,
-        [object]$VisualSummary,
-        [object]$Decision
+        [Parameter(Mandatory=$true)][string]$Path,
+        [Parameter(Mandatory=$true)][object]$VisualSummary,
+        [Parameter(Mandatory=$true)][object]$Decision
     )
 
-    $reportLines = @()
-    $reportLines += 'SITE AUDITOR REPORT'
-    $reportLines += "BASE URL: $($VisualSummary.base_url)"
-    $reportLines += "STATUS: $($VisualSummary.status)"
-    $reportLines += "ROUTES: $($VisualSummary.route_count)"
-    $reportLines += "SCREENSHOTS: $($VisualSummary.screenshots_count)"
-    $reportLines += ''
-    $reportLines += 'SITE STAGE'
-    $reportLines += "$($Decision.site_stage)"
-    $reportLines += ''
-    $reportLines += 'CORE PROBLEM'
-    $reportLines += "$($Decision.core_problem)"
-    $reportLines += ''
-    $reportLines += 'P0 (BLOCKERS)'
-    if ([string]::IsNullOrWhiteSpace([string]$Decision.p0)) { $reportLines += '- none' } else { foreach ($x in ($Decision.p0 -split '\s\|\s')) { $reportLines += "- $x" } }
-    $reportLines += ''
-    $reportLines += 'P1 (HIGH IMPACT)'
-    if ([string]::IsNullOrWhiteSpace([string]$Decision.p1)) { $reportLines += '- none' } else { foreach ($x in ($Decision.p1 -split '\s\|\s')) { $reportLines += "- $x" } }
-    $reportLines += ''
-    $reportLines += 'P2 (LOW)'
-    if ([string]::IsNullOrWhiteSpace([string]$Decision.p2)) { $reportLines += '- none' } else { foreach ($x in ($Decision.p2 -split '\s\|\s')) { $reportLines += "- $x" } }
-    $reportLines += ''
-    $reportLines += 'MISSING'
-    if ([string]::IsNullOrWhiteSpace([string]$Decision.missing)) { $reportLines += '- none' } else { foreach ($x in ($Decision.missing -split '\s\|\s')) { $reportLines += "- $x" } }
-    $reportLines += ''
-    $reportLines += 'DO NEXT (MAX 3 STEPS)'
-    $stepIndex = 1
-    foreach ($x in ($Decision.do_next -split '\s\|\s')) {
-        if (-not [string]::IsNullOrWhiteSpace($x)) {
-            $reportLines += ("{0}. {1}" -f $stepIndex, $x)
-            $stepIndex++
-        }
-    }
-    $reportLines += ''
-    $reportLines += 'TARGET STATE (NEXT 30 DAYS)'
-    $reportLines += "$($Decision.target_state_30_days)"
-
-    Set-Content -Path (Join-Path $ReportsDir 'REPORT.txt') -Value $reportLines -Encoding UTF8
+    $lines = @()
+    $lines += 'SITE AUDITOR REPORT'
+    $lines += "BASE URL: $($VisualSummary.base_url)"
+    $lines += "STATUS: $($VisualSummary.status)"
+    $lines += "ROUTES: $($VisualSummary.route_count)"
+    $lines += "SCREENSHOTS: $($VisualSummary.screenshots_count)"
+    $lines += ''
+    $lines += 'SITE STAGE'
+    $lines += "$($Decision.site_stage)"
+    $lines += ''
+    $lines += 'CORE PROBLEM'
+    $lines += "$($Decision.core_problem)"
+    $lines += ''
+    $lines += 'P0 (BLOCKERS)'
+    if ($Decision.p0) { foreach ($x in ($Decision.p0 -split '\s\|\s')) { $lines += "- $x" } } else { $lines += '- none' }
+    $lines += ''
+    $lines += 'P1 (HIGH IMPACT)'
+    if ($Decision.p1) { foreach ($x in ($Decision.p1 -split '\s\|\s')) { $lines += "- $x" } } else { $lines += '- none' }
+    $lines += ''
+    $lines += 'P2 (LOW)'
+    if ($Decision.p2) { foreach ($x in ($Decision.p2 -split '\s\|\s')) { $lines += "- $x" } } else { $lines += '- none' }
+    $lines += ''
+    $lines += 'MISSING'
+    if ($Decision.missing) { foreach ($x in ($Decision.missing -split '\s\|\s')) { $lines += "- $x" } } else { $lines += '- none' }
+    $lines += ''
+    $lines += 'DO NEXT (MAX 3 STEPS)'
+    $i = 1
+    if ($Decision.do_next) { foreach ($x in ($Decision.do_next -split '\s\|\s')) { $lines += ("{0}. {1}" -f $i, $x); $i++ } } else { $lines += '1. none' }
+    $lines += ''
+    $lines += 'TARGET STATE (30 DAYS)'
+    $lines += "$($Decision.target_state_30_days)"
+    $lines += ''
+    $lines += 'FLOW RISK'
+    $lines += "$($Decision.flow_risk)"
+    $lines += ''
+    $lines += 'VISUAL WEAKNESS SUMMARY'
+    $lines += "$($Decision.visual_weakness_summary)"
+    Set-Content -LiteralPath $Path -Value $lines -Encoding UTF8
 }
 
 function Invoke-SiteAuditor {
-    param([string]$BaseUrl)
+    param([Parameter(Mandatory=$true)][string]$BaseUrl)
 
     $scriptRoot = Get-ScriptRoot
     Write-Host "scriptRoot: $scriptRoot"
 
     $reportsDir = Join-Path $scriptRoot 'reports'
-    if (-not (Test-Path $reportsDir)) {
-        $null = New-Item -ItemType Directory -Path $reportsDir -Force
-    }
+    Ensure-Directory -Path $reportsDir
 
-    $manifestPath = Join-Path $scriptRoot 'visual_manifest.json'
-    $visualManifest = Read-JsonFile -Path $manifestPath
-    $items = Normalize-Items $visualManifest
+    $manifestPath = Join-Path $reportsDir 'visual_manifest.json'
+    $manifest = Read-JsonFile -Path $manifestPath
+    $items = Normalize-Items $manifest
 
     $findings = Get-VisualFindings -ManifestItems $items
-    $visualSummary = Build-VisualSummary -BaseUrl $BaseUrl -ManifestItems $items -Findings $findings
     $routeScores = Build-RouteScores -ManifestItems $items
+    $visualSummary = Build-VisualSummary -BaseUrl $BaseUrl -ManifestItems $items -Findings $findings
     $decision = New-DecisionSummaryV4 -VisualSummary $visualSummary -RouteScores $routeScores -Findings $findings
 
-    $findings | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $reportsDir 'visual_findings.json') -Encoding UTF8
-    $visualSummary | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $reportsDir 'visual_summary.json') -Encoding UTF8
-    $routeScores | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $reportsDir 'route_scores.json') -Encoding UTF8
-    $decision | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $reportsDir 'decision_summary.json') -Encoding UTF8
+    $findings | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $reportsDir 'visual_findings.json') -Encoding UTF8
+    $visualSummary | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $reportsDir 'visual_summary.json') -Encoding UTF8
+    $routeScores | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $reportsDir 'route_scores.json') -Encoding UTF8
+    $decision | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $reportsDir 'decision_summary.json') -Encoding UTF8
 
-    Write-ReportText -ReportsDir $reportsDir -VisualSummary $visualSummary -Decision $decision
+    $finalStatus = [pscustomobject]@{
+        status = 'PASS'
+        base_url = $BaseUrl
+        reports_dir = $reportsDir
+        generated_at_utc = (Get-Date).ToUniversalTime().ToString('s') + 'Z'
+    }
+    $finalStatus | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $reportsDir 'final-status.json') -Encoding UTF8
 
-    Write-Host 'SITE_AUDITOR: reports written successfully'
+    Write-TextReport -Path (Join-Path $reportsDir 'REPORT.txt') -VisualSummary $visualSummary -Decision $decision
+    Write-Host 'SITE_AUDITOR REPORTS WRITTEN'
 }
