@@ -34,7 +34,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          ./agents/gh_batch/site_auditor_cloud/run.ps1 -ReportDir reports
+          ./agents/gh_batch/site_auditor_cloud/run.ps1
 
       - name: Upload reports artifact
         if: always()
