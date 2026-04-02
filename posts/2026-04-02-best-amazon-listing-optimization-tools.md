@@ -1,10 +1,10 @@
 ---
-title: Best Amazon Keyword Tools
+title: Best Amazon Listing Optimization Tools
 layout: post.njk
 tags: ["amazon-ai","traffic"]
 ---
 
-# Best Amazon Keyword Tools
+# Best Amazon Listing Optimization Tools
 
 ## Problem
 User searches this when facing a specific Amazon issue or decision.

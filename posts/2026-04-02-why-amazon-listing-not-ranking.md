@@ -1,10 +1,10 @@
 ---
-title: Best Amazon Keyword Tools
+title: Why Amazon Listing Not Ranking
 layout: post.njk
 tags: ["amazon-ai","traffic"]
 ---
 
-# Best Amazon Keyword Tools
+# Why Amazon Listing Not Ranking
 
 ## Problem
 User searches this when facing a specific Amazon issue or decision.

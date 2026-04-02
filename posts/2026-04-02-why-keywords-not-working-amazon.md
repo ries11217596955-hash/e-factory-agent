@@ -1,10 +1,10 @@
 ---
-title: Best Amazon Keyword Tools
+title: Why Keywords Not Working on Amazon
 layout: post.njk
 tags: ["amazon-ai","traffic"]
 ---
 
-# Best Amazon Keyword Tools
+# Why Keywords Not Working on Amazon
 
 ## Problem
 User searches this when facing a specific Amazon issue or decision.

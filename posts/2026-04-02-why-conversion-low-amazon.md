@@ -1,10 +1,10 @@
 ---
-title: Best Amazon Keyword Tools
+title: Why Conversion Is Low on Amazon
 layout: post.njk
 tags: ["amazon-ai","traffic"]
 ---
 
-# Best Amazon Keyword Tools
+# Why Conversion Is Low on Amazon
 
 ## Problem
 User searches this when facing a specific Amazon issue or decision.

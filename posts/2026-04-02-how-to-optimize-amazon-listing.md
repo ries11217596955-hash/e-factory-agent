@@ -1,10 +1,10 @@
 ---
-title: Best Amazon Keyword Tools
+title: How to Optimize Amazon Listing
 layout: post.njk
 tags: ["amazon-ai","traffic"]
 ---
 
-# Best Amazon Keyword Tools
+# How to Optimize Amazon Listing
 
 ## Problem
 User searches this when facing a specific Amazon issue or decision.
