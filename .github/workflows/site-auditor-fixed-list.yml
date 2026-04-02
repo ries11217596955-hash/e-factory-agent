@@ -11,8 +11,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout current repo
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: PAT preflight
+        shell: pwsh
+        env:
+          GH_BATCH_PAT: ${{ secrets.GH_BATCH_PAT }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:GH_BATCH_PAT)) {
+            throw "GH_BATCH_PAT is empty or not available in Actions secrets."
+          }
+          Write-Host "PAT is present."
 
       - name: Run auditor
         shell: pwsh
