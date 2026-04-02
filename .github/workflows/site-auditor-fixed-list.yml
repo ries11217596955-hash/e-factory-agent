@@ -16,6 +16,11 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Prepare reports dir
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path reports | Out-Null
+
       - name: PAT preflight
         shell: pwsh
         env:
@@ -24,28 +29,55 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($env:GH_BATCH_PAT)) {
             throw "GH_BATCH_PAT is empty or not available in Actions secrets."
           }
-          Write-Host "PAT is present."
+          @{ token_present = $true; token_length = $env:GH_BATCH_PAT.Length } |
+            ConvertTo-Json -Depth 5 |
+            Out-File -Encoding utf8 reports/pat-preflight.json
 
-      - name: Test PAT access
+      - name: Test API access directly
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ secrets.GH_BATCH_PAT }}
         run: |
-          $headers = @{
-            Authorization = "Bearer $env:GITHUB_TOKEN"
-            "User-Agent"  = "pat-test"
-            Accept        = "application/vnd.github+json"
+          $targets = @(
+            "https://api.github.com/repos/ries11217596955-hash/e-factory-agent",
+            "https://api.github.com/repos/ries11217596955-hash/e-factory-memory",
+            "https://api.github.com/repos/ries11217596955-hash/automation-kb"
+          )
+
+          foreach ($url in $targets) {
+            $name = ($url.Split('/')[-2] + "_" + $url.Split('/')[-1] + ".json")
+            try {
+              $headers = @{
+                Authorization = "Bearer $env:GITHUB_TOKEN"
+                "User-Agent"  = "pat-test"
+                Accept        = "application/vnd.github+json"
+              }
+              $resp = Invoke-WebRequest -Uri $url -Headers $headers -Method Get -ErrorAction Stop
+              [pscustomobject]@{
+                url = $url
+                status_code = [int]$resp.StatusCode
+                body = ($resp.Content | ConvertFrom-Json)
+              } | ConvertTo-Json -Depth 20 | Out-File -Encoding utf8 ("reports/" + $name)
+            }
+            catch {
+              $status = $null
+              $body = $null
+              if ($_.Exception.Response) {
+                try { $status = [int]$_.Exception.Response.StatusCode.value__ } catch {}
+                try {
+                  $sr = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+                  $body = $sr.ReadToEnd()
+                  $sr.Close()
+                } catch {}
+              }
+              [pscustomobject]@{
+                url = $url
+                status_code = $status
+                error = $_.Exception.Message
+                body = $body
+              } | ConvertTo-Json -Depth 20 | Out-File -Encoding utf8 ("reports/" + $name)
+            }
           }
-
-          Invoke-RestMethod -Uri "https://api.github.com/repos/ries11217596955-hash/e-factory-agent" -Headers $headers -Method Get | Out-Null
-          Write-Host "PAT access to e-factory-agent: OK"
-
-      - name: Run auditor
-        shell: pwsh
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_BATCH_PAT }}
-        run: |
-          pwsh ./agents/gh_batch/site_auditor_cloud/run.ps1
 
       - name: Upload reports
         if: always()
