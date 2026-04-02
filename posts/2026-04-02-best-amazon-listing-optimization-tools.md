@@ -18,6 +18,16 @@ Provide direct actionable steps.
 3. Apply optimization
 4. Validate results
 
+
+## Recommended tools (simple picks)
+
+- Keyword research → /posts/2026-04-02-best-amazon-keyword-tools/
+- Listing optimization → /posts/2026-04-02-best-amazon-listing-optimization-tools/
+- SEO workflows → /posts/2026-04-02-best-tools-for-amazon-seo/
+
+Use tools after you understand the workflow to avoid noise.
+
+
 ## Next steps
 - Apply keywords → /hubs/amazon-ai/keyword-research/
 - Fix listing → /hubs/amazon-ai/listing-optimization/

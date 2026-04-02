@@ -1,8 +1,8 @@
 {
   "iteration": 1,
-  "zip_name": "automation-kb_flow_batch_20260402.zip",
-  "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\automation-kb_flow_batch_20260402.zip",
-  "finished_at": "2026-04-02 08:20:25.113",
+  "zip_name": "automation-kb_money_layer_batch_20260402.zip",
+  "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\automation-kb_money_layer_batch_20260402.zip",
+  "finished_at": "2026-04-02 08:26:08.181",
   "status": "PASS",
   "reason_code": ""
 }
