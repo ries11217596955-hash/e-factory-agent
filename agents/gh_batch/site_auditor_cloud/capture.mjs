@@ -1,164 +1,151 @@
-import fs from "fs";
-import path from "path";
-import { chromium } from "playwright";
+function Build-RouteInventory {
+    param($BaseUrl)
 
-const baseUrl = process.argv[2];
-const routeFile = process.argv[3];
-const outDir = process.argv[4];
-
-if (!baseUrl || !routeFile || !outDir) {
-  console.error("Usage: node capture.mjs <baseUrl> <routeInventory.json> <reportsDir>");
-  process.exit(2);
-}
-
-const routes = JSON.parse(fs.readFileSync(routeFile, "utf-8"));
-const screenshotsDir = path.join(outDir, "screenshots");
-
-fs.mkdirSync(screenshotsDir, { recursive: true });
-
-function slugifyRoute(url) {
-  let s = url.replace(/^https?:\/\//, "");
-  s = s.replace(/[^a-zA-Z0-9/_-]+/g, "_");
-  s = s.replace(/[\/]+/g, "__");
-  s = s.replace(/^_+|_+$/g, "");
-  if (!s) s = "root";
-  return s;
-}
-
-function buildCapturePoints(scrollHeight, viewportHeight) {
-  const minShots = 3;
-  const maxShots = 8;
-
-  // Короткие страницы: top / mid / bottom
-  if (scrollHeight <= viewportHeight * 1.5) {
-    return [0, Math.max(0, Math.floor((scrollHeight - viewportHeight) / 2)), Math.max(0, scrollHeight - viewportHeight)]
-      .filter((v, i, arr) => arr.indexOf(v) === i);
-  }
-
-  // Более длинные страницы: сегменты по высоте
-  const effectiveScrollable = Math.max(0, scrollHeight - viewportHeight);
-  let count = Math.ceil(scrollHeight / viewportHeight);
-  count = Math.max(minShots, count);
-  count = Math.min(maxShots, count);
-
-  const points = [];
-  for (let i = 0; i < count; i++) {
-    const ratio = count === 1 ? 0 : i / (count - 1);
-    const y = Math.round(effectiveScrollable * ratio);
-    points.push(y);
-  }
-
-  return points.filter((v, i, arr) => arr.indexOf(v) === i);
-}
-
-const browser = await chromium.launch({ headless: true });
-const page = await browser.newPage({
-  viewport: { width: 1440, height: 1000 }
-});
-
-const manifest = [];
-let totalScreenshots = 0;
-
-for (const url of routes) {
-  console.log("CAPTURE:", url);
-
-  const routeSlug = slugifyRoute(url);
-
-  try {
-    await page.goto(url, { waitUntil: "networkidle", timeout: 45000 });
-    await page.waitForTimeout(800);
-
-    const metrics = await page.evaluate(() => {
-      const body = document.body;
-      const doc = document.documentElement;
-
-      const scrollHeight = Math.max(
-        body ? body.scrollHeight : 0,
-        doc ? doc.scrollHeight : 0,
-        body ? body.offsetHeight : 0,
-        doc ? doc.offsetHeight : 0,
-        body ? body.clientHeight : 0,
-        doc ? doc.clientHeight : 0
-      );
-
-      return {
-        title: document.title || "",
-        scrollHeight,
-        bodyTextLength: (body?.innerText || "").trim().length
-      };
-    });
-
-    const viewport = page.viewportSize();
-    const viewportHeight = viewport?.height || 1000;
-    const capturePoints = buildCapturePoints(metrics.scrollHeight, viewportHeight);
-
-    const screenshots = [];
-
-    for (let i = 0; i < capturePoints.length; i++) {
-      const y = capturePoints[i];
-
-      await page.evaluate((_y) => window.scrollTo(0, _y), y);
-      await page.waitForTimeout(500);
-
-      const fileName = `${routeSlug}__seg_${String(i).padStart(2, "0")}.png`;
-      const filePath = path.join(screenshotsDir, fileName);
-
-      await page.screenshot({
-        path: filePath,
-        fullPage: false
-      });
-
-      screenshots.push({
-        file: fileName,
-        y,
-        viewportHeight
-      });
-
-      totalScreenshots++;
+    if (-not $BaseUrl) {
+        throw "BaseUrl required"
     }
 
-    const lowCoverage = screenshots.length < 3;
+    $base = $BaseUrl.TrimEnd('/')
 
-    manifest.push({
-      url,
-      status: "ok",
-      title: metrics.title,
-      scrollHeight: metrics.scrollHeight,
-      viewportHeight,
-      bodyTextLength: metrics.bodyTextLength,
-      screenshotCount: screenshots.length,
-      lowCoverage,
-      screenshots
-    });
+    $routes = @(
+        '/',
+        '/hubs/',
+        '/tools/',
+        '/start-here/',
+        '/search/'
+    )
 
-  } catch (err) {
-    manifest.push({
-      url,
-      status: "fail",
-      error: String(err && err.message ? err.message : err),
-      screenshotCount: 0,
-      lowCoverage: true,
-      screenshots: []
-    });
-  }
+    $full = @()
+
+    foreach ($r in $routes) {
+        $full += ($base + $r)
+    }
+
+    return $full
 }
 
-await browser.close();
+function Save-Json {
+    param($Path, $Data)
 
-const summary = {
-  routeCount: routes.length,
-  screenshotsCount: totalScreenshots,
-  okRoutes: manifest.filter(x => x.status === "ok").length,
-  failedRoutes: manifest.filter(x => x.status === "fail").length,
-  lowCoverageRoutes: manifest.filter(x => x.lowCoverage).map(x => x.url)
-};
+    $json = $Data | ConvertTo-Json -Depth 20
+    $json | Out-File -FilePath $Path -Encoding utf8
+}
 
-fs.writeFileSync(
-  path.join(outDir, "visual_manifest.json"),
-  JSON.stringify(manifest, null, 2)
-);
+function Ensure-Dir {
+    param($Path)
 
-fs.writeFileSync(
-  path.join(outDir, "visual_capture_summary.json"),
-  JSON.stringify(summary, null, 2)
-);
+    if (-not (Test-Path $Path)) {
+        New-Item -ItemType Directory -Path $Path -Force | Out-Null
+    }
+}
+
+function Read-JsonFile {
+    param($Path)
+
+    if (-not (Test-Path $Path)) {
+        throw "JSON file not found: $Path"
+    }
+
+    return Get-Content -Path $Path -Raw | ConvertFrom-Json
+}
+
+function Invoke-SiteAuditor {
+    param($BaseUrl)
+
+    if (-not $BaseUrl) {
+        throw "BaseUrl required"
+    }
+
+    $ReportsDir = Join-Path (Get-Location) "reports"
+    $ScreensDir = Join-Path $ReportsDir "screenshots"
+
+    Ensure-Dir $ReportsDir
+    Ensure-Dir $ScreensDir
+
+    Write-Host "BASE URL: $BaseUrl"
+
+    $routes = Build-RouteInventory -BaseUrl $BaseUrl
+    $routesPath = Join-Path $ReportsDir "route_inventory.json"
+    Save-Json -Path $routesPath -Data $routes
+
+    $nodeScript = Join-Path $PSScriptRoot "capture.mjs"
+
+    if (-not (Test-Path $nodeScript)) {
+        throw "capture.mjs not found: $nodeScript"
+    }
+
+    Write-Host "RUN NODE CAPTURE"
+    & node $nodeScript $BaseUrl $routesPath $ReportsDir
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "Node capture failed with exit code $LASTEXITCODE"
+    }
+
+    $manifestPath = Join-Path $ReportsDir "visual_manifest.json"
+    $captureSummaryPath = Join-Path $ReportsDir "visual_capture_summary.json"
+
+    if (-not (Test-Path $manifestPath)) {
+        throw "visual_manifest.json missing"
+    }
+
+    $manifest = Read-JsonFile -Path $manifestPath
+    $captureSummary = $null
+
+    if (Test-Path $captureSummaryPath) {
+        $captureSummary = Read-JsonFile -Path $captureSummaryPath
+    }
+
+    $screens = Get-ChildItem -Path $ScreensDir -Filter *.png -File -ErrorAction SilentlyContinue
+    $screenshotCount = @($screens).Count
+
+    $lowCoverageRoutes = @()
+    $failedRoutes = @()
+
+    foreach ($item in @($manifest)) {
+        if ($item.lowCoverage -eq $true) {
+            $lowCoverageRoutes += [string]$item.url
+        }
+        if ($item.status -ne 'ok') {
+            $failedRoutes += [string]$item.url
+        }
+    }
+
+    $status = "FAIL_VISUAL"
+
+    if ($screenshotCount -gt 0) {
+        $status = "PASS_V3_SCREENSHOT"
+    }
+
+    if ($lowCoverageRoutes.Count -gt 0) {
+        $status = "PASS_V3_SCREENSHOT_LOW_COVERAGE"
+    }
+
+    if ($failedRoutes.Count -gt 0 -and $screenshotCount -eq 0) {
+        $status = "FAIL_VISUAL"
+    }
+
+    $summary = @{
+        base_url = $BaseUrl
+        route_count = @($routes).Count
+        screenshots_count = $screenshotCount
+        failed_routes = $failedRoutes
+        low_coverage_routes = $lowCoverageRoutes
+        capture_summary_present = [bool]$captureSummary
+        status = $status
+    }
+
+    Save-Json -Path (Join-Path $ReportsDir "visual_summary.json") -Data $summary
+    Save-Json -Path (Join-Path $ReportsDir "final-status.json") -Data @{ status = $status }
+
+    @(
+        "SITE AUDITOR VISUAL REPORT"
+        "BASE URL: $BaseUrl"
+        "ROUTES: $(@($routes).Count)"
+        "SCREENSHOTS: $screenshotCount"
+        "FAILED ROUTES: $($failedRoutes.Count)"
+        "LOW COVERAGE ROUTES: $($lowCoverageRoutes.Count)"
+        "STATUS: $status"
+    ) | Out-File -FilePath (Join-Path $ReportsDir "REPORT.txt") -Encoding utf8
+
+    return $summary
+}
