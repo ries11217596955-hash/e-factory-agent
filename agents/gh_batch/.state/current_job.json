@@ -1,8 +1,8 @@
 {
   "iteration": 1,
-  "zip_name": "automation-kb_listing_cluster_batch_20260402.zip",
-  "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\automation-kb_listing_cluster_batch_20260402.zip",
-  "finished_at": "2026-04-02 07:29:44.416",
+  "zip_name": "automation-kb_review_cluster_batch_20260402.zip",
+  "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\automation-kb_review_cluster_batch_20260402.zip",
+  "finished_at": "2026-04-02 07:48:42.109",
   "status": "PASS",
   "reason_code": ""
 }

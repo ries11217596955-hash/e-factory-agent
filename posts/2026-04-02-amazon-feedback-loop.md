@@ -1,10 +1,10 @@
 ---
-title: Amazon Negative Review Clustering
+title: Amazon Feedback Loop
 layout: post.njk
 tags: ["amazon-ai","reviews"]
 ---
 
-# Amazon Negative Review Clustering
+# Amazon Feedback Loop
 
 ## Goal
 Extract insights from reviews.

@@ -1,10 +1,10 @@
 ---
-title: Amazon Negative Review Clustering
+title: Amazon Review Based Optimization
 layout: post.njk
 tags: ["amazon-ai","reviews"]
 ---
 
-# Amazon Negative Review Clustering
+# Amazon Review Based Optimization
 
 ## Goal
 Extract insights from reviews.

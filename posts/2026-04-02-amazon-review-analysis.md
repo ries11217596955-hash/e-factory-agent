@@ -1,10 +1,10 @@
 ---
-title: Amazon Negative Review Clustering
+title: Amazon Review Analysis
 layout: post.njk
 tags: ["amazon-ai","reviews"]
 ---
 
-# Amazon Negative Review Clustering
+# Amazon Review Analysis
 
 ## Goal
 Extract insights from reviews.
