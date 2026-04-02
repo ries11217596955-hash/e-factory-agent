@@ -17,7 +17,7 @@ jobs:
       - name: Run auditor
         shell: pwsh
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GH_BATCH_PAT }}
         run: |
           pwsh ./agents/gh_batch/site_auditor_cloud/run.ps1
 
