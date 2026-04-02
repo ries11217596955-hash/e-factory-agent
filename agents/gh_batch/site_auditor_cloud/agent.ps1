@@ -115,9 +115,10 @@ function Is-ShallowRoute {
 }
 
 function Has-VisualWeakness {
-    param([Parameter(Mandatory=$true)][object[]]$Routes)
+    param([Parameter(Mandatory=$true)][object]$Routes)
 
-    foreach ($r in $Routes) {
+    $RouteItems = @($Routes)
+    foreach ($r in $RouteItems) {
         $img = 0
         if ($null -ne $r.images) { $img = [int]$r.images }
         if ($img -gt 0) { return $false }
@@ -127,10 +128,11 @@ function Has-VisualWeakness {
 
 function Find-Route {
     param(
-        [Parameter(Mandatory=$true)][object[]]$Routes,
+        [Parameter(Mandatory=$true)][object]$Routes,
         [Parameter(Mandatory=$true)][string]$RoutePath
     )
-    foreach ($r in $Routes) {
+    $RouteItems = @($Routes)
+    foreach ($r in $RouteItems) {
         if ([string]$r.route_path -eq $RoutePath) { return $r }
     }
     return $null
@@ -166,11 +168,12 @@ function Build-RouteInventory {
 }
 
 function Get-VisualFindings {
-    param([Parameter(Mandatory=$true)][object[]]$Manifest)
+    param([Parameter(Mandatory=$true)][object]$Manifest)
 
+    $ManifestItems = @($Manifest)
     $items = New-Object System.Collections.Generic.List[object]
 
-    foreach ($m in $Manifest) {
+    foreach ($m in $ManifestItems) {
         $importance = Get-RouteImportance -RoutePath ([uri]$m.url).AbsolutePath
 
         if ([int]$m.bodyTextLength -lt 350) {
@@ -200,11 +203,12 @@ function Get-VisualFindings {
 }
 
 function Build-RouteScores {
-    param([Parameter(Mandatory=$true)][object[]]$Manifest)
+    param([Parameter(Mandatory=$true)][object]$Manifest)
 
+    $ManifestItems = @($Manifest)
     $result = New-Object System.Collections.Generic.List[object]
 
-    foreach ($m in $Manifest) {
+    foreach ($m in $ManifestItems) {
         $routePath = ([uri]$m.url).AbsolutePath
         $importance = Get-RouteImportance -RoutePath $routePath
         $bodyLen = [int]$m.bodyTextLength
@@ -236,9 +240,12 @@ function Build-RouteScores {
 function Build-VisualSummary {
     param(
         [Parameter(Mandatory=$true)][string]$BaseUrl,
-        [Parameter(Mandatory=$true)][object[]]$Manifest,
-        [Parameter(Mandatory=$true)][object[]]$Findings
+        [Parameter(Mandatory=$true)][object]$Manifest,
+        [Parameter(Mandatory=$true)][object]$Findings
     )
+
+    $ManifestItems = @($Manifest)
+    $FindingItems = @($Findings)
 
     $failedRoutes = @()
     $contentEmpty = @()
@@ -251,7 +258,7 @@ function Build-VisualSummary {
     $screenshotsCount = 0
     $totalScore = 0.0
 
-    foreach ($m in $Manifest) {
+    foreach ($m in $ManifestItems) {
         $screenshotsCount += [int]$m.screenshotCount
 
         $score = 95.0
@@ -282,11 +289,11 @@ function Build-VisualSummary {
         }
     }
 
-    $high = @($Findings | Where-Object { $_.severity -eq "high" }).Count
-    $med  = @($Findings | Where-Object { $_.severity -eq "medium" }).Count
-    $low  = @($Findings | Where-Object { $_.severity -eq "low" }).Count
+    $high = @($FindingItems | Where-Object { $_.severity -eq "high" }).Count
+    $med  = @($FindingItems | Where-Object { $_.severity -eq "medium" }).Count
+    $low  = @($FindingItems | Where-Object { $_.severity -eq "low" }).Count
 
-    $routeCount = @($Manifest).Count
+    $routeCount = @($ManifestItems).Count
     $health = 0.0
     if ($routeCount -gt 0) {
         $health = [math]::Round(($totalScore / $routeCount), 1)
@@ -316,8 +323,10 @@ function Build-VisualSummary {
 function New-DecisionSummaryV4 {
     param(
         [Parameter(Mandatory=$true)] [object]$VisualSummary,
-        [Parameter(Mandatory=$true)] [object[]]$RouteScores
+        [Parameter(Mandatory=$true)] [object]$RouteScores
     )
+
+    $RouteScoreItems = @($RouteScores)
 
     $p0      = New-List
     $p1      = New-List
@@ -335,14 +344,14 @@ function New-DecisionSummaryV4 {
         $contentEmptyCount = @($VisualSummary.content_empty_routes).Count
     }
 
-    $hubsRoute   = Find-Route -Routes $RouteScores -RoutePath "/hubs/"
-    $searchRoute = Find-Route -Routes $RouteScores -RoutePath "/search/"
-    $toolsRoute  = Find-Route -Routes $RouteScores -RoutePath "/tools/"
+    $hubsRoute   = Find-Route -Routes $RouteScoreItems -RoutePath "/hubs/"
+    $searchRoute = Find-Route -Routes $RouteScoreItems -RoutePath "/search/"
+    $toolsRoute  = Find-Route -Routes $RouteScoreItems -RoutePath "/tools/"
 
     $hasWeakHubs   = $false
     $hasWeakSearch = $false
     $hasAnyP0Structural = $false
-    $allNoImages = Has-VisualWeakness -Routes $RouteScores
+    $allNoImages = Has-VisualWeakness -Routes $RouteScoreItems
 
     if ($null -ne $hubsRoute) {
         if ((Is-ShallowRoute -Route $hubsRoute) -and (Is-HighValueRoute -Route $hubsRoute)) {
@@ -593,9 +602,12 @@ function Invoke-SiteAuditor {
     Invoke-CaptureVisual -ScriptRoot $scriptRoot
 
     $manifestPath = Join-Path $reportsDir "visual_manifest.json"
-    $visualManifest = @(Read-JsonFile -Path $manifestPath)
+    if (-not (Test-Path -LiteralPath $manifestPath)) {
+        throw "visual_manifest.json not found after capture: $manifestPath"
+    }
 
-    $findings = @(Get-VisualFindings -ManifestPath $visualManifestPath)
+    $visualManifest = Read-JsonFile -Path $manifestPath
+    $findings = @(Get-VisualFindings -Manifest $visualManifest)
     $visualSummary = Build-VisualSummary -BaseUrl $BaseUrl -Manifest $visualManifest -Findings $findings
     $routeScores = @(Build-RouteScores -Manifest $visualManifest)
     $decision = New-DecisionSummaryV4 -VisualSummary $visualSummary -RouteScores $routeScores
