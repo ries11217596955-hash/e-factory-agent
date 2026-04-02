@@ -1,5 +1,5 @@
-# RUN_BATCH_FIXED_APPLY.ps1
-# minimal working apply engine (clean version)
+# RUN_BATCH_FINAL.ps1
+# Final apply engine with root detection and wrapper handling
 
 param(
     [string]$ZipPath,
@@ -26,7 +26,20 @@ try {
     $result.message = $_.Exception.Message
 }
 
-$files = Get-ChildItem -Path $temp -Recurse -File
+# detect root
+$root = $temp
+$items = Get-ChildItem $temp
+if ($items.Count -eq 1 -and $items[0].PSIsContainer) {
+    $root = $items[0].FullName
+}
+
+# detect src folder
+$srcPath = Join-Path $root "src"
+if (Test-Path $srcPath) {
+    $root = $root
+}
+
+$files = Get-ChildItem -Path $root -Recurse -File
 
 if ($files.Count -eq 0) {
     $result.status = 'FAIL_POLICY'
@@ -37,7 +50,7 @@ if ($files.Count -eq 0) {
 $repoRoot = $env:GITHUB_WORKSPACE
 
 foreach ($f in $files) {
-    $rel = $f.FullName.Substring($temp.Length).TrimStart("\/")
+    $rel = $f.FullName.Substring($root.Length).TrimStart("\\/")
     $target = Join-Path $repoRoot $rel
 
     $dir = Split-Path $target
@@ -45,7 +58,16 @@ foreach ($f in $files) {
         New-Item -ItemType Directory -Force -Path $dir | Out-Null
     }
 
-    if (!(Test-Path $target) -or (Get-FileHash $f.FullName).Hash -ne (Get-FileHash $target -ErrorAction SilentlyContinue).Hash) {
+    $copyNeeded = $true
+    if (Test-Path $target) {
+        try {
+            $h1 = (Get-FileHash $f.FullName).Hash
+            $h2 = (Get-FileHash $target).Hash
+            if ($h1 -eq $h2) { $copyNeeded = $false }
+        } catch {}
+    }
+
+    if ($copyNeeded) {
         Copy-Item $f.FullName $target -Force
         $result.apply_changed = $true
     }
