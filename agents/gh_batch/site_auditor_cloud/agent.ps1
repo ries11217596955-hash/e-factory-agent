@@ -168,34 +168,37 @@ function Build-RouteInventory {
 }
 
 function Get-VisualFindings {
-    param([Parameter(Mandatory=$true)][object]$Manifest)
+    param([Parameter(Mandatory=$true)][object[]]$ManifestItems)
 
-    $ManifestItems = @($Manifest)
-    $items = New-Object System.Collections.Generic.List[object]
+    $items = @()
 
-    foreach ($m in $ManifestItems) {
-        $importance = Get-RouteImportance -RoutePath ([uri]$m.url).AbsolutePath
+    foreach ($m in @($ManifestItems)) {
+        if ($null -eq $m) { continue }
+        $routeUrl = [string]$m.url
+        if ([string]::IsNullOrWhiteSpace($routeUrl)) { continue }
+
+        $importance = Get-RouteImportance -RoutePath ([uri]$routeUrl).AbsolutePath
 
         if ([int]$m.bodyTextLength -lt 350) {
             $sev = "medium"
             if ($importance -eq "high") { $sev = "high" }
-            $items.Add([pscustomobject][ordered]@{
+            $items += [pscustomobject][ordered]@{
                 severity = $sev
                 note = "Route body text appears too short"
                 kind = "short_page"
-                url = [string]$m.url
+                url = $routeUrl
                 route_importance = $importance
-            })
+            }
         }
 
         if ([int]$m.images -eq 0) {
-            $items.Add([pscustomobject][ordered]@{
+            $items += [pscustomobject][ordered]@{
                 severity = "medium"
                 note = "Route has zero images"
                 kind = "no_images"
-                url = [string]$m.url
+                url = $routeUrl
                 route_importance = $importance
-            })
+            }
         }
     }
 
@@ -607,7 +610,7 @@ function Invoke-SiteAuditor {
     }
 
     $visualManifest = Read-JsonFile -Path $manifestPath
-    $findings = @(Get-VisualFindings -Manifest $visualManifest)
+    $findings = @(Get-VisualFindings -ManifestItems @($visualManifest))
     $visualSummary = Build-VisualSummary -BaseUrl $BaseUrl -Manifest $visualManifest -Findings $findings
     $routeScores = @(Build-RouteScores -Manifest $visualManifest)
     $decision = New-DecisionSummaryV4 -VisualSummary $visualSummary -RouteScores $routeScores
