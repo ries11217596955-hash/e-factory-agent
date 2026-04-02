@@ -1,47 +1,26 @@
 ---
-title: "Amazon keyword clustering workflow"
-description: "Turn a messy keyword export into a usable map for titles, bullets, backend fields, and future refreshes."
-date: 2026-04-02
-primaryTag: amazon-ai
-tags: ["amazon-ai", "workflow", "ecommerce", "seo"]
-summary: "A practical workflow for grouping Amazon keywords by buyer intent and assigning them to the right parts of the listing."
+title: Amazon Keyword Clustering Workflow
+layout: post.njk
+tags: ["amazon-ai","keyword-research"]
 ---
 
-# Outcome
-A keyword map you can actually use when drafting or refreshing a listing.
+# Amazon Keyword Clustering Workflow
 
-Hub: [Amazon AI](/hubs/amazon-ai/)
+Keyword clustering helps you group similar search terms before rewriting a listing or planning content.
 
-## Inputs
-- your current listing
-- raw keyword export from one or two tools
-- 3-5 competitor listings
-- customer language from reviews and questions
+## When to use
+- too many raw keywords
+- duplicate search intent
+- unclear listing structure
 
 ## Workflow
-1. Keep only phrases that match the product and buyer intent.
-2. Group terms into four buckets:
-   - core product phrase
-   - feature / use-case modifiers
-   - problem / outcome language
-   - backend leftovers
-3. Mark the top 5-10 phrases that belong in the visible listing.
-4. Assign each bucket to one place:
-   - title
-   - bullets
-   - A+ blocks or image text brief
-   - backend search terms
-5. Delete duplicates and near-duplicates before drafting.
-
-## Why it works
-Most keyword exports are too noisy to use directly. Clustering forces one decision per phrase instead of repeating the same terms across the whole listing.
-
-## Common mistakes
-- keeping irrelevant long-tail phrases because the tool exported them
-- placing the same phrase in title, bullets, and backend without a reason
-- skipping customer-language terms that explain why people buy the product
+1. Export seed keywords from your research tool.
+2. Group keywords by product intent.
+3. Split core terms from modifier terms.
+4. Remove duplicates and weak variants.
+5. Build listing sections around the highest-value clusters.
 
 ## Related
-- [Amazon backend search terms checklist](/posts/2026-04-02-amazon-backend-search-terms-checklist/)
-- [Amazon competitor listing gap analysis](/posts/2026-04-02-amazon-competitor-listing-gap-analysis/)
-- [Amazon keyword research](/hubs/amazon-ai/keyword-research/)
+- [Amazon keyword gap analysis](/posts/2026-04-02-amazon-keyword-gap-analysis/)
+- [Amazon keyword validation checklist](/posts/2026-04-02-amazon-keyword-validation-checklist/)
+- [Amazon Keyword Research hub](/hubs/amazon-ai/keyword-research/)
