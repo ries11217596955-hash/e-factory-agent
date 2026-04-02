@@ -252,7 +252,210 @@ function Get-RepoInventoryStats {
   return [pscustomobject]$stats
 }
 
-function Get-MinimalAudit {
+function Get-PagePaths {
+  param(
+    [Parameter(Mandatory=$true)][array]$TreeItems
+  )
+
+  $blobPaths = @($TreeItems | Where-Object { $_.type -eq 'blob' } | ForEach-Object { [string]$_.path })
+
+  $pages = @(
+    $blobPaths | Where-Object {
+      $_.StartsWith('src/') -and
+      -not $_.StartsWith('src/assets/') -and
+      -not $_.StartsWith('src/_includes/') -and
+      -not $_.StartsWith('src/_data/') -and
+      -not $_.StartsWith('src/css/') -and
+      -not $_.StartsWith('src/js/') -and
+      -not $_.StartsWith('src/img/') -and
+      -not $_.StartsWith('src/images/') -and
+      (
+        $_.ToLowerInvariant().EndsWith('.md') -or
+        $_.ToLowerInvariant().EndsWith('.njk') -or
+        $_.ToLowerInvariant().EndsWith('.html')
+      )
+    }
+  )
+
+  return @($pages | Sort-Object -Unique)
+}
+
+function Convert-PagePathToRoute {
+  param(
+    [Parameter(Mandatory=$true)][string]$Path
+  )
+
+  $route = $Path
+
+  if ($route.StartsWith('src/')) {
+    $route = $route.Substring(4)
+  }
+
+  $lower = $route.ToLowerInvariant()
+
+  if ($lower -eq 'index.md' -or $lower -eq 'index.njk' -or $lower -eq 'index.html') {
+    return '/'
+  }
+
+  $route = $route -replace '\.md$',''
+  $route = $route -replace '\.njk$',''
+  $route = $route -replace '\.html$',''
+
+  if ($route.EndsWith('/index')) {
+    $route = $route.Substring(0, $route.Length - '/index'.Length)
+  }
+
+  if ([string]::IsNullOrWhiteSpace($route)) {
+    return '/'
+  }
+
+  if (-not $route.StartsWith('/')) {
+    $route = "/$route"
+  }
+
+  return $route
+}
+
+function Get-RouteDepth {
+  param(
+    [Parameter(Mandatory=$true)][string]$Route
+  )
+
+  if ($Route -eq '/') { return 0 }
+
+  $trimmed = $Route.Trim('/')
+  if ([string]::IsNullOrWhiteSpace($trimmed)) { return 0 }
+
+  return @($trimmed.Split('/')).Count
+}
+
+function Get-DirectoryList {
+  param(
+    [Parameter(Mandatory=$true)][array]$TreeItems
+  )
+
+  $dirs = @($TreeItems | Where-Object { $_.type -eq 'tree' } | ForEach-Object { [string]$_.path })
+  return @($dirs | Sort-Object -Unique)
+}
+
+function Get-EmptyDirectories {
+  param(
+    [Parameter(Mandatory=$true)][array]$TreeItems
+  )
+
+  $dirs = Get-DirectoryList -TreeItems $TreeItems
+  $allPaths = @($TreeItems | ForEach-Object { [string]$_.path })
+
+  $empty = New-Object System.Collections.Generic.List[string]
+  foreach ($dir in $dirs) {
+    $prefix = "$dir/"
+    $children = @($allPaths | Where-Object { $_ -ne $dir -and $_.StartsWith($prefix) })
+    if ($children.Count -eq 0) {
+      $empty.Add($dir) | Out-Null
+    }
+  }
+
+  return @($empty | Sort-Object -Unique)
+}
+
+function Get-HubMap {
+  param(
+    [Parameter(Mandatory=$true)][string[]]$PagePaths
+  )
+
+  $hubBuckets = @{}
+
+  foreach ($path in $PagePaths) {
+    if ($path.StartsWith('src/hubs/')) {
+      $rest = $path.Substring('src/hubs/'.Length)
+      $parts = @($rest.Split('/'))
+      if ($parts.Count -ge 1 -and -not [string]::IsNullOrWhiteSpace($parts[0])) {
+        $hub = $parts[0]
+        if (-not $hubBuckets.ContainsKey($hub)) {
+          $hubBuckets[$hub] = New-Object System.Collections.Generic.List[string]
+        }
+        $hubBuckets[$hub].Add($path) | Out-Null
+      }
+    }
+  }
+
+  $result = New-Object System.Collections.Generic.List[object]
+  foreach ($hub in ($hubBuckets.Keys | Sort-Object)) {
+    $pages = @($hubBuckets[$hub] | Sort-Object -Unique)
+    $result.Add([pscustomobject]@{
+      hub        = $hub
+      page_count = $pages.Count
+      pages      = $pages
+    }) | Out-Null
+  }
+
+  return @($result)
+}
+
+function Get-OrphanPages {
+  param(
+    [Parameter(Mandatory=$true)][string[]]$PagePaths
+  )
+
+  $orphans = New-Object System.Collections.Generic.List[string]
+
+  foreach ($path in $PagePaths) {
+    $route = Convert-PagePathToRoute -Path $path
+    $depth = Get-RouteDepth -Route $route
+    $lower = $path.ToLowerInvariant()
+
+    $isRootIndex = ($route -eq '/')
+    $isHubIndex = $false
+    if ($lower.StartsWith('src/hubs/') -and ($lower.EndsWith('/index.md') -or $lower.EndsWith('/index.njk') -or $lower.EndsWith('/index.html'))) {
+      $isHubIndex = $true
+    }
+
+    if (-not $isRootIndex -and -not $isHubIndex -and $depth -ge 2) {
+      $orphans.Add($path) | Out-Null
+    }
+  }
+
+  return @($orphans | Sort-Object -Unique)
+}
+
+function Get-StructureScore {
+  param(
+    [Parameter(Mandatory=$true)]$MinimalAudit,
+    [Parameter(Mandatory=$true)][string[]]$PagePaths,
+    [Parameter(Mandatory=$true)][object[]]$HubMap,
+    [Parameter(Mandatory=$true)][string[]]$OrphanPages,
+    [Parameter(Mandatory=$true)][string[]]$EmptyDirectories
+  )
+
+  $score = 100
+
+  if (-not $MinimalAudit.has_src) { $score -= 40 }
+  if (-not $MinimalAudit.has_hubs) { $score -= 10 }
+  if (-not $MinimalAudit.has_index_md -and -not $MinimalAudit.has_index_njk) { $score -= 25 }
+
+  $pageCount = @($PagePaths).Count
+  $hubCount = @($HubMap).Count
+  $orphanCount = @($OrphanPages).Count
+  $emptyDirCount = @($EmptyDirectories).Count
+
+  if ($pageCount -gt 0) {
+    $orphanPenalty = [Math]::Min(25, [int][Math]::Ceiling(($orphanCount * 100.0 / $pageCount) / 5))
+    $score -= $orphanPenalty
+  }
+
+  if ($hubCount -eq 0 -and $pageCount -ge 20) {
+    $score -= 10
+  }
+
+  $score -= [Math]::Min(10, $emptyDirCount)
+
+  if ($score -lt 0) { $score = 0 }
+  if ($score -gt 100) { $score = 100 }
+
+  return $score
+}
+
+function Get-AuditV2 {
   param(
     [Parameter(Mandatory=$true)][string]$Repo,
     [Parameter(Mandatory=$true)][array]$TreeItems
@@ -266,45 +469,84 @@ function Get-MinimalAudit {
   $hasIndexMd = @($blobPaths | Where-Object { $_ -eq 'src/index.md' }).Count -gt 0
   $hasIndexNjk = @($blobPaths | Where-Object { $_ -eq 'src/index.njk' }).Count -gt 0
 
-  $contentPages = @(
-    $blobPaths | Where-Object {
-      $_.StartsWith('src/') -and (
-        $_.ToLowerInvariant().EndsWith('.md') -or
-        $_.ToLowerInvariant().EndsWith('.njk') -or
-        $_.ToLowerInvariant().EndsWith('.html')
-      )
-    }
-  )
+  $pagePaths = Get-PagePaths -TreeItems $TreeItems
+  $hubMap = Get-HubMap -PagePaths $pagePaths
+  $orphanPages = Get-OrphanPages -PagePaths $pagePaths
+  $emptyDirs = Get-EmptyDirectories -TreeItems $TreeItems
 
-  $hubPages = @(
-    $blobPaths | Where-Object {
-      $_.StartsWith('src/hubs/') -and (
-        $_.ToLowerInvariant().EndsWith('.md') -or
-        $_.ToLowerInvariant().EndsWith('.njk') -or
-        $_.ToLowerInvariant().EndsWith('.html')
-      )
-    }
-  )
+  $routeDepthMap = New-Object System.Collections.Generic.List[object]
+  $maxDepth = 0
+  foreach ($page in $pagePaths) {
+    $route = Convert-PagePathToRoute -Path $page
+    $depth = Get-RouteDepth -Route $route
+    if ($depth -gt $maxDepth) { $maxDepth = $depth }
 
-  $warnings = New-Object System.Collections.Generic.List[string]
-  if (-not $hasSrc)  { $warnings.Add('MISSING_PATH: src/') | Out-Null }
-  if (-not $hasHubs) { $warnings.Add('MISSING_PATH: src/hubs/') | Out-Null }
-  if (-not $hasIndexMd -and -not $hasIndexNjk) {
-    $warnings.Add('MISSING_ENTRY: src/index.md or src/index.njk') | Out-Null
+    $routeDepthMap.Add([pscustomobject]@{
+      path  = $page
+      route = $route
+      depth = $depth
+    }) | Out-Null
   }
 
-  $passMinimal = $hasSrc -and ($hasIndexMd -or $hasIndexNjk)
+  $warnings = New-Object System.Collections.Generic.List[string]
+  $issues = New-Object System.Collections.Generic.List[string]
 
-  return [pscustomobject]@{
+  if (-not $hasSrc) {
+    $issues.Add('MISSING_PATH: src/') | Out-Null
+  }
+  if (-not $hasHubs) {
+    $warnings.Add('MISSING_PATH: src/hubs/') | Out-Null
+  }
+  if (-not $hasIndexMd -and -not $hasIndexNjk) {
+    $issues.Add('MISSING_ENTRY: src/index.md or src/index.njk') | Out-Null
+  }
+  if (@($orphanPages).Count -gt 0) {
+    $warnings.Add("ORPHAN_PAGES: $(@($orphanPages).Count)") | Out-Null
+  }
+  if (@($emptyDirs).Count -gt 0) {
+    $warnings.Add("EMPTY_DIRS: $(@($emptyDirs).Count)") | Out-Null
+  }
+
+  $minimalAudit = [pscustomobject]@{
     repo                = $Repo
     has_src             = $hasSrc
     has_hubs            = $hasHubs
     has_index_md        = $hasIndexMd
     has_index_njk       = $hasIndexNjk
-    page_count          = $contentPages.Count
-    hub_page_count      = $hubPages.Count
+    page_count          = @($pagePaths).Count
+    hub_page_count      = @($pagePaths | Where-Object { $_.StartsWith('src/hubs/') }).Count
     warnings            = @($warnings)
-    pass_minimal_audit  = $passMinimal
+    pass_minimal_audit  = ($hasSrc -and ($hasIndexMd -or $hasIndexNjk))
+  }
+
+  $structureScore = Get-StructureScore `
+    -MinimalAudit $minimalAudit `
+    -PagePaths $pagePaths `
+    -HubMap $hubMap `
+    -OrphanPages $orphanPages `
+    -EmptyDirectories $emptyDirs
+
+  return [pscustomobject]@{
+    audit_version        = 'v2'
+    repo                 = $Repo
+    has_src              = $hasSrc
+    has_hubs             = $hasHubs
+    has_index_md         = $hasIndexMd
+    has_index_njk        = $hasIndexNjk
+    page_count           = @($pagePaths).Count
+    hub_page_count       = @($pagePaths | Where-Object { $_.StartsWith('src/hubs/') }).Count
+    hubs_total           = @($hubMap).Count
+    hub_map              = @($hubMap)
+    orphan_pages_count   = @($orphanPages).Count
+    orphan_pages         = @($orphanPages)
+    empty_dirs_count     = @($emptyDirs).Count
+    empty_dirs           = @($emptyDirs)
+    max_route_depth      = $maxDepth
+    route_depth_map      = @($routeDepthMap)
+    structure_score      = $structureScore
+    issues               = @($issues)
+    warnings             = @($warnings)
+    pass_minimal_audit   = [bool]$minimalAudit.pass_minimal_audit
   }
 }
 
@@ -392,7 +634,7 @@ function Invoke-SiteAuditor {
     $treeItems = @()
     $inventoryCount = 0
     $stats = $null
-    $minimalAudit = $null
+    $auditV2 = $null
 
     if (-not [string]::IsNullOrWhiteSpace($treeSha)) {
       $treeUrl = "https://api.github.com/repos/$repo/git/trees/${treeSha}?recursive=1"
@@ -414,7 +656,7 @@ function Invoke-SiteAuditor {
 
         $stats = Get-RepoInventoryStats -TreeItems $treeItems
         $inventoryCount = $stats.inventory_count
-        $minimalAudit = Get-MinimalAudit -Repo $repo -TreeItems $treeItems
+        $auditV2 = Get-AuditV2 -Repo $repo -TreeItems $treeItems
       }
     }
     else {
@@ -468,29 +710,41 @@ function Invoke-SiteAuditor {
       }
     }
 
-    if ($null -eq $minimalAudit) {
-      $minimalAudit = [pscustomobject]@{
-        repo               = $repo
-        has_src            = $false
-        has_hubs           = $false
-        has_index_md       = $false
-        has_index_njk      = $false
-        page_count         = 0
-        hub_page_count     = 0
-        warnings           = @('MINIMAL_AUDIT_SKIPPED')
-        pass_minimal_audit = $false
+    if ($null -eq $auditV2) {
+      $auditV2 = [pscustomobject]@{
+        audit_version       = 'v2'
+        repo                = $repo
+        has_src             = $false
+        has_hubs            = $false
+        has_index_md        = $false
+        has_index_njk       = $false
+        page_count          = 0
+        hub_page_count      = 0
+        hubs_total          = 0
+        hub_map             = @()
+        orphan_pages_count  = 0
+        orphan_pages        = @()
+        empty_dirs_count    = 0
+        empty_dirs          = @()
+        max_route_depth     = 0
+        route_depth_map     = @()
+        structure_score     = 0
+        issues              = @('AUDIT_V2_SKIPPED')
+        warnings            = @()
+        pass_minimal_audit  = $false
       }
     }
 
     $auditResult = [ordered]@{
       repo                = $repo
+      audit_version       = 'v2'
       default_branch      = $defaultBranch
       commit_sha          = $commitSha
       tree_sha            = $treeSha
       inventory           = $stats
-      minimal_audit       = $minimalAudit
+      audit_v2            = $auditV2
       pass_fetch          = [bool](($repoMeta.ok) -and ($treeResult) -and ($treeResult.ok) -and ($inventoryCount -gt 0))
-      pass_minimal_audit  = [bool]$minimalAudit.pass_minimal_audit
+      pass_minimal_audit  = [bool]$auditV2.pass_minimal_audit
     }
 
     Save-JsonFile -Path (Join-Path $ReportsDir "$repoSlug`__audit_result.json") -Object $auditResult
@@ -498,6 +752,7 @@ function Invoke-SiteAuditor {
 
     $repoSummary = [ordered]@{
       repo                 = $repo
+      audit_version        = 'v2'
       repo_meta_ok         = [bool]($repoMeta.ok)
       repo_meta_status     = $repoMeta.status_code
       default_branch       = $defaultBranch
@@ -512,11 +767,16 @@ function Invoke-SiteAuditor {
       html_files           = $stats.html_files
       njk_files            = $stats.njk_files
       hub_files            = $stats.hub_files
-      has_src              = $minimalAudit.has_src
-      has_hubs             = $minimalAudit.has_hubs
-      has_index_md         = $minimalAudit.has_index_md
-      has_index_njk        = $minimalAudit.has_index_njk
-      minimal_audit_ok     = [bool]$minimalAudit.pass_minimal_audit
+      has_src              = $auditV2.has_src
+      has_hubs             = $auditV2.has_hubs
+      has_index_md         = $auditV2.has_index_md
+      has_index_njk        = $auditV2.has_index_njk
+      hubs_total           = $auditV2.hubs_total
+      orphan_pages_count   = $auditV2.orphan_pages_count
+      empty_dirs_count     = $auditV2.empty_dirs_count
+      max_route_depth      = $auditV2.max_route_depth
+      structure_score      = $auditV2.structure_score
+      minimal_audit_ok     = [bool]$auditV2.pass_minimal_audit
       zipball_head_ok      = if ($zipHeadResult) { [bool]($zipHeadResult.ok) } else { $false }
       zipball_head_status  = if ($zipHeadResult) { $zipHeadResult.status_code } else { $null }
       private              = $repoPrivate
@@ -534,7 +794,7 @@ function Invoke-SiteAuditor {
   $reposPassMinimal = @($summary | Where-Object { $_.minimal_audit_ok }).Count
 
   $reportLines = New-Object System.Collections.Generic.List[string]
-  $reportLines.Add('SITE_AUDITOR REPORT') | Out-Null
+  $reportLines.Add('SITE_AUDITOR REPORT v2') | Out-Null
   $reportLines.Add('') | Out-Null
   $reportLines.Add("Repos total: $($summary.Count)") | Out-Null
   $reportLines.Add("Repos pass fetch: $reposPassFetch") | Out-Null
@@ -551,6 +811,11 @@ function Invoke-SiteAuditor {
     $reportLines.Add("  html_files: $($item.html_files)") | Out-Null
     $reportLines.Add("  njk_files: $($item.njk_files)") | Out-Null
     $reportLines.Add("  hub_files: $($item.hub_files)") | Out-Null
+    $reportLines.Add("  hubs_total: $($item.hubs_total)") | Out-Null
+    $reportLines.Add("  orphan_pages_count: $($item.orphan_pages_count)") | Out-Null
+    $reportLines.Add("  empty_dirs_count: $($item.empty_dirs_count)") | Out-Null
+    $reportLines.Add("  max_route_depth: $($item.max_route_depth)") | Out-Null
+    $reportLines.Add("  structure_score: $($item.structure_score)") | Out-Null
     $reportLines.Add("  has_src: $($item.has_src)") | Out-Null
     $reportLines.Add("  has_hubs: $($item.has_hubs)") | Out-Null
     $reportLines.Add("  has_index_md: $($item.has_index_md)") | Out-Null
@@ -563,7 +828,7 @@ function Invoke-SiteAuditor {
   Save-TextFile -Path (Join-Path $ReportsDir 'REPORT.txt') -Text ($reportLines -join [Environment]::NewLine)
 
   $overallStatus = if ($reposPassMinimal -gt 0) {
-    'PASS_MINIMAL_AUDIT'
+    'PASS_AUDIT_V2'
   }
   elseif ($reposPassFetch -gt 0) {
     'PASS_FETCH_ONLY'
@@ -575,7 +840,8 @@ function Invoke-SiteAuditor {
   $final = [ordered]@{
     timestamp              = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
     agent_name             = 'SITE_AUDITOR_AGENT'
-    mode                   = 'FIXED_LIST_MINIMAL_AUDIT'
+    mode                   = 'FIXED_LIST_AUDIT_V2'
+    audit_version          = 'v2'
     token_present          = $tokenPresent
     user_ok                = [bool]$userResult.ok
     user_status            = $userResult.status_code
