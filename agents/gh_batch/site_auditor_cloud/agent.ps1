@@ -1,7 +1,80 @@
-function Invoke-SiteAuditor {
-    param(
-        $BaseUrl
+# =========================
+# ROUTE INVENTORY
+# =========================
+
+function Build-RouteInventory {
+    param($BaseUrl)
+
+    if (-not $BaseUrl) {
+        throw "BaseUrl is null"
+    }
+
+    $base = $BaseUrl.TrimEnd('/')
+
+    $routes = @(
+        '/',
+        '/hubs/',
+        '/tools/',
+        '/start-here/',
+        '/search/'
     )
+
+    $full = @()
+
+    foreach ($r in $routes) {
+        $full += ($base + $r)
+    }
+
+    return $full
+}
+
+# =========================
+# HELPERS
+# =========================
+
+function Save-Json {
+    param($Path, $Data)
+
+    $json = $Data | ConvertTo-Json -Depth 10
+    $json | Out-File -FilePath $Path -Encoding utf8
+}
+
+function Ensure-Dir {
+    param($Path)
+
+    if (-not (Test-Path $Path)) {
+        New-Item -ItemType Directory -Path $Path -Force | Out-Null
+    }
+}
+
+# =========================
+# NODE CAPTURE
+# =========================
+
+function Invoke-NodeCapture {
+    param($BaseUrl, $RoutesPath, $ReportsDir)
+
+    $nodeScript = Join-Path $PSScriptRoot "capture.mjs"
+
+    if (-not (Test-Path $nodeScript)) {
+        throw "capture.mjs not found"
+    }
+
+    Write-Host "RUN NODE CAPTURE"
+
+    & node $nodeScript $BaseUrl $RoutesPath $ReportsDir
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "Node capture failed"
+    }
+}
+
+# =========================
+# CORE
+# =========================
+
+function Invoke-SiteAuditor {
+    param($BaseUrl)
 
     if (-not $BaseUrl) {
         throw "BaseUrl required"
@@ -10,34 +83,25 @@ function Invoke-SiteAuditor {
     $ReportsDir = Join-Path (Get-Location) "reports"
     $ScreensDir = Join-Path $ReportsDir "screenshots"
 
-    # ✅ ВСЕГДА создаём заранее
-    New-Item -ItemType Directory -Path $ReportsDir -Force | Out-Null
-    New-Item -ItemType Directory -Path $ScreensDir -Force | Out-Null
+    Ensure-Dir $ReportsDir
+    Ensure-Dir $ScreensDir
 
     Write-Host "BASE URL: $BaseUrl"
 
     $routes = Build-RouteInventory -BaseUrl $BaseUrl
 
-    Save-Json "$ReportsDir/route_inventory.json" $routes
+    $routesPath = Join-Path $ReportsDir "route_inventory.json"
+    Save-Json $routesPath $routes
 
-    # ✅ ПРАВИЛЬНЫЙ запуск node
-    $nodeScript = Join-Path $PSScriptRoot "capture.mjs"
+    Invoke-NodeCapture $BaseUrl $routesPath $ReportsDir
 
-    Write-Host "RUN NODE CAPTURE"
-    & node $nodeScript $BaseUrl "$ReportsDir/route_inventory.json" $ReportsDir
-
-    if ($LASTEXITCODE -ne 0) {
-        throw "Node capture failed"
-    }
-
-    # ✅ проверяем результат
-    $manifestPath = "$ReportsDir/visual_manifest.json"
+    $manifestPath = Join-Path $ReportsDir "visual_manifest.json"
 
     if (-not (Test-Path $manifestPath)) {
-        throw "visual_manifest.json not created"
+        throw "visual_manifest.json missing"
     }
 
-    $screens = Get-ChildItem "$ScreensDir" -Filter *.png -ErrorAction SilentlyContinue
+    $screens = Get-ChildItem $ScreensDir -Filter *.png -ErrorAction SilentlyContinue
 
     $status = "FAIL_VISUAL"
 
@@ -52,8 +116,8 @@ function Invoke-SiteAuditor {
         status = $status
     }
 
-    Save-Json "$ReportsDir/visual_summary.json" $summary
-    Save-Json "$ReportsDir/final-status.json" @{ status = $status }
+    Save-Json (Join-Path $ReportsDir "visual_summary.json") $summary
+    Save-Json (Join-Path $ReportsDir "final-status.json") @{ status = $status }
 
     return $summary
 }
