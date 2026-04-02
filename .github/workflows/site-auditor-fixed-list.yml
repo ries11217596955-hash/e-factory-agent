@@ -3,6 +3,9 @@ name: SITE_AUDITOR Fixed List
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   audit:
     runs-on: ubuntu-latest
@@ -12,11 +15,16 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run auditor
-  run: |
-    pwsh ./agents/site_auditor_cloud/run.ps1
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          pwsh ./agents/gh_batch/site_auditor_cloud/run.ps1
 
       - name: Upload reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: site-audit-reports
           path: reports/
+          if-no-files-found: error
