@@ -82,7 +82,14 @@ function Invoke-SiteAuditor {
         repos_total = $RepoList.Count
         repos_processed = $results.Count
         audit_version = "v2"
-        status = if ($results.Count -gt 0) { "PASS_AUDIT_V2" } else { "FAIL_RUNTIME" }
+        $status = "PARTIAL_AUDIT_V2"
+
+if ($results.Count -eq 0) {
+    $status = "FAIL_RUNTIME"
+}
+elseif ($results.Count -eq $RepoList.Count) {
+    $status = "PASS_AUDIT_V2"
+}
     }
 
     Save-Json "reports/audit_result.json" $results
