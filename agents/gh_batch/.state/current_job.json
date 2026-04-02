@@ -1,8 +1,8 @@
 {
-  "iteration": 5,
-  "zip_name": "ROUTING_PASS_SRC.zip",
-  "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\ROUTING_PASS_SRC.zip",
-  "finished_at": "2026-04-01 18:42:18.934",
+  "iteration": 4,
+  "zip_name": "ROUTING_PASS_SRC (1).zip",
+  "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\ROUTING_PASS_SRC (1).zip",
+  "finished_at": "2026-04-02 05:01:01.722",
   "status": "FAIL_RUNTIME",
   "reason_code": "WORKFLOW_SCRIPT_INVOCATION_ERROR"
 }
