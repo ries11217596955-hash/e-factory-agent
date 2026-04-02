@@ -1,3 +1,4 @@
+
 ---
 title: Best Ai Tools For Shopify
 layout: post.njk
@@ -5,4 +6,6 @@ layout: post.njk
 
 # Best Ai Tools For Shopify
 
-Content for best-ai-tools-for-shopify.
+Content here.
+
+{% include "partials/tool_block.njk" %}

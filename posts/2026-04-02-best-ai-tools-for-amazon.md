@@ -1,3 +1,4 @@
+
 ---
 title: Best Ai Tools For Amazon
 layout: post.njk
@@ -5,4 +6,6 @@ layout: post.njk
 
 # Best Ai Tools For Amazon
 
-Content for best-ai-tools-for-amazon.
+Content here.
+
+{% include "partials/tool_block.njk" %}

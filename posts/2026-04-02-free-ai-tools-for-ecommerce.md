@@ -1,3 +1,4 @@
+
 ---
 title: Free Ai Tools For Ecommerce
 layout: post.njk
@@ -5,4 +6,6 @@ layout: post.njk
 
 # Free Ai Tools For Ecommerce
 
-Content for free-ai-tools-for-ecommerce.
+Content here.
+
+{% include "partials/tool_block.njk" %}
