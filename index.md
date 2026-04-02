@@ -1,42 +1,17 @@
 ---
-title: AI Ecommerce Automation
-layout: home.njk
+title: Automation Knowledge Base
+layout: base.njk
 ---
 
-# Fix Your Ecommerce Growth with AI
+# Automation Knowledge Base for Practical AI Work
 
-## What this site does
-This system helps you:
-- get more traffic
-- convert better
-- improve based on real feedback
-
-## Who this is for
-- Amazon sellers
-- Shopify operators
-- small ecommerce brands
+Move from ideas → workflows → systems.
 
 ## Start here
 
-### No traffic?
-→ /posts/2026-04-02-how-to-rank-amazon-listing/
+Choose your goal:
 
-### No sales?
-→ /posts/2026-04-02-how-to-optimize-amazon-listing/
-
-### Not sure what to do?
-→ /hubs/amazon-ai/
-
----
-
-## How it works
-
-1. Find your problem  
-2. Apply step-by-step solution  
-3. Use tools if needed  
-4. Improve and repeat  
-
----
-
-## Start now
-→ /hubs/amazon-ai/
+- I want to automate a task → /hubs/ai-workflows/
+- I want to build a system → /hubs/agent-workflows/
+- I need tools → /tools/
+- I want updates → /news/
