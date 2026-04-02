@@ -277,7 +277,7 @@ function Get-PagePaths {
     }
   )
 
-  return @($pages | Sort-Object -Unique)
+  return @($pages | Sort-Object -Unique | ForEach-Object { [string]$_ })
 }
 
 function Convert-PagePathToRoute {
@@ -335,7 +335,7 @@ function Get-DirectoryList {
   )
 
   $dirs = @($TreeItems | Where-Object { $_.type -eq 'tree' } | ForEach-Object { [string]$_.path })
-  return @($dirs | Sort-Object -Unique)
+  return @($dirs | Sort-Object -Unique | ForEach-Object { [string]$_ })
 }
 
 function Get-EmptyDirectories {
@@ -343,7 +343,7 @@ function Get-EmptyDirectories {
     [Parameter(Mandatory=$true)][array]$TreeItems
   )
 
-  $dirs = Get-DirectoryList -TreeItems $TreeItems
+  $dirs = @(Get-DirectoryList -TreeItems $TreeItems)
   $allPaths = @($TreeItems | ForEach-Object { [string]$_.path })
 
   $empty = New-Object System.Collections.Generic.List[string]
@@ -351,39 +351,41 @@ function Get-EmptyDirectories {
     $prefix = "$dir/"
     $children = @($allPaths | Where-Object { $_ -ne $dir -and $_.StartsWith($prefix) })
     if ($children.Count -eq 0) {
-      $empty.Add($dir) | Out-Null
+      $empty.Add([string]$dir) | Out-Null
     }
   }
 
-  return @($empty | Sort-Object -Unique)
+  return @($empty | Sort-Object -Unique | ForEach-Object { [string]$_ })
 }
 
 function Get-HubMap {
   param(
-    [Parameter(Mandatory=$true)][string[]]$PagePaths
+    $PagePaths
   )
+
+  $normalized = @($PagePaths | ForEach-Object { [string]$_ })
 
   $hubBuckets = @{}
 
-  foreach ($path in $PagePaths) {
+  foreach ($path in $normalized) {
     if ($path.StartsWith('src/hubs/')) {
       $rest = $path.Substring('src/hubs/'.Length)
       $parts = @($rest.Split('/'))
       if ($parts.Count -ge 1 -and -not [string]::IsNullOrWhiteSpace($parts[0])) {
-        $hub = $parts[0]
+        $hub = [string]$parts[0]
         if (-not $hubBuckets.ContainsKey($hub)) {
           $hubBuckets[$hub] = New-Object System.Collections.Generic.List[string]
         }
-        $hubBuckets[$hub].Add($path) | Out-Null
+        $hubBuckets[$hub].Add([string]$path) | Out-Null
       }
     }
   }
 
   $result = New-Object System.Collections.Generic.List[object]
   foreach ($hub in ($hubBuckets.Keys | Sort-Object)) {
-    $pages = @($hubBuckets[$hub] | Sort-Object -Unique)
+    $pages = @($hubBuckets[$hub] | Sort-Object -Unique | ForEach-Object { [string]$_ })
     $result.Add([pscustomobject]@{
-      hub        = $hub
+      hub        = [string]$hub
       page_count = $pages.Count
       pages      = $pages
     }) | Out-Null
@@ -394,12 +396,13 @@ function Get-HubMap {
 
 function Get-OrphanPages {
   param(
-    [Parameter(Mandatory=$true)][string[]]$PagePaths
+    $PagePaths
   )
 
+  $normalized = @($PagePaths | ForEach-Object { [string]$_ })
   $orphans = New-Object System.Collections.Generic.List[string]
 
-  foreach ($path in $PagePaths) {
+  foreach ($path in $normalized) {
     $route = Convert-PagePathToRoute -Path $path
     $depth = Get-RouteDepth -Route $route
     $lower = $path.ToLowerInvariant()
@@ -411,20 +414,20 @@ function Get-OrphanPages {
     }
 
     if (-not $isRootIndex -and -not $isHubIndex -and $depth -ge 2) {
-      $orphans.Add($path) | Out-Null
+      $orphans.Add([string]$path) | Out-Null
     }
   }
 
-  return @($orphans | Sort-Object -Unique)
+  return @($orphans | Sort-Object -Unique | ForEach-Object { [string]$_ })
 }
 
 function Get-StructureScore {
   param(
     [Parameter(Mandatory=$true)]$MinimalAudit,
-    [Parameter(Mandatory=$true)][string[]]$PagePaths,
-    [Parameter(Mandatory=$true)][object[]]$HubMap,
-    [Parameter(Mandatory=$true)][string[]]$OrphanPages,
-    [Parameter(Mandatory=$true)][string[]]$EmptyDirectories
+    [Parameter(Mandatory=$true)]$PagePaths,
+    [Parameter(Mandatory=$true)]$HubMap,
+    [Parameter(Mandatory=$true)]$OrphanPages,
+    [Parameter(Mandatory=$true)]$EmptyDirectories
   )
 
   $score = 100
@@ -469,22 +472,22 @@ function Get-AuditV2 {
   $hasIndexMd = @($blobPaths | Where-Object { $_ -eq 'src/index.md' }).Count -gt 0
   $hasIndexNjk = @($blobPaths | Where-Object { $_ -eq 'src/index.njk' }).Count -gt 0
 
-  $pagePaths = Get-PagePaths -TreeItems $TreeItems
-  $hubMap = Get-HubMap -PagePaths $pagePaths
-  $orphanPages = Get-OrphanPages -PagePaths $pagePaths
-  $emptyDirs = Get-EmptyDirectories -TreeItems $TreeItems
+  $pagePaths = @(Get-PagePaths -TreeItems $TreeItems)
+  $hubMap = @(Get-HubMap -PagePaths @($pagePaths))
+  $orphanPages = @(Get-OrphanPages -PagePaths @($pagePaths))
+  $emptyDirs = @(Get-EmptyDirectories -TreeItems $TreeItems)
 
   $routeDepthMap = New-Object System.Collections.Generic.List[object]
   $maxDepth = 0
   foreach ($page in $pagePaths) {
-    $route = Convert-PagePathToRoute -Path $page
+    $route = Convert-PagePathToRoute -Path ([string]$page)
     $depth = Get-RouteDepth -Route $route
     if ($depth -gt $maxDepth) { $maxDepth = $depth }
 
     $routeDepthMap.Add([pscustomobject]@{
-      path  = $page
-      route = $route
-      depth = $depth
+      path  = [string]$page
+      route = [string]$route
+      depth = [int]$depth
     }) | Out-Null
   }
 
@@ -521,10 +524,10 @@ function Get-AuditV2 {
 
   $structureScore = Get-StructureScore `
     -MinimalAudit $minimalAudit `
-    -PagePaths $pagePaths `
-    -HubMap $hubMap `
-    -OrphanPages $orphanPages `
-    -EmptyDirectories $emptyDirs
+    -PagePaths @($pagePaths) `
+    -HubMap @($hubMap) `
+    -OrphanPages @($orphanPages) `
+    -EmptyDirectories @($emptyDirs)
 
   return [pscustomobject]@{
     audit_version        = 'v2'
