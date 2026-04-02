@@ -1,0 +1,409 @@
+name: SITE_AUDITOR - Fetch Trace Debug
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  fetch-trace:
+    runs-on: ubuntu-latest
+    env:
+      GH_PAT: ${{ secrets.GH_BATCH_PAT }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PowerShell
+        shell: pwsh
+        run: |
+          $PSVersionTable.PSVersion.ToString()
+
+      - name: Run fetch trace
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $reportsDir = Join-Path $PWD 'reports'
+          if (Test-Path $reportsDir) { Remove-Item $reportsDir -Recurse -Force }
+          New-Item -ItemType Directory -Path $reportsDir | Out-Null
+
+          function Save-JsonFile {
+            param(
+              [Parameter(Mandatory=$true)][string]$Path,
+              [Parameter(Mandatory=$true)]$Object
+            )
+            $json = $Object | ConvertTo-Json -Depth 20
+            [System.IO.File]::WriteAllText($Path, $json, [System.Text.UTF8Encoding]::new($false))
+          }
+
+          function Get-PreviewText {
+            param(
+              [AllowNull()][object]$Value,
+              [int]$MaxLength = 4000
+            )
+            if ($null -eq $Value) { return $null }
+
+            $text = ''
+            if ($Value -is [string]) {
+              $text = $Value
+            }
+            else {
+              try {
+                $text = $Value | ConvertTo-Json -Depth 20 -Compress
+              }
+              catch {
+                $text = [string]$Value
+              }
+            }
+
+            if ($text.Length -gt $MaxLength) {
+              return $text.Substring(0, $MaxLength)
+            }
+            return $text
+          }
+
+          function Invoke-GitHubApi {
+            param(
+              [Parameter(Mandatory=$true)][string]$Method,
+              [Parameter(Mandatory=$true)][string]$Url,
+              [string]$Token = '',
+              [switch]$RawText,
+              [switch]$NoAuth
+            )
+
+            $headers = @{
+              'Accept' = 'application/vnd.github+json'
+              'User-Agent' = 'SITE_AUDITOR_FETCH_TRACE'
+              'X-GitHub-Api-Version' = '2022-11-28'
+            }
+
+            if (-not $NoAuth -and -not [string]::IsNullOrWhiteSpace($Token)) {
+              $headers['Authorization'] = "Bearer $Token"
+            }
+
+            try {
+              $response = Invoke-WebRequest -Method $Method -Uri $Url -Headers $headers -MaximumRedirection 0 -ErrorAction Stop
+              $bodyText = $response.Content
+              $bodyParsed = $null
+
+              if (-not $RawText) {
+                try {
+                  if (-not [string]::IsNullOrWhiteSpace($bodyText)) {
+                    $bodyParsed = $bodyText | ConvertFrom-Json
+                  }
+                }
+                catch {
+                  $bodyParsed = $null
+                }
+              }
+
+              $headerMap = @{}
+              foreach ($key in $response.Headers.Keys) {
+                $headerMap[$key] = [string]$response.Headers[$key]
+              }
+
+              return [pscustomobject]@{
+                ok              = $true
+                status_code     = [int]$response.StatusCode
+                status_text     = [string]$response.StatusDescription
+                url             = $Url
+                method          = $Method
+                headers         = $headerMap
+                body_text       = $bodyText
+                body_json       = $bodyParsed
+                error_message   = $null
+                exception_type  = $null
+              }
+            }
+            catch {
+              $ex = $_.Exception
+              $statusCode = $null
+              $statusText = $null
+              $bodyText = $null
+              $headerMap = @{}
+
+              if ($ex.Response) {
+                try {
+                  $statusCode = [int]$ex.Response.StatusCode
+                } catch {}
+
+                try {
+                  $statusText = [string]$ex.Response.StatusDescription
+                } catch {}
+
+                try {
+                  foreach ($key in $ex.Response.Headers.Keys) {
+                    $headerMap[$key] = [string]$ex.Response.Headers[$key]
+                  }
+                } catch {}
+
+                try {
+                  $stream = $ex.Response.GetResponseStream()
+                  if ($stream) {
+                    $reader = New-Object System.IO.StreamReader($stream)
+                    $bodyText = $reader.ReadToEnd()
+                    $reader.Close()
+                  }
+                } catch {}
+              }
+
+              return [pscustomobject]@{
+                ok              = $false
+                status_code     = $statusCode
+                status_text     = $statusText
+                url             = $Url
+                method          = $Method
+                headers         = $headerMap
+                body_text       = $bodyText
+                body_json       = $null
+                error_message   = [string]$ex.Message
+                exception_type  = $ex.GetType().FullName
+              }
+            }
+          }
+
+          function Write-StepTrace {
+            param(
+              [Parameter(Mandatory=$true)][string]$Path,
+              [Parameter(Mandatory=$true)][string]$Repo,
+              [Parameter(Mandatory=$true)][string]$StepName,
+              [Parameter(Mandatory=$true)]$Result,
+              [hashtable]$Extra = @{}
+            )
+
+            $obj = [ordered]@{
+              timestamp       = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
+              repo            = $Repo
+              step_name       = $StepName
+              ok              = $Result.ok
+              status_code     = $Result.status_code
+              status_text     = $Result.status_text
+              method          = $Result.method
+              url             = $Result.url
+              error_message   = $Result.error_message
+              exception_type  = $Result.exception_type
+              headers_preview = $Result.headers
+              body_preview    = Get-PreviewText -Value $Result.body_text -MaxLength 4000
+            }
+
+            foreach ($k in $Extra.Keys) {
+              $obj[$k] = $Extra[$k]
+            }
+
+            Save-JsonFile -Path $Path -Object $obj
+          }
+
+          $tokenPresent = -not [string]::IsNullOrWhiteSpace($env:GH_PAT)
+          $patPreflight = [ordered]@{
+            timestamp      = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
+            token_present  = $tokenPresent
+            token_length   = if ($tokenPresent) { $env:GH_PAT.Length } else { 0 }
+            token_prefix   = if ($tokenPresent -and $env:GH_PAT.Length -ge 4) { $env:GH_PAT.Substring(0,4) } else { '' }
+            actor          = '${{ github.actor }}'
+            repository     = '${{ github.repository }}'
+            run_id         = '${{ github.run_id }}'
+            run_number     = '${{ github.run_number }}'
+            workflow       = '${{ github.workflow }}'
+          }
+          Save-JsonFile -Path (Join-Path $reportsDir 'pat-preflight.json') -Object $patPreflight
+
+          $userResult = Invoke-GitHubApi -Method 'GET' -Url 'https://api.github.com/user' -Token $env:GH_PAT
+          Write-StepTrace -Path (Join-Path $reportsDir '00_user.json') -Repo '__identity__' -StepName 'user' -Result $userResult
+
+          $repoList = @(
+            'ries11217596955-hash/automation-kb'
+            'ries11217596955-hash/e-factory-agent'
+            'ries11217596955-hash/e-factory-memory'
+          )
+
+          $summary = New-Object System.Collections.Generic.List[object]
+
+          foreach ($repo in $repoList) {
+            $repoSlug = $repo.Replace('/','__')
+
+            $repoMetaUrl = "https://api.github.com/repos/$repo"
+            $repoMeta = Invoke-GitHubApi -Method 'GET' -Url $repoMetaUrl -Token $env:GH_PAT
+            Write-StepTrace `
+              -Path (Join-Path $reportsDir "$repoSlug`__01_repo_meta.json") `
+              -Repo $repo `
+              -StepName 'repo_meta' `
+              -Result $repoMeta
+
+            $defaultBranch = $null
+            $repoPrivate = $null
+            $repoId = $null
+
+            if ($repoMeta.ok -and $repoMeta.body_json) {
+              try { $defaultBranch = [string]$repoMeta.body_json.default_branch } catch {}
+              try { $repoPrivate = [bool]$repoMeta.body_json.private } catch {}
+              try { $repoId = [string]$repoMeta.body_json.id } catch {}
+            }
+
+            $branchResult = $null
+            $branchSha = $null
+            if (-not [string]::IsNullOrWhiteSpace($defaultBranch)) {
+              $branchUrl = "https://api.github.com/repos/$repo/branches/$defaultBranch"
+              $branchResult = Invoke-GitHubApi -Method 'GET' -Url $branchUrl -Token $env:GH_PAT
+              Write-StepTrace `
+                -Path (Join-Path $reportsDir "$repoSlug`__02_branch.json") `
+                -Repo $repo `
+                -StepName 'branch' `
+                -Result $branchResult `
+                -Extra @{ default_branch = $defaultBranch }
+
+              if ($branchResult.ok -and $branchResult.body_json) {
+                try { $branchSha = [string]$branchResult.body_json.commit.sha } catch {}
+              }
+            }
+            else {
+              $skipObj = [ordered]@{
+                timestamp     = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
+                repo          = $repo
+                step_name     = 'branch'
+                skipped       = $true
+                reason        = 'default_branch_missing'
+                default_branch = $defaultBranch
+              }
+              Save-JsonFile -Path (Join-Path $reportsDir "$repoSlug`__02_branch.json") -Object $skipObj
+            }
+
+            $treeResult = $null
+            $inventoryCount = 0
+            if (-not [string]::IsNullOrWhiteSpace($branchSha)) {
+              $treeUrl = "https://api.github.com/repos/$repo/git/trees/$branchSha?recursive=1"
+              $treeResult = Invoke-GitHubApi -Method 'GET' -Url $treeUrl -Token $env:GH_PAT
+              Write-StepTrace `
+                -Path (Join-Path $reportsDir "$repoSlug`__03_tree.json") `
+                -Repo $repo `
+                -StepName 'tree' `
+                -Result $treeResult `
+                -Extra @{ default_branch = $defaultBranch; branch_sha = $branchSha }
+
+              if ($treeResult.ok -and $treeResult.body_json) {
+                try {
+                  $treeItems = @($treeResult.body_json.tree)
+                  $inventoryCount = $treeItems.Count
+                } catch {
+                  $inventoryCount = 0
+                }
+              }
+            }
+            else {
+              $skipObj = [ordered]@{
+                timestamp      = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
+                repo           = $repo
+                step_name      = 'tree'
+                skipped        = $true
+                reason         = 'branch_sha_missing'
+                default_branch = $defaultBranch
+              }
+              Save-JsonFile -Path (Join-Path $reportsDir "$repoSlug`__03_tree.json") -Object $skipObj
+            }
+
+            $zipHeadResult = $null
+            $zipGetResult = $null
+            if (-not [string]::IsNullOrWhiteSpace($defaultBranch)) {
+              $zipUrl = "https://api.github.com/repos/$repo/zipball/$defaultBranch"
+
+              $zipHeadResult = Invoke-GitHubApi -Method 'HEAD' -Url $zipUrl -Token $env:GH_PAT -RawText
+              Write-StepTrace `
+                -Path (Join-Path $reportsDir "$repoSlug`__04_zipball_head.json") `
+                -Repo $repo `
+                -StepName 'zipball_head' `
+                -Result $zipHeadResult `
+                -Extra @{ default_branch = $defaultBranch }
+
+              $zipGetResult = Invoke-GitHubApi -Method 'GET' -Url $zipUrl -Token $env:GH_PAT -RawText
+              Write-StepTrace `
+                -Path (Join-Path $reportsDir "$repoSlug`__05_zipball_get.json") `
+                -Repo $repo `
+                -StepName 'zipball_get' `
+                -Result $zipGetResult `
+                -Extra @{ default_branch = $defaultBranch }
+            }
+            else {
+              $skipObj1 = [ordered]@{
+                timestamp      = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
+                repo           = $repo
+                step_name      = 'zipball_head'
+                skipped        = $true
+                reason         = 'default_branch_missing'
+                default_branch = $defaultBranch
+              }
+              Save-JsonFile -Path (Join-Path $reportsDir "$repoSlug`__04_zipball_head.json") -Object $skipObj1
+
+              $skipObj2 = [ordered]@{
+                timestamp      = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
+                repo           = $repo
+                step_name      = 'zipball_get'
+                skipped        = $true
+                reason         = 'default_branch_missing'
+                default_branch = $defaultBranch
+              }
+              Save-JsonFile -Path (Join-Path $reportsDir "$repoSlug`__05_zipball_get.json") -Object $skipObj2
+            }
+
+            $repoSummary = [ordered]@{
+              repo                 = $repo
+              repo_meta_ok         = [bool]($repoMeta.ok)
+              repo_meta_status     = $repoMeta.status_code
+              default_branch       = $defaultBranch
+              branch_ok            = if ($branchResult) { [bool]($branchResult.ok) } else { $false }
+              branch_status        = if ($branchResult) { $branchResult.status_code } else { $null }
+              branch_sha           = $branchSha
+              tree_ok              = if ($treeResult) { [bool]($treeResult.ok) } else { $false }
+              tree_status          = if ($treeResult) { $treeResult.status_code } else { $null }
+              inventory_count      = $inventoryCount
+              zipball_head_ok      = if ($zipHeadResult) { [bool]($zipHeadResult.ok) } else { $false }
+              zipball_head_status  = if ($zipHeadResult) { $zipHeadResult.status_code } else { $null }
+              zipball_get_ok       = if ($zipGetResult) { [bool]($zipGetResult.ok) } else { $false }
+              zipball_get_status   = if ($zipGetResult) { $zipGetResult.status_code } else { $null }
+              private              = $repoPrivate
+              repo_id              = $repoId
+              pass_fetch           = [bool](($repoMeta.ok) -and ($inventoryCount -gt 0))
+            }
+
+            $summary.Add([pscustomobject]$repoSummary) | Out-Null
+          }
+
+          $summaryPath = Join-Path $reportsDir 'pipeline-summary.json'
+          Save-JsonFile -Path $summaryPath -Object $summary
+
+          $anyPass = $false
+          foreach ($item in $summary) {
+            if ($item.pass_fetch) {
+              $anyPass = $true
+              break
+            }
+          }
+
+          $final = [ordered]@{
+            timestamp         = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
+            mode              = 'DEBUG_FETCH_PIPELINE'
+            token_present     = $tokenPresent
+            user_ok           = [bool]$userResult.ok
+            user_status       = $userResult.status_code
+            repos_total       = $summary.Count
+            repos_pass_fetch  = @($summary | Where-Object { $_.pass_fetch }).Count
+            overall_status    = if ($anyPass) { 'PASS_FETCH_MIN' } else { 'FAIL_FETCH' }
+          }
+          Save-JsonFile -Path (Join-Path $reportsDir 'final-status.json') -Object $final
+
+          Write-Host "=== FINAL STATUS ==="
+          $final | ConvertTo-Json -Depth 10
+
+          if (-not $anyPass) {
+            throw "FAIL_FETCH: no repo reached inventory_count > 0"
+          }
+
+      - name: Upload reports artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-audit-reports
+          path: reports
+          if-no-files-found: warn
