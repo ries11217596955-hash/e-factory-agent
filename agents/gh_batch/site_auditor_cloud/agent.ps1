@@ -1,8 +1,27 @@
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+$script:AgentScriptRoot = $null
+if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+    $script:AgentScriptRoot = $PSScriptRoot
+}
+elseif (-not [string]::IsNullOrWhiteSpace($PSCommandPath)) {
+    $script:AgentScriptRoot = Split-Path -Parent $PSCommandPath
+}
+elseif ($MyInvocation -and $MyInvocation.MyCommand -and $MyInvocation.MyCommand.Definition) {
+    try {
+        $candidate = Split-Path -Parent $MyInvocation.MyCommand.Definition
+        if (-not [string]::IsNullOrWhiteSpace($candidate)) {
+            $script:AgentScriptRoot = $candidate
+        }
+    } catch {}
+}
+if ([string]::IsNullOrWhiteSpace($script:AgentScriptRoot)) {
+    $script:AgentScriptRoot = (Get-Location).Path
+}
+
 function Get-ScriptRoot {
-    return Split-Path -Parent $MyInvocation.MyCommand.Path
+    return $script:AgentScriptRoot
 }
 
 function Get-RoutePaths {
