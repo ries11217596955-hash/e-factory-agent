@@ -244,7 +244,9 @@ jobs:
             }
 
             $branchResult = $null
-            $branchSha = $null
+            $commitSha = $null
+            $treeSha = $null
+
             if (-not [string]::IsNullOrWhiteSpace($defaultBranch)) {
               $branchUrl = "https://api.github.com/repos/$repo/branches/$defaultBranch"
               $branchResult = Invoke-GitHubApi -Method 'GET' -Url $branchUrl -Token $env:GH_PAT
@@ -256,16 +258,17 @@ jobs:
                 -Extra @{ default_branch = $defaultBranch }
 
               if ($branchResult.ok -and $branchResult.body_json) {
-                try { $branchSha = [string]$branchResult.body_json.commit.sha } catch {}
+                try { $commitSha = [string]$branchResult.body_json.commit.sha } catch {}
+                try { $treeSha   = [string]$branchResult.body_json.commit.commit.tree.sha } catch {}
               }
             }
             else {
               $skipObj = [ordered]@{
-                timestamp     = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
-                repo          = $repo
-                step_name     = 'branch'
-                skipped       = $true
-                reason        = 'default_branch_missing'
+                timestamp      = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
+                repo           = $repo
+                step_name      = 'branch'
+                skipped        = $true
+                reason         = 'default_branch_missing'
                 default_branch = $defaultBranch
               }
               Save-JsonFile -Path (Join-Path $reportsDir "$repoSlug`__02_branch.json") -Object $skipObj
@@ -273,15 +276,15 @@ jobs:
 
             $treeResult = $null
             $inventoryCount = 0
-            if (-not [string]::IsNullOrWhiteSpace($branchSha)) {
-              $treeUrl = "https://api.github.com/repos/$repo/git/trees/$branchSha?recursive=1"
+            if (-not [string]::IsNullOrWhiteSpace($treeSha)) {
+              $treeUrl = "https://api.github.com/repos/$repo/git/trees/${treeSha}?recursive=1"
               $treeResult = Invoke-GitHubApi -Method 'GET' -Url $treeUrl -Token $env:GH_PAT
               Write-StepTrace `
                 -Path (Join-Path $reportsDir "$repoSlug`__03_tree.json") `
                 -Repo $repo `
                 -StepName 'tree' `
                 -Result $treeResult `
-                -Extra @{ default_branch = $defaultBranch; branch_sha = $branchSha }
+                -Extra @{ default_branch = $defaultBranch; commit_sha = $commitSha; tree_sha = $treeSha }
 
               if ($treeResult.ok -and $treeResult.body_json) {
                 try {
@@ -298,8 +301,10 @@ jobs:
                 repo           = $repo
                 step_name      = 'tree'
                 skipped        = $true
-                reason         = 'branch_sha_missing'
+                reason         = 'tree_sha_missing'
                 default_branch = $defaultBranch
+                commit_sha     = $commitSha
+                tree_sha       = $treeSha
               }
               Save-JsonFile -Path (Join-Path $reportsDir "$repoSlug`__03_tree.json") -Object $skipObj
             }
@@ -354,7 +359,8 @@ jobs:
               default_branch       = $defaultBranch
               branch_ok            = if ($branchResult) { [bool]($branchResult.ok) } else { $false }
               branch_status        = if ($branchResult) { $branchResult.status_code } else { $null }
-              branch_sha           = $branchSha
+              commit_sha           = $commitSha
+              tree_sha             = $treeSha
               tree_ok              = if ($treeResult) { [bool]($treeResult.ok) } else { $false }
               tree_status          = if ($treeResult) { $treeResult.status_code } else { $null }
               inventory_count      = $inventoryCount
@@ -364,7 +370,7 @@ jobs:
               zipball_get_status   = if ($zipGetResult) { $zipGetResult.status_code } else { $null }
               private              = $repoPrivate
               repo_id              = $repoId
-              pass_fetch           = [bool](($repoMeta.ok) -and ($inventoryCount -gt 0))
+              pass_fetch           = [bool](($repoMeta.ok) -and ($treeResult) -and ($treeResult.ok) -and ($inventoryCount -gt 0))
             }
 
             $summary.Add([pscustomobject]$repoSummary) | Out-Null
