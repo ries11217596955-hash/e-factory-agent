@@ -33,11 +33,13 @@ function Get-RepoTree {
 
     $repoMetaUrl = "https://api.github.com/repos/$Repo"
     $repoMeta = Invoke-RestMethod -Uri $repoMetaUrl -Headers $Headers -Method Get
+
     $branch = $repoMeta.default_branch
     if (-not $branch) { $branch = "main" }
 
     $treeUrl = "https://api.github.com/repos/$Repo/git/trees/$branch?recursive=1"
     $tree = Invoke-RestMethod -Uri $treeUrl -Headers $Headers -Method Get
+
     return @{
         RepoMeta = $repoMeta
         Branch   = $branch
@@ -71,23 +73,25 @@ function Resolve-InternalLinkCandidates {
     $c.Add("$base/index.md") | Out-Null
     $c.Add("$base/index.njk") | Out-Null
     $c.Add("$base/index.html") | Out-Null
+
     if ($base -notmatch '\.[A-Za-z0-9]+$') {
         $c.Add("$base.md") | Out-Null
         $c.Add("$base.njk") | Out-Null
         $c.Add("$base.html") | Out-Null
     }
+
     return @($c | ForEach-Object { $_.ToLowerInvariant() } | Select-Object -Unique)
 }
 
 $headers = @{
-    Authorization = "token $env:GITHUB_TOKEN"
+    Authorization = "Bearer $env:GITHUB_TOKEN"
     "User-Agent"  = "site-auditor-v3"
     Accept        = "application/vnd.github+json"
 }
 
 try {
-    if (-not $env:GITHUB_TOKEN) {
-        throw "GITHUB_TOKEN is empty"
+    if ([string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN)) {
+        throw "GITHUB_TOKEN is empty."
     }
 
     $reposPath = "agents/gh_batch/site_auditor_cloud/repos.fixed.json"
@@ -107,8 +111,11 @@ try {
             $tree = @($treeInfo.Tree)
             $fileItems = @($tree | Where-Object { $_.type -eq "blob" })
             $paths = @($fileItems | ForEach-Object { [string]$_.path })
+
             $pathSet = @{}
-            foreach ($p in $paths) { $pathSet[$p.ToLowerInvariant()] = $true }
+            foreach ($p in $paths) {
+                $pathSet[$p.ToLowerInvariant()] = $true
+            }
 
             $contentPages = @($paths | Where-Object { Is-ContentPagePath $_ })
             $posts = @($paths | Where-Object { $_ -match '^src/posts/' })
@@ -131,14 +138,17 @@ try {
                 if ($hubs.Count -eq 0) {
                     Add-Issue -List $allIssues -Severity "high" -Code "NO_HUBS" -Repo $repo -Path "" -Message "No hub pages detected under src/hubs/."
                 }
+
                 if ($posts.Count -lt 10) {
                     Add-Issue -List $allIssues -Severity "medium" -Code "LOW_POST_COUNT" -Repo $repo -Path "" -Message ("Low post count detected: {0}" -f $posts.Count)
                 }
+
                 if (-not ($pathSet.ContainsKey("src/search.njk") -or $pathSet.ContainsKey("src/search.md") -or $pathSet.ContainsKey("src/search/index.njk") -or $pathSet.ContainsKey("src/search/index.md"))) {
                     Add-Issue -List $allIssues -Severity "medium" -Code "SEARCH_PAGE_MISSING" -Repo $repo -Path "" -Message "No search page detected under src/."
                 }
 
                 $candidateInspect = @($contentPages | Select-Object -First 25)
+
                 foreach ($pagePath in $candidateInspect) {
                     try {
                         $contentUrl = "https://raw.githubusercontent.com/$repo/$($treeInfo.Branch)/$pagePath"
@@ -151,6 +161,7 @@ try {
                         if ($raw -notmatch '(?im)^\s*title\s*:') {
                             Add-Issue -List $allIssues -Severity "low" -Code "MISSING_TITLE" -Repo $repo -Path $pagePath -Message "No front-matter title detected."
                         }
+
                         if (($raw -notmatch '(?im)^\s*description\s*:') -and ($raw -notmatch '(?im)^\s*excerpt\s*:')) {
                             Add-Issue -List $allIssues -Severity "low" -Code "MISSING_DESCRIPTION" -Repo $repo -Path $pagePath -Message "No front-matter description/excerpt detected."
                         }
@@ -167,7 +178,10 @@ try {
                             if ($candidates.Count -gt 0) {
                                 $exists = $false
                                 foreach ($cand in $candidates) {
-                                    if ($pathSet.ContainsKey($cand)) { $exists = $true; break }
+                                    if ($pathSet.ContainsKey($cand)) {
+                                        $exists = $true
+                                        break
+                                    }
                                 }
                                 if (-not $exists) {
                                     Add-Issue -List $allIssues -Severity "medium" -Code "BROKEN_INTERNAL_LINK" -Repo $repo -Path $pagePath -Message ("Broken internal link: {0}" -f $lnk)
