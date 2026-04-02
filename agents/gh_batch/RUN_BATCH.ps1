@@ -1,5 +1,5 @@
-# RUN_BATCH_FINAL.ps1
-# Final apply engine with root detection and wrapper handling
+# RUN_BATCH_FINAL_v2.ps1
+# FINAL VERSION — stable apply + robust root detection
 
 param(
     [string]$ZipPath,
@@ -26,18 +26,24 @@ try {
     $result.message = $_.Exception.Message
 }
 
-# detect root
+# --- ROOT DETECTION (FINAL FIX) ---
+
 $root = $temp
+
+# unwrap single wrapper folder
 $items = Get-ChildItem $temp
 if ($items.Count -eq 1 -and $items[0].PSIsContainer) {
     $root = $items[0].FullName
 }
 
-# detect src folder
-$srcPath = Join-Path $root "src"
-if (Test-Path $srcPath) {
-    $root = $root
+# FORCE detect src anywhere inside
+$srcCandidate = Get-ChildItem -Path $root -Recurse -Directory | Where-Object { $_.Name -eq 'src' } | Select-Object -First 1
+
+if ($srcCandidate) {
+    $root = $srcCandidate.FullName
 }
+
+# ----------------------------------
 
 $files = Get-ChildItem -Path $root -Recurse -File
 
