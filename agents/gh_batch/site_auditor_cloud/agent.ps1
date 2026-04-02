@@ -106,12 +106,52 @@ function Increase-Severity {
     return $sev
 }
 
+function Test-ContentMissing {
+    param($Item)
+
+    if (-not $Item) { return $true }
+    if ($Item.status -ne 'ok') { return $false }
+
+    $bodyTextLength = 0
+    if ($null -ne $Item.bodyTextLength) {
+        $bodyTextLength = [int]$Item.bodyTextLength
+    }
+
+    $links = 0
+    if ($null -ne $Item.links) {
+        $links = [int]$Item.links
+    }
+
+    $images = 0
+    if ($null -ne $Item.images) {
+        $images = [int]$Item.images
+    }
+
+    $title = ""
+    if ($null -ne $Item.title) {
+        $title = [string]$Item.title
+    }
+
+    if ($bodyTextLength -lt 50 -and
+        $links -eq 0 -and
+        $images -eq 0 -and
+        [string]::IsNullOrWhiteSpace($title)) {
+        return $true
+    }
+
+    return $false
+}
+
 function Get-VisualHealthScore {
     param($Item)
 
     if (-not $Item) { return 0 }
 
     if ($Item.status -ne 'ok') {
+        return 0
+    }
+
+    if (Test-ContentMissing -Item $Item) {
         return 0
     }
 
@@ -255,6 +295,7 @@ function Invoke-SiteAuditor {
     $suspectShortPages = @()
     $suspectEmptyTitles = @()
     $suspectFooterMissing = @()
+    $contentEmptyRoutes = @()
 
     $routeScores = @()
     $findings = @()
@@ -262,6 +303,7 @@ function Invoke-SiteAuditor {
     foreach ($item in $manifest) {
         $url = [string]$item.url
         $importance = Get-RouteImportance -Url $url
+        $contentMissing = Test-ContentMissing -Item $item
         $score = Get-VisualHealthScore -Item $item
         $band = Get-ScoreBand -Score $score
 
@@ -277,6 +319,7 @@ function Invoke-SiteAuditor {
             links = [int]$item.links
             images = [int]$item.images
             title = [string]$item.title
+            content_missing = $contentMissing
         }
 
         if ($item.status -ne 'ok') {
@@ -288,6 +331,16 @@ function Invoke-SiteAuditor {
                 -RouteImportance $importance `
                 -Note "Route failed during visual capture"
             continue
+        }
+
+        if ($contentMissing -eq $true) {
+            $contentEmptyRoutes += $url
+            $findings += New-Finding `
+                -Severity "high" `
+                -Kind "content_missing" `
+                -Url $url `
+                -RouteImportance $importance `
+                -Note "Route appears visually empty: no title, no text, no links, no images"
         }
 
         if ($item.lowCoverage -eq $true) {
@@ -379,7 +432,10 @@ function Invoke-SiteAuditor {
         $status = "PASS_V3_SCREENSHOT"
     }
 
-    if ($failedRoutes.Count -gt 0 -and $screenshotCount -eq 0) {
+    if ($contentEmptyRoutes.Count -ge [Math]::Ceiling(@($routes).Count * 0.5)) {
+        $status = "FAIL_CONTENT_EMPTY"
+    }
+    elseif ($failedRoutes.Count -gt 0 -and $screenshotCount -eq 0) {
         $status = "FAIL_VISUAL"
     }
     elseif ($lowCoverageRoutes.Count -gt 0) {
@@ -401,6 +457,7 @@ function Invoke-SiteAuditor {
         suspect_short_pages = $suspectShortPages
         suspect_empty_titles = $suspectEmptyTitles
         suspect_footer_missing = $suspectFooterMissing
+        content_empty_routes = $contentEmptyRoutes
         capture_summary_present = [bool]$captureSummary
         findings_high = $highSeverityCount
         findings_medium = $mediumSeverityCount
@@ -422,6 +479,7 @@ function Invoke-SiteAuditor {
         "SITE VISUAL HEALTH SCORE: $siteVisualHealthScore"
         "FAILED ROUTES: $($failedRoutes.Count)"
         "LOW COVERAGE ROUTES: $($lowCoverageRoutes.Count)"
+        "CONTENT EMPTY ROUTES: $($contentEmptyRoutes.Count)"
         "HIGH FINDINGS: $highSeverityCount"
         "MEDIUM FINDINGS: $mediumSeverityCount"
         "LOW FINDINGS: $lowSeverityCount"
