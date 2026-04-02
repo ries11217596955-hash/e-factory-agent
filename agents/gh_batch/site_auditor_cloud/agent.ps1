@@ -206,49 +206,66 @@ function Get-VisualFindings {
 }
 
 function Build-RouteScores {
-    param([Parameter(Mandatory=$true)][object]$Manifest)
+    param([Parameter(Mandatory=$true)][object[]]$ManifestItems)
 
-    $ManifestItems = @($Manifest)
-    $result = New-Object System.Collections.Generic.List[object]
+    $items = @()
+    foreach ($m in @($ManifestItems)) {
+        if ($null -eq $m) { continue }
+        $routeUrl = [string]$m.url
+        if ([string]::IsNullOrWhiteSpace($routeUrl)) { continue }
 
-    foreach ($m in $ManifestItems) {
-        $routePath = ([uri]$m.url).AbsolutePath
+        $routePath = ([uri]$routeUrl).AbsolutePath
         $importance = Get-RouteImportance -RoutePath $routePath
-        $bodyLen = [int]$m.bodyTextLength
+
+        $bodyLen = 0
+        if ($null -ne $m.bodyTextLength) { $bodyLen = [int]$m.bodyTextLength }
+
+        $images = 0
+        if ($null -ne $m.images) { $images = [int]$m.images }
+
+        $screenshotCount = 0
+        if ($null -ne $m.screenshotCount) { $screenshotCount = [int]$m.screenshotCount }
+
+        $links = 0
+        if ($null -ne $m.links) { $links = [int]$m.links }
+
+        $contentMetricsPresent = $false
+        if ($null -ne $m.contentMetricsPresent) { $contentMetricsPresent = [bool]$m.contentMetricsPresent }
+
         $visualScore = 95
-        if ([int]$m.images -eq 0) { $visualScore -= 5 }
+        if ($images -eq 0) { $visualScore -= 5 }
         if ($bodyLen -lt 350) { $visualScore -= 15 }
         if ($visualScore -lt 0) { $visualScore = 0 }
 
-        $result.Add([pscustomobject][ordered]@{
+        $items += [pscustomobject][ordered]@{
             title = [string]$m.title
             body_text_length = $bodyLen
-            content_missing = (-not [bool]$m.contentMetricsPresent)
+            content_missing = (-not $contentMetricsPresent)
             route_importance = $importance
-            content_metrics_present = [bool]$m.contentMetricsPresent
-            images = [int]$m.images
+            content_metrics_present = $contentMetricsPresent
+            images = $images
             visual_health_score = $visualScore
             status = [string]$m.status
             route_path = $routePath
             score_band = (Get-RouteScoreBand -BodyTextLength $bodyLen)
-            screenshot_count = [int]$m.screenshotCount
-            links = [int]$m.links
-            url = [string]$m.url
-        })
+            screenshot_count = $screenshotCount
+            links = $links
+            url = $routeUrl
+        }
     }
 
-    return @($result)
+    return @($items)
 }
 
 function Build-VisualSummary {
     param(
         [Parameter(Mandatory=$true)][string]$BaseUrl,
-        [Parameter(Mandatory=$true)][object]$Manifest,
-        [Parameter(Mandatory=$true)][object]$Findings
+        [Parameter(Mandatory=$true)][object[]]$ManifestItems,
+        [Parameter(Mandatory=$true)][object[]]$Findings
     )
 
-    $ManifestItems = @($Manifest)
-    $FindingItems = @($Findings)
+    $manifestList = @($ManifestItems)
+    $findingList = @($Findings)
 
     $failedRoutes = @()
     $contentEmpty = @()
@@ -261,46 +278,53 @@ function Build-VisualSummary {
     $screenshotsCount = 0
     $totalScore = 0.0
 
-    foreach ($m in $ManifestItems) {
-        $screenshotsCount += [int]$m.screenshotCount
+    foreach ($m in $manifestList) {
+        if ($null -eq $m) { continue }
+
+        $routeUrl = [string]$m.url
+
+        $screenshotCount = 0
+        if ($null -ne $m.screenshotCount) { $screenshotCount = [int]$m.screenshotCount }
+        $screenshotsCount += $screenshotCount
+
+        $images = 0
+        if ($null -ne $m.images) { $images = [int]$m.images }
+
+        $bodyLen = 0
+        if ($null -ne $m.bodyTextLength) { $bodyLen = [int]$m.bodyTextLength }
+
+        $contentMetricsPresent = $false
+        if ($null -ne $m.contentMetricsPresent) { $contentMetricsPresent = [bool]$m.contentMetricsPresent }
 
         $score = 95.0
-        if ([int]$m.images -eq 0) { $score -= 5.0 }
-        if ([int]$m.bodyTextLength -lt 350) { $score -= 15.0 }
+        if ($images -eq 0) { $score -= 5.0 }
+        if ($bodyLen -lt 350) { $score -= 15.0 }
         if ($score -lt 0) { $score = 0.0 }
         $totalScore += $score
 
-        if ([string]$m.status -ne "ok") {
-            $failedRoutes += [string]$m.url
+        if ([string]$m.status -ne "ok") { $failedRoutes += $routeUrl }
+        if (-not $contentMetricsPresent) {
+            $metricsMissing += $routeUrl
+            $contentEmpty += $routeUrl
         }
-
-        if (-not [bool]$m.contentMetricsPresent) {
-            $metricsMissing += [string]$m.url
-            $contentEmpty += [string]$m.url
-        }
-
-        if ([string]::IsNullOrWhiteSpace([string]$m.title)) {
-            $emptyTitles += [string]$m.url
-        }
-
-        if ([int]$m.bodyTextLength -lt 350) {
-            $shortRoutes += [string]$m.url
-        }
-
-        if ([int]$m.screenshotCount -lt 3) {
-            $lowCoverage += [string]$m.url
-        }
+        if ([string]::IsNullOrWhiteSpace([string]$m.title)) { $emptyTitles += $routeUrl }
+        if ($bodyLen -lt 350) { $shortRoutes += $routeUrl }
+        if ($screenshotCount -lt 3) { $lowCoverage += $routeUrl }
+        if ($bodyLen -gt 0 -and $bodyLen -lt 200) { $footerMissing += $routeUrl }
     }
 
-    $high = @($FindingItems | Where-Object { $_.severity -eq "high" }).Count
-    $med  = @($FindingItems | Where-Object { $_.severity -eq "medium" }).Count
-    $low  = @($FindingItems | Where-Object { $_.severity -eq "low" }).Count
-
-    $routeCount = @($ManifestItems).Count
+    $routeCount = @($manifestList).Count
     $health = 0.0
     if ($routeCount -gt 0) {
         $health = [math]::Round(($totalScore / $routeCount), 1)
     }
+
+    $high = @($findingList | Where-Object { $_.severity -eq "high" }).Count
+    $med  = @($findingList | Where-Object { $_.severity -eq "medium" }).Count
+    $low  = @($findingList | Where-Object { $_.severity -eq "low" }).Count
+
+    $status = "PASS_V3_SCREENSHOT"
+    if (@($failedRoutes).Count -gt 0) { $status = "FAIL_CAPTURE" }
 
     return [pscustomobject][ordered]@{
         content_metrics_missing_routes = @($metricsMissing)
@@ -308,14 +332,14 @@ function Build-VisualSummary {
         suspect_empty_titles = @($emptyTitles)
         base_url = $BaseUrl
         route_count = $routeCount
-        status = "PASS_V3_SCREENSHOT"
+        status = $status
         content_empty_routes = @($contentEmpty)
         findings_high = $high
         findings_low = $low
         low_coverage_routes = @($lowCoverage)
-        coverage_score = 3.0
+        coverage_score = 3
         findings_medium = $med
-        capture_summary_present = $false
+        capture_summary_present = $true
         failed_routes = @($failedRoutes)
         site_visual_health_score = $health
         suspect_short_pages = @($shortRoutes)
@@ -609,10 +633,10 @@ function Invoke-SiteAuditor {
         throw "visual_manifest.json not found after capture: $manifestPath"
     }
 
-    $visualManifest = Read-JsonFile -Path $manifestPath
-    $findings = @(Get-VisualFindings -ManifestItems @($visualManifest))
-    $visualSummary = Build-VisualSummary -BaseUrl $BaseUrl -Manifest $visualManifest -Findings $findings
-    $routeScores = @(Build-RouteScores -Manifest $visualManifest)
+    $visualManifest = @(Read-JsonFile -Path $manifestPath)
+    $findings = @(Get-VisualFindings -ManifestItems $visualManifest)
+    $visualSummary = Build-VisualSummary -BaseUrl $BaseUrl -ManifestItems $visualManifest -Findings $findings
+    $routeScores = @(Build-RouteScores -ManifestItems $visualManifest)
     $decision = New-DecisionSummaryV4 -VisualSummary $visualSummary -RouteScores $routeScores
 
     Write-JsonFile -Path (Join-Path $reportsDir "visual_findings.json") -Data $findings -Depth 8
