@@ -15,7 +15,7 @@ function Normalize-TreeItems {
 }
 
 # =========================
-# WRITE REPORT
+# IO HELPERS
 # =========================
 
 function Save-Json {
@@ -53,15 +53,24 @@ function Invoke-SiteAuditor {
 
         try {
             $repoUrl = "https://api.github.com/repos/$repo"
-            $repoMeta = Invoke-RestMethod -Uri $repoUrl -Headers @{ Authorization = "token $Token" }
+
+            $repoMeta = Invoke-RestMethod -Uri $repoUrl -Headers @{
+                Authorization = "token $Token"
+            }
 
             $branch = $repoMeta.default_branch
-            $branchData = Invoke-RestMethod -Uri "$repoUrl/branches/$branch" -Headers @{ Authorization = "token $Token" }
+
+            $branchData = Invoke-RestMethod -Uri "$repoUrl/branches/$branch" -Headers @{
+                Authorization = "token $Token"
+            }
 
             $treeSha = $branchData.commit.commit.tree.sha
 
             $treeUrl = "$repoUrl/git/trees/$treeSha?recursive=1"
-            $tree = Invoke-RestMethod -Uri $treeUrl -Headers @{ Authorization = "token $Token" }
+
+            $tree = Invoke-RestMethod -Uri $treeUrl -Headers @{
+                Authorization = "token $Token"
+            }
 
             $treeItems = Normalize-TreeItems $tree.tree
         }
@@ -75,30 +84,36 @@ function Invoke-SiteAuditor {
     }
 
     # =========================
-    # SAVE REPORTS
+    # STATUS LOGIC
     # =========================
+
+    $status = "PARTIAL_AUDIT_V2"
+
+    if ($results.Count -eq 0) {
+        $status = "FAIL_RUNTIME"
+    }
+    elseif ($results.Count -eq $RepoList.Count) {
+        $status = "PASS_AUDIT_V2"
+    }
 
     $summary = @{
         repos_total = $RepoList.Count
         repos_processed = $results.Count
         audit_version = "v2"
-        $status = "PARTIAL_AUDIT_V2"
-
-if ($results.Count -eq 0) {
-    $status = "FAIL_RUNTIME"
-}
-elseif ($results.Count -eq $RepoList.Count) {
-    $status = "PASS_AUDIT_V2"
-}
+        status = $status
     }
+
+    # =========================
+    # SAVE REPORTS
+    # =========================
 
     Save-Json "reports/audit_result.json" $results
     Save-Json "reports/pipeline-summary.json" $summary
 
-    $summary.status | Out-File "reports/final-status.json"
+    $status | Out-File "reports/final-status.json"
 
     "SITE AUDIT REPORT" | Out-File "reports/REPORT.txt"
-    $results | Out-File "reports/REPORT.txt" -Append
+    ($results | ConvertTo-Json -Depth 5) | Out-File "reports/REPORT.txt" -Append
 
     return $results
 }
@@ -137,6 +152,7 @@ function Get-AuditV2 {
 
 function Get-PagePaths {
     param($TreeItems)
+
     $TreeItems = Normalize-TreeItems $TreeItems
 
     return @(
@@ -148,8 +164,8 @@ function Get-PagePaths {
 
 function Get-HubMap {
     param($PagePaths)
-    $PagePaths = Convert-ToStringArray $PagePaths
 
+    $PagePaths = Convert-ToStringArray $PagePaths
     $map = @{}
 
     foreach ($p in $PagePaths) {
@@ -157,7 +173,11 @@ function Get-HubMap {
             $parts = $p.Split('/')
             if ($parts.Count -gt 1) {
                 $hub = $parts[1]
-                if (-not $map.ContainsKey($hub)) { $map[$hub] = @() }
+
+                if (-not $map.ContainsKey($hub)) {
+                    $map[$hub] = @()
+                }
+
                 $map[$hub] += $p
             }
         }
@@ -168,6 +188,7 @@ function Get-HubMap {
 
 function Get-OrphanPages {
     param($PagePaths)
+
     $PagePaths = Convert-ToStringArray $PagePaths
 
     return @(
@@ -178,6 +199,7 @@ function Get-OrphanPages {
 
 function Get-EmptyDirectories {
     param($TreeItems)
+
     $TreeItems = Normalize-TreeItems $TreeItems
 
     $dirs = @(
