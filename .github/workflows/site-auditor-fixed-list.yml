@@ -26,6 +26,20 @@ jobs:
           }
           Write-Host "PAT is present."
 
+      - name: Test PAT access
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_BATCH_PAT }}
+        run: |
+          $headers = @{
+            Authorization = "Bearer $env:GITHUB_TOKEN"
+            "User-Agent"  = "pat-test"
+            Accept        = "application/vnd.github+json"
+          }
+
+          Invoke-RestMethod -Uri "https://api.github.com/repos/ries11217596955-hash/e-factory-agent" -Headers $headers -Method Get | Out-Null
+          Write-Host "PAT access to e-factory-agent: OK"
+
       - name: Run auditor
         shell: pwsh
         env:
@@ -40,15 +54,3 @@ jobs:
           name: site-audit-reports
           path: reports/
           if-no-files-found: warn
-- name: Test PAT access
-  shell: pwsh
-  env:
-    GITHUB_TOKEN: ${{ secrets.GH_BATCH_PAT }}
-  run: |
-    $headers = @{
-      Authorization = "Bearer $env:GITHUB_TOKEN"
-      "User-Agent"  = "pat-test"
-      Accept        = "application/vnd.github+json"
-    }
-
-    Invoke-RestMethod -Uri "https://api.github.com/repos/ries11217596955-hash/e-factory-agent" -Headers $headers -Method Get
