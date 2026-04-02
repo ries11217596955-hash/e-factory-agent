@@ -1,8 +1,16 @@
+
 ---
-title: Ai Tools For Product Research
+title: AI tools for product research
 layout: post.njk
 ---
 
-# Ai Tools For Product Research
+# AI tools for product research
 
-Content for ai-tools-for-product-research.
+Use AI tools to validate product demand faster.
+
+## Best tools
+- ChatGPT
+- Helium 10
+- Jungle Scout
+
+{% include "partials/related_links.njk" %}

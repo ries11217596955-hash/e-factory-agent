@@ -1,8 +1,8 @@
 {
   "iteration": 1,
-  "zip_name": "automation-kb_macro_batch_ux_20260402.zip",
-  "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\automation-kb_macro_batch_ux_20260402.zip",
-  "finished_at": "2026-04-02 06:02:39.885",
+  "zip_name": "automation-kb_macro_batch_fix_align_20260402.zip",
+  "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\automation-kb_macro_batch_fix_align_20260402.zip",
+  "finished_at": "2026-04-02 06:09:18.370",
   "status": "PASS",
   "reason_code": ""
 }
