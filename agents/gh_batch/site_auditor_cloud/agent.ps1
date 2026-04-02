@@ -595,7 +595,7 @@ function Invoke-SiteAuditor {
     $manifestPath = Join-Path $reportsDir "visual_manifest.json"
     $visualManifest = @(Read-JsonFile -Path $manifestPath)
 
-    $findings = @(Get-VisualFindings -Manifest $visualManifest)
+    $findings = @(Get-VisualFindings -ManifestPath $visualManifestPath)
     $visualSummary = Build-VisualSummary -BaseUrl $BaseUrl -Manifest $visualManifest -Findings $findings
     $routeScores = @(Build-RouteScores -Manifest $visualManifest)
     $decision = New-DecisionSummaryV4 -VisualSummary $visualSummary -RouteScores $routeScores
