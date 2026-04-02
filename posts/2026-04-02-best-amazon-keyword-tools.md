@@ -18,8 +18,10 @@ Provide direct actionable steps.
 3. Apply optimization
 4. Validate results
 
+## Next steps
+- Apply keywords → /hubs/amazon-ai/keyword-research/
+- Fix listing → /hubs/amazon-ai/listing-optimization/
+- Use feedback → /hubs/amazon-ai/review-monitoring/
+
 ## Related
 - /hubs/amazon-ai/
-- /hubs/amazon-ai/keyword-research/
-- /hubs/amazon-ai/listing-optimization/
-- /hubs/amazon-ai/review-monitoring/

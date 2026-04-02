@@ -5,8 +5,6 @@ layout: base.njk
 
 # Amazon Listing Optimization
 
-Improve titles, bullets, images, and descriptions.
-
 ## Start here
 - [Amazon listing title optimization](/posts/2026-04-02-amazon-listing-title-optimization/)
 - [Amazon bullet points optimization](/posts/2026-04-02-amazon-bullet-points-optimization/)
@@ -14,6 +12,7 @@ Improve titles, bullets, images, and descriptions.
 - [Amazon image optimization](/posts/2026-04-02-amazon-image-optimization/)
 - [Amazon listing conversion tips](/posts/2026-04-02-amazon-listing-conversion-tips/)
 
-## Next
-- /hubs/amazon-ai/
-- /hubs/amazon-ai/keyword-research/
+## Where to go next
+- Need keywords → [Keyword Research](/hubs/amazon-ai/keyword-research/)
+- Need feedback loop → [Review Monitoring](/hubs/amazon-ai/review-monitoring/)
+- Back to overview → [Amazon hub](/hubs/amazon-ai/)
