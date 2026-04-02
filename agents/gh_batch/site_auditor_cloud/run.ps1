@@ -1,53 +1,88 @@
+\
 $ErrorActionPreference = "Stop"
 
 $reportsDir = "reports"
 New-Item -ItemType Directory -Force -Path $reportsDir | Out-Null
 
-$repos = Get-Content ./agents/gh_batch/site_auditor_cloud/repos.fixed.json | ConvertFrom-Json
+$reposPath = "./agents/gh_batch/site_auditor_cloud/repos.fixed.json"
+if (-not (Test-Path -LiteralPath $reposPath)) {
+    "repos.fixed.json not found: $reposPath" | Set-Content "$reportsDir/bootstrap.error.txt"
+    exit 1
+}
+
+$repos = Get-Content -LiteralPath $reposPath -Raw | ConvertFrom-Json
+
+$workDir = Join-Path $PWD "tmp_site_auditor"
+New-Item -ItemType Directory -Force -Path $workDir | Out-Null
 
 foreach ($repo in $repos) {
     Write-Output "Auditing $repo"
 
+    $safeName = $repo.Replace('/','_')
+    $repoWorkDir = Join-Path $workDir $safeName
+    $zipPath = Join-Path $repoWorkDir "repo.zip"
+    $extractPath = Join-Path $repoWorkDir "repo_extract"
+
     try {
+        if (Test-Path -LiteralPath $repoWorkDir) {
+            Remove-Item -LiteralPath $repoWorkDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        New-Item -ItemType Directory -Force -Path $repoWorkDir | Out-Null
+
         $zipUrl = "https://api.github.com/repos/$repo/zipball"
-        $zipPath = "$env:TEMP/repo.zip"
-        $extractPath = "$env:TEMP/repo_extract"
 
         Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -Headers @{
             Authorization = "Bearer $env:GITHUB_TOKEN"
-            "User-Agent" = "github-actions"
+            "User-Agent"  = "github-actions"
+            Accept        = "application/vnd.github+json"
         }
 
-        Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
+        Expand-Archive -LiteralPath $zipPath -DestinationPath $extractPath -Force
 
-        $files = Get-ChildItem -Path $extractPath -Recurse -File
-        $count = $files.Count
+        $allDirs = @(Get-ChildItem -LiteralPath $extractPath -Directory -Force)
+        $repoRoot = $extractPath
+        if ($allDirs.Count -eq 1) {
+            $repoRoot = $allDirs[0].FullName
+        }
 
-        $report = @{
+        $files = @(Get-ChildItem -LiteralPath $repoRoot -Recurse -File -Force)
+        $topFiles = @($files | ForEach-Object {
+            $base = [System.IO.Path]::GetFullPath($repoRoot)
+            $full = [System.IO.Path]::GetFullPath($_.FullName)
+            if (-not $base.EndsWith([System.IO.Path]::DirectorySeparatorChar)) {
+                $base += [System.IO.Path]::DirectorySeparatorChar
+            }
+            $rel = $full.Substring($base.Length) -replace '\\','/'
+            $rel
+        } | Select-Object -First 50)
+
+        $report = [ordered]@{
             repo = $repo
-            file_count = $count
             status = "OK"
-            timestamp = (Get-Date)
+            file_count = $files.Count
+            sampled_paths = $topFiles
+            timestamp = (Get-Date).ToString("s")
         }
 
-        $report | ConvertTo-Json | Set-Content "$reportsDir/$($repo.Replace('/','_')).json"
-
-        Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
-        Remove-Item $extractPath -Recurse -Force -ErrorAction SilentlyContinue
+        $report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $reportsDir "$safeName.json") -Encoding UTF8
     }
     catch {
-        $err = @{
+        $err = [ordered]@{
             repo = $repo
             status = "FAIL"
             error = $_.Exception.Message
-            timestamp = (Get-Date)
+            timestamp = (Get-Date).ToString("s")
         }
 
-        $err | ConvertTo-Json | Set-Content "$reportsDir/$($repo.Replace('/','_')).error.json"
+        $err | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $reportsDir "$safeName.error.json") -Encoding UTF8
+    }
+    finally {
+        if (Test-Path -LiteralPath $repoWorkDir) {
+            Remove-Item -LiteralPath $repoWorkDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 
-# гарантируем хотя бы один файл
-if (-not (Get-ChildItem $reportsDir)) {
-    "EMPTY REPORT" | Set-Content "$reportsDir/empty.txt"
+if (-not (Get-ChildItem -LiteralPath $reportsDir -Force | Select-Object -First 1)) {
+    "EMPTY REPORT" | Set-Content -LiteralPath "$reportsDir/empty.txt" -Encoding UTF8
 }
