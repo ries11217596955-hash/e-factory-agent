@@ -23,7 +23,6 @@ jobs:
         run: |
           $PSVersionTable.PSVersion.ToString()
 
-      # ✅ ВОТ ЗДЕСЬ должен быть install
       - name: Install Node deps
         run: |
           cd agents/gh_batch/site_auditor_cloud
@@ -36,10 +35,22 @@ jobs:
           $ErrorActionPreference = "Stop"
           ./agents/gh_batch/site_auditor_cloud/run.ps1
 
+      - name: Show reports tree
+        if: always()
+        shell: bash
+        run: |
+          echo "PWD=$(pwd)"
+          if [ -d "agents/gh_batch/site_auditor_cloud/reports" ]; then
+            echo "REPORTS FOUND"
+            find agents/gh_batch/site_auditor_cloud/reports -maxdepth 3 -type f | sort
+          else
+            echo "REPORTS DIR NOT FOUND"
+          fi
+
       - name: Upload reports artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: site-audit-reports
-          path: reports
-          if-no-files-found: warn
+          path: agents/gh_batch/site_auditor_cloud/reports
+          if-no-files-found: error
