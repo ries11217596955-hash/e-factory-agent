@@ -1,3 +1,7 @@
+function Build-RouteInventory {
+    param([string]$BaseUrl)
+    Write-Host "Build-RouteInventory: skipped (handled by capture layer)"
+}
 # =========================
 
 # SITE AUDITOR AGENT V4.5
