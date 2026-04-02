@@ -11,7 +11,18 @@ function Save-JsonFile {
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
   }
 
-  $json = $Object | ConvertTo-Json -Depth 50
+  try {
+    $json = $Object | ConvertTo-Json -Depth 20
+  }
+  catch {
+    $fallback = [ordered]@{
+      error   = 'JSON_SERIALIZATION_FAILED'
+      message = [string]$_.Exception.Message
+      path    = $Path
+    }
+    $json = $fallback | ConvertTo-Json -Depth 5
+  }
+
   [System.IO.File]::WriteAllText($Path, $json, [System.Text.UTF8Encoding]::new($false))
 }
 
@@ -276,9 +287,11 @@ function Get-MinimalAudit {
   )
 
   $warnings = New-Object System.Collections.Generic.List[string]
-  if (-not $hasSrc)      { $warnings.Add('MISSING_PATH: src/') | Out-Null }
-  if (-not $hasHubs)     { $warnings.Add('MISSING_PATH: src/hubs/') | Out-Null }
-  if (-not $hasIndexMd -and -not $hasIndexNjk) { $warnings.Add('MISSING_ENTRY: src/index.md or src/index.njk') | Out-Null }
+  if (-not $hasSrc)  { $warnings.Add('MISSING_PATH: src/') | Out-Null }
+  if (-not $hasHubs) { $warnings.Add('MISSING_PATH: src/hubs/') | Out-Null }
+  if (-not $hasIndexMd -and -not $hasIndexNjk) {
+    $warnings.Add('MISSING_ENTRY: src/index.md or src/index.njk') | Out-Null
+  }
 
   $passMinimal = $hasSrc -and ($hasIndexMd -or $hasIndexNjk)
 
