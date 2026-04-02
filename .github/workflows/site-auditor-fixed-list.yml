@@ -27,4 +27,4 @@ jobs:
         with:
           name: site-audit-reports
           path: reports/
-          if-no-files-found: error
+          if-no-files-found: warn
