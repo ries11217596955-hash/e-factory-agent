@@ -5,14 +5,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>
-      {% if title %}{{ title }} · {% endif %}{{ site.title or "Automation KB" }}
-    </title>
+    <title>{% if title %}{{ title }} · {% endif %}{{ site.title or "Automation KB" }}</title>
 
-    {# CACHEBUST: build.batch already used in footer; prevents stale CSS after deploy #}
     <link rel="stylesheet" href="/assets/site.css?v={{ build.batch }}" />
 
-    {# Favicons / manifest (as you already have) #}
     {% if site.favicon %}
       <link rel="icon" href="{{ site.favicon }}" />
     {% endif %}
@@ -24,13 +20,11 @@
       <meta name="description" content="{{ site.description }}" />
     {% endif %}
 
-    {# SEO: canonical + OpenGraph + Twitter #}
     {% set __siteUrl = site.url or "" %}
     {% set __path = page.url or "/" %}
     {% set __canonical = __siteUrl ~ __path %}
     <link rel="canonical" href="{{ __canonical }}" />
 
-    {# Pagination SEO: rel prev/next for paginated lists #}
     {% if pagination and pagination.href %}
       {% if pagination.href.previous %}
         <link rel="prev" href="{{ pagination.href.previous }}" />
@@ -67,69 +61,29 @@
       <meta name="twitter:image" content="{{ __imgAbs }}" />
     {% endif %}
 
-    {# Robots: allow per-page override via front matter #}
     {% set __robots = seo.robots or "" %}
     {% if robots %}{% set __robots = robots %}{% endif %}
     {% if noindex %}{% set __robots = "noindex,follow" %}{% endif %}
     {% if __robots %}
       <meta name="robots" content="{{ __robots }}" />
     {% endif %}
-    {% if seo.themeColor %}
-      <meta name="theme-color" content="{{ seo.themeColor }}" />
-    {% endif %}
-
-    {% block head %}{% endblock %}
   </head>
-
   <body>
-    <a class="skip-link" href="#main">Skip to content</a>
-    <header class="site-header">
-      <div class="container">
-        <div class="header-row">
-          <div class="brand">
-            <a href="/">{{ site.title or "Automation KB" }}</a>
-          </div>
+    {% include "partials/nav.njk" %}
 
-          <form class="search-mini" action="/search/" method="get" role="search" aria-label="Site search">
-            <input class="search-mini__input" type="search" name="q" placeholder="Search…" autocomplete="off" />
-            <button class="search-mini__btn" type="submit">Search</button>
-          </form>
-        </div>
-        <nav class="nav" aria-label="Primary">
-          {% set __u = page.url or "/" %}
-          {% for item in nav %}
-            {% set __active = false %}
-            {% if item.exact and __u == item.href %}
-              {% set __active = true %}
-            {% else %}
-              {% for p in item.activePrefixes or [] %}
-                {% if __u | startsWith(p) %}
-                  {% set __active = true %}
-                {% endif %}
-              {% endfor %}
-            {% endif %}
-            <a href="{{ item.href }}" class="{% if __active %}is-active{% endif %}">{{ item.label }}</a>
-          {% endfor %}
-        </nav>
-
-      </div>
-    </header>
-
-    <main id="main" class="site-main">
-      <div class="container">
-        {% block content %}{{ content | safe }}{% endblock %}
-      </div>
+    <main id="content" class="container">
+      {% block content %}{% endblock %}
     </main>
 
     <footer class="site-footer">
       <div class="container">
-        <small>
-          {{ site.footer or "" }}
-        </small>
+        <small>{{ site.footer or "" }}</small>
       </div>
     </footer>
+
     <script defer src="/assets/shortcuts.js?v={{ build.batch }}"></script>
     <script defer src="/assets/codecopy.js?v={{ build.batch }}"></script>
     <script defer src="/assets/anchors.js?v={{ build.batch }}"></script>
-</body>
+    <script defer src="/assets/search.js?v={{ build.batch }}"></script>
+  </body>
 </html>

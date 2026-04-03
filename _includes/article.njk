@@ -1,13 +1,11 @@
-{% block content %}
+{% extends "base.njk" %}
 
-{# article.njk - single post/news article view (KB-style) with breadcrumb support #}
-{# Derive base bucket from first tag (e.g., "posts"/"tools"/"news") #}
+{% block content %}
 {% set base = "posts" %}
 {% if tags and tags.length %}{% set base = tags[0] %}{% endif %}
 
 <article class="prose">
   <header class="card section-gap">
-    {# Build breadcrumb list for this article using page.url and title #}
     {% set crumbList = (page.url | breadcrumbs(title)) %}
     {% include "partials/breadcrumb.njk" %}
     <p class="kicker">
@@ -34,15 +32,13 @@
       {% if author %}
         <span class="sep">·</span> {{ author }}
       {% endif %}
-</p>
+    </p>
   </header>
 
   <div class="content section-gap">
     {{ content | safe }}
   </div>
 
-
-  {# AUTO RELATED (revenue) - show 5 posts with same primaryTag (ai-for-sales / ecommerce-automation) #}
   {% if collections and collections.revenuePosts and primaryTag %}
     {% set allow = ["ai-for-sales", "ecommerce-automation"] %}
     {% if allow.includes(primaryTag) %}
@@ -53,8 +49,6 @@
     {% endif %}
   {% endif %}
 
-  {# CTA: steer to hubs/start #}
-  {# CTA: steer to hubs/start #}
   {% set cta = {
     heading: "Want a ready-to-run workflow?",
     text: "Browse the revenue-focused hubs and pick a playbook you can implement this week.",
@@ -76,3 +70,4 @@
     </footer>
   {% endif %}
 </article>
+{% endblock %}
