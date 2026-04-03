@@ -13,10 +13,28 @@ jobs:
 
     env:
       GH_PAT: ${{ secrets.GH_BATCH_PAT }}
+      TARGET_REPO_SLUG: ries11217596955-hash/automation-kb
 
     steps:
-      - name: Checkout
+      - name: Checkout auditor repo
         uses: actions/checkout@v4
+
+      - name: Checkout target site repo
+        uses: actions/checkout@v4
+        with:
+          repository: ries11217596955-hash/automation-kb
+          token: ${{ secrets.GH_BATCH_PAT }}
+          path: target_repo
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Bind target repo path
+        shell: bash
+        run: |
+          echo "TARGET_REPO_PATH=$GITHUB_WORKSPACE/target_repo" >> "$GITHUB_ENV"
+          echo "TARGET_REPO_SLUG=ries11217596955-hash/automation-kb" >> "$GITHUB_ENV"
+          echo "TARGET_REPO_PATH=$GITHUB_WORKSPACE/target_repo"
+          ls -la "$GITHUB_WORKSPACE/target_repo" | sed -n '1,80p'
 
       - name: Show PowerShell version
         shell: pwsh
@@ -40,9 +58,12 @@ jobs:
         shell: bash
         run: |
           echo "PWD=$(pwd)"
+          echo "TARGET_REPO_PATH=${TARGET_REPO_PATH}"
           if [ -d "agents/gh_batch/site_auditor_cloud/reports" ]; then
             echo "REPORTS FOUND"
             find agents/gh_batch/site_auditor_cloud/reports -maxdepth 3 -type f | sort
+            echo "--- repo_audit.json ---"
+            cat agents/gh_batch/site_auditor_cloud/reports/repo_audit.json || true
           else
             echo "REPORTS DIR NOT FOUND"
           fi
