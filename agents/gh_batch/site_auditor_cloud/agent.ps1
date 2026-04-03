@@ -40,8 +40,6 @@ param($v)
 try { return [int]$v } catch { return 0 }
 }
 
-# ---------- FINDINGS ----------
-
 function Get-VisualFindings {
 param([object[]]$items)
 
@@ -54,11 +52,8 @@ foreach ($i in $arr) {
     $img = Get-Int $i.images
 
     $cls = "ok"
-    if ($img -eq 0 -and $len -lt 350) {
-        $cls = "empty"
-    } elseif ($img -eq 0) {
-        $cls = "weak"
-    }
+    if ($img -eq 0 -and $len -lt 350) { $cls = "empty" }
+    elseif ($img -eq 0) { $cls = "weak" }
 
     $out += [pscustomobject]@{
         path = Get-Path $i
@@ -72,8 +67,6 @@ return $out
 ```
 
 }
-
-# ---------- SCORES ----------
 
 function Build-RouteScores {
 param([object[]]$items)
@@ -103,8 +96,6 @@ return $out
 
 }
 
-# ---------- DECISION ----------
-
 function Decide {
 param($scores, $findings)
 
@@ -127,7 +118,6 @@ foreach ($f in $findings) {
     }
 }
 
-# CORE
 $core = "Site works but lacks decision strength."
 if ($crit.Count -gt 0) {
     $core = "Critical routes are too shallow and break navigation flow."
@@ -135,7 +125,6 @@ if ($crit.Count -gt 0) {
     $core = "Key pages appear empty and reduce trust and scanability."
 }
 
-# P0
 $count = 0
 foreach ($c in $crit) {
     if ($count -ge 3) { break }
@@ -147,12 +136,10 @@ if ($visualEmpty.Count -gt 0) {
     $p0 += "Key routes appear empty and reduce user trust."
 }
 
-# P1
 if ($crit.Count -gt 0) {
     $p1 += "Strengthen routing before adding growth features."
 }
 
-# DO NEXT
 foreach ($c in $crit) {
     if ($c.path -eq "/hubs/") {
         $do += "Expand /hubs/ into structured navigation with categories and forward links."
@@ -166,10 +153,8 @@ if ($visualEmpty.Count -gt 0) {
     $do += "Add visual blocks to key pages to improve scanability and trust."
 }
 
-# LIMIT DO
 $do = $do | Select-Object -Unique | Select-Object -First 3
 
-# STAGE
 $stage = "Stage 2"
 if ($crit.Count -gt 0 -or $visualEmpty.Count -gt 0) {
     $stage = "Stage 1"
@@ -186,14 +171,12 @@ return [pscustomobject]@{
 
 }
 
-# ---------- MAIN ----------
-
 function Invoke-SiteAuditor {
 param([string]$BaseUrl)
 
 ```
 $root = Get-ScriptRoot
-Write-Host "scriptRoot: $root"
+Write-Host ("scriptRoot: " + $root)
 
 $rep = Join-Path $root "reports"
 if (!(Test-Path $rep)) { New-Item -ItemType Directory -Path $rep | Out-Null }
