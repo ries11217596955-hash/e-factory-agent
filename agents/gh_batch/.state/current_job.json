@@ -2,7 +2,7 @@
   "iteration": 1,
   "zip_name": "FOUNDATION_FIX_BATCH_v2.zip",
   "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\FOUNDATION_FIX_BATCH_v2.zip",
-  "finished_at": "2026-04-03 07:31:56.347",
-  "status": "PASS",
-  "reason_code": ""
+  "finished_at": "2026-04-03 08:31:10.624",
+  "status": "FAIL_RUNTIME",
+  "reason_code": "UNHANDLED_EXCEPTION"
 }
