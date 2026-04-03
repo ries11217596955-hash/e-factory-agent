@@ -1,29 +1,4 @@
-
 $ErrorActionPreference = "Stop"
-
-<#
-GOAL
-- Judge site as product without over-reporting false P0.
-
-INPUTS
-- reports/visual_manifest.json from capture.mjs
-- optional env TARGET_REPO_PATH / GITHUB_WORKSPACE
-
-OUTPUTS
-- route_inventory.json
-- visual_findings.json
-- route_scores.json
-- page_type_audit.json
-- repo_audit.json
-- decision_summary.json
-- REPORT.txt
-
-PASS
-- Writes all report files based on available evidence.
-
-FAIL
-- Missing visual_manifest.json or unreadable json.
-#>
 
 function Get-ScriptRoot {
     if ($PSScriptRoot) { return $PSScriptRoot }
@@ -31,16 +6,39 @@ function Get-ScriptRoot {
     return (Get-Location).Path
 }
 
-function Read-JsonFile {
-    param([Parameter(Mandatory = $true)][string]$Path)
-    if (-not (Test-Path -LiteralPath $Path)) { throw "File not found: $Path" }
-    return (Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json)
-}
-
 function Normalize {
     param($x)
-    if ($null -eq $x) { return @() }
     return @($x)
+}
+
+function Normalize-PathText {
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) { return "" }
+    try {
+        return [System.IO.Path]::GetFullPath($Path)
+    }
+    catch {
+        return $Path
+    }
+}
+
+function Test-IsSameOrChildPath {
+    param(
+        [string]$ParentPath,
+        [string]$ChildPath
+    )
+
+    $parent = Normalize-PathText $ParentPath
+    $child = Normalize-PathText $ChildPath
+    if ([string]::IsNullOrWhiteSpace($parent) -or [string]::IsNullOrWhiteSpace($child)) { return $false }
+
+    $cmp = [System.StringComparison]::OrdinalIgnoreCase
+    if ($child.Equals($parent, $cmp)) { return $true }
+
+    $trimmed = $parent.TrimEnd([char]'/', [char]'\')
+    return $child.StartsWith($trimmed + [System.IO.Path]::DirectorySeparatorChar, $cmp) -or
+           $child.StartsWith($trimmed + [char]'/', $cmp) -or
+           $child.StartsWith($trimmed + [char]'\', $cmp)
 }
 
 function Get-Int {
@@ -52,10 +50,27 @@ function Join-ListText {
     param($items)
     $arr = @()
     foreach ($i in (Normalize $items)) {
-        $s = [string]$i
-        if (-not [string]::IsNullOrWhiteSpace($s)) { $arr += $s }
+        if (-not [string]::IsNullOrWhiteSpace([string]$i)) {
+            $arr += [string]$i
+        }
     }
-    return ($arr | Select-Object -Unique) -join ", "
+    return ($arr -join ", ")
+}
+
+function Read-JsonFile {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { throw "File not found: $Path" }
+    return Get-Content -Path $Path -Raw -Encoding UTF8 | ConvertFrom-Json
+}
+
+function Write-JsonFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)]$Object,
+        [int]$Depth = 12
+    )
+    $json = $Object | ConvertTo-Json -Depth $Depth
+    [System.IO.File]::WriteAllText($Path, $json, [System.Text.UTF8Encoding]::new($false))
 }
 
 function Get-PathFromItem {
@@ -79,180 +94,243 @@ function Get-PathFromItem {
     return ""
 }
 
-function Get-TextFromItem {
+function Get-BodyTextFromItem {
     param($i)
 
     $parts = @()
-    foreach ($name in @('visibleText','bodyText','text','body_text','innerText','pageText')) {
-        $v = $i.PSObject.Properties[$name]
-        if ($null -ne $v -and -not [string]::IsNullOrWhiteSpace([string]$v.Value)) {
-            $parts += [string]$v.Value
+    foreach ($prop in @('visibleText', 'bodyText', 'text', 'contentText', 'pageText')) {
+        if ($null -ne $i.$prop -and -not [string]::IsNullOrWhiteSpace([string]$i.$prop)) {
+            $parts += [string]$i.$prop
         }
     }
-    return ($parts -join " `n")
+
+    return (($parts -join " `n").Trim())
 }
 
-function Test-RepoCandidate {
-    param([string]$Path)
+function Test-IsLikelyProductRepo {
+    param(
+        [string]$Path,
+        [string]$AgentRoot
+    )
 
     if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
-    if (-not (Test-Path -LiteralPath $Path)) { return $false }
-    if (-not (Test-Path -LiteralPath (Join-Path $Path 'src'))) { return $false }
-    if (-not (Test-Path -LiteralPath (Join-Path $Path 'package.json'))) { return $false }
-    return $true
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) { return $false }
+    if (Test-IsSameOrChildPath -ParentPath $AgentRoot -ChildPath $Path) { return $false }
+
+    $src = Join-Path $Path 'src'
+    $pkg = Join-Path $Path 'package.json'
+    $eleventy = Join-Path $Path '.eleventy.js'
+
+    if (-not (Test-Path -LiteralPath $src -PathType Container)) { return $false }
+    if ((Test-Path -LiteralPath $pkg -PathType Leaf) -or (Test-Path -LiteralPath $eleventy -PathType Leaf)) {
+        return $true
+    }
+
+    return $false
 }
 
-function Get-RepoCandidateScore {
-    param([string]$Path, [string]$ScriptRoot)
+function Get-RepoMeta {
+    param(
+        [string]$Slug,
+        [string]$Token
+    )
 
-    if (-not (Test-RepoCandidate $Path)) { return -1 }
+    if ([string]::IsNullOrWhiteSpace($Slug)) { return $null }
+    $headers = @{
+        'Accept' = 'application/vnd.github+json'
+        'User-Agent' = 'SITE_AUDITOR_AGENT'
+        'X-GitHub-Api-Version' = '2022-11-28'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($Token)) {
+        $headers['Authorization'] = "Bearer $Token"
+    }
 
-    $score = 0
-    $full = [System.IO.Path]::GetFullPath($Path)
-    $scriptFull = [System.IO.Path]::GetFullPath($ScriptRoot)
-
-    if ($full -ne $scriptFull) { $score += 5 }
-    if ($full -notmatch 'site_auditor_cloud|agents[\\/]gh_batch|e-factory-agent') { $score += 10 }
-    if (Test-Path -LiteralPath (Join-Path $Path '00__AI__CONTROL_LOOP.md')) { $score += 20 }
-    if (Test-Path -LiteralPath (Join-Path $Path 'STRATEGY_BOARD.md')) { $score += 20 }
-    if (Test-Path -LiteralPath (Join-Path $Path 'src/_data')) { $score += 10 }
-    if ($full -match 'automation-kb|target_repo') { $score += 15 }
-
-    return $score
+    $url = "https://api.github.com/repos/$Slug"
+    try {
+        return Invoke-RestMethod -Method Get -Uri $url -Headers $headers -ErrorAction Stop
+    }
+    catch {
+        return $null
+    }
 }
 
-function Get-RepoRoot {
-    param([string]$StartPath)
+function Expand-SingleRootArchive {
+    param(
+        [Parameter(Mandatory = $true)][string]$ZipPath,
+        [Parameter(Mandatory = $true)][string]$DestPath
+    )
 
-    $candidates = New-Object System.Collections.ArrayList
-    $scriptRoot = Get-ScriptRoot
+    if (Test-Path -LiteralPath $DestPath) {
+        Remove-Item -LiteralPath $DestPath -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $DestPath | Out-Null
+    Expand-Archive -LiteralPath $ZipPath -DestinationPath $DestPath -Force
 
-    foreach ($p in @(
-        $env:TARGET_REPO_PATH,
-        (Join-Path $env:GITHUB_WORKSPACE 'target_repo'),
-        $env:GITHUB_WORKSPACE,
-        $StartPath,
-        (Split-Path -Parent $StartPath),
-        (Split-Path -Parent (Split-Path -Parent $StartPath)),
-        (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $StartPath)))
-    )) {
-        if (-not [string]::IsNullOrWhiteSpace($p)) {
-            [void]$candidates.Add($p)
+    $entries = @(Get-ChildItem -LiteralPath $DestPath -Force)
+    if ($entries.Count -eq 1 -and $entries[0].PSIsContainer) {
+        return $entries[0].FullName
+    }
+
+    return $DestPath
+}
+
+function Get-DefaultRepoSlug {
+    param([string]$AgentRoot)
+
+    foreach ($envName in @('TARGET_REPO_SLUG', 'SITE_REPO_SLUG', 'SITE_REPO', 'EXPECTED_REPO')) {
+        $value = [string](Get-Item -Path ("Env:" + $envName) -ErrorAction SilentlyContinue).Value
+        if (-not [string]::IsNullOrWhiteSpace($value)) {
+            return $value.Trim()
         }
     }
 
-    if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_WORKSPACE) -and (Test-Path -LiteralPath $env:GITHUB_WORKSPACE)) {
+    $reposFile = Join-Path $AgentRoot 'repos.fixed.json'
+    if (Test-Path -LiteralPath $reposFile -PathType Leaf) {
         try {
-            foreach ($child in (Get-ChildItem -LiteralPath $env:GITHUB_WORKSPACE -Directory -ErrorAction SilentlyContinue)) {
-                [void]$candidates.Add($child.FullName)
+            $repos = Read-JsonFile -Path $reposFile
+            foreach ($repo in (Normalize $repos)) {
+                $slug = [string]$repo
+                if ([string]::IsNullOrWhiteSpace($slug)) { continue }
+                if ($slug -match '/automation-kb$') { return $slug }
+            }
+            foreach ($repo in (Normalize $repos)) {
+                $slug = [string]$repo
+                if ([string]::IsNullOrWhiteSpace($slug)) { continue }
+                if ($slug -notmatch '/e-factory-agent$' -and $slug -notmatch '/e-factory-memory$') {
+                    return $slug
+                }
             }
         }
         catch {}
     }
 
-    $best = $null
-    $bestScore = -1
-    $seen = @{}
+    return ''
+}
 
-    foreach ($cand in $candidates) {
-        if ([string]::IsNullOrWhiteSpace($cand)) { continue }
-        try { $full = [System.IO.Path]::GetFullPath($cand) } catch { $full = $cand }
-        if ($seen.ContainsKey($full)) { continue }
-        $seen[$full] = $true
-        $score = Get-RepoCandidateScore -Path $full -ScriptRoot $scriptRoot
-        if ($score -gt $bestScore) {
-            $best = $full
-            $bestScore = $score
+function Get-BoundRepoRoot {
+    param([string]$AgentRoot)
+
+    $result = [ordered]@{
+        ok = $false
+        repo_root = ''
+        repo_source = ''
+        repo_slug = ''
+        binding_error = ''
+    }
+
+    foreach ($envName in @('TARGET_REPO_PATH', 'SITE_REPO_PATH')) {
+        $candidate = [string](Get-Item -Path ("Env:" + $envName) -ErrorAction SilentlyContinue).Value
+        if (-not [string]::IsNullOrWhiteSpace($candidate)) {
+            $candidate = Normalize-PathText $candidate
+            if (Test-IsLikelyProductRepo -Path $candidate -AgentRoot $AgentRoot) {
+                $result.ok = $true
+                $result.repo_root = $candidate
+                $result.repo_source = $envName
+                return [pscustomobject]$result
+            }
         }
     }
 
-    if ($null -ne $best) { return $best }
-    return $StartPath
+    $workspace = [string](Get-Item -Path 'Env:GITHUB_WORKSPACE' -ErrorAction SilentlyContinue).Value
+    if (-not [string]::IsNullOrWhiteSpace($workspace)) {
+        $workspace = Normalize-PathText $workspace
+        $candidates = @(
+            (Join-Path $workspace 'target_repo'),
+            (Join-Path $workspace 'automation-kb'),
+            (Join-Path $workspace 'automation-kb-main'),
+            (Join-Path (Split-Path -Parent $workspace) 'automation-kb'),
+            (Join-Path (Split-Path -Parent $workspace) 'automation-kb-main')
+        )
+
+        foreach ($candidate in $candidates) {
+            if (Test-IsLikelyProductRepo -Path $candidate -AgentRoot $AgentRoot) {
+                $result.ok = $true
+                $result.repo_root = (Normalize-PathText $candidate)
+                $result.repo_source = 'workspace_candidate'
+                return [pscustomobject]$result
+            }
+        }
+
+        try {
+            $dirs = Get-ChildItem -LiteralPath $workspace -Directory -Force
+            foreach ($dir in $dirs) {
+                if (Test-IsLikelyProductRepo -Path $dir.FullName -AgentRoot $AgentRoot) {
+                    $result.ok = $true
+                    $result.repo_root = (Normalize-PathText $dir.FullName)
+                    $result.repo_source = 'workspace_scan'
+                    return [pscustomobject]$result
+                }
+            }
+        }
+        catch {}
+    }
+
+    $slug = Get-DefaultRepoSlug -AgentRoot $AgentRoot
+    $result.repo_slug = $slug
+    $token = [string](Get-Item -Path 'Env:GH_PAT' -ErrorAction SilentlyContinue).Value
+
+    if (-not [string]::IsNullOrWhiteSpace($slug) -and -not [string]::IsNullOrWhiteSpace($token)) {
+        $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("site-auditor-target-" + [guid]::NewGuid().ToString('N'))
+        $zipPath = Join-Path $tmpRoot 'repo.zip'
+        $extractDir = Join-Path $tmpRoot 'repo'
+        New-Item -ItemType Directory -Path $tmpRoot | Out-Null
+
+        $headers = @{
+            'Accept' = 'application/vnd.github+json'
+            'User-Agent' = 'SITE_AUDITOR_AGENT'
+            'X-GitHub-Api-Version' = '2022-11-28'
+            'Authorization' = "Bearer $token"
+        }
+
+        try {
+            $meta = Get-RepoMeta -Slug $slug -Token $token
+            if ($null -eq $meta) {
+                throw "REPO_META_UNAVAILABLE: $slug"
+            }
+
+            $zipUrl = [string]$meta.zipball_url
+            if ([string]::IsNullOrWhiteSpace($zipUrl)) {
+                throw "ZIPBALL_URL_MISSING: $slug"
+            }
+
+            Invoke-WebRequest -Uri $zipUrl -Headers $headers -OutFile $zipPath -ErrorAction Stop | Out-Null
+            $repoPath = Expand-SingleRootArchive -ZipPath $zipPath -DestPath $extractDir
+
+            if (-not (Test-IsLikelyProductRepo -Path $repoPath -AgentRoot $AgentRoot)) {
+                throw "FETCHED_REPO_NOT_PRODUCT_ROOT: $repoPath"
+            }
+
+            $result.ok = $true
+            $result.repo_root = (Normalize-PathText $repoPath)
+            $result.repo_source = 'github_zipball'
+            $result.repo_slug = $slug
+            return [pscustomobject]$result
+        }
+        catch {
+            $result.binding_error = [string]$_.Exception.Message
+            return [pscustomobject]$result
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($slug)) {
+        $result.binding_error = 'TARGET_REPO_NOT_RESOLVED'
+    }
+    elseif ([string]::IsNullOrWhiteSpace($token)) {
+        $result.binding_error = 'GH_PAT_MISSING_FOR_REPO_FETCH'
+    }
+    else {
+        $result.binding_error = 'TARGET_REPO_BINDING_FAILED'
+    }
+
+    return [pscustomobject]$result
 }
 
 function Get-Weight {
-    param([string]$Path)
-    if ($Path -eq '/' -or $Path -eq '/hubs/' -or $Path -eq '/search/') { return 'critical' }
-    if ($Path -eq '/tools/' -or $Path -eq '/start-here/') { return 'high' }
+    param([string]$p)
+
+    if ($p -eq '/' -or $p -eq '/hubs/' -or $p -eq '/search/') { return 'critical' }
+    if ($p -eq '/tools/' -or $p -eq '/start-here/') { return 'high' }
     return 'normal'
-}
-
-function Get-PageType {
-    param([string]$Path, [int]$Len, [int]$Links)
-
-    if ($Path -eq '/') { return 'ENTRY' }
-    if ($Path -eq '/hubs/') { return 'ROUTER' }
-    if ($Path -eq '/search/') { return 'FLOW' }
-    if ($Path -eq '/tools/') { return 'TOOL' }
-    if ($Path -eq '/start-here/') { return 'ENTRY_GUIDE' }
-    if ($Len -lt 120 -and $Links -lt 2) { return 'EMPTY' }
-    if ($Len -lt 260 -and $Links -lt 4) { return 'SCAFFOLD' }
-    return 'ARTICLE'
-}
-
-function Get-RouteBand {
-    param([string]$Path, [int]$Len, [int]$Links)
-
-    switch ($Path) {
-        '/' {
-            if ($Len -lt 140 -and $Links -lt 2) { return 'bad' }
-            if ($Len -lt 240 -or $Links -lt 3) { return 'thin' }
-            return 'ok'
-        }
-        '/search/' {
-            if ($Len -lt 100 -and $Links -lt 3) { return 'bad' }
-            if ($Len -lt 180 -or $Links -lt 5) { return 'thin' }
-            return 'ok'
-        }
-        '/hubs/' {
-            if ($Len -lt 180 -and $Links -lt 4) { return 'bad' }
-            if ($Len -lt 420 -or $Links -lt 8) { return 'thin' }
-            return 'ok'
-        }
-        default {
-            if ($Len -lt 180 -and $Links -lt 3) { return 'bad' }
-            if ($Len -lt 360 -or $Links -lt 4) { return 'thin' }
-            return 'ok'
-        }
-    }
-}
-
-function Get-VisualState {
-    param([string]$Path, [int]$Len, [int]$Images, [int]$Links)
-
-    if ($Len -lt 110 -and $Links -lt 2 -and $Images -eq 0) { return 'empty' }
-    if ($Len -lt 220 -and $Links -lt 3 -and $Images -eq 0) { return 'thin' }
-    if ($Images -eq 0) { return 'weak' }
-    return 'ok'
-}
-
-function Test-UiContamination {
-    param([string]$Title, [string]$Path, [string]$VisibleText)
-
-    $markers = @(
-        'Built with',
-        'Edit on GitHub',
-        'BATCH-',
-        'PATCH_',
-        'PATCH NOTES',
-        'CONTROL LOOP',
-        'README APPLY',
-        'debug',
-        'internal use only'
-    )
-
-    $haystack = @()
-    if (-not [string]::IsNullOrWhiteSpace($Title)) { $haystack += $Title }
-    if (-not [string]::IsNullOrWhiteSpace($Path)) { $haystack += $Path }
-    if (-not [string]::IsNullOrWhiteSpace($VisibleText)) { $haystack += $VisibleText }
-    $joined = ($haystack -join "`n")
-
-    $hits = @()
-    foreach ($m in $markers) {
-        if ($joined -like "*$m*") { $hits += $m }
-    }
-
-    return @($hits | Select-Object -Unique)
 }
 
 function Build-RouteInventory {
@@ -266,7 +344,6 @@ function Build-RouteInventory {
             images = Get-Int $i.images
             links = Get-Int $i.links
             title = [string]$i.title
-            screenshot_count = Get-Int $i.screenshotCount
         }
     }
     return @($out)
@@ -276,8 +353,7 @@ function Find-SuspiciousTopLevelItems {
     param([string]$RepoRoot)
 
     $hits = @()
-    $topItems = Get-ChildItem -LiteralPath $RepoRoot -Force -ErrorAction SilentlyContinue
-    $allow = @('README.md','package.json','package-lock.json','.gitignore','.github','src','assets','scripts','nav.js','index.11ty.js','CONTRIBUTING.md')
+    $topItems = Get-ChildItem -LiteralPath $RepoRoot -Force
 
     $namePatterns = @(
         '^BATCH_',
@@ -285,15 +361,14 @@ function Find-SuspiciousTopLevelItems {
         '^PATCH_NOTES',
         '^README_APPLY',
         '^SHA256SUMS',
-        '^00__ALL_MEMORY',
         '\.patch$',
         '^tmp',
-        '^draft'
+        '^draft',
+        '^spec$'
     )
 
     foreach ($item in $topItems) {
         $name = [string]$item.Name
-        if ($allow -contains $name) { continue }
         foreach ($pattern in $namePatterns) {
             if ($name -match $pattern) {
                 $hits += $name
@@ -309,27 +384,160 @@ function Find-MixedLayerDirectories {
     param([string]$RepoRoot)
 
     $hits = @()
-    $dirs = @('.state', 'done', 'failed', 'good', 'inbox', 'log', 'logs', 'deliver')
+    $dirs = @('scripts', 'tools', 'test', '.state', 'done', 'failed', 'good', 'inbox', 'log', 'logs')
     foreach ($d in $dirs) {
         $path = Join-Path $RepoRoot $d
-        if (Test-Path -LiteralPath $path) { $hits += $d }
+        if (Test-Path -LiteralPath $path) {
+            $hits += $d
+        }
     }
+
     return @($hits | Select-Object -Unique)
 }
 
 function Analyze-RepoHygiene {
-    param([string]$RepoRoot)
+    param(
+        [string]$AgentRoot,
+        $RepoBinding
+    )
 
-    $topSuspicious = Find-SuspiciousTopLevelItems -RepoRoot $RepoRoot
-    $mixedDirs = Find-MixedLayerDirectories -RepoRoot $RepoRoot
+    if ($null -eq $RepoBinding -or -not $RepoBinding.ok) {
+        return [pscustomobject]@{
+            repo_root = if ($null -ne $RepoBinding) { $RepoBinding.repo_root } else { '' }
+            repo_source = if ($null -ne $RepoBinding) { $RepoBinding.repo_source } else { '' }
+            repo_slug = if ($null -ne $RepoBinding) { $RepoBinding.repo_slug } else { '' }
+            target_repo_bound = $false
+            binding_error = if ($null -ne $RepoBinding) { $RepoBinding.binding_error } else { 'TARGET_REPO_BINDING_FAILED' }
+            suspicious_top_level_items = @()
+            mixed_layer_directories = @()
+            repo_clean = $false
+            architecture_clean = $false
+        }
+    }
+
+    $repoRoot = [string]$RepoBinding.repo_root
+    if (-not (Test-IsLikelyProductRepo -Path $repoRoot -AgentRoot $AgentRoot)) {
+        return [pscustomobject]@{
+            repo_root = $repoRoot
+            repo_source = [string]$RepoBinding.repo_source
+            repo_slug = [string]$RepoBinding.repo_slug
+            target_repo_bound = $false
+            binding_error = 'BOUND_PATH_IS_NOT_PRODUCT_REPO'
+            suspicious_top_level_items = @()
+            mixed_layer_directories = @()
+            repo_clean = $false
+            architecture_clean = $false
+        }
+    }
+
+    $topSuspicious = Find-SuspiciousTopLevelItems -RepoRoot $repoRoot
+    $mixedDirs = Find-MixedLayerDirectories -RepoRoot $repoRoot
 
     return [pscustomobject]@{
-        repo_root = $RepoRoot
+        repo_root = $repoRoot
+        repo_source = [string]$RepoBinding.repo_source
+        repo_slug = [string]$RepoBinding.repo_slug
+        target_repo_bound = $true
+        binding_error = ''
         suspicious_top_level_items = @($topSuspicious)
         mixed_layer_directories = @($mixedDirs)
         repo_clean = ($topSuspicious.Count -eq 0)
         architecture_clean = ($mixedDirs.Count -eq 0)
     }
+}
+
+function Get-PageType {
+    param(
+        [string]$Path,
+        [int]$Len,
+        [int]$Links
+    )
+
+    if ($Path -eq '/') { return 'ENTRY' }
+    if ($Path -eq '/hubs/') { return 'ROUTER' }
+    if ($Path -eq '/search/') { return 'FLOW' }
+    if ($Path -eq '/tools/') { return 'TOOL' }
+    if ($Path -eq '/start-here/') { return 'ENTRY_GUIDE' }
+    if ($Len -lt 80 -and $Links -lt 2) { return 'EMPTY' }
+    if ($Len -lt 180 -and $Links -lt 4) { return 'SCAFFOLD' }
+    return 'ARTICLE'
+}
+
+function Get-Band {
+    param(
+        [string]$Path,
+        [int]$Len,
+        [int]$Links,
+        [int]$Images
+    )
+
+    if ($Path -eq '/') {
+        if ($Len -lt 120 -and $Links -lt 3) { return 'bad' }
+        if ($Len -lt 220 -and $Links -lt 4) { return 'thin' }
+        if ($Links -ge 4) { return 'ok' }
+        return 'thin'
+    }
+
+    if ($Path -eq '/search/') {
+        if ($Len -lt 90 -and $Links -lt 4) { return 'bad' }
+        if ($Links -ge 6) { return 'ok' }
+        if ($Len -ge 140) { return 'thin' }
+        return 'bad'
+    }
+
+    if ($Len -lt 150 -and $Links -lt 3) { return 'bad' }
+    if ($Len -lt 350 -and $Links -lt 6 -and $Images -eq 0) { return 'thin' }
+    return 'ok'
+}
+
+function Get-VisualBand {
+    param(
+        [string]$Path,
+        [int]$Len,
+        [int]$Images,
+        [int]$Links
+    )
+
+    if ($Images -gt 0) { return 'ok' }
+    if ($Path -eq '/' -and $Links -ge 4) { return 'weak' }
+    if ($Path -eq '/search/' -and ($Len -ge 120 -or $Links -ge 6)) { return 'weak' }
+    if ($Len -lt 120 -and $Links -lt 3) { return 'empty' }
+    return 'weak'
+}
+
+function Test-UiContamination {
+    param(
+        [string]$Title,
+        [string]$Path,
+        [string]$BodyText
+    )
+
+    $markers = @(
+        'Built with',
+        'Edit on GitHub',
+        'BATCH-',
+        'PATCH_',
+        'PATCH NOTES',
+        'CONTROL LOOP',
+        'README APPLY',
+        'debug',
+        'internal'
+    )
+
+    $hits = @()
+    $sources = @($Title, $Path, $BodyText)
+
+    foreach ($m in $markers) {
+        foreach ($source in $sources) {
+            if ([string]::IsNullOrWhiteSpace($source)) { continue }
+            if ($source -like "*$m*") {
+                $hits += $m
+                break
+            }
+        }
+    }
+
+    return @($hits | Select-Object -Unique)
 }
 
 function Get-Findings {
@@ -342,63 +550,54 @@ function Get-Findings {
         $links = Get-Int $i.links
         $path = Get-PathFromItem $i
         $title = [string]$i.title
+        $bodyText = Get-BodyTextFromItem $i
+
+        $band = Get-Band -Path $path -Len $len -Links $links -Images $img
+        $visual = Get-VisualBand -Path $path -Len $len -Images $img -Links $links
         $pageType = Get-PageType -Path $path -Len $len -Links $links
-        $band = Get-RouteBand -Path $path -Len $len -Links $links
-        $visual = Get-VisualState -Path $path -Len $len -Images $img -Links $links
-        $visibleText = Get-TextFromItem $i
-        $uiHits = Test-UiContamination -Title $title -Path $path -VisibleText $visibleText
+        $uiContaminationHits = Test-UiContamination -Title $title -Path $path -BodyText $bodyText
+        $uiContamination = ($uiContaminationHits.Count -gt 0)
 
         $hasProblemFrame = $false
         $hasSolutionDepth = $false
         $hasNextStep = $false
         $hasValueStatement = $false
         $hasCTA = $false
-        $thinUtility = $false
 
-        switch ($path) {
-            '/' {
-                $hasProblemFrame = ($len -ge 180)
-                $hasValueStatement = ($len -ge 180)
-                $hasNextStep = ($links -ge 3)
-                $hasCTA = ($links -ge 3)
-                $hasSolutionDepth = ($len -ge 420)
-            }
-            '/hubs/' {
-                $hasProblemFrame = ($len -ge 260)
-                $hasValueStatement = ($len -ge 260)
-                $hasNextStep = ($links -ge 8)
-                $hasCTA = ($links -ge 6)
-                $hasSolutionDepth = ($len -ge 700)
-            }
-            '/search/' {
-                $hasProblemFrame = ($len -ge 140)
-                $hasValueStatement = ($len -ge 140)
-                $hasNextStep = ($links -ge 5)
-                $hasCTA = ($links -ge 3)
-                $hasSolutionDepth = ($len -ge 320)
-                $thinUtility = ($len -lt 260 -or $links -lt 6)
-            }
-            default {
-                $hasProblemFrame = ($len -ge 260)
-                $hasValueStatement = ($len -ge 260)
-                $hasNextStep = ($links -ge 4)
-                $hasCTA = ($links -ge 4)
-                $hasSolutionDepth = ($len -ge 700)
-            }
+        if ($len -ge 180) { $hasProblemFrame = $true }
+        if ($len -ge 900 -or ($len -ge 500 -and $links -ge 10)) { $hasSolutionDepth = $true }
+        if ($links -ge 4 -or $path -eq '/start-here/' -or $path -eq '/search/' -or $path -eq '/hubs/') { $hasNextStep = $true }
+
+        if ($path -eq '/') {
+            if ($len -ge 180 -and $links -ge 4) { $hasValueStatement = $true }
+        }
+        else {
+            if ($len -ge 180) { $hasValueStatement = $true }
+        }
+
+        if ($links -ge 4 -or $path -match '/start-here/|/pricing/|/contact/|/demo/|/consult|/signup|/subscribe|/tools/|/hubs/|/search/') {
+            $hasCTA = $true
         }
 
         $fakePage = $false
-        if ($band -eq 'ok' -and $len -ge 500 -and (-not $hasProblemFrame -or -not $hasNextStep)) {
+        if ($len -ge 350 -and (-not $hasProblemFrame -or -not $hasNextStep)) {
             $fakePage = $true
         }
 
         $fakeShell = $false
-        if (($pageType -eq 'SCAFFOLD' -or $pageType -eq 'EMPTY') -and $links -gt 0 -and $len -lt 260) {
+        if (($pageType -eq 'SCAFFOLD' -or $pageType -eq 'EMPTY') -and $links -gt 0 -and $len -lt 180) {
             $fakeShell = $true
         }
 
         $deadEnd = $false
-        if (-not $hasNextStep -and $links -lt 3) { $deadEnd = $true }
+        if (-not $hasNextStep -and $links -lt 2) {
+            $deadEnd = $true
+        }
+
+        $thinUtility = $false
+        if ($path -eq '/search/' -and $band -ne 'bad' -and $len -lt 260 -and $links -ge 6) {
+            $thinUtility = $true
+        }
 
         $out += [pscustomobject]@{
             path = $path
@@ -409,8 +608,8 @@ function Get-Findings {
             visual = $visual
             band = $band
             page_type = $pageType
-            ui_contamination = ($uiHits.Count -gt 0)
-            ui_contamination_hits = @($uiHits)
+            ui_contamination = $uiContamination
+            ui_contamination_hits = @($uiContaminationHits)
             has_problem_frame = $hasProblemFrame
             has_solution_depth = $hasSolutionDepth
             has_next_step = $hasNextStep
@@ -434,13 +633,15 @@ function Get-Scores {
         $p = Get-PathFromItem $i
         $len = Get-Int $i.bodyTextLength
         $links = Get-Int $i.links
+        $images = Get-Int $i.images
+        $band = Get-Band -Path $p -Len $len -Links $links -Images $images
 
         $out += [pscustomobject]@{
             path = $p
             weight = Get-Weight $p
-            band = Get-RouteBand -Path $p -Len $len -Links $links
+            band = $band
             len = $len
-            images = Get-Int $i.images
+            images = $images
             links = $links
         }
     }
@@ -459,8 +660,8 @@ function Analyze-System {
     $visualTrust = $false
 
     foreach ($s in (Normalize $scores)) {
-        if ($s.path -eq '/hubs/' -and $s.band -ne 'bad' -and $s.links -ge 8) { $router = $true }
-        if ($s.path -eq '/search/' -and $s.band -ne 'bad' -and $s.links -ge 5) { $flow = $true }
+        if ($s.path -eq '/hubs/' -and $s.band -eq 'ok') { $router = $true }
+        if ($s.path -eq '/search/' -and ($s.band -eq 'ok' -or $s.band -eq 'thin')) { $flow = $true }
     }
 
     foreach ($f in (Normalize $findings)) {
@@ -502,16 +703,33 @@ function Analyze-UserReality {
             }
         }
 
-        if (-not $f.has_problem_frame -and $f.band -eq 'bad') {
+        if ($f.band -eq 'bad' -and (-not $f.has_problem_frame -or -not $f.has_solution_depth)) {
             $intentFailRoutes += $f.path
         }
 
-        if ($f.fake_page) { $fakePageRoutes += $f.path }
-        if ($f.fake_shell) { $fakeShellRoutes += $f.path }
-        if ($f.dead_end) { $deadEndRoutes += $f.path }
-        if ($f.ui_contamination) { $uiContaminationRoutes += $f.path }
-        if (-not $f.has_cta -and $f.links -lt 3) { $ctaMissingRoutes += $f.path }
-        if ($f.band -eq 'thin' -and -not $f.fake_page -and -not $f.fake_shell) { $thinButValidRoutes += $f.path }
+        if ($f.fake_page) {
+            $fakePageRoutes += $f.path
+        }
+
+        if ($f.fake_shell) {
+            $fakeShellRoutes += $f.path
+        }
+
+        if ($f.dead_end) {
+            $deadEndRoutes += $f.path
+        }
+
+        if ($f.ui_contamination) {
+            $uiContaminationRoutes += $f.path
+        }
+
+        if (-not $f.has_cta -and $f.band -eq 'bad') {
+            $ctaMissingRoutes += $f.path
+        }
+
+        if ($f.band -eq 'thin' -and -not $f.fake_shell -and -not $f.dead_end) {
+            $thinButValidRoutes += $f.path
+        }
     }
 
     return [pscustomobject]@{
@@ -562,16 +780,22 @@ function Decide {
     $visualEmpty = @()
 
     foreach ($s in (Normalize $scores)) {
-        if ($s.weight -eq 'critical' -and $s.band -eq 'bad') { $criticalBad += $s.path }
+        if ($s.weight -eq 'critical' -and $s.band -eq 'bad') {
+            $criticalBad += $s.path
+        }
     }
 
     foreach ($f in (Normalize $findings)) {
-        if ($f.visual -eq 'empty') { $visualEmpty += $f.path }
+        if ($f.visual -eq 'empty') {
+            $visualEmpty += $f.path
+        }
     }
 
     $failedGates = @()
-    if (-not $repoAudit.repo_clean) { $failedGates += 'REPO_CLEANLINESS' }
-    if (-not $repoAudit.architecture_clean) { $failedGates += 'ARCHITECTURE' }
+
+    if (-not $repoAudit.target_repo_bound) { $failedGates += 'REPO_BINDING' }
+    if ($repoAudit.target_repo_bound -and -not $repoAudit.repo_clean) { $failedGates += 'REPO_CLEANLINESS' }
+    if ($repoAudit.target_repo_bound -and -not $repoAudit.architecture_clean) { $failedGates += 'ARCHITECTURE' }
     if (-not $sys.system_exists) { $failedGates += 'SYSTEM' }
     if (-not $sys.entry_exists) { $failedGates += 'ENTRY' }
     if (-not $sys.router_exists) { $failedGates += 'ROUTER' }
@@ -587,14 +811,18 @@ function Decide {
     if ($ux.cta_missing_routes.Count -gt 0) { $failedGates += 'CTA_MISSING' }
 
     $core = 'Site does not function as a decision system.'
-    if (-not $repoAudit.repo_clean -or -not $repoAudit.architecture_clean) {
+
+    if (-not $repoAudit.target_repo_bound) {
+        $core = 'Repo audit is invalid because the target site repo is not bound.'
+    }
+    elseif (-not $repoAudit.repo_clean -or -not $repoAudit.architecture_clean) {
         $core = 'Repo is not a clean product boundary and mixes product with internal/dev artifacts.'
     }
     elseif ($ux.ui_contamination_routes.Count -gt 0) {
         $core = 'Public pages contain development or internal UI contamination.'
     }
     elseif ($ux.homepage_fail) {
-        $core = 'Homepage exists but is too weak as the main entry point.'
+        $core = 'Homepage does not function as a usable entry point.'
     }
     elseif ($ux.fake_page_routes.Count -gt 0 -or $ux.fake_shell_routes.Count -gt 0) {
         $core = 'Some pages create an illusion of content but do not function as real product pages.'
@@ -607,17 +835,23 @@ function Decide {
     }
 
     $p0 = @()
-    if (-not $repoAudit.repo_clean) {
+    if (-not $repoAudit.target_repo_bound) {
+        $p0 += 'Repo binding failed: repo audit is not looking at the target site repo.'
+        if (-not [string]::IsNullOrWhiteSpace([string]$repoAudit.binding_error)) {
+            $p0 += ('Repo binding error: ' + [string]$repoAudit.binding_error)
+        }
+    }
+    if ($repoAudit.target_repo_bound -and -not $repoAudit.repo_clean) {
         $p0 += 'Repo cleanliness failed: internal or build artifacts are present in the product repo.'
     }
-    if (-not $repoAudit.architecture_clean) {
-        $p0 += 'Architecture boundary failed: product content is mixed with scripts/tools/runtime layers.'
+    if ($repoAudit.target_repo_bound -and -not $repoAudit.architecture_clean) {
+        $p0 += 'Architecture boundary failed: product content is mixed with scripts/tools/test layers.'
     }
     if ($ux.ui_contamination_routes.Count -gt 0) {
         $p0 += 'UI contamination detected on public pages (' + (Join-ListText $ux.ui_contamination_routes) + ').'
     }
     if ($ux.homepage_fail) {
-        $p0 += 'Homepage is too weak as a usable entry point.'
+        $p0 += 'Homepage does not function as a usable entry point.'
     }
     if (-not $sys.router_exists) {
         $p0 += 'Router layer is missing or ineffective.'
@@ -635,7 +869,7 @@ function Decide {
         $p0 += 'Empty shell or scaffold pages detected (' + (Join-ListText $ux.fake_shell_routes) + ').'
     }
     if ($ux.fake_page_routes.Count -gt 0) {
-        $p0 += 'Fake pages detected: pages look present but do not function as real product pages (' + (Join-ListText $ux.fake_page_routes) + ').'
+        $p0 += 'Fake pages detected: pages look present but do not frame a problem or next step (' + (Join-ListText $ux.fake_page_routes) + ').'
     }
     if ($ux.dead_end_routes.Count -gt 0) {
         $p0 += 'User flow breaks on dead-end pages (' + (Join-ListText $ux.dead_end_routes) + ').'
@@ -647,7 +881,7 @@ function Decide {
         $p0 += 'Critical routes lack depth (' + (Join-ListText $criticalBad) + ').'
     }
     if ($visualEmpty.Count -gt 0) {
-        $p0 += 'Some routes appear truly empty (' + (Join-ListText $visualEmpty) + ').'
+        $p0 += 'Some key routes appear empty (' + (Join-ListText $visualEmpty) + ').'
     }
     $p0 = @($p0 | Select-Object -Unique | Select-Object -First 12)
 
@@ -655,14 +889,11 @@ function Decide {
     if ($ux.intent_fail_routes.Count -gt 0) {
         $p1 += 'Some pages do not clearly frame the user problem or use-case (' + (Join-ListText $ux.intent_fail_routes) + ').'
     }
-    if ($ux.thin_but_valid_routes.Count -gt 0) {
-        $p1 += 'Some routes are valid but too thin for product use (' + (Join-ListText $ux.thin_but_valid_routes) + ').'
-    }
     if ($criticalBad -contains '/hubs/') {
         $p1 += 'Hubs behave like a thin page, not a real router.'
     }
-    if ($criticalBad -contains '/search/') {
-        $p1 += 'Search behaves like a thin utility page, not a discovery system.'
+    if ($criticalBad -contains '/search/' -or $ux.thin_but_valid_routes -contains '/search/') {
+        $p1 += 'Search behaves like a thin utility page, not a full discovery system.'
     }
     if (-not $sys.conversion_exists) {
         $p1 += 'No dedicated monetization or conversion route detected in the current structure.'
@@ -670,14 +901,17 @@ function Decide {
     $p1 = @($p1 | Select-Object -Unique | Select-Object -First 6)
 
     $do = @()
-    if (-not $repoAudit.repo_clean -or -not $repoAudit.architecture_clean) {
+    if (-not $repoAudit.target_repo_bound) {
+        $do += 'Bind the target site repo explicitly before repo audit, or fetch it through GitHub API with GH_PAT.'
+    }
+    if ($repoAudit.target_repo_bound -and (-not $repoAudit.repo_clean -or -not $repoAudit.architecture_clean)) {
         $do += 'Separate product files from internal, batch, test, and governance artifacts in the repo.'
     }
     if ($ux.ui_contamination_routes.Count -gt 0) {
         $do += 'Remove development and internal UI contamination from public pages.'
     }
     if ($ux.homepage_fail) {
-        $do += 'Strengthen homepage as entry point with value statement, route options, and a clearer primary CTA.'
+        $do += 'Rebuild homepage as entry point with value statement, route options, and CTA.'
     }
     if (-not $sys.router_exists -or ($criticalBad -contains '/hubs/')) {
         $do += 'Rebuild /hubs/ as an intent-based router, not a flat list.'
@@ -692,7 +926,7 @@ function Decide {
         $do += 'Add visual trust blocks, previews, or screenshots on key pages.'
     }
     if ($ux.fake_page_routes.Count -gt 0 -or $ux.fake_shell_routes.Count -gt 0) {
-        $do += 'Replace fake pages and empty shells with real problem → solution → next-step structure.'
+        $do += 'Replace fake pages and empty shells with real problem to solution to next-step structure.'
     }
     $do = @($do | Select-Object -Unique | Select-Object -First 5)
 
@@ -702,13 +936,17 @@ function Decide {
         monetization = 'NO'
     }
 
-    if ($sys.system_exists -and $sys.entry_exists -and $sys.router_exists -and $sys.flow_exists -and $repoAudit.repo_clean -and $repoAudit.architecture_clean -and $ux.ui_contamination_routes.Count -eq 0) {
+    if ($repoAudit.target_repo_bound -and $sys.system_exists -and $sys.entry_exists -and $sys.router_exists -and $sys.flow_exists -and $repoAudit.repo_clean -and $repoAudit.architecture_clean -and $ux.ui_contamination_routes.Count -eq 0) {
         $readiness.indexing = 'PARTIAL'
         $readiness.traffic = 'PARTIAL'
     }
-    if ($sys.conversion_exists) { $readiness.monetization = 'PARTIAL' }
+
+    if ($sys.conversion_exists) {
+        $readiness.monetization = 'PARTIAL'
+    }
 
     $missing = @()
+    if (-not $repoAudit.target_repo_bound) { $missing += 'valid_repo_binding' }
     if (-not $sys.router_exists) { $missing += 'router_layer' }
     if (-not $sys.flow_exists) { $missing += 'discovery_flow' }
     if (-not $sys.conversion_exists) { $missing += 'conversion_layer' }
@@ -768,7 +1006,7 @@ function Write-DecisionText {
     $lines += 'MISSING COMPONENTS'
     foreach ($x in (Normalize $dec.missing_components)) { $lines += '- ' + $x }
 
-    Set-Content -LiteralPath $Path -Value $lines -Encoding UTF8
+    Set-Content -Path $Path -Value $lines -Encoding UTF8
 }
 
 function Invoke-SiteAuditor {
@@ -780,8 +1018,8 @@ function Invoke-SiteAuditor {
         New-Item -ItemType Directory -Path $rep | Out-Null
     }
 
-    $repoRoot = Get-RepoRoot -StartPath $root
-    $repoAudit = Analyze-RepoHygiene -RepoRoot $repoRoot
+    $repoBinding = Get-BoundRepoRoot -AgentRoot $root
+    $repoAudit = Analyze-RepoHygiene -AgentRoot $root -RepoBinding $repoBinding
 
     $manifestPath = Join-Path $rep 'visual_manifest.json'
     $manifest = Read-JsonFile -Path $manifestPath
@@ -793,14 +1031,13 @@ function Invoke-SiteAuditor {
     $pageTypeAudit = Build-PageTypeAudit -findings $find
     $dec = Decide -scores $scores -findings $find -repoAudit $repoAudit
 
-    $inventory | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $rep 'route_inventory.json') -Encoding UTF8
-    $find | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $rep 'visual_findings.json') -Encoding UTF8
-    $scores | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $rep 'route_scores.json') -Encoding UTF8
-    $pageTypeAudit | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $rep 'page_type_audit.json') -Encoding UTF8
-    $repoAudit | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $rep 'repo_audit.json') -Encoding UTF8
-    $dec | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $rep 'decision_summary.json') -Encoding UTF8
+    Write-JsonFile -Path (Join-Path $rep 'route_inventory.json') -Object $inventory -Depth 6
+    Write-JsonFile -Path (Join-Path $rep 'visual_findings.json') -Object $find -Depth 8
+    Write-JsonFile -Path (Join-Path $rep 'route_scores.json') -Object $scores -Depth 6
+    Write-JsonFile -Path (Join-Path $rep 'page_type_audit.json') -Object $pageTypeAudit -Depth 8
+    Write-JsonFile -Path (Join-Path $rep 'repo_audit.json') -Object $repoAudit -Depth 8
+    Write-JsonFile -Path (Join-Path $rep 'decision_summary.json') -Object $dec -Depth 10
     Write-DecisionText -Path (Join-Path $rep 'REPORT.txt') -dec $dec
 
-    Write-Host ('REPORT repo_root=' + $repoRoot)
-    Write-Host ('REPORT system_verdict=' + $dec.system_verdict)
+    Write-Host 'DONE'
 }
