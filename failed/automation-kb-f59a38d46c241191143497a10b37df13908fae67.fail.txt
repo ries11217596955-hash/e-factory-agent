@@ -1,0 +1,14 @@
+ZIP_NAME=automation-kb-f59a38d46c241191143497a10b37df13908fae67.zip
+FAILED_AT=2026-04-03 09:50:08.084
+SOURCE=D:\a\e-factory-agent\e-factory-agent\inbox\processing\automation-kb-f59a38d46c241191143497a10b37df13908fae67.zip
+FAILED_PATH=D:\a\e-factory-agent\e-factory-agent\failed\automation-kb-f59a38d46c241191143497a10b37df13908fae67.zip
+STATUS=FAIL_RUNTIME
+REASON_CODE=WORKFLOW_SCRIPT_INVOCATION_ERROR
+MESSAGE=Workflow failed while invoking RUN_BATCH.ps1
+REASON_START
+Save-GitOutput: D:\a\e-factory-agent\e-factory-agent\agents\gh_batch\RUN_BATCH.ps1:562
+Line |
+ 562 |          Save-GitOutput -RepoPath $env:TARGET_REPO_PATH -Args @('statu …
+     |          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | Cannot bind argument to parameter 'Content' because it is an empty string.
+REASON_END

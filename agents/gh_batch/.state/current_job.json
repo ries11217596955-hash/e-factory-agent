@@ -2,7 +2,7 @@
   "iteration": 1,
   "zip_name": "automation-kb-f59a38d46c241191143497a10b37df13908fae67.zip",
   "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\automation-kb-f59a38d46c241191143497a10b37df13908fae67.zip",
-  "finished_at": "2026-04-03 09:39:47.351",
-  "status": "PASS",
-  "reason_code": ""
+  "finished_at": "2026-04-03 09:50:08.094",
+  "status": "FAIL_RUNTIME",
+  "reason_code": "WORKFLOW_SCRIPT_INVOCATION_ERROR"
 }
