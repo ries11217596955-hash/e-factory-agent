@@ -1,8 +1,8 @@
 {
-  "iteration": 50,
-  "zip_name": "control_batch_clean.zip",
-  "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\control_batch_clean.zip",
-  "finished_at": "2026-04-03 08:50:46.271",
-  "status": "FAIL_RUNTIME",
-  "reason_code": "WORKFLOW_SCRIPT_INVOCATION_ERROR"
+  "iteration": 1,
+  "zip_name": "automation-kb-9beafb64d6671f805ea06da411a60fe800587b28.zip",
+  "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\automation-kb-9beafb64d6671f805ea06da411a60fe800587b28.zip",
+  "finished_at": "2026-04-03 09:01:59.140",
+  "status": "PASS",
+  "reason_code": ""
 }
