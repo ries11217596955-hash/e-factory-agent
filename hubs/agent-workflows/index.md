@@ -5,26 +5,38 @@ layout: base.njk
 
 # Agent Workflows
 
-Build agents that execute tasks without manual work.
+## Use this if
 
-## When to use
-- You run batches
-- You process queues
-- You want hands-off execution
+- you manually process files or tasks every day  
+- you upload batches and wait for results  
+- you want full automation without manual triggers  
 
-## Systems
-### Batch agents
-- input → process → output
+---
 
-### Queue systems
-- inbox → worker → done/failed
+## What you build
 
-### Pipelines
-- trigger → run → deliver
+- batch processing agents  
+- queue-based systems  
+- execution pipelines  
 
-## Start here
-- Build simple batch flow
+---
+
+## Real scenarios
+
+### Batch processing (files, content)
 → /posts/
 
-## Next step
+### Queue automation (inbox → output)
+→ /posts/
+
+---
+
+## Start
+
+Build one simple agent → test → expand  
+
+---
+
+## Next
+
 → /hubs/operations/

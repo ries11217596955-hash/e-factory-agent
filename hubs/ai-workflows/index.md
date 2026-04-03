@@ -5,31 +5,41 @@ layout: base.njk
 
 # AI Workflows
 
-Turn repetitive tasks into repeatable workflows.
+## Use this if
 
-## When to use
-- You repeat the same task daily
-- You copy/paste between tools
-- You need predictable output
+- your Amazon listing gets traffic but no sales  
+- you manually send review requests  
+- you copy product data between tools daily  
 
-## Core use-cases
-### Lead generation
-- scrape → enrich → outreach
-→ Start: /posts/2026-04-02-how-to-find-amazon-keywords/
+---
 
-### Review requests
-- trigger → follow-up → track
-→ Start: /posts/2026-04-02-amazon-review-analysis/
+## What you fix here
 
-### Follow-ups
-- event → sequence → conversion
-→ Start: /posts/2026-04-02-how-to-optimize-amazon-listing/
+- automate lead generation  
+- automate review requests  
+- automate follow-ups  
 
-## How to use this hub
-1. Pick one use-case
-2. Open 1 guide
-3. Apply steps
-4. Move to next layer
+---
 
-## Next step
+## Real scenarios
+
+### Low conversion on Amazon
+→ /posts/2026-04-02-how-to-optimize-amazon-listing/
+
+### No keyword clarity
+→ /posts/2026-04-02-how-to-find-amazon-keywords/
+
+### No review flow
+→ /posts/2026-04-02-amazon-review-analysis/
+
+---
+
+## Start
+
+Pick one problem → open page → apply steps
+
+---
+
+## Next
+
 → /hubs/agent-workflows/
