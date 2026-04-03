@@ -17,7 +17,10 @@ if (-not (Test-Path $Path)) { throw "File not found: $Path" }
 return Get-Content $Path -Raw | ConvertFrom-Json
 }
 
-function Normalize { param($x) return @($x) }
+function Normalize {
+param($x)
+return @($x)
+}
 
 function Get-Path {
 param($i)
@@ -27,27 +30,35 @@ try { return ([uri]$i.url).AbsolutePath } catch { return $i.url }
 
 function Get-Weight {
 param($p)
-if ($p -in @("/", "/hubs/", "/search/")) { return "critical" }
-if ($p -in @("/tools/", "/start-here/")) { return "high" }
+if ($p -eq "/" -or $p -eq "/hubs/" -or $p -eq "/search/") { return "critical" }
+if ($p -eq "/tools/" -or $p -eq "/start-here/") { return "high" }
 return "normal"
 }
 
-function Get-Int($v) { try { return [int]$v } catch { return 0 } }
+function Get-Int {
+param($v)
+try { return [int]$v } catch { return 0 }
+}
 
 # ---------- FINDINGS ----------
 
 function Get-VisualFindings {
 param([object[]]$items)
-$out = @()
 
 ```
-foreach ($i in (Normalize $items)) {
+$out = @()
+$arr = Normalize $items
+
+foreach ($i in $arr) {
     $len = Get-Int $i.bodyTextLength
     $img = Get-Int $i.images
-    $cls = "ok"
 
-    if ($img -eq 0 -and $len -lt 350) { $cls = "empty" }
-    elseif ($img -eq 0) { $cls = "weak" }
+    $cls = "ok"
+    if ($img -eq 0 -and $len -lt 350) {
+        $cls = "empty"
+    } elseif ($img -eq 0) {
+        $cls = "weak"
+    }
 
     $out += [pscustomobject]@{
         path = Get-Path $i
@@ -66,14 +77,18 @@ return $out
 
 function Build-RouteScores {
 param([object[]]$items)
-$out = @()
 
 ```
-foreach ($i in (Normalize $items)) {
+$out = @()
+$arr = Normalize $items
+
+foreach ($i in $arr) {
     $p = Get-Path $i
     $len = Get-Int $i.bodyTextLength
 
-    $band = if ($len -lt 350) { "bad" } elseif ($len -lt 700) { "thin" } else { "ok" }
+    $band = "ok"
+    if ($len -lt 350) { $band = "bad" }
+    elseif ($len -lt 700) { $band = "thin" }
 
     $out += [pscustomobject]@{
         path = $p
@@ -98,51 +113,63 @@ $p0 = @()
 $p1 = @()
 $do = @()
 
-$crit = $scores | Where-Object { $_.weight -eq "critical" -and $_.band -ne "ok" }
-$visualEmpty = $findings | Where-Object { $_.visual -eq "empty" }
+$crit = @()
+foreach ($s in $scores) {
+    if ($s.weight -eq "critical" -and $s.band -ne "ok") {
+        $crit += $s
+    }
+}
 
-# ---- CORE ----
+$visualEmpty = @()
+foreach ($f in $findings) {
+    if ($f.visual -eq "empty") {
+        $visualEmpty += $f
+    }
+}
+
+# CORE
 $core = "Site works but lacks decision strength."
-
 if ($crit.Count -gt 0) {
     $core = "Critical routes are too shallow and break navigation flow."
-}
-elseif ($visualEmpty.Count -gt 0) {
+} elseif ($visualEmpty.Count -gt 0) {
     $core = "Key pages appear empty and reduce trust and scanability."
 }
 
-# ---- P0 (FLOW ONLY) ----
-foreach ($c in $crit | Select-Object -First 3) {
+# P0
+$count = 0
+foreach ($c in $crit) {
+    if ($count -ge 3) { break }
     $p0 += "$($c.path) breaks navigation flow due to insufficient depth."
+    $count++
 }
 
 if ($visualEmpty.Count -gt 0) {
     $p0 += "Key routes appear empty and reduce user trust."
 }
 
-$p0 = $p0 | Select-Object -First 4
-
-# ---- P1 ----
+# P1
 if ($crit.Count -gt 0) {
     $p1 += "Strengthen routing before adding growth features."
 }
 
-# ---- DO NEXT (FROM P0 ONLY) ----
-if ($crit | Where-Object { $_.path -eq "/hubs/" }) {
-    $do += "Expand /hubs/ into structured navigation with categories and forward links."
-}
-
-if ($crit | Where-Object { $_.path -eq "/search/" }) {
-    $do += "Rebuild /search/ as a real discovery page with guidance and entry points."
+# DO NEXT
+foreach ($c in $crit) {
+    if ($c.path -eq "/hubs/") {
+        $do += "Expand /hubs/ into structured navigation with categories and forward links."
+    }
+    if ($c.path -eq "/search/") {
+        $do += "Rebuild /search/ as a real discovery page with guidance and entry points."
+    }
 }
 
 if ($visualEmpty.Count -gt 0) {
     $do += "Add visual blocks to key pages to improve scanability and trust."
 }
 
-$do = $do | Select-Object -First 3
+# LIMIT DO
+$do = $do | Select-Object -Unique | Select-Object -First 3
 
-# ---- STAGE ----
+# STAGE
 $stage = "Stage 2"
 if ($crit.Count -gt 0 -or $visualEmpty.Count -gt 0) {
     $stage = "Stage 1"
@@ -166,10 +193,13 @@ param([string]$BaseUrl)
 
 ```
 $root = Get-ScriptRoot
-$rep  = Join-Path $root "reports"
-if (!(Test-Path $rep)) { mkdir $rep | Out-Null }
+Write-Host "scriptRoot: $root"
 
-$manifest = Read-JsonFile (Join-Path $rep "visual_manifest.json")
+$rep = Join-Path $root "reports"
+if (!(Test-Path $rep)) { New-Item -ItemType Directory -Path $rep | Out-Null }
+
+$manifestPath = Join-Path $rep "visual_manifest.json"
+$manifest = Read-JsonFile $manifestPath
 
 $items = Normalize $manifest
 $find  = Get-VisualFindings $items
