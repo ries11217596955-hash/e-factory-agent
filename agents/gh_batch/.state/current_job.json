@@ -1,8 +1,8 @@
 {
   "iteration": 1,
-  "zip_name": "automation-kb-f59a38d46c241191143497a10b37df13908fae67.zip",
-  "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\automation-kb-f59a38d46c241191143497a10b37df13908fae67.zip",
-  "finished_at": "2026-04-03 09:59:33.993",
+  "zip_name": "automation-kb_DECISION_CORE_BATCH_v1.zip",
+  "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\automation-kb_DECISION_CORE_BATCH_v1.zip",
+  "finished_at": "2026-04-03 11:23:01.609",
   "status": "PASS",
   "reason_code": ""
 }
