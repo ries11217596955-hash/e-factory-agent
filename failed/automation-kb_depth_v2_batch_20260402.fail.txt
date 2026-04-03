@@ -1,0 +1,15 @@
+ZIP_NAME=automation-kb_depth_v2_batch_20260402.zip
+FAILED_AT=2026-04-03 08:50:42.607
+SOURCE=D:\a\e-factory-agent\e-factory-agent\inbox\processing\automation-kb_depth_v2_batch_20260402.zip
+FAILED_PATH=D:\a\e-factory-agent\e-factory-agent\failed\automation-kb_depth_v2_batch_20260402.zip
+STATUS=FAIL_RUNTIME
+REASON_CODE=WORKFLOW_SCRIPT_INVOCATION_ERROR
+MESSAGE=Workflow failed while invoking RUN_BATCH.ps1
+REASON_START
+Exception: D:\a\_temp\869950c3-653e-4c6d-a9e8-5cc0e51d14f2.ps1:108
+Line |
+ 108 |        throw "FAIL_RUNTIME: RUN_REPORT not produced for $claimedPath"
+     |        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | FAIL_RUNTIME: RUN_REPORT not produced for
+     | D:\a\e-factory-agent\e-factory-agent\inbox\processing\automation-kb_depth_v2_batch_20260402.zip
+REASON_END

@@ -1,8 +1,8 @@
 {
-  "iteration": 1,
-  "zip_name": "FOUNDATION_FIX_BATCH_v2.zip",
-  "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\FOUNDATION_FIX_BATCH_v2.zip",
-  "finished_at": "2026-04-03 08:42:23.306",
-  "status": "PASS",
-  "reason_code": ""
+  "iteration": 50,
+  "zip_name": "control_batch_clean.zip",
+  "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\control_batch_clean.zip",
+  "finished_at": "2026-04-03 08:50:46.271",
+  "status": "FAIL_RUNTIME",
+  "reason_code": "WORKFLOW_SCRIPT_INVOCATION_ERROR"
 }
