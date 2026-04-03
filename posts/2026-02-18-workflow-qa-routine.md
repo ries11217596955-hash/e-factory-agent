@@ -6,44 +6,30 @@ tags: [workflow, qa]
 
 ## The real problem
 
-Your site breaks silently:
-- links stop working
-- pages disappear
-- flows don’t complete
-
-You don’t notice it until users leave.
-
----
-
-## What this fixes
-
-This routine ensures:
-- your site actually works
-- users can complete flows
-- releases are stable
-
----
-
-## When to use
-
-- after deploy
-- after batch updates
-- before traffic
+Your site breaks silently.
 
 ---
 
 ## Steps
 
-1. Open key pages  
-2. Click navigation  
-3. Test full user path  
-4. Check content  
-5. Quick load check  
+1. Open pages  
+2. Click links  
+3. Test flow  
 
 ---
 
-## Result
+## Next step
 
-- stable site
-- fewer failures
-- predictable behavior
+If flows break → fix structure:
+
+→ /hubs/operations/
+
+If content is weak → improve posts:
+
+→ /posts/
+
+---
+
+## System path
+
+Build → QA → Fix → Repeat

@@ -1,38 +1,35 @@
 ---
-title: Shopify Inventory Sync Guardrails (Stop Stock Errors Before They Cost You)
+title: Shopify Inventory Sync Guardrails
 date: 2026-02-18
 tags: [shopify, operations]
 ---
 
 ## The real problem
 
-Inventory errors cost you money:
-- overselling products
-- wrong stock levels
-- inconsistent data
-
----
-
-## What this fixes
-
-This setup ensures:
-- correct stock values
-- no duplicate updates
-- predictable sync
+Inventory errors cost money.
 
 ---
 
 ## Guardrails
 
-1. Single source of truth  
-2. Idempotent updates  
-3. Controlled batching  
-4. Conflict resolution  
+1. single source  
+2. batching  
+3. conflict rules  
 
 ---
 
-## Result
+## Next step
 
-- stable inventory
-- fewer refunds
-- reliable operations
+If inventory is stable → optimize sales:
+
+→ /posts/2026-04-02-how-to-optimize-amazon-listing/
+
+If operations break → fix systems:
+
+→ /hubs/operations/
+
+---
+
+## System path
+
+Inventory → Stability → Sales
