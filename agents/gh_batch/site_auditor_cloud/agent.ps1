@@ -29,21 +29,6 @@ function Get-RepoRoot {
     return $StartPath
 }
 
-function Build-RouteInventory {
-    param($items)
-
-    $out = @()
-    foreach ($i in (Normalize $items)) {
-        $out += [pscustomobject]@{
-            path = Get-PathFromItem $i
-            length = Get-Int $i.bodyTextLength
-            images = Get-Int $i.images
-            links = Get-Int $i.links
-        }
-    }
-    return @($out)
-}
-
 function Read-JsonFile {
     param([Parameter(Mandatory = $true)][string]$Path)
     if (-not (Test-Path $Path)) { throw "File not found: $Path" }
@@ -80,12 +65,39 @@ function Get-Int {
     try { return [int]$v } catch { return 0 }
 }
 
+function Join-ListText {
+    param($items)
+    $arr = @()
+    foreach ($i in (Normalize $items)) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$i)) {
+            $arr += [string]$i
+        }
+    }
+    return ($arr -join ", ")
+}
+
 function Get-Weight {
     param([string]$p)
 
     if ($p -eq "/" -or $p -eq "/hubs/" -or $p -eq "/search/") { return "critical" }
     if ($p -eq "/tools/" -or $p -eq "/start-here/") { return "high" }
     return "normal"
+}
+
+function Build-RouteInventory {
+    param($items)
+
+    $out = @()
+    foreach ($i in (Normalize $items)) {
+        $out += [pscustomobject]@{
+            path = Get-PathFromItem $i
+            length = Get-Int $i.bodyTextLength
+            images = Get-Int $i.images
+            links = Get-Int $i.links
+            title = [string]$i.title
+        }
+    }
+    return @($out)
 }
 
 function Find-SuspiciousTopLevelItems {
@@ -154,6 +166,52 @@ function Analyze-RepoHygiene {
     }
 }
 
+function Get-PageType {
+    param(
+        [string]$Path,
+        [int]$Len,
+        [int]$Links
+    )
+
+    if ($Path -eq "/") { return "ENTRY" }
+    if ($Path -eq "/hubs/") { return "ROUTER" }
+    if ($Path -eq "/search/") { return "FLOW" }
+    if ($Path -eq "/tools/") { return "TOOL" }
+    if ($Path -eq "/start-here/") { return "ENTRY_GUIDE" }
+    if ($Len -lt 120 -and $Links -lt 3) { return "EMPTY" }
+    if ($Len -lt 350 -and $Links -lt 6) { return "SCAFFOLD" }
+    return "ARTICLE"
+}
+
+function Test-UiContamination {
+    param(
+        [string]$Title,
+        [string]$Path
+    )
+
+    $markers = @(
+        'Built with',
+        'Edit on GitHub',
+        'BATCH-',
+        'PATCH_',
+        'PATCH NOTES',
+        'CONTROL LOOP',
+        'README APPLY'
+    )
+
+    $hits = @()
+    foreach ($m in $markers) {
+        if (-not [string]::IsNullOrWhiteSpace($Title) -and $Title -like "*$m*") {
+            $hits += $m
+        }
+        if (-not [string]::IsNullOrWhiteSpace($Path) -and $Path -like "*$m*") {
+            $hits += $m
+        }
+    }
+
+    return @($hits | Select-Object -Unique)
+}
+
 function Get-Findings {
     param($items)
 
@@ -163,6 +221,7 @@ function Get-Findings {
         $img = Get-Int $i.images
         $links = Get-Int $i.links
         $path = Get-PathFromItem $i
+        $title = [string]$i.title
 
         $visual = "ok"
         if ($img -eq 0 -and $len -lt 350) {
@@ -172,10 +231,15 @@ function Get-Findings {
             $visual = "weak"
         }
 
+        $pageType = Get-PageType -Path $path -Len $len -Links $links
+        $uiContaminationHits = Test-UiContamination -Title $title -Path $path
+        $uiContamination = ($uiContaminationHits.Count -gt 0)
+
         $hasProblemFrame = $false
         $hasSolutionDepth = $false
         $hasNextStep = $false
         $hasValueStatement = $false
+        $hasCTA = $false
 
         if ($len -ge 450) { $hasProblemFrame = $true }
         if ($len -ge 700) { $hasSolutionDepth = $true }
@@ -188,22 +252,37 @@ function Get-Findings {
             if ($len -ge 500) { $hasValueStatement = $true }
         }
 
+        if ($links -ge 12 -or $path -match '/start-here/|/pricing/|/contact/|/demo/|/consult|/signup|/subscribe') {
+            $hasCTA = $true
+        }
+
         $fakePage = $false
         if ($len -ge 500 -and (-not $hasProblemFrame -or -not $hasNextStep)) {
             $fakePage = $true
         }
 
+        $fakeShell = $false
+        if (($pageType -eq "SCAFFOLD" -or $pageType -eq "EMPTY") -and $links -gt 0 -and $len -lt 350) {
+            $fakeShell = $true
+        }
+
         $out += [pscustomobject]@{
             path = $path
+            title = $title
             len = $len
             img = $img
             links = $links
             visual = $visual
+            page_type = $pageType
+            ui_contamination = $uiContamination
+            ui_contamination_hits = @($uiContaminationHits)
             has_problem_frame = $hasProblemFrame
             has_solution_depth = $hasSolutionDepth
             has_next_step = $hasNextStep
             has_value_statement = $hasValueStatement
+            has_cta = $hasCTA
             fake_page = $fakePage
+            fake_shell = $fakeShell
         }
     }
 
@@ -258,9 +337,7 @@ function Analyze-System {
         if ($f.path -eq "/" -and $f.has_value_statement -and $f.has_next_step) { $entry = $true }
         if ($f.has_next_step) { $nextStep = $true }
         if ($f.img -gt 0) { $visualTrust = $true }
-        if ($f.path -match "/pricing/|/contact/|/demo/|/consult|/signup|/subscribe|/start-here/") {
-            $conversion = $true
-        }
+        if ($f.has_cta) { $conversion = $true }
     }
 
     return [pscustomobject]@{
@@ -280,12 +357,17 @@ function Analyze-UserReality {
     $homepageFail = $false
     $intentFailRoutes = @()
     $fakePageRoutes = @()
+    $fakeShellRoutes = @()
     $deadEndRoutes = @()
+    $uiContaminationRoutes = @()
+    $entryClarityRoutes = @()
+    $ctaMissingRoutes = @()
 
     foreach ($f in (Normalize $findings)) {
         if ($f.path -eq "/") {
-            if (-not $f.has_value_statement -or -not $f.has_next_step) {
+            if (-not $f.has_value_statement -or -not $f.has_next_step -or -not $f.has_cta) {
                 $homepageFail = $true
+                $entryClarityRoutes += $f.path
             }
         }
 
@@ -297,8 +379,20 @@ function Analyze-UserReality {
             $fakePageRoutes += $f.path
         }
 
+        if ($f.fake_shell) {
+            $fakeShellRoutes += $f.path
+        }
+
         if (-not $f.has_next_step) {
             $deadEndRoutes += $f.path
+        }
+
+        if ($f.ui_contamination) {
+            $uiContaminationRoutes += $f.path
+        }
+
+        if (-not $f.has_cta) {
+            $ctaMissingRoutes += $f.path
         }
     }
 
@@ -306,19 +400,33 @@ function Analyze-UserReality {
         homepage_fail = $homepageFail
         intent_fail_routes = @($intentFailRoutes | Select-Object -Unique)
         fake_page_routes = @($fakePageRoutes | Select-Object -Unique)
+        fake_shell_routes = @($fakeShellRoutes | Select-Object -Unique)
         dead_end_routes = @($deadEndRoutes | Select-Object -Unique)
+        ui_contamination_routes = @($uiContaminationRoutes | Select-Object -Unique)
+        entry_clarity_routes = @($entryClarityRoutes | Select-Object -Unique)
+        cta_missing_routes = @($ctaMissingRoutes | Select-Object -Unique)
     }
 }
 
-function Join-ListText {
-    param($items)
-    $arr = @()
-    foreach ($i in (Normalize $items)) {
-        if (-not [string]::IsNullOrWhiteSpace([string]$i)) {
-            $arr += [string]$i
+function Build-PageTypeAudit {
+    param($findings)
+
+    $out = @()
+    foreach ($f in (Normalize $findings)) {
+        $out += [pscustomobject]@{
+            path = $f.path
+            page_type = $f.page_type
+            fake_shell = $f.fake_shell
+            fake_page = $f.fake_page
+            ui_contamination = $f.ui_contamination
+            has_cta = $f.has_cta
+            has_value_statement = $f.has_value_statement
+            has_problem_frame = $f.has_problem_frame
+            has_solution_depth = $f.has_solution_depth
+            has_next_step = $f.has_next_step
         }
     }
-    return ($arr -join ", ")
+    return @($out)
 }
 
 function Decide {
@@ -355,18 +463,24 @@ function Decide {
     if ($ux.homepage_fail) { $failedGates += "ENTRY_QUALITY" }
     if ($ux.intent_fail_routes.Count -gt 0) { $failedGates += "INTENT" }
     if ($ux.fake_page_routes.Count -gt 0) { $failedGates += "FAKE_PAGE" }
+    if ($ux.fake_shell_routes.Count -gt 0) { $failedGates += "FAKE_SHELL" }
     if ($ux.dead_end_routes.Count -gt 0) { $failedGates += "FLOW_DEAD_END" }
+    if ($ux.ui_contamination_routes.Count -gt 0) { $failedGates += "UI_CONTAMINATION" }
+    if ($ux.cta_missing_routes.Count -gt 0) { $failedGates += "CTA_MISSING" }
 
     $core = "Site does not function as a decision system."
 
     if (-not $repoAudit.repo_clean -or -not $repoAudit.architecture_clean) {
         $core = "Repo is not a clean product boundary and mixes product with internal/dev artifacts."
     }
+    elseif ($ux.ui_contamination_routes.Count -gt 0) {
+        $core = "Public pages contain development or internal UI contamination."
+    }
     elseif ($ux.homepage_fail) {
         $core = "Homepage does not function as a usable entry point."
     }
-    elseif ($ux.fake_page_routes.Count -gt 0) {
-        $core = "Some pages create an illusion of content but do not solve a user problem."
+    elseif ($ux.fake_page_routes.Count -gt 0 -or $ux.fake_shell_routes.Count -gt 0) {
+        $core = "Some pages create an illusion of content but do not function as real product pages."
     }
     elseif (-not $sys.system_exists) {
         $core = "Site does not function as a decision system."
@@ -381,6 +495,9 @@ function Decide {
     }
     if (-not $repoAudit.architecture_clean) {
         $p0 += "Architecture boundary failed: product content is mixed with scripts/tools/test layers."
+    }
+    if ($ux.ui_contamination_routes.Count -gt 0) {
+        $p0 += "UI contamination detected on public pages (" + (Join-ListText $ux.ui_contamination_routes) + ")."
     }
     if ($ux.homepage_fail) {
         $p0 += "Homepage does not function as a usable entry point."
@@ -397,11 +514,17 @@ function Decide {
     if (-not $sys.visual_trust_exists) {
         $p0 += "Visual trust layer is missing on key pages."
     }
+    if ($ux.fake_shell_routes.Count -gt 0) {
+        $p0 += "Empty shell or scaffold pages detected (" + (Join-ListText $ux.fake_shell_routes) + ")."
+    }
     if ($ux.fake_page_routes.Count -gt 0) {
         $p0 += "Fake pages detected: pages look present but do not frame a problem or next step (" + (Join-ListText $ux.fake_page_routes) + ")."
     }
     if ($ux.dead_end_routes.Count -gt 0) {
         $p0 += "User flow breaks on dead-end pages (" + (Join-ListText $ux.dead_end_routes) + ")."
+    }
+    if ($ux.cta_missing_routes.Count -gt 0) {
+        $p0 += "No clear CTA or next action detected on some routes (" + (Join-ListText $ux.cta_missing_routes) + ")."
     }
     if ($criticalBad.Count -gt 0) {
         $p0 += "Critical routes lack depth (" + (Join-ListText $criticalBad) + ")."
@@ -409,7 +532,7 @@ function Decide {
     if ($visualEmpty.Count -gt 0) {
         $p0 += "Some key routes appear empty (" + (Join-ListText $visualEmpty) + ")."
     }
-    $p0 = @($p0 | Select-Object -Unique | Select-Object -First 10)
+    $p0 = @($p0 | Select-Object -Unique | Select-Object -First 12)
 
     $p1 = @()
     if ($ux.intent_fail_routes.Count -gt 0) {
@@ -430,8 +553,11 @@ function Decide {
     if (-not $repoAudit.repo_clean -or -not $repoAudit.architecture_clean) {
         $do += "Separate product files from internal, batch, test, and governance artifacts in the repo."
     }
+    if ($ux.ui_contamination_routes.Count -gt 0) {
+        $do += "Remove development and internal UI contamination from public pages."
+    }
     if ($ux.homepage_fail) {
-        $do += "Rebuild homepage as entry point with value statement, route options, and next action."
+        $do += "Rebuild homepage as entry point with value statement, route options, and CTA."
     }
     if (-not $sys.router_exists -or ($criticalBad -contains "/hubs/")) {
         $do += "Rebuild /hubs/ as an intent-based router, not a flat list."
@@ -445,10 +571,10 @@ function Decide {
     if (-not $sys.visual_trust_exists) {
         $do += "Add visual trust blocks, previews, or screenshots on key pages."
     }
-    if ($ux.fake_page_routes.Count -gt 0) {
-        $do += "Replace fake pages with real problem → solution → next-step structure."
+    if ($ux.fake_page_routes.Count -gt 0 -or $ux.fake_shell_routes.Count -gt 0) {
+        $do += "Replace fake pages and empty shells with real problem → solution → next-step structure."
     }
-    $do = @($do | Select-Object -Unique | Select-Object -First 4)
+    $do = @($do | Select-Object -Unique | Select-Object -First 5)
 
     $readiness = [pscustomobject]@{
         indexing = "NO"
@@ -456,7 +582,7 @@ function Decide {
         monetization = "NO"
     }
 
-    if ($sys.system_exists -and $sys.entry_exists -and $sys.router_exists -and $sys.flow_exists -and $repoAudit.repo_clean -and $repoAudit.architecture_clean) {
+    if ($sys.system_exists -and $sys.entry_exists -and $sys.router_exists -and $sys.flow_exists -and $repoAudit.repo_clean -and $repoAudit.architecture_clean -and $ux.ui_contamination_routes.Count -eq 0) {
         $readiness.indexing = "PARTIAL"
         $readiness.traffic = "PARTIAL"
     }
@@ -471,7 +597,9 @@ function Decide {
     if (-not $sys.conversion_exists) { $missing += "conversion_layer" }
     if (-not $sys.visual_trust_exists) { $missing += "visual_trust_layer" }
     if (-not $sys.entry_exists) { $missing += "entry_structure" }
-    if ($ux.fake_page_routes.Count -gt 0) { $missing += "real_problem_solution_pages" }
+    if ($ux.fake_page_routes.Count -gt 0 -or $ux.fake_shell_routes.Count -gt 0) { $missing += "real_problem_solution_pages" }
+    if ($ux.ui_contamination_routes.Count -gt 0) { $missing += "clean_public_ui" }
+    if ($ux.cta_missing_routes.Count -gt 0) { $missing += "clear_cta_layer" }
     $missing = @($missing | Select-Object -Unique)
 
     return [pscustomobject]@{
@@ -545,11 +673,13 @@ function Invoke-SiteAuditor {
     $inventory = Build-RouteInventory -items $items
     $find = Get-Findings -items $items
     $scores = Get-Scores -items $items
+    $pageTypeAudit = Build-PageTypeAudit -findings $find
     $dec = Decide -scores $scores -findings $find -repoAudit $repoAudit
 
     $inventory | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $rep "route_inventory.json") -Encoding UTF8
     $find | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $rep "visual_findings.json") -Encoding UTF8
     $scores | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $rep "route_scores.json") -Encoding UTF8
+    $pageTypeAudit | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $rep "page_type_audit.json") -Encoding UTF8
     $repoAudit | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $rep "repo_audit.json") -Encoding UTF8
     $dec | ConvertTo-Json -Depth 8 | Set-Content -Path (Join-Path $rep "decision_summary.json") -Encoding UTF8
     Write-DecisionText -Path (Join-Path $rep "REPORT.txt") -dec $dec
