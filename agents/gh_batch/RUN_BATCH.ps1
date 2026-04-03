@@ -1,9 +1,10 @@
 # RUN_BATCH.ps1
-# FIXED v4
+# FIXED v5
 # - truthful target commit closure
 # - full-repo ZIP restore support
 # - payload ZIP support (src-only)
 # - PowerShell 5.1 compatible
+# - empty git output safe
 
 param(
     [Parameter(Mandatory = $true)]
@@ -24,6 +25,11 @@ function Ensure-Dir {
         [Parameter(Mandatory = $true)]
         [string]$Path
     )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return
+    }
+
     if (-not (Test-Path -LiteralPath $Path)) {
         New-Item -ItemType Directory -Force -Path $Path | Out-Null
     }
@@ -33,11 +39,20 @@ function Write-Utf8File {
     param(
         [Parameter(Mandatory = $true)]
         [string]$Path,
-        [Parameter(Mandatory = $true)]
-        [string]$Content
+        [AllowEmptyString()]
+        [string]$Content = ''
     )
-    Ensure-Dir -Path ([System.IO.Path]::GetDirectoryName($Path))
-    $Content | Set-Content -LiteralPath $Path -Encoding UTF8
+
+    $dir = [System.IO.Path]::GetDirectoryName($Path)
+    if (-not [string]::IsNullOrWhiteSpace($dir)) {
+        Ensure-Dir -Path $dir
+    }
+
+    if ($null -eq $Content) {
+        $Content = ''
+    }
+
+    [System.IO.File]::WriteAllText($Path, $Content, [System.Text.UTF8Encoding]::new($false))
 }
 
 function Write-JsonFile {
@@ -47,6 +62,7 @@ function Write-JsonFile {
         [Parameter(Mandatory = $true)]
         $Object
     )
+
     $json = $Object | ConvertTo-Json -Depth 20
     Write-Utf8File -Path $Path -Content $json
 }
@@ -63,9 +79,20 @@ function Exec-Git {
     try {
         $output = & git @Args 2>&1
         $exitCode = $LASTEXITCODE
+
+        $joined = ''
+        if ($null -ne $output) {
+            if ($output -is [System.Array]) {
+                $joined = ($output -join [Environment]::NewLine)
+            }
+            else {
+                $joined = [string]$output
+            }
+        }
+
         return [pscustomobject]@{
             ExitCode = $exitCode
-            Output   = ($output -join [Environment]::NewLine)
+            Output   = $joined
         }
     }
     finally {
@@ -82,8 +109,15 @@ function Save-GitOutput {
         [Parameter(Mandatory = $true)]
         [string]$OutPath
     )
+
     $r = Exec-Git -Args $Args -RepoPath $RepoPath
-    Write-Utf8File -Path $OutPath -Content $r.Output
+
+    $safeOutput = ''
+    if ($null -ne $r.Output) {
+        $safeOutput = [string]$r.Output
+    }
+
+    Write-Utf8File -Path $OutPath -Content $safeOutput
     return $r
 }
 
@@ -92,6 +126,7 @@ function Get-GitHeadSha {
         [Parameter(Mandatory = $true)]
         [string]$RepoPath
     )
+
     $r = Exec-Git -Args @('rev-parse', 'HEAD') -RepoPath $RepoPath
     if ($r.ExitCode -ne 0) { return '' }
     return ($r.Output.Trim())
@@ -102,6 +137,7 @@ function Get-GitBranchName {
         [Parameter(Mandatory = $true)]
         [string]$RepoPath
     )
+
     $r = Exec-Git -Args @('rev-parse', '--abbrev-ref', 'HEAD') -RepoPath $RepoPath
     if ($r.ExitCode -ne 0) { return '' }
     return ($r.Output.Trim())
@@ -112,6 +148,7 @@ function Get-GitRemoteUrl {
         [Parameter(Mandatory = $true)]
         [string]$RepoPath
     )
+
     $r = Exec-Git -Args @('remote', 'get-url', 'origin') -RepoPath $RepoPath
     if ($r.ExitCode -ne 0) { return '' }
     return ($r.Output.Trim())
@@ -121,6 +158,7 @@ function Normalize-GitHubRepoFromUrl {
     param(
         [string]$RemoteUrl
     )
+
     if ([string]::IsNullOrWhiteSpace($RemoteUrl)) { return '' }
 
     $u = $RemoteUrl.Trim()
@@ -159,41 +197,42 @@ function Is-FullRepoZipRoot {
 function Get-PayloadMode {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$UnpackedRoot
+        [string]$UnpackedRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$TargetRepoPath
     )
 
-    # unwrap one top-level folder if needed
     $candidateRoot = $UnpackedRoot
     $items = Get-ChildItem -LiteralPath $UnpackedRoot -Force
+
     if ($items.Count -eq 1 -and $items[0].PSIsContainer) {
         $candidateRoot = $items[0].FullName
     }
 
     if (Is-FullRepoZipRoot -RootPath $candidateRoot) {
         return [pscustomobject]@{
-            Mode        = 'FULL_REPO'
-            EffectiveRoot= $candidateRoot
-            CopyBase    = $candidateRoot
-            TargetBase  = $env:TARGET_REPO_PATH
+            Mode          = 'FULL_REPO'
+            EffectiveRoot = $candidateRoot
+            CopyBase      = $candidateRoot
+            TargetBase    = $TargetRepoPath
         }
     }
 
     $srcDirect = Join-Path $candidateRoot 'src'
     if (Test-Path -LiteralPath $srcDirect) {
         return [pscustomobject]@{
-            Mode        = 'SRC_ONLY'
-            EffectiveRoot= $candidateRoot
-            CopyBase    = $srcDirect
-            TargetBase  = (Join-Path $env:TARGET_REPO_PATH 'src')
+            Mode          = 'SRC_ONLY'
+            EffectiveRoot = $candidateRoot
+            CopyBase      = $srcDirect
+            TargetBase    = (Join-Path $TargetRepoPath 'src')
         }
     }
 
-    # fallback: generic payload -> copy archive contents into repo root
     return [pscustomobject]@{
-        Mode        = 'GENERIC_ROOT'
-        EffectiveRoot= $candidateRoot
-        CopyBase    = $candidateRoot
-        TargetBase  = $env:TARGET_REPO_PATH
+        Mode          = 'GENERIC_ROOT'
+        EffectiveRoot = $candidateRoot
+        CopyBase      = $candidateRoot
+        TargetBase    = $TargetRepoPath
     }
 }
 
@@ -356,7 +395,7 @@ try {
 
     Expand-Archive -LiteralPath $ZipPath -DestinationPath $tempRoot -Force
 
-    $modeInfo = Get-PayloadMode -UnpackedRoot $tempRoot
+    $modeInfo = Get-PayloadMode -UnpackedRoot $tempRoot -TargetRepoPath $targetRepoPath
     $copyBase   = $modeInfo.CopyBase
     $targetBase = $modeInfo.TargetBase
 
@@ -366,10 +405,10 @@ try {
     $report.target_base  = $targetBase
 
     Write-JsonFile -Path (Join-Path $MetaDir 'PAYLOAD_MODE.json') -Object @{
-        mode          = $modeInfo.Mode
-        effective_root= $modeInfo.EffectiveRoot
-        copy_base     = $copyBase
-        target_base   = $targetBase
+        mode           = $modeInfo.Mode
+        effective_root = $modeInfo.EffectiveRoot
+        copy_base      = $copyBase
+        target_base    = $targetBase
     }
 
     if (-not (Test-Path -LiteralPath $copyBase)) {
@@ -420,6 +459,7 @@ try {
     # -------------------------
     $addResult = Exec-Git -Args @('add', '-A') -RepoPath $targetRepoPath
     Write-Utf8File -Path (Join-Path $GitDir 'TARGET_GIT_ADD_OUTPUT.txt') -Content $addResult.Output
+
     if ($addResult.ExitCode -ne 0) {
         throw ('GIT_ADD_FAILED: ' + $addResult.Output)
     }
@@ -427,7 +467,12 @@ try {
     Save-GitOutput -RepoPath $targetRepoPath -Args @('status', '--porcelain=v1') -OutPath (Join-Path $GitDir 'TARGET_STATUS_AFTER_STAGE.txt') | Out-Null
     $cachedDiff = Save-GitOutput -RepoPath $targetRepoPath -Args @('diff', '--name-status', '--cached') -OutPath (Join-Path $GitDir 'TARGET_CACHED_DIFF_NAME_STATUS.txt')
 
-    $hasStagedDiff = (-not [string]::IsNullOrWhiteSpace($cachedDiff.Output.Trim()))
+    $cachedText = ''
+    if ($null -ne $cachedDiff.Output) {
+        $cachedText = [string]$cachedDiff.Output
+    }
+
+    $hasStagedDiff = (-not [string]::IsNullOrWhiteSpace($cachedText.Trim()))
 
     if (-not $hasStagedDiff) {
         $report.apply_changed = $false
@@ -472,6 +517,7 @@ try {
         $report.status = 'FAIL_RUNTIME'
         $report.reason_code = 'NO_NEW_TARGET_SHA'
         $report.message = 'Commit command ran but target HEAD did not advance'
+
         Write-JsonFile -Path (Join-Path $MetaDir 'TARGET_COMMIT_SUMMARY.json') -Object @{
             commit_created = $false
             push_result    = 'NO_COMMIT'
@@ -481,6 +527,7 @@ try {
             reason_code    = 'NO_NEW_TARGET_SHA'
             message        = 'Commit command ran but target HEAD did not advance'
         }
+
         throw $report.message
     }
 
@@ -494,6 +541,7 @@ try {
         $report.status = 'FAIL_RUNTIME'
         $report.reason_code = 'TARGET_PUSH_FAILED'
         $report.message = 'Target push failed: ' + $pushResult.Output
+
         Write-JsonFile -Path (Join-Path $MetaDir 'TARGET_COMMIT_SUMMARY.json') -Object @{
             commit_created = $false
             push_result    = 'PUSH_FAIL'
@@ -503,6 +551,7 @@ try {
             reason_code    = 'TARGET_PUSH_FAILED'
             message        = $pushResult.Output
         }
+
         throw $report.message
     }
 
@@ -545,7 +594,9 @@ catch {
     }
 
     if ([string]::IsNullOrWhiteSpace($report.target_post_head)) {
-        $report.target_post_head = Get-GitHeadSha -RepoPath $env:TARGET_REPO_PATH
+        if (-not [string]::IsNullOrWhiteSpace($env:TARGET_REPO_PATH) -and (Test-Path -LiteralPath $env:TARGET_REPO_PATH)) {
+            $report.target_post_head = Get-GitHeadSha -RepoPath $env:TARGET_REPO_PATH
+        }
     }
 
     Write-JsonFile -Path (Join-Path $MetaDir 'FAIL_CONTEXT.json') -Object @{
