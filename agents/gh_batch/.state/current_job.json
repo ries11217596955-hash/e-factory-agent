@@ -1,8 +1,8 @@
 {
   "iteration": 1,
-  "zip_name": "hub_batch_v1.zip",
-  "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\hub_batch_v1.zip",
-  "finished_at": "2026-04-03 11:59:24.738",
+  "zip_name": "hub_batch_v2.zip",
+  "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\hub_batch_v2.zip",
+  "finished_at": "2026-04-03 12:41:00.799",
   "status": "PASS",
   "reason_code": ""
 }
