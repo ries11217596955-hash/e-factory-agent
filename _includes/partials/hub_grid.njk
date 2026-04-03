@@ -1,0 +1,11 @@
+{# hub_grid.njk - unified hub cards renderer #}
+{% if hubs and hubs.length %}
+<div class="grid">
+  {% for h in hubs %}
+    <a class="card card--soft hubcard2 col-6" href="{{ h.href }}">
+      <p class="card__title">{{ h.title }}</p>
+      <p class="card__text">{{ h.subtitle or h.description or "" }}</p>
+    </a>
+  {% endfor %}
+</div>
+{% endif %}

@@ -1,0 +1,78 @@
+{% block content %}
+
+{# article.njk - single post/news article view (KB-style) with breadcrumb support #}
+{# Derive base bucket from first tag (e.g., "posts"/"tools"/"news") #}
+{% set base = "posts" %}
+{% if tags and tags.length %}{% set base = tags[0] %}{% endif %}
+
+<article class="prose">
+  <header class="card section-gap">
+    {# Build breadcrumb list for this article using page.url and title #}
+    {% set crumbList = (page.url | breadcrumbs(title)) %}
+    {% include "partials/breadcrumb.njk" %}
+    <p class="kicker">
+      <a href="{{ ("/" + base + "/") | baseHomeUrl }}">{{ (base | capitalize) }}</a>
+      {% if tags and tags.length %}
+        <span class="sep">·</span>
+        {% for t in tags %}
+          {% set ct = (t | canonTag) %}
+          {% if ct and ct != base %}
+            <a class="tag" href="{{ base | tagUrl(ct) }}">#{{ ct }}</a>
+          {% endif %}
+        {% endfor %}
+      {% endif %}
+    </p>
+
+    <h1>{{ title }}</h1>
+
+    {% if summary %}
+      <p class="lead">{{ summary }}</p>
+    {% endif %}
+
+    <p class="meta">
+      {% if updated %}Updated {{ updated | dateReadable }}{% else %}{{ date | dateReadable }}{% endif %} · {{ content | readingTime }} min read
+      {% if author %}
+        <span class="sep">·</span> {{ author }}
+      {% endif %}
+</p>
+  </header>
+
+  <div class="content section-gap">
+    {{ content | safe }}
+  </div>
+
+
+  {# AUTO RELATED (revenue) - show 5 posts with same primaryTag (ai-for-sales / ecommerce-automation) #}
+  {% if collections and collections.revenuePosts and primaryTag %}
+    {% set allow = ["ai-for-sales", "ecommerce-automation"] %}
+    {% if allow.includes(primaryTag) %}
+      {% set rel = collections.revenuePosts | relatedByPrimaryTag(primaryTag, page.url, 5) %}
+      {% if rel and rel.length %}
+        {% include "partials/related.njk" %}
+      {% endif %}
+    {% endif %}
+  {% endif %}
+
+  {# CTA: steer to hubs/start #}
+  {# CTA: steer to hubs/start #}
+  {% set cta = {
+    heading: "Want a ready-to-run workflow?",
+    text: "Browse the revenue-focused hubs and pick a playbook you can implement this week.",
+    primaryHref: "/start/",
+    primaryLabel: "Start here",
+    secondaryHref: "/hubs/",
+    secondaryLabel: "Browse hubs"
+  } %}
+  {% include "partials/cta_block.njk" %}
+
+  {% if references and references.length %}
+    <footer class="card section-gap">
+      <h2>References</h2>
+      <ul>
+        {% for r in references %}
+          <li><a href="{{ r.url }}">{{ r.title }}</a></li>
+        {% endfor %}
+      </ul>
+    </footer>
+  {% endif %}
+</article>

@@ -1,8 +1,8 @@
 {
   "iteration": 1,
-  "zip_name": "FLOW_CONTROL_BATCH_v1.zip",
-  "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\FLOW_CONTROL_BATCH_v1.zip",
-  "finished_at": "2026-04-03 06:03:24.638",
+  "zip_name": "FOUNDATION_FIX_BATCH_v1.zip",
+  "claimed_path": "D:\\a\\e-factory-agent\\e-factory-agent\\inbox\\processing\\FOUNDATION_FIX_BATCH_v1.zip",
+  "finished_at": "2026-04-03 07:10:32.286",
   "status": "PASS",
   "reason_code": ""
 }

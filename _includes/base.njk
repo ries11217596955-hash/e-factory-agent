@@ -1,1 +1,135 @@
-<!-- Ensure Build label removed -->
+{# src/_includes/base.njk #}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>
+      {% if title %}{{ title }} · {% endif %}{{ site.title or "Automation KB" }}
+    </title>
+
+    {# CACHEBUST: build.batch already used in footer; prevents stale CSS after deploy #}
+    <link rel="stylesheet" href="/assets/site.css?v={{ build.batch }}" />
+
+    {# Favicons / manifest (as you already have) #}
+    {% if site.favicon %}
+      <link rel="icon" href="{{ site.favicon }}" />
+    {% endif %}
+    <link rel="manifest" href="/site.webmanifest" />
+
+    {% if description %}
+      <meta name="description" content="{{ description }}" />
+    {% elif site.description %}
+      <meta name="description" content="{{ site.description }}" />
+    {% endif %}
+
+    {# SEO: canonical + OpenGraph + Twitter #}
+    {% set __siteUrl = site.url or "" %}
+    {% set __path = page.url or "/" %}
+    {% set __canonical = __siteUrl ~ __path %}
+    <link rel="canonical" href="{{ __canonical }}" />
+
+    {# Pagination SEO: rel prev/next for paginated lists #}
+    {% if pagination and pagination.href %}
+      {% if pagination.href.previous %}
+        <link rel="prev" href="{{ pagination.href.previous }}" />
+      {% endif %}
+      {% if pagination.href.next %}
+        <link rel="next" href="{{ pagination.href.next }}" />
+      {% endif %}
+    {% endif %}
+
+    {% set __pageTitle = (title and title ~ " · " ~ (site.title or "Automation KB")) or (site.title or "Automation KB") %}
+    <meta property="og:title" content="{{ __pageTitle }}" />
+    <meta property="og:description" content="{{ description or site.description or "" }}" />
+    <meta property="og:url" content="{{ __canonical }}" />
+    <meta property="og:site_name" content="{{ site.title or "Automation KB" }}" />
+    {% set __isPost = (__path | startsWith("/posts/")) %}
+    <meta property="og:type" content="{% if __isPost %}article{% else %}website{% endif %}" />
+    {% if __isPost and date %}
+      <meta property="article:published_time" content="{{ date | dateIso }}" />
+    {% endif %}
+
+    {% set __img = (ogImage or seo.defaultImage or "") %}
+    {% set __imgAbs = __img %}
+    {% if __img and not (__img | startsWith("http")) %}
+      {% set __imgAbs = __siteUrl ~ __img %}
+    {% endif %}
+    {% if __imgAbs %}
+      <meta property="og:image" content="{{ __imgAbs }}" />
+    {% endif %}
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="{{ __pageTitle }}" />
+    <meta name="twitter:description" content="{{ description or site.description or "" }}" />
+    {% if __imgAbs %}
+      <meta name="twitter:image" content="{{ __imgAbs }}" />
+    {% endif %}
+
+    {# Robots: allow per-page override via front matter #}
+    {% set __robots = seo.robots or "" %}
+    {% if robots %}{% set __robots = robots %}{% endif %}
+    {% if noindex %}{% set __robots = "noindex,follow" %}{% endif %}
+    {% if __robots %}
+      <meta name="robots" content="{{ __robots }}" />
+    {% endif %}
+    {% if seo.themeColor %}
+      <meta name="theme-color" content="{{ seo.themeColor }}" />
+    {% endif %}
+
+    {% block head %}{% endblock %}
+  </head>
+
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="container">
+        <div class="header-row">
+          <div class="brand">
+            <a href="/">{{ site.title or "Automation KB" }}</a>
+          </div>
+
+          <form class="search-mini" action="/search/" method="get" role="search" aria-label="Site search">
+            <input class="search-mini__input" type="search" name="q" placeholder="Search…" autocomplete="off" />
+            <button class="search-mini__btn" type="submit">Search</button>
+          </form>
+        </div>
+        <nav class="nav" aria-label="Primary">
+          {% set __u = page.url or "/" %}
+          {% for item in nav %}
+            {% set __active = false %}
+            {% if item.exact and __u == item.href %}
+              {% set __active = true %}
+            {% else %}
+              {% for p in item.activePrefixes or [] %}
+                {% if __u | startsWith(p) %}
+                  {% set __active = true %}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+            <a href="{{ item.href }}" class="{% if __active %}is-active{% endif %}">{{ item.label }}</a>
+          {% endfor %}
+        </nav>
+
+      </div>
+    </header>
+
+    <main id="main" class="site-main">
+      <div class="container">
+        {% block content %}{{ content | safe }}{% endblock %}
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container">
+        <small>
+          {{ site.footer or "" }}
+        </small>
+      </div>
+    </footer>
+    <script defer src="/assets/shortcuts.js?v={{ build.batch }}"></script>
+    <script defer src="/assets/codecopy.js?v={{ build.batch }}"></script>
+    <script defer src="/assets/anchors.js?v={{ build.batch }}"></script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+{# page_head.njk - unified page header with optional breadcrumb support.
+   Displays breadcrumb navigation (crumbList) above the page title when available.
+#}
+
+{# Compute breadcrumbs based on current page URL and heading.
+   Use h1 (if provided) or title as the final crumb label. #}
+{% set crumbList = (page.url | breadcrumbs(h1 or title)) %}
+{% include "partials/breadcrumb.njk" %}
+
+<div class="pagehead">
+  <h1 class="pagehead__title">{{ h1 or title }}</h1>
+  {% if lede or description %}
+    <p class="lede">{{ lede or description }}</p>
+  {% endif %}
+  {% if note %}
+    <p class="pagehead__note">{{ note }}</p>
+  {% endif %}
+</div>
