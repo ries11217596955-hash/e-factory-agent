@@ -29,6 +29,21 @@ function Get-RepoRoot {
     return $StartPath
 }
 
+function Build-RouteInventory {
+    param($items)
+
+    $out = @()
+    foreach ($i in (Normalize $items)) {
+        $out += [pscustomobject]@{
+            path = Get-PathFromItem $i
+            length = Get-Int $i.bodyTextLength
+            images = Get-Int $i.images
+            links = Get-Int $i.links
+        }
+    }
+    return @($out)
+}
+
 function Read-JsonFile {
     param([Parameter(Mandatory = $true)][string]$Path)
     if (-not (Test-Path $Path)) { throw "File not found: $Path" }
@@ -71,92 +86,6 @@ function Get-Weight {
     if ($p -eq "/" -or $p -eq "/hubs/" -or $p -eq "/search/") { return "critical" }
     if ($p -eq "/tools/" -or $p -eq "/start-here/") { return "high" }
     return "normal"
-}
-
-function Build-RouteInventory {
-    param($items)
-
-    $out = @()
-    foreach ($i in (Normalize $items)) {
-        $out += [pscustomobject]@{
-            path = Get-PathFromItem $i
-            length = Get-Int $i.bodyTextLength
-            images = Get-Int $i.images
-            links = Get-Int $i.links
-        }
-    }
-    return @($out)
-}
-
-function Get-Findings {
-    param($items)
-
-    $out = @()
-    foreach ($i in (Normalize $items)) {
-        $len = Get-Int $i.bodyTextLength
-        $img = Get-Int $i.images
-        $visual = "ok"
-
-        if ($img -eq 0 -and $len -lt 350) {
-            $visual = "empty"
-        }
-        elseif ($img -eq 0) {
-            $visual = "weak"
-        }
-
-        $out += [pscustomobject]@{
-            path = Get-PathFromItem $i
-            len = $len
-            img = $img
-            links = Get-Int $i.links
-            visual = $visual
-        }
-    }
-
-    return @($out)
-}
-
-function Get-Scores {
-    param($items)
-
-    $out = @()
-    foreach ($i in (Normalize $items)) {
-        $p = Get-PathFromItem $i
-        $len = Get-Int $i.bodyTextLength
-
-        $band = "ok"
-        if ($len -lt 350) {
-            $band = "bad"
-        }
-        elseif ($len -lt 700) {
-            $band = "thin"
-        }
-
-        $out += [pscustomobject]@{
-            path = $p
-            weight = Get-Weight $p
-            band = $band
-            len = $len
-            images = Get-Int $i.images
-            links = Get-Int $i.links
-        }
-    }
-
-    return @($out)
-}
-
-function Test-AnyPath {
-    param(
-        [string[]]$Candidates
-    )
-
-    foreach ($c in (Normalize $Candidates)) {
-        if (-not [string]::IsNullOrWhiteSpace([string]$c)) {
-            return $true
-        }
-    }
-
-    return $false
 }
 
 function Find-SuspiciousTopLevelItems {
@@ -216,16 +145,98 @@ function Analyze-RepoHygiene {
     $topSuspicious = Find-SuspiciousTopLevelItems -RepoRoot $RepoRoot
     $mixedDirs = Find-MixedLayerDirectories -RepoRoot $RepoRoot
 
-    $repoClean = ($topSuspicious.Count -eq 0)
-    $architectureClean = ($mixedDirs.Count -eq 0)
-
     return [pscustomobject]@{
         repo_root = $RepoRoot
         suspicious_top_level_items = @($topSuspicious)
         mixed_layer_directories = @($mixedDirs)
-        repo_clean = $repoClean
-        architecture_clean = $architectureClean
+        repo_clean = ($topSuspicious.Count -eq 0)
+        architecture_clean = ($mixedDirs.Count -eq 0)
     }
+}
+
+function Get-Findings {
+    param($items)
+
+    $out = @()
+    foreach ($i in (Normalize $items)) {
+        $len = Get-Int $i.bodyTextLength
+        $img = Get-Int $i.images
+        $links = Get-Int $i.links
+        $path = Get-PathFromItem $i
+
+        $visual = "ok"
+        if ($img -eq 0 -and $len -lt 350) {
+            $visual = "empty"
+        }
+        elseif ($img -eq 0) {
+            $visual = "weak"
+        }
+
+        $hasProblemFrame = $false
+        $hasSolutionDepth = $false
+        $hasNextStep = $false
+        $hasValueStatement = $false
+
+        if ($len -ge 450) { $hasProblemFrame = $true }
+        if ($len -ge 700) { $hasSolutionDepth = $true }
+        if ($links -ge 8) { $hasNextStep = $true }
+
+        if ($path -eq "/") {
+            if ($len -ge 700 -and $links -ge 10) { $hasValueStatement = $true }
+        }
+        else {
+            if ($len -ge 500) { $hasValueStatement = $true }
+        }
+
+        $fakePage = $false
+        if ($len -ge 500 -and (-not $hasProblemFrame -or -not $hasNextStep)) {
+            $fakePage = $true
+        }
+
+        $out += [pscustomobject]@{
+            path = $path
+            len = $len
+            img = $img
+            links = $links
+            visual = $visual
+            has_problem_frame = $hasProblemFrame
+            has_solution_depth = $hasSolutionDepth
+            has_next_step = $hasNextStep
+            has_value_statement = $hasValueStatement
+            fake_page = $fakePage
+        }
+    }
+
+    return @($out)
+}
+
+function Get-Scores {
+    param($items)
+
+    $out = @()
+    foreach ($i in (Normalize $items)) {
+        $p = Get-PathFromItem $i
+        $len = Get-Int $i.bodyTextLength
+
+        $band = "ok"
+        if ($len -lt 350) {
+            $band = "bad"
+        }
+        elseif ($len -lt 700) {
+            $band = "thin"
+        }
+
+        $out += [pscustomobject]@{
+            path = $p
+            weight = Get-Weight $p
+            band = $band
+            len = $len
+            images = Get-Int $i.images
+            links = Get-Int $i.links
+        }
+    }
+
+    return @($out)
 }
 
 function Analyze-System {
@@ -241,11 +252,11 @@ function Analyze-System {
     foreach ($s in (Normalize $scores)) {
         if ($s.path -eq "/hubs/" -and $s.band -eq "ok") { $router = $true }
         if ($s.path -eq "/search/" -and $s.band -eq "ok") { $flow = $true }
-        if ($s.path -eq "/" -and $s.band -eq "ok") { $entry = $true }
     }
 
     foreach ($f in (Normalize $findings)) {
-        if ($f.len -gt 500) { $nextStep = $true }
+        if ($f.path -eq "/" -and $f.has_value_statement -and $f.has_next_step) { $entry = $true }
+        if ($f.has_next_step) { $nextStep = $true }
         if ($f.img -gt 0) { $visualTrust = $true }
         if ($f.path -match "/pricing/|/contact/|/demo/|/consult|/signup|/subscribe|/start-here/") {
             $conversion = $true
@@ -260,6 +271,42 @@ function Analyze-System {
         next_step_exists = $nextStep
         conversion_exists = $conversion
         visual_trust_exists = $visualTrust
+    }
+}
+
+function Analyze-UserReality {
+    param($findings)
+
+    $homepageFail = $false
+    $intentFailRoutes = @()
+    $fakePageRoutes = @()
+    $deadEndRoutes = @()
+
+    foreach ($f in (Normalize $findings)) {
+        if ($f.path -eq "/") {
+            if (-not $f.has_value_statement -or -not $f.has_next_step) {
+                $homepageFail = $true
+            }
+        }
+
+        if (-not $f.has_problem_frame -or -not $f.has_solution_depth) {
+            $intentFailRoutes += $f.path
+        }
+
+        if ($f.fake_page) {
+            $fakePageRoutes += $f.path
+        }
+
+        if (-not $f.has_next_step) {
+            $deadEndRoutes += $f.path
+        }
+    }
+
+    return [pscustomobject]@{
+        homepage_fail = $homepageFail
+        intent_fail_routes = @($intentFailRoutes | Select-Object -Unique)
+        fake_page_routes = @($fakePageRoutes | Select-Object -Unique)
+        dead_end_routes = @($deadEndRoutes | Select-Object -Unique)
     }
 }
 
@@ -278,17 +325,14 @@ function Decide {
     param($scores, $findings, $repoAudit)
 
     $sys = Analyze-System -scores $scores -findings $findings
+    $ux = Analyze-UserReality -findings $findings
 
     $criticalBad = @()
     $visualEmpty = @()
-    $homepageFailure = $false
 
     foreach ($s in (Normalize $scores)) {
         if ($s.weight -eq "critical" -and $s.band -ne "ok") {
             $criticalBad += $s.path
-        }
-        if ($s.path -eq "/" -and $s.band -ne "ok") {
-            $homepageFailure = $true
         }
     }
 
@@ -300,18 +344,29 @@ function Decide {
 
     $failedGates = @()
 
+    if (-not $repoAudit.repo_clean) { $failedGates += "REPO_CLEANLINESS" }
+    if (-not $repoAudit.architecture_clean) { $failedGates += "ARCHITECTURE" }
     if (-not $sys.system_exists) { $failedGates += "SYSTEM" }
     if (-not $sys.entry_exists) { $failedGates += "ENTRY" }
     if (-not $sys.router_exists) { $failedGates += "ROUTER" }
     if (-not $sys.flow_exists) { $failedGates += "FLOW" }
     if (-not $sys.conversion_exists) { $failedGates += "CONVERSION" }
     if (-not $sys.visual_trust_exists) { $failedGates += "VISUAL" }
-    if (-not $repoAudit.repo_clean) { $failedGates += "REPO_CLEANLINESS" }
-    if (-not $repoAudit.architecture_clean) { $failedGates += "ARCHITECTURE" }
+    if ($ux.homepage_fail) { $failedGates += "ENTRY_QUALITY" }
+    if ($ux.intent_fail_routes.Count -gt 0) { $failedGates += "INTENT" }
+    if ($ux.fake_page_routes.Count -gt 0) { $failedGates += "FAKE_PAGE" }
+    if ($ux.dead_end_routes.Count -gt 0) { $failedGates += "FLOW_DEAD_END" }
 
     $core = "Site does not function as a decision system."
+
     if (-not $repoAudit.repo_clean -or -not $repoAudit.architecture_clean) {
         $core = "Repo is not a clean product boundary and mixes product with internal/dev artifacts."
+    }
+    elseif ($ux.homepage_fail) {
+        $core = "Homepage does not function as a usable entry point."
+    }
+    elseif ($ux.fake_page_routes.Count -gt 0) {
+        $core = "Some pages create an illusion of content but do not solve a user problem."
     }
     elseif (-not $sys.system_exists) {
         $core = "Site does not function as a decision system."
@@ -321,14 +376,13 @@ function Decide {
     }
 
     $p0 = @()
-
     if (-not $repoAudit.repo_clean) {
         $p0 += "Repo cleanliness failed: internal or build artifacts are present in the product repo."
     }
     if (-not $repoAudit.architecture_clean) {
         $p0 += "Architecture boundary failed: product content is mixed with scripts/tools/test layers."
     }
-    if (-not $sys.entry_exists) {
+    if ($ux.homepage_fail) {
         $p0 += "Homepage does not function as a usable entry point."
     }
     if (-not $sys.router_exists) {
@@ -343,33 +397,40 @@ function Decide {
     if (-not $sys.visual_trust_exists) {
         $p0 += "Visual trust layer is missing on key pages."
     }
+    if ($ux.fake_page_routes.Count -gt 0) {
+        $p0 += "Fake pages detected: pages look present but do not frame a problem or next step (" + (Join-ListText $ux.fake_page_routes) + ")."
+    }
+    if ($ux.dead_end_routes.Count -gt 0) {
+        $p0 += "User flow breaks on dead-end pages (" + (Join-ListText $ux.dead_end_routes) + ")."
+    }
     if ($criticalBad.Count -gt 0) {
         $p0 += "Critical routes lack depth (" + (Join-ListText $criticalBad) + ")."
-    }
-    if ($homepageFailure) {
-        $p0 += "Homepage lacks sufficient content depth and visual structure."
     }
     if ($visualEmpty.Count -gt 0) {
         $p0 += "Some key routes appear empty (" + (Join-ListText $visualEmpty) + ")."
     }
-
-    $p0 = @($p0 | Select-Object -Unique | Select-Object -First 8)
+    $p0 = @($p0 | Select-Object -Unique | Select-Object -First 10)
 
     $p1 = @()
-    $p1 += "No dedicated monetization or conversion route detected in the current structure."
+    if ($ux.intent_fail_routes.Count -gt 0) {
+        $p1 += "Some pages do not clearly frame the user problem or use-case (" + (Join-ListText $ux.intent_fail_routes) + ")."
+    }
     if ($criticalBad -contains "/hubs/") {
         $p1 += "Hubs behave like a thin page, not a real router."
     }
     if ($criticalBad -contains "/search/") {
         $p1 += "Search behaves like a thin utility page, not a discovery system."
     }
-    $p1 = @($p1 | Select-Object -Unique | Select-Object -First 4)
+    if (-not $sys.conversion_exists) {
+        $p1 += "No dedicated monetization or conversion route detected in the current structure."
+    }
+    $p1 = @($p1 | Select-Object -Unique | Select-Object -First 6)
 
     $do = @()
     if (-not $repoAudit.repo_clean -or -not $repoAudit.architecture_clean) {
         $do += "Separate product files from internal, batch, test, and governance artifacts in the repo."
     }
-    if (-not $sys.entry_exists) {
+    if ($ux.homepage_fail) {
         $do += "Rebuild homepage as entry point with value statement, route options, and next action."
     }
     if (-not $sys.router_exists -or ($criticalBad -contains "/hubs/")) {
@@ -384,7 +445,10 @@ function Decide {
     if (-not $sys.visual_trust_exists) {
         $do += "Add visual trust blocks, previews, or screenshots on key pages."
     }
-    $do = @($do | Select-Object -Unique | Select-Object -First 3)
+    if ($ux.fake_page_routes.Count -gt 0) {
+        $do += "Replace fake pages with real problem → solution → next-step structure."
+    }
+    $do = @($do | Select-Object -Unique | Select-Object -First 4)
 
     $readiness = [pscustomobject]@{
         indexing = "NO"
@@ -392,7 +456,7 @@ function Decide {
         monetization = "NO"
     }
 
-    if ($sys.system_exists -and $sys.entry_exists -and $sys.router_exists -and $sys.flow_exists) {
+    if ($sys.system_exists -and $sys.entry_exists -and $sys.router_exists -and $sys.flow_exists -and $repoAudit.repo_clean -and $repoAudit.architecture_clean) {
         $readiness.indexing = "PARTIAL"
         $readiness.traffic = "PARTIAL"
     }
@@ -407,6 +471,7 @@ function Decide {
     if (-not $sys.conversion_exists) { $missing += "conversion_layer" }
     if (-not $sys.visual_trust_exists) { $missing += "visual_trust_layer" }
     if (-not $sys.entry_exists) { $missing += "entry_structure" }
+    if ($ux.fake_page_routes.Count -gt 0) { $missing += "real_problem_solution_pages" }
     $missing = @($missing | Select-Object -Unique)
 
     return [pscustomobject]@{
@@ -420,6 +485,7 @@ function Decide {
         missing_components = @($missing)
         repo_audit = $repoAudit
         system_status = $sys
+        user_reality = $ux
     }
 }
 
