@@ -1,0 +1,14 @@
+ZIP_NAME=FOUNDATION_FIX_BATCH_v2_20260403_083813_350.zip
+FAILED_AT=2026-04-03 08:38:13.356
+SOURCE=D:\a\e-factory-agent\e-factory-agent\inbox\processing\FOUNDATION_FIX_BATCH_v2.zip
+FAILED_PATH=D:\a\e-factory-agent\e-factory-agent\failed\FOUNDATION_FIX_BATCH_v2_20260403_083813_350.zip
+STATUS=FAIL_RUNTIME
+REASON_CODE=WORKFLOW_SCRIPT_INVOCATION_ERROR
+MESSAGE=Workflow failed while invoking RUN_BATCH.ps1
+REASON_START
+Exception: D:\a\e-factory-agent\e-factory-agent\agents\gh_batch\RUN_BATCH.ps1:53
+Line |
+  53 |      throw "TARGET VALIDATION FAILED"
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | TARGET VALIDATION FAILED
+REASON_END
