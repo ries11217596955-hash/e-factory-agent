@@ -15,8 +15,26 @@ jobs:
   run-gh-batch:
     runs-on: windows-latest
 
+    env:
+      EXPECTED_TARGET_REPO: ries11217596955-hash/automation-kb
+      EXPECTED_TARGET_BRANCH: main
+      TARGET_REPO_PATH: ${{ github.workspace }}\target_repo
+      SOURCE_REPO_PATH: ${{ github.workspace }}
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout source repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout target repo
+        uses: actions/checkout@v4
+        with:
+          repository: ries11217596955-hash/automation-kb
+          ref: main
+          token: ${{ secrets.GH_BATCH_PAT }}
+          fetch-depth: 0
+          path: target_repo
 
       - name: Guard self-trigger
         shell: pwsh
@@ -53,7 +71,7 @@ jobs:
       - name: Setup dirs
         shell: pwsh
         run: |
-          $root = $env:GITHUB_WORKSPACE
+          $root = $env:SOURCE_REPO_PATH
           New-Item -ItemType Directory -Force -Path "$root/inbox/new" | Out-Null
           New-Item -ItemType Directory -Force -Path "$root/inbox/processing" | Out-Null
           New-Item -ItemType Directory -Force -Path "$root/done" | Out-Null
@@ -61,18 +79,74 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$root/logs" | Out-Null
           New-Item -ItemType Directory -Force -Path "$root/agents/gh_batch/.state" | Out-Null
 
+      - name: Validate target binding
+        id: target_binding
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repoPath = $env:TARGET_REPO_PATH
+
+          function Get-RepoSlugFromRemote {
+            param([Parameter(Mandatory)][string]$RemoteUrl)
+
+            $u = $RemoteUrl.Trim()
+
+            if ($u -match 'github\.com[:/](?<slug>[^/]+/[^/.]+?)(?:\.git)?$') {
+              return $Matches['slug']
+            }
+
+            throw "Unable to parse repo slug from remote: $RemoteUrl"
+          }
+
+          Push-Location $repoPath
+          try {
+            $remoteUrl = (git remote get-url origin).Trim()
+            $effectiveRepo = Get-RepoSlugFromRemote -RemoteUrl $remoteUrl
+            $effectiveBranch = (git branch --show-current).Trim()
+            if ([string]::IsNullOrWhiteSpace($effectiveBranch) -or $effectiveBranch -eq 'HEAD') {
+              $effectiveBranch = $env:EXPECTED_TARGET_BRANCH
+            }
+
+            $binding = [ordered]@{
+              expected_target_repo   = $env:EXPECTED_TARGET_REPO
+              effective_target_repo  = $effectiveRepo
+              expected_target_branch = $env:EXPECTED_TARGET_BRANCH
+              effective_target_branch= $effectiveBranch
+              remote_url             = $remoteUrl
+              checked_at             = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff')
+            }
+
+            $metaDir = Join-Path "${{ steps.forensic.outputs.FORENSIC_DIR }}" 'meta'
+            Set-Content -LiteralPath (Join-Path $metaDir 'TARGET_BINDING.json') -Value ($binding | ConvertTo-Json -Depth 10) -Encoding UTF8
+
+            if ($effectiveRepo -ne $env:EXPECTED_TARGET_REPO) {
+              throw "FAIL_WRONG_TARGET_REPO: effective=$effectiveRepo expected=$($env:EXPECTED_TARGET_REPO)"
+            }
+
+            if ($effectiveBranch -ne $env:EXPECTED_TARGET_BRANCH) {
+              throw "FAIL_WRONG_TARGET_BRANCH: effective=$effectiveBranch expected=$($env:EXPECTED_TARGET_BRANCH)"
+            }
+
+            @"
+          EFFECTIVE_TARGET_REPO=$effectiveRepo
+          EFFECTIVE_TARGET_BRANCH=$effectiveBranch
+          TARGET_REMOTE_URL=$remoteUrl
+          "@ | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          }
+          finally {
+            Pop-Location
+          }
+
       - name: Snapshot before run
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $root = $env:GITHUB_WORKSPACE
+          $root = $env:SOURCE_REPO_PATH
           $forensicDir = "${{ steps.forensic.outputs.FORENSIC_DIR }}"
           $snapDir = Join-Path $forensicDir 'snapshots'
 
           function Get-DirInventory {
-            param(
-              [Parameter(Mandatory)][string]$BasePath
-            )
+            param([Parameter(Mandatory)][string]$BasePath)
 
             if (-not (Test-Path -LiteralPath $BasePath)) {
               return @()
@@ -104,23 +178,26 @@ jobs:
             failed      = @(Get-DirInventory -BasePath (Join-Path $root 'failed'))
           }
 
-          $json = $before | ConvertTo-Json -Depth 12
-          Set-Content -LiteralPath (Join-Path $snapDir 'QUEUE_BEFORE.json') -Value $json -Encoding UTF8
+          Set-Content -LiteralPath (Join-Path $snapDir 'QUEUE_BEFORE.json') -Value ($before | ConvertTo-Json -Depth 12) -Encoding UTF8
 
       - name: Drain queue
         id: drain
         shell: pwsh
+        env:
+          EFFECTIVE_TARGET_REPO: ${{ steps.target_binding.outputs.EFFECTIVE_TARGET_REPO }}
+          EFFECTIVE_TARGET_BRANCH: ${{ steps.target_binding.outputs.EFFECTIVE_TARGET_BRANCH }}
+          TARGET_REMOTE_URL: ${{ steps.target_binding.outputs.TARGET_REMOTE_URL }}
         run: |
           $ErrorActionPreference = 'Stop'
 
-          $root        = $env:GITHUB_WORKSPACE
-          $newDir      = "$root/inbox/new"
-          $procDir     = "$root/inbox/processing"
-          $doneDir     = "$root/done"
-          $failedDir   = "$root/failed"
-          $logsDir     = "$root/logs"
-          $stateDir    = "$root/agents/gh_batch/.state"
-          $script      = "$root/agents/gh_batch/RUN_BATCH.ps1"
+          $root        = $env:SOURCE_REPO_PATH
+          $newDir      = Join-Path $root 'inbox/new'
+          $procDir     = Join-Path $root 'inbox/processing'
+          $doneDir     = Join-Path $root 'done'
+          $failedDir   = Join-Path $root 'failed'
+          $logsDir     = Join-Path $root 'logs'
+          $stateDir    = Join-Path $root 'agents/gh_batch/.state'
+          $script      = Join-Path $root 'agents/gh_batch/RUN_BATCH.ps1'
           $forensicDir = "${{ steps.forensic.outputs.FORENSIC_DIR }}"
           $reportsDir  = Join-Path $forensicDir 'reports'
           $errorsDir   = Join-Path $forensicDir 'errors'
@@ -191,7 +268,7 @@ jobs:
               status       = 'PROCESSING'
             } | ConvertTo-Json -Depth 10
 
-            Set-Content -LiteralPath "$stateDir/current_job.json" -Value $jobState -Encoding UTF8
+            Set-Content -LiteralPath (Join-Path $stateDir 'current_job.json') -Value $jobState -Encoding UTF8
 
             $beforeReports = @()
             if (Test-Path -LiteralPath $logsDir) {
@@ -207,9 +284,7 @@ jobs:
             $failNotePath = ''
 
             try {
-              & $script `
-                -ZipPath $claimedPath `
-                -LogsDir $logsDir
+              & $script -ZipPath $claimedPath -LogsDir $logsDir
 
               $afterReports = @(Get-ChildItem -LiteralPath $logsDir -File -Filter 'RUN_REPORT_*.json' | Sort-Object LastWriteTime)
               foreach ($report in $afterReports) {
@@ -294,18 +369,21 @@ jobs:
                 Copy-Item -LiteralPath $failNotePath -Destination (Join-Path $errorsDir ([System.IO.Path]::GetFileName($failNotePath))) -Force
                 Write-Host "Moved to failed: $finalPath"
                 $unexpectedCount++
+                $status = 'FAIL_RUNTIME'
+                $reasonCode = 'UNEXPECTED_REPORT_STATUS'
+                $message = 'Unexpected report status returned by RUN_BATCH.ps1'
               }
 
               $batchResults.Add([ordered]@{
                 iteration     = $iteration
-                zip_name       = [System.IO.Path]::GetFileName($claimedPath)
-                claimed_path   = $claimedPath
-                final_path     = $finalPath
-                status         = $status
-                reason_code    = $reasonCode
-                message        = $message
-                report_file    = $(if ($newReport) { [System.IO.Path]::GetFileName($newReport) } else { '' })
-                fail_note_file = $(if ($failNotePath) { [System.IO.Path]::GetFileName($failNotePath) } else { '' })
+                zip_name      = [System.IO.Path]::GetFileName($claimedPath)
+                claimed_path  = $claimedPath
+                final_path    = $finalPath
+                status        = $status
+                reason_code   = $reasonCode
+                message       = $message
+                report_file   = $(if ($newReport) { [System.IO.Path]::GetFileName($newReport) } else { '' })
+                fail_note_file= $(if ($failNotePath) { [System.IO.Path]::GetFileName($failNotePath) } else { '' })
               }) | Out-Null
 
               $jobDone = [ordered]@{
@@ -317,7 +395,7 @@ jobs:
                 reason_code  = $reasonCode
               } | ConvertTo-Json -Depth 10
 
-              Set-Content -LiteralPath "$stateDir/current_job.json" -Value $jobDone -Encoding UTF8
+              Set-Content -LiteralPath (Join-Path $stateDir 'current_job.json') -Value $jobDone -Encoding UTF8
             }
             catch {
               $errText = $_ | Out-String
@@ -344,7 +422,7 @@ jobs:
               }
 
               $batchResults.Add([ordered]@{
-                iteration     = $iteration
+                iteration      = $iteration
                 zip_name       = [System.IO.Path]::GetFileName($claimedPath)
                 claimed_path   = $claimedPath
                 final_path     = $finalPath
@@ -364,7 +442,7 @@ jobs:
                 reason_code  = 'WORKFLOW_SCRIPT_INVOCATION_ERROR'
               } | ConvertTo-Json -Depth 10
 
-              Set-Content -LiteralPath "$stateDir/current_job.json" -Value $jobFailed -Encoding UTF8
+              Set-Content -LiteralPath (Join-Path $stateDir 'current_job.json') -Value $jobFailed -Encoding UTF8
               $failRuntimeCount++
             }
           }
@@ -378,7 +456,7 @@ jobs:
             finished_at        = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff')
           }
 
-          Set-Content -LiteralPath "$stateDir/queue_summary.json" -Value ($summaryObj | ConvertTo-Json -Depth 10) -Encoding UTF8
+          Set-Content -LiteralPath (Join-Path $stateDir 'queue_summary.json') -Value ($summaryObj | ConvertTo-Json -Depth 10) -Encoding UTF8
           Set-Content -LiteralPath (Join-Path $metaDir 'BATCH_RESULTS.json') -Value ($batchResults | ConvertTo-Json -Depth 12) -Encoding UTF8
           Set-Content -LiteralPath (Join-Path $metaDir 'QUEUE_SUMMARY.json') -Value ($summaryObj | ConvertTo-Json -Depth 10) -Encoding UTF8
 
@@ -420,7 +498,76 @@ jobs:
           $summaryText | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
           Set-Content -LiteralPath (Join-Path $metaDir 'QUEUE_SUMMARY.md') -Value $summaryText -Encoding UTF8
 
-      - name: Commit state and applied changes
+      - name: Commit target repo changes
+        if: always()
+        shell: pwsh
+        env:
+          EFFECTIVE_TARGET_REPO: ${{ steps.target_binding.outputs.EFFECTIVE_TARGET_REPO }}
+          EFFECTIVE_TARGET_BRANCH: ${{ steps.target_binding.outputs.EFFECTIVE_TARGET_BRANCH }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $forensicDir = "${{ steps.forensic.outputs.FORENSIC_DIR }}"
+          $gitDir = Join-Path $forensicDir 'git'
+          $metaDir = Join-Path $forensicDir 'meta'
+          $repoPath = $env:TARGET_REPO_PATH
+
+          Push-Location $repoPath
+          try {
+            git config user.name "gh-batch-bot"
+            git config user.email "gh-batch@bot.local"
+
+            $statusBefore = git status --porcelain=v1
+            Set-Content -LiteralPath (Join-Path $gitDir 'TARGET_STATUS_BEFORE_STAGE.txt') -Value (($statusBefore | Out-String).Trim()) -Encoding UTF8
+
+            if (Test-Path -LiteralPath 'src') {
+              git add -A -- 'src'
+            }
+
+            $statusAfterStage = git status --porcelain=v1
+            Set-Content -LiteralPath (Join-Path $gitDir 'TARGET_STATUS_AFTER_STAGE.txt') -Value (($statusAfterStage | Out-String).Trim()) -Encoding UTF8
+
+            $cachedDiff = git diff --cached --name-status
+            Set-Content -LiteralPath (Join-Path $gitDir 'TARGET_CACHED_DIFF_NAME_STATUS.txt') -Value (($cachedDiff | Out-String).Trim()) -Encoding UTF8
+
+            $commitCreated = $false
+            $commitSha = ''
+            $commitMessage = ''
+            $pushResult = 'NO_COMMIT'
+
+            if (-not [string]::IsNullOrWhiteSpace(($statusAfterStage | Out-String))) {
+              git commit -m "gh-batch apply to automation-kb"
+              git push origin "HEAD:$($env:EXPECTED_TARGET_BRANCH)"
+              $commitCreated = $true
+              $commitSha = (git rev-parse HEAD).Trim()
+              $commitMessage = (git log -1 --pretty=%s).Trim()
+              $pushResult = 'PUSH_OK'
+            }
+            else {
+              Write-Host "No target repo changes to commit."
+            }
+
+            $headShow = git log -1 --stat
+            Set-Content -LiteralPath (Join-Path $gitDir 'TARGET_HEAD_LOG_STAT.txt') -Value (($headShow | Out-String).Trim()) -Encoding UTF8
+
+            $summary = [ordered]@{
+              expected_repo   = $env:EXPECTED_TARGET_REPO
+              effective_repo  = $env:EFFECTIVE_TARGET_REPO
+              expected_branch = $env:EXPECTED_TARGET_BRANCH
+              effective_branch= $env:EFFECTIVE_TARGET_BRANCH
+              commit_created  = $commitCreated
+              commit_sha      = $commitSha
+              commit_message  = $commitMessage
+              push_result     = $pushResult
+              captured_at     = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff')
+            }
+
+            Set-Content -LiteralPath (Join-Path $metaDir 'TARGET_COMMIT_SUMMARY.json') -Value ($summary | ConvertTo-Json -Depth 10) -Encoding UTF8
+          }
+          finally {
+            Pop-Location
+          }
+
+      - name: Commit queue state back to source repo
         if: always()
         shell: pwsh
         run: |
@@ -428,79 +575,71 @@ jobs:
           $forensicDir = "${{ steps.forensic.outputs.FORENSIC_DIR }}"
           $gitDir = Join-Path $forensicDir 'git'
           $metaDir = Join-Path $forensicDir 'meta'
+          $repoPath = $env:SOURCE_REPO_PATH
 
-          git config user.name "gh-batch-bot"
-          git config user.email "gh-batch@bot.local"
+          Push-Location $repoPath
+          try {
+            git config user.name "gh-batch-bot"
+            git config user.email "gh-batch@bot.local"
 
-          $statusBefore = git status --porcelain=v1
-          Set-Content -LiteralPath (Join-Path $gitDir 'STATUS_BEFORE_STAGE.txt') -Value (($statusBefore | Out-String).Trim()) -Encoding UTF8
+            $statusBefore = git status --porcelain=v1
+            Set-Content -LiteralPath (Join-Path $gitDir 'SOURCE_STATUS_BEFORE_STAGE.txt') -Value (($statusBefore | Out-String).Trim()) -Encoding UTF8
 
-          $pathsToAdd = @(
-            "inbox"
-            "done"
-            "failed"
-            "logs"
-            "agents/gh_batch/.state"
-            "src"
-          )
+            $pathsToAdd = @(
+              'inbox'
+              'done'
+              'failed'
+              'logs'
+              'agents/gh_batch/.state'
+            )
 
-          foreach ($p in $pathsToAdd) {
-            if (Test-Path -LiteralPath $p) {
-              git add -A -- $p
+            foreach ($p in $pathsToAdd) {
+              if (Test-Path -LiteralPath $p) {
+                git add -A -- $p
+              }
             }
+
+            $statusAfterStage = git status --porcelain=v1
+            Set-Content -LiteralPath (Join-Path $gitDir 'SOURCE_STATUS_AFTER_STAGE.txt') -Value (($statusAfterStage | Out-String).Trim()) -Encoding UTF8
+
+            $cachedDiff = git diff --cached --name-status
+            Set-Content -LiteralPath (Join-Path $gitDir 'SOURCE_CACHED_DIFF_NAME_STATUS.txt') -Value (($cachedDiff | Out-String).Trim()) -Encoding UTF8
+
+            $commitCreated = $false
+            $commitSha = ''
+            $commitMessage = ''
+            $pushResult = 'NO_COMMIT'
+
+            if (-not [string]::IsNullOrWhiteSpace(($statusAfterStage | Out-String))) {
+              git commit -m "gh-batch queue update"
+              git push origin HEAD:main
+              $commitCreated = $true
+              $commitSha = (git rev-parse HEAD).Trim()
+              $commitMessage = (git log -1 --pretty=%s).Trim()
+              $pushResult = 'PUSH_OK'
+            }
+            else {
+              Write-Host "No source repo changes to commit."
+            }
+
+            $headShow = git log -1 --stat
+            Set-Content -LiteralPath (Join-Path $gitDir 'SOURCE_HEAD_LOG_STAT.txt') -Value (($headShow | Out-String).Trim()) -Encoding UTF8
+
+            $summary = [ordered]@{
+              source_repo     = $env:GITHUB_REPOSITORY
+              source_branch   = 'main'
+              commit_created  = $commitCreated
+              commit_sha      = $commitSha
+              commit_message  = $commitMessage
+              push_result     = $pushResult
+              captured_at     = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff')
+            }
+
+            Set-Content -LiteralPath (Join-Path $metaDir 'SOURCE_COMMIT_SUMMARY.json') -Value ($summary | ConvertTo-Json -Depth 10) -Encoding UTF8
           }
-
-          if (Test-Path -LiteralPath "README.txt") {
-            git add -A -- "README.txt"
+          finally {
+            Pop-Location
           }
-
-          if (Test-Path -LiteralPath "README.md") {
-            git add -A -- "README.md"
-          }
-
-          $statusAfterTargeted = git status --porcelain=v1
-          Set-Content -LiteralPath (Join-Path $gitDir 'STATUS_AFTER_TARGETED_STAGE.txt') -Value (($statusAfterTargeted | Out-String).Trim()) -Encoding UTF8
-
-          if (-not [string]::IsNullOrWhiteSpace(($statusAfterTargeted | Out-String))) {
-            Write-Host "Fallback stage-all engaged."
-            git add -A -- .
-          }
-
-          $statusAfterFallback = git status --porcelain=v1
-          Set-Content -LiteralPath (Join-Path $gitDir 'STATUS_AFTER_FALLBACK_STAGE.txt') -Value (($statusAfterFallback | Out-String).Trim()) -Encoding UTF8
-
-          $cachedDiff = git diff --cached --name-status
-          Set-Content -LiteralPath (Join-Path $gitDir 'CACHED_DIFF_NAME_STATUS.txt') -Value (($cachedDiff | Out-String).Trim()) -Encoding UTF8
-
-          $commitCreated = $false
-          $commitSha = ''
-          $commitMessage = ''
-          $pushResult = 'NO_COMMIT'
-
-          if (-not [string]::IsNullOrWhiteSpace(($statusAfterFallback | Out-String))) {
-            git commit -m "queue update"
-            git push
-            $commitCreated = $true
-            $commitSha = (git rev-parse HEAD).Trim()
-            $commitMessage = (git log -1 --pretty=%s).Trim()
-            $pushResult = 'PUSH_OK'
-          }
-          else {
-            Write-Host "No repository changes to commit."
-          }
-
-          $headShow = git log -1 --stat
-          Set-Content -LiteralPath (Join-Path $gitDir 'HEAD_LOG_STAT.txt') -Value (($headShow | Out-String).Trim()) -Encoding UTF8
-
-          $commitSummary = [ordered]@{
-            commit_created = $commitCreated
-            commit_sha     = $commitSha
-            commit_message = $commitMessage
-            push_result    = $pushResult
-            captured_at    = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff')
-          }
-
-          Set-Content -LiteralPath (Join-Path $metaDir 'COMMIT_SUMMARY.json') -Value ($commitSummary | ConvertTo-Json -Depth 10) -Encoding UTF8
 
       - name: Final gate
         if: always()
@@ -520,21 +659,19 @@ jobs:
             Write-Host "::warning::UNEXPECTED_STATUS count = $unexpectedCount"
           }
 
-          Write-Host "Workflow completed. PASS/FAIL_POLICY/FAIL_RUNTIME are handled as queue outcomes; warnings were emitted for runtime or unexpected statuses."
+          Write-Host "Workflow completed."
 
       - name: Snapshot after run
         if: always()
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $root = $env:GITHUB_WORKSPACE
+          $root = $env:SOURCE_REPO_PATH
           $forensicDir = "${{ steps.forensic.outputs.FORENSIC_DIR }}"
           $snapDir = Join-Path $forensicDir 'snapshots'
 
           function Get-DirInventory {
-            param(
-              [Parameter(Mandatory)][string]$BasePath
-            )
+            param([Parameter(Mandatory)][string]$BasePath)
 
             if (-not (Test-Path -LiteralPath $BasePath)) {
               return @()
@@ -566,8 +703,7 @@ jobs:
             failed      = @(Get-DirInventory -BasePath (Join-Path $root 'failed'))
           }
 
-          $json = $after | ConvertTo-Json -Depth 12
-          Set-Content -LiteralPath (Join-Path $snapDir 'QUEUE_AFTER.json') -Value $json -Encoding UTF8
+          Set-Content -LiteralPath (Join-Path $snapDir 'QUEUE_AFTER.json') -Value ($after | ConvertTo-Json -Depth 12) -Encoding UTF8
 
       - name: Build forensic pack
         if: always()
@@ -579,16 +715,21 @@ jobs:
           $metaDir = Join-Path $forensicDir 'meta'
 
           $manifest = [ordered]@{
-            run_stamp   = "${{ steps.forensic.outputs.RUN_STAMP }}"
-            run_id      = "${{ steps.forensic.outputs.RUN_ID }}"
-            actor       = "${{ github.actor }}"
-            workflow    = "${{ github.workflow }}"
-            run_number  = "${{ github.run_number }}"
-            run_id_gh   = "${{ github.run_id }}"
-            repository  = "${{ github.repository }}"
-            ref         = "${{ github.ref }}"
-            sha         = "${{ github.sha }}"
-            built_at    = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff')
+            run_stamp               = "${{ steps.forensic.outputs.RUN_STAMP }}"
+            run_id                  = "${{ steps.forensic.outputs.RUN_ID }}"
+            actor                   = "${{ github.actor }}"
+            workflow                = "${{ github.workflow }}"
+            run_number              = "${{ github.run_number }}"
+            run_id_gh               = "${{ github.run_id }}"
+            source_repository       = "${{ github.repository }}"
+            source_ref              = "${{ github.ref }}"
+            source_sha              = "${{ github.sha }}"
+            expected_target_repo    = $env:EXPECTED_TARGET_REPO
+            effective_target_repo   = "${{ steps.target_binding.outputs.EFFECTIVE_TARGET_REPO }}"
+            expected_target_branch  = $env:EXPECTED_TARGET_BRANCH
+            effective_target_branch = "${{ steps.target_binding.outputs.EFFECTIVE_TARGET_BRANCH }}"
+            target_remote_url       = "${{ steps.target_binding.outputs.TARGET_REMOTE_URL }}"
+            built_at                = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff')
           }
 
           Set-Content -LiteralPath (Join-Path $metaDir 'MANIFEST.json') -Value ($manifest | ConvertTo-Json -Depth 12) -Encoding UTF8
