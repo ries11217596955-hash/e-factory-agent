@@ -155,7 +155,15 @@ function Write-Report([string]$Path, $Decision, $Scores, [string]$RepoRoot) {
     $weakCount = @($Scores | Where-Object { $_.band -eq 'weak' }).Count
     $p0Lines = if ($Decision.p0.Count -gt 0) { ($Decision.p0 | ForEach-Object { "- $_" }) -join "`n" } else { '- none' }
     $p1Lines = if ($Decision.p1.Count -gt 0) { ($Decision.p1 | ForEach-Object { "- $_" }) -join "`n" } else { '- none' }
-    $doLines = if ($Decision.do.Count -gt 0) { for($i=0;$i -lt $Decision.do.Count;$i++){ "{0}. {1}" -f ($i+1), $Decision.do[$i] } | Out-String } else { '1. none' }
+    $doLines = if ($Decision.do.Count -gt 0) {
+        @(
+            for($i=0; $i -lt $Decision.do.Count; $i++) {
+                "{0}. {1}" -f ($i + 1), $Decision.do[$i]
+            }
+        ) -join "`n"
+    } else {
+        '1. none'
+    }
 
     @"
 STATUS:
