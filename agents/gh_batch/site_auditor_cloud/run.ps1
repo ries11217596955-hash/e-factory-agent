@@ -2,113 +2,125 @@ param()
 
 $ErrorActionPreference = "Stop"
 
-$Root = $PSScriptRoot
-$Inbox = Join-Path $Root "input/inbox"
-$Outbox = Join-Path $Root "outbox"
-$Reports = Join-Path $Root "reports"
-$Intake = Join-Path $Root "lib/intake_zip.ps1"
-$Preflight = Join-Path $Root "lib/preflight.ps1"
-$ForceMode = [string]$env:FORCE_MODE
-$BaseUrl = [string]$env:BASE_URL
-$TargetRepo = [string]$env:TARGET_REPO
-
-New-Item -ItemType Directory -Force -Path $Outbox,$Reports | Out-Null
-
-function Resolve-RepoRoot {
-    param([string]$BasePath)
-    if ([string]::IsNullOrWhiteSpace($BasePath)) { return $null }
-    if (-not (Test-Path -LiteralPath $BasePath)) { return $null }
-
-    $items = @(Get-ChildItem -LiteralPath $BasePath -Force -ErrorAction SilentlyContinue)
-    if ($items.Count -eq 1 -and $items[0].PSIsContainer) {
-        $child = $items[0].FullName
-        if (Test-Path -LiteralPath (Join-Path $child 'src')) { return $child }
-        return $child
+function Ensure-Dir([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path)) {
+        New-Item -ItemType Directory -Path $Path -Force | Out-Null
     }
-    return $BasePath
 }
 
-function Invoke-Capture {
-    param([string]$Url)
-    if ([string]::IsNullOrWhiteSpace($Url)) { return }
-    Write-Host "CAPTURE BASE URL: $Url"
-    $env:BASE_URL = $Url
-    node ./capture.mjs
-}
-
-function Finalize-Run {
-    param([string]$Status, [string]$Mode)
-
-    $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
-    $report = Join-Path $Reports 'REPORT.txt'
-    $doneFile = if ($Status -eq 'OK') { Join-Path $Reports 'DONE.ok' } else { Join-Path $Reports 'DONE.fail' }
-    Set-Content -LiteralPath $doneFile -Encoding UTF8 -Value @(
-        "status=$Status"
-        "mode=$Mode"
-        "timestamp=$stamp"
+function Write-FailureArtifacts {
+    param(
+        [string]$Root,
+        [string]$Mode,
+        [string]$Message,
+        [string]$Detail = ""
     )
 
-    $summary = [pscustomobject]@{
-        status = $Status
-        mode = $Mode
-        timestamp = $stamp
-        report_exists = (Test-Path -LiteralPath $report)
-        reports_path = $Reports
-    }
-    $summary | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $Reports 'audit_result.json') -Encoding UTF8
+    $reports = Join-Path $Root "reports"
+    $outbox  = Join-Path $Root "outbox"
+    Ensure-Dir $reports
+    Ensure-Dir $outbox
 
-    $zipPath = Join-Path $Outbox ("site_audit_{0}_{1}.zip" -f $Mode.ToLower(), $stamp)
-    if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
-    Compress-Archive -Path (Join-Path $Reports '*') -DestinationPath $zipPath -Force
-    Write-Host "OUTBOX ZIP: $zipPath"
+    $reportPath = Join-Path $reports "REPORT.txt"
+    $lines = @(
+        "STATUS:",
+        "FAIL",
+        "",
+        "MODE:",
+        $Mode,
+        "",
+        "ERROR:",
+        $Message
+    )
+    if (-not [string]::IsNullOrWhiteSpace($Detail)) {
+        $lines += ""
+        $lines += "DETAIL:"
+        $lines += $Detail
+    }
+    Set-Content -LiteralPath $reportPath -Value ($lines -join [Environment]::NewLine) -Encoding UTF8
+
+    $failJson = [pscustomobject]@{
+        status = "FAIL"
+        mode = $Mode
+        error = $Message
+        detail = $Detail
+        timestamp_utc = [DateTime]::UtcNow.ToString("o")
+    }
+    $failJson | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $reports "audit_result.json") -Encoding UTF8
+
+    Set-Content -LiteralPath (Join-Path $outbox "DONE.fail") -Value $Message -Encoding UTF8
 }
 
+function Resolve-ExtractedRoot([string]$ExpandedPath) {
+    $dirs = @(Get-ChildItem -LiteralPath $ExpandedPath -Directory -ErrorAction SilentlyContinue)
+    if ($dirs.Count -eq 1) {
+        return $dirs[0].FullName
+    }
+    return $ExpandedPath
+}
+
+$Root = $PSScriptRoot
+$Inbox = Join-Path $Root "input/inbox"
+$Out   = Join-Path $Root "outbox"
+$Reports = Join-Path $Root "reports"
+
+Ensure-Dir $Out
+Ensure-Dir $Reports
+
+$ForceMode = [string]$env:FORCE_MODE
+$Intake = Join-Path $Root "lib/intake_zip.ps1"
+
 try {
-    if ($ForceMode -eq 'REPO') {
-        Write-Host 'MODE: REPO'
-        if ([string]::IsNullOrWhiteSpace($TargetRepo) -or -not (Test-Path -LiteralPath $TargetRepo)) {
-            throw "TARGET_REPO not found: $TargetRepo"
+    if ($ForceMode -eq "REPO") {
+        $repoRoot = [string]$env:TARGET_REPO_PATH
+        if ([string]::IsNullOrWhiteSpace($repoRoot)) {
+            throw "TARGET_REPO_PATH is empty in REPO mode"
         }
-        $repoRoot = Resolve-RepoRoot -BasePath $TargetRepo
+        if (-not (Test-Path -LiteralPath $repoRoot)) {
+            throw "TARGET_REPO_PATH not found: $repoRoot"
+        }
+
+        Write-Host "MODE: REPO (forced by workflow_dispatch)"
         Write-Host "AUDIT ROOT: $repoRoot"
-        Invoke-Capture -Url $BaseUrl
-        & "$Root/agent.ps1" -Mode 'REPO' -TargetPath $repoRoot -BaseUrl $BaseUrl
-        if ($LASTEXITCODE -ne 0) { throw "agent.ps1 failed in REPO mode" }
-        Finalize-Run -Status 'OK' -Mode 'REPO'
-        exit 0
+
+        & "$Root/agent.ps1" -AuditMode REPO -TargetPath $repoRoot -BaseUrl $env:BASE_URL
+        exit $LASTEXITCODE
     }
 
-    $zip = $null
-    if (Test-Path -LiteralPath $Inbox) {
+    if ($ForceMode -eq "ZIP") {
+        if (!(Test-Path -LiteralPath $Inbox)) {
+            throw "ZIP mode forced but inbox not found: $Inbox"
+        }
+
         $zip = & $Intake -InboxPath $Inbox
-    }
-
-    if ($ForceMode -eq 'ZIP' -or -not [string]::IsNullOrWhiteSpace($zip)) {
         if ([string]::IsNullOrWhiteSpace($zip)) {
-            throw 'ZIP mode requested but no ZIP found in inbox'
+            throw "ZIP mode forced but no ZIP found in inbox"
         }
-        $zip = ([string]$zip).Trim()
-        Write-Host 'MODE: ZIP'
+
+        $zip = "$zip".Trim()
+        Write-Host "ZIP FOUND: $zip"
+        Write-Host "MODE: ZIP"
         Write-Host "ZIP PATH: $zip"
+
+        $Preflight = Join-Path $Root "lib/preflight.ps1"
         & $Preflight -ZipPath $zip
-        $tmp = Join-Path $Root 'tmp_zip'
-        if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force }
-        New-Item -ItemType Directory -Force -Path $tmp | Out-Null
-        Expand-Archive -Path $zip -DestinationPath $tmp -Force
-        $repoRoot = Resolve-RepoRoot -BasePath $tmp
-        Write-Host "AUDIT ROOT: $repoRoot"
-        & "$Root/agent.ps1" -Mode 'ZIP' -TargetPath $repoRoot -BaseUrl ''
-        if ($LASTEXITCODE -ne 0) { throw "agent.ps1 failed in ZIP mode" }
-        Finalize-Run -Status 'OK' -Mode 'ZIP'
-        exit 0
+        Write-Host "PREFLIGHT OK"
+
+        $tmp = Join-Path $Root "tmp_zip"
+        Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+        Expand-Archive -LiteralPath $zip -DestinationPath $tmp -Force
+        $auditRoot = Resolve-ExtractedRoot $tmp
+
+        Write-Host "AUDIT ROOT: $auditRoot"
+        & "$Root/agent.ps1" -AuditMode ZIP -TargetPath $auditRoot
+        exit $LASTEXITCODE
     }
 
-    throw 'No valid mode resolved. Manual uses REPO; push to inbox uses ZIP.'
+    throw "Unsupported FORCE_MODE: '$ForceMode'"
 }
 catch {
     $msg = $_.Exception.Message
+    Write-FailureArtifacts -Root $Root -Mode $ForceMode -Message $msg -Detail ($_ | Out-String)
     Write-Error $msg
-    Set-Content -LiteralPath (Join-Path $Reports 'DONE.fail') -Encoding UTF8 -Value $msg
-    Finalize-Run -Status 'FAIL' -Mode $(if([string]::IsNullOrWhiteSpace($ForceMode)){'UNKNOWN'}else{$ForceMode})
     exit 1
 }
