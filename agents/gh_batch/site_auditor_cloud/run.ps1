@@ -8,16 +8,13 @@ $OutDir = Join-Path $Root "outbox\$RunId"
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
-$InputDir = Join-Path $Root "input"
+# ===== CRITICAL FIX =====
+# Ищем ZIP НЕ только локально, а по workspace
+
+$ZipFile = Get-ChildItem -Path $Root -Recurse -Filter *.zip -ErrorAction SilentlyContinue | Select-Object -First 1
+
+# repo path (как создаёт workflow)
 $RepoPath = Join-Path $Root "target_repo"
-
-# ===== ZIP DETECTION =====
-
-$ZipFile = $null
-
-if (Test-Path $InputDir) {
-    $ZipFile = Get-ChildItem $InputDir -Filter *.zip | Select-Object -First 1
-}
 
 # ===== MODE =====
 
@@ -33,7 +30,7 @@ Write-Output "MODE: $Mode"
 
 if ($Mode -eq "ZIP") {
 
-    Write-Output "ZIP FILE: $($ZipFile.Name)"
+    Write-Output "ZIP FOUND: $($ZipFile.FullName)"
 
     $Extract = Join-Path $Root "zip_extract"
 
@@ -54,7 +51,7 @@ if ($Mode -eq "ZIP") {
 } else {
 
     if (!(Test-Path $RepoPath)) {
-        Write-Error "target_repo not found (REPO mode)"
+        Write-Error "target_repo not found"
         exit 1
     }
 
@@ -84,7 +81,7 @@ RUN_ID: $RunId
 STATUS: PASS
 MODE: $Mode
 TARGET: $Target
-ZIP: $(if ($ZipFile) {$ZipFile.Name} else {"NONE"})
+ZIP: $(if ($ZipFile) {$ZipFile.FullName} else {"NONE"})
 "@ | Out-File (Join-Path $OutDir "RUN_REPORT.txt")
 
 Write-Output "DONE: $OutDir"
