@@ -5,7 +5,8 @@ on:
 
   push:
     paths:
-      - '**.zip'
+      - 'agents/site_auditor_cloud/input/**'
+      - '.github/workflows/site-auditor-fixed-list.yml'
 
 jobs:
   site-audit:
@@ -15,23 +16,22 @@ jobs:
       - name: Checkout auditor repo
         uses: actions/checkout@v4
 
-      # ===== ZIP DETECTION =====
-      - name: Detect ZIP
+      - name: Detect ZIP in inbox
         id: zipcheck
+        shell: bash
         run: |
-          if ls **/*.zip 1> /dev/null 2>&1; then
-            echo "zip_found=true" >> $GITHUB_OUTPUT
+          if find agents/site_auditor_cloud/input -maxdepth 1 -type f -name '*.zip' | grep -q .; then
+            echo "zip_found=true" >> "$GITHUB_OUTPUT"
           else
-            echo "zip_found=false" >> $GITHUB_OUTPUT
+            echo "zip_found=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # ===== TARGET REPO ONLY IF NO ZIP =====
       - name: Checkout target site repo
         if: steps.zipcheck.outputs.zip_found == 'false'
         uses: actions/checkout@v4
         with:
           repository: ries11217596955-hash/automation-kb
-          path: agents/site_auditor_cloud/target_repo
+          path: agents/gh_batch/site_auditor_cloud/target_repo
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -39,16 +39,18 @@ jobs:
           node-version: 18
 
       - name: Install deps
-        working-directory: agents/site_auditor_cloud
+        working-directory: agents/gh_batch/site_auditor_cloud
         run: npm install
 
       - name: Run SITE_AUDITOR
-        working-directory: agents/site_auditor_cloud
-        run: |
-          pwsh -File run.ps1
+        working-directory: agents/gh_batch/site_auditor_cloud
+        shell: pwsh
+        run: ./run.ps1
 
       - name: Upload reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: audit-output
-          path: agents/site_auditor_cloud/outbox/**
+          path: agents/gh_batch/site_auditor_cloud/outbox/**
+          if-no-files-found: warn
