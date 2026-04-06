@@ -1,3 +1,10 @@
+param(
+    [string]$Mode = "",
+    [string]$TargetPath = "",
+    [string]$ZipPath = "",
+    [string]$BaseUrl = ""
+)
+
 $ErrorActionPreference = "Stop"
 
 function Get-ScriptRoot {
@@ -6,282 +13,366 @@ function Get-ScriptRoot {
     return (Get-Location).Path
 }
 
-function Read-JsonFile {
+function Ensure-Dir {
     param([string]$Path)
-    if (-not (Test-Path -LiteralPath $Path)) { throw "File not found: $Path" }
-    return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
-}
-
-function Normalize { param($x) return @($x) }
-
-function Get-Path {
-    param($i)
-    if ($i.route_path) { return [string]$i.route_path }
-    try { return ([uri]$i.url).AbsolutePath } catch { return [string]$i.url }
-}
-
-function Get-Int { param($v) try { return [int]$v } catch { return 0 } }
-
-function Get-Weight {
-    param([string]$p)
-    if ($p -in @("/", "/hubs/", "/search/")) { return "critical" }
-    if ($p -in @("/tools/", "/start-here/")) { return "high" }
-    return "normal"
-}
-
-function Get-RouteInventory {
-    param($items)
-    $out = @()
-    foreach ($i in (Normalize $items)) {
-        $p = Get-Path $i
-        $out += [pscustomobject]@{
-            path = $p
-            url  = [string]$i.url
-            title = [string]$i.title
-            bodyTextLength = Get-Int $i.bodyTextLength
-            links = Get-Int $i.links
-            images = Get-Int $i.images
-            screenshotCount = Get-Int $i.screenshotCount
-            contentMetricsPresent = [bool]$i.contentMetricsPresent
-            weight = Get-Weight $p
-        }
+    if (!(Test-Path -LiteralPath $Path)) {
+        New-Item -ItemType Directory -Path $Path -Force | Out-Null
     }
-    return $out
 }
 
-function Get-VisualFindings {
-    param($items)
-    $out = @()
-    foreach ($i in (Normalize $items)) {
-        $len = Get-Int $i.bodyTextLength
-        $links = Get-Int $i.links
-        $img = Get-Int $i.images
-        $p = Get-Path $i
-        $visual = "ok"
+function Save-Json {
+    param([string]$Path, $Object)
+    $json = $Object | ConvertTo-Json -Depth 20
+    [System.IO.File]::WriteAllText($Path, $json, [System.Text.UTF8Encoding]::new($false))
+}
 
-        if ($len -lt 220) { $visual = "empty" }
-        elseif ($len -lt 700) { $visual = "thin" }
-        elseif ($links -lt 2) { $visual = "weak" }
-
-        $out += [pscustomobject]@{
-            path = $p
-            visual = $visual
-            len = $len
-            links = $links
-            img = $img
-        }
+function Get-TextLength {
+    param([string]$Path)
+    try {
+        $text = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop
+        return [string]$text
     }
-    return $out
-}
-
-function Get-RouteScores {
-    param($items)
-    $out = @()
-    foreach ($i in (Normalize $items)) {
-        $p=Get-Path $i
-        $len=Get-Int $i.bodyTextLength
-        $links=Get-Int $i.links
-
-        $band="ok"
-        if($len -lt 220){$band="bad"}
-        elseif($len -lt 700){$band="thin"}
-        elseif($links -lt 2){$band="weak"}
-
-        $out += [pscustomobject]@{
-            path=$p
-            weight=Get-Weight $p
-            band=$band
-            len=$len
-            links=$links
-        }
+    catch {
+        return ""
     }
-    return $out
 }
 
-function Get-PageTypeAudit {
-    param($items)
-    $out = @()
-    foreach($i in (Normalize $items)){
-        $p = Get-Path $i
-        $len = Get-Int $i.bodyTextLength
-        $links = Get-Int $i.links
+function Get-RelativePath {
+    param([string]$Root,[string]$Path)
+    $rootUri = New-Object System.Uri(((Resolve-Path $Root).Path.TrimEnd('\\','/')) + [System.IO.Path]::DirectorySeparatorChar)
+    $pathUri = New-Object System.Uri((Resolve-Path $Path).Path)
+    return [System.Uri]::UnescapeDataString($rootUri.MakeRelativeUri($pathUri).ToString()).Replace('/','/')
+}
 
-        $state = "WEAK"
-        if($len -lt 220){ $state = "EMPTY" }
-        elseif($len -lt 700){ $state = "THIN" }
-        elseif($links -lt 2){ $state = "WEAK" }
-        else { $state = "OK" }
+function Get-RepoFacts {
+    param([string]$Root)
 
-        $out += [pscustomobject]@{
-            path = $p
+    $allFiles = @(Get-ChildItem -LiteralPath $Root -Recurse -File -Force -ErrorAction SilentlyContinue)
+    $mdFiles = @($allFiles | Where-Object { $_.Extension -in @('.md','.njk','.html','.11ty.js','.json','.yml','.yaml','.js','.ts','.ps1') })
+    $routeFiles = @(
+        $allFiles |
+        Where-Object {
+            $_.FullName -match '[\\/](src|about|tools|news|posts|hubs|start-here|search)[\\/]' -and
+            $_.Extension -in @('.md','.njk','.html')
+        }
+    )
+
+    $routes = New-Object System.Collections.Generic.List[object]
+    foreach ($file in $routeFiles) {
+        $rel = Get-RelativePath -Root $Root -Path $file.FullName
+        $text = Get-TextLength -Path $file.FullName
+        $routes.Add([pscustomobject]@{
+            relative_path = $rel
+            text_length   = $text.Length
+            empty         = ($text.Trim().Length -eq 0)
+            has_cta       = ($text -match '(?i)(next step|use this tool|try|start here|learn more|cta|affiliate|tool)')
+            has_problem   = ($text -match '(?i)(problem|pain|issue|what this fixes|why)')
+            has_solution  = ($text -match '(?i)(solution|how to|steps|workflow|fix)')
+        })
+    }
+
+    $suspiciousTop = @(
+        Get-ChildItem -LiteralPath $Root -Force |
+        Where-Object {
+            $_.PSIsContainer -and $_.Name -match '^[0-9a-f]{3}$'
+        } |
+        Select-Object -ExpandProperty Name
+    )
+
+    $workflowFiles = @(
+        $allFiles |
+        Where-Object { $_.FullName -match '[\\/]\.github[\\/]workflows[\\/].+\.ya?ml$' } |
+        ForEach-Object { Get-RelativePath -Root $Root -Path $_.FullName }
+    )
+
+    $repoFacts = [pscustomobject]@{
+        repo_root = (Resolve-Path $Root).Path
+        file_count = $allFiles.Count
+        markdown_like_count = $mdFiles.Count
+        route_file_count = $routeFiles.Count
+        suspicious_top_level_dirs = $suspiciousTop
+        suspicious_top_level_count = @($suspiciousTop).Count
+        workflow_files = $workflowFiles
+        workflow_count = @($workflowFiles).Count
+        routes = $routes
+    }
+
+    return $repoFacts
+}
+
+function Get-PageVerdicts {
+    param($Routes)
+    $verdicts = New-Object System.Collections.Generic.List[object]
+    foreach ($r in @($Routes)) {
+        $state = "OK"
+        if ($r.empty) { $state = "EMPTY" }
+        elseif ($r.text_length -lt 150) { $state = "THIN" }
+        elseif (-not $r.has_problem -or -not $r.has_solution) { $state = "WEAK" }
+
+        $verdicts.Add([pscustomobject]@{
+            relative_path = $r.relative_path
             state = $state
-            text_length = $len
-            links = $links
-        }
+            text_length = $r.text_length
+            has_problem = $r.has_problem
+            has_solution = $r.has_solution
+            has_cta = $r.has_cta
+        })
     }
-    return $out
+    return $verdicts
 }
 
-function Get-RepoAudit {
-    param($inventory)
-    return [pscustomobject]@{
-        mode = "LIVE_URL"
-        repo_bound = $false
-        target_root = $null
-        notes = @(
-            "This contour audits the live deployed site.",
-            "Repo-layer audit is not active in the restored cloud baseline."
-        )
-        routes_seen = @($inventory).Count
-    }
-}
+function Get-Decision {
+    param(
+        [string]$Mode,
+        $RepoFacts,
+        $PageVerdicts,
+        [bool]$CaptureOk,
+        [int]$ScreenshotCount
+    )
 
-function Analyze-System {
-    param($scores,$findings)
+    $p0 = New-Object System.Collections.Generic.List[string]
+    $p1 = New-Object System.Collections.Generic.List[string]
+    $do = New-Object System.Collections.Generic.List[string]
 
-    $router=$false
-    $flow=$false
-    $next=$false
+    $empty = @($PageVerdicts | Where-Object { $_.state -eq 'EMPTY' })
+    $thin = @($PageVerdicts | Where-Object { $_.state -eq 'THIN' })
+    $weak = @($PageVerdicts | Where-Object { $_.state -eq 'WEAK' })
 
-    foreach($s in $scores){
-        if($s.path -eq "/hubs/"){ $router=$true }
-        if($s.path -eq "/search/"){ $flow=$true }
+    if ($RepoFacts.suspicious_top_level_count -gt 0) {
+        $p0.Add("Suspicious top-level dirs in audit source: " + ($RepoFacts.suspicious_top_level_dirs -join ', '))
+        $do.Add("Clean stray top-level dirs from audit source before trusting repo structure")
     }
 
-    foreach($f in $findings){
-        if($f.len -gt 200){ $next=$true }
+    if ($empty.Count -gt 0) {
+        $p0.Add("Empty route files detected: " + (($empty | Select-Object -First 3 -ExpandProperty relative_path) -join ', '))
+        $do.Add("Fill empty route files with real content blocks")
     }
 
-    return [pscustomobject]@{
-        router=$router
-        flow=$flow
-        next_step=$next
-    }
-}
-
-function Decide {
-    param($scores,$findings)
-
-    $sys=Analyze-System $scores $findings
-
-    $crit=@()
-    foreach($s in $scores){
-        if($s.weight -eq "critical" -and $s.band -ne "ok"){
-            $crit += $s.path
-        }
+    if ($thin.Count -gt 0) {
+        $p1.Add("Thin route files detected: " + (($thin | Select-Object -First 3 -ExpandProperty relative_path) -join ', '))
     }
 
-    $core="Site exists but is not a functional system."
-
-    if(-not $sys.router -or -not $sys.flow){
-        $core="Site does not function as a decision system (no routing / flow)."
-    }
-    elseif($crit.Count -gt 0){
-        $core="Critical routes are shallow and break navigation."
+    if ($weak.Count -gt 0) {
+        $p1.Add("Weak route files without full problem/solution pattern: " + (($weak | Select-Object -First 3 -ExpandProperty relative_path) -join ', '))
     }
 
-    $p0=@()
-
-    if(-not $sys.router){
-        $p0 += "No router layer (hubs missing)"
-    }
-    if(-not $sys.flow){
-        $p0 += "No discovery flow (search not working)"
-    }
-    if($crit.Count -gt 0){
-        $p0 += "Critical routes shallow: " + ($crit -join ", ")
+    if ($Mode -eq 'REPO' -and -not $CaptureOk) {
+        $p1.Add("Live screenshot layer missing or failed")
+        $do.Add("Restore capture layer for live visual truth")
     }
 
-    $p1=@()
-    $thinHigh=@()
-    foreach($s in $scores){
-        if($s.weight -eq "high" -and $s.band -ne "ok"){
-            $thinHigh += $s.path
-        }
-    }
-    if($thinHigh.Count -gt 0){
-        $p1 += "High-value routes need more depth: " + ($thinHigh -join ", ")
+    if ($Mode -eq 'ZIP') {
+        $do.Add("Route processed ZIP to done/failed after audit")
     }
 
-    $do=@()
-    if($crit -contains "/hubs/"){ $do += "Build hubs as router" }
-    if($crit -contains "/search/"){ $do += "Fix search as entry" }
-    if($thinHigh.Count -gt 0){ $do += "Strengthen tools/start-here as guided routes" }
-
-    $p0 = $p0 | Select-Object -First 3
-    $p1 = $p1 | Select-Object -First 3
-    $do = $do | Select-Object -First 3
+    $core = ""
+    switch ($Mode) {
+        'ZIP'  { $core = "ZIP audit now runs on extracted ZIP content, not on the live site." }
+        'REPO' { $core = "Manual audit now runs on repo content, with live screenshots as optional side evidence." }
+        default { $core = "Audit completed." }
+    }
 
     return [pscustomobject]@{
         core = $core
-        p0 = $p0
-        p1 = $p1
-        do = $do
+        p0 = @($p0 | Select-Object -First 3)
+        p1 = @($p1 | Select-Object -First 3)
+        do = @($do | Select-Object -First 3)
+        empty_count = $empty.Count
+        thin_count = $thin.Count
+        weak_count = $weak.Count
+        screenshot_count = $ScreenshotCount
     }
 }
 
 function Write-Report {
-    param($Decision, $Inventory, $Findings, [string]$OutPath)
-
-    $criticalCount = (@($Inventory | Where-Object { $_.weight -eq "critical" })).Count
-    $badCount = (@($Findings | Where-Object { $_.visual -in @("empty","thin") })).Count
+    param(
+        [string]$Path,
+        [string]$Mode,
+        [string]$SourceRoot,
+        [string]$ZipPath,
+        [string]$BaseUrl,
+        $Decision,
+        $RepoFacts
+    )
 
     $lines = @()
-    $lines += "SITE STAGE:"
-    $lines += "Structure / routing baseline"
+    $lines += "MODE:"
+    $lines += $Mode
+    $lines += ""
+    $lines += "SOURCE:"
+    $lines += "Root: $SourceRoot"
+    if (-not [string]::IsNullOrWhiteSpace($ZipPath)) { $lines += "ZIP: $ZipPath" }
+    if (-not [string]::IsNullOrWhiteSpace($BaseUrl)) { $lines += "BASE_URL: $BaseUrl" }
     $lines += ""
     $lines += "CORE PROBLEM:"
     $lines += [string]$Decision.core
     $lines += ""
     $lines += "P0:"
-    if(@($Decision.p0).Count -eq 0){ $lines += "- none" } else { $Decision.p0 | ForEach-Object { $lines += "- $_" } }
+    if (@($Decision.p0).Count -eq 0) { $lines += "- none" } else { @($Decision.p0) | ForEach-Object { $lines += "- $_" } }
     $lines += ""
     $lines += "P1:"
-    if(@($Decision.p1).Count -eq 0){ $lines += "- none" } else { $Decision.p1 | ForEach-Object { $lines += "- $_" } }
+    if (@($Decision.p1).Count -eq 0) { $lines += "- none" } else { @($Decision.p1) | ForEach-Object { $lines += "- $_" } }
     $lines += ""
-    $lines += "VISUAL SUMMARY:"
-    $lines += "- Routes checked: " + @($Inventory).Count
-    $lines += "- Critical routes: " + $criticalCount
-    $lines += "- Empty/thin routes: " + $badCount
+    $lines += "SUMMARY:"
+    $lines += "- files: $($RepoFacts.file_count)"
+    $lines += "- route files: $($RepoFacts.route_file_count)"
+    $lines += "- suspicious top-level dirs: $($RepoFacts.suspicious_top_level_count)"
+    $lines += "- screenshots: $($Decision.screenshot_count)"
+    $lines += "- empty routes: $($Decision.empty_count)"
+    $lines += "- thin routes: $($Decision.thin_count)"
+    $lines += "- weak routes: $($Decision.weak_count)"
     $lines += ""
     $lines += "DO NEXT:"
-    if(@($Decision.do).Count -eq 0){ $lines += "1. Strengthen top routes" } else {
-        $n = 1
-        foreach($x in $Decision.do){ $lines += "$n. $x"; $n++ }
+    if (@($Decision.do).Count -eq 0) {
+        $lines += "1. Review JSON artifacts"
+    }
+    else {
+        $i = 1
+        foreach ($step in @($Decision.do)) {
+            $lines += "${i}. $step"
+            $i++
+        }
     }
 
-    Set-Content -LiteralPath $OutPath -Value ($lines -join [Environment]::NewLine) -Encoding UTF8
+    [System.IO.File]::WriteAllText($Path, ($lines -join [Environment]::NewLine), [System.Text.UTF8Encoding]::new($false))
 }
 
-function Invoke-SiteAuditor {
-    param([string]$BaseUrl)
+function Invoke-Capture {
+    param(
+        [string]$Root,
+        [string]$BaseUrl
+    )
 
-    $root = Get-ScriptRoot
-    $rep  = Join-Path $root "reports"
-
-    if(!(Test-Path -LiteralPath $rep)){
-        New-Item -ItemType Directory -Path $rep -Force | Out-Null
+    if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
+        return [pscustomobject]@{ ok = $false; screenshot_count = 0; reason = "BASE_URL_EMPTY" }
     }
 
-    $manifestPath = Join-Path $rep "visual_manifest.json"
-    $manifest = Read-JsonFile $manifestPath
-    $items = Normalize $manifest
+    $packageJson = Join-Path $Root "package.json"
+    $captureScript = Join-Path $Root "capture.mjs"
+    if (!(Test-Path $packageJson) -or !(Test-Path $captureScript)) {
+        return [pscustomobject]@{ ok = $false; screenshot_count = 0; reason = "CAPTURE_FILES_MISSING" }
+    }
 
-    $inventory = Get-RouteInventory $items
-    $find = Get-VisualFindings $items
-    $scores = Get-RouteScores $items
-    $types = Get-PageTypeAudit $items
-    $repoAudit = Get-RepoAudit $inventory
-    $dec = Decide $scores $find
+    $env:SITE_AUDITOR_BASE_URL = $BaseUrl
 
-    $inventory | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $rep "route_inventory.json") -Encoding UTF8
-    $find      | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $rep "visual_findings.json") -Encoding UTF8
-    $scores    | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $rep "route_scores.json") -Encoding UTF8
-    $types     | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $rep "page_type_audit.json") -Encoding UTF8
-    $repoAudit | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $rep "repo_audit.json") -Encoding UTF8
-    $dec       | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $rep "decision_summary.json") -Encoding UTF8
+    try {
+        Push-Location $Root
+        & node $captureScript
+        $code = $LASTEXITCODE
+        Pop-Location
 
-    Write-Report -Decision $dec -Inventory $inventory -Findings $find -OutPath (Join-Path $rep "REPORT.txt")
+        if ($code -ne 0) {
+            return [pscustomobject]@{ ok = $false; screenshot_count = 0; reason = "CAPTURE_EXIT_$code" }
+        }
 
-    Write-Host "DONE"
+        $manifestPath = Join-Path $Root "reports/visual_manifest.json"
+        if (!(Test-Path $manifestPath)) {
+            return [pscustomobject]@{ ok = $false; screenshot_count = 0; reason = "MANIFEST_MISSING" }
+        }
+
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        $count = 0
+        foreach ($item in @($manifest)) {
+            try { $count += [int]$item.screenshotCount } catch {}
+        }
+
+        return [pscustomobject]@{ ok = $true; screenshot_count = $count; reason = "OK" }
+    }
+    catch {
+        try { Pop-Location } catch {}
+        return [pscustomobject]@{ ok = $false; screenshot_count = 0; reason = $_.Exception.Message }
+    }
 }
+
+function Write-DoneMarker {
+    param([string]$Path,[string]$Status,[string]$Reason)
+    [System.IO.File]::WriteAllText($Path, "status=$Status`nreason=$Reason`n", [System.Text.UTF8Encoding]::new($false))
+}
+
+$Root = Get-ScriptRoot
+$Reports = Join-Path $Root "reports"
+$Outbox = Join-Path $Root "outbox"
+Ensure-Dir $Reports
+Ensure-Dir $Outbox
+
+if ([string]::IsNullOrWhiteSpace($Mode)) {
+    if (-not [string]::IsNullOrWhiteSpace($env:FORCE_MODE)) { $Mode = [string]$env:FORCE_MODE } else { $Mode = "REPO" }
+}
+
+if ([string]::IsNullOrWhiteSpace($TargetPath)) {
+    $TargetPath = $Root
+}
+
+if (!(Test-Path -LiteralPath $TargetPath)) {
+    $msg = "TargetPath not found: $TargetPath"
+    Write-Error $msg
+    Write-DoneMarker -Path (Join-Path $Reports "DONE.fail") -Status "FAIL" -Reason $msg
+    exit 1
+}
+
+$resolvedTarget = (Resolve-Path $TargetPath).Path
+
+Remove-Item (Join-Path $Reports "DONE.ok") -Force -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $Reports "DONE.fail") -Force -ErrorAction SilentlyContinue
+
+$repoFacts = Get-RepoFacts -Root $resolvedTarget
+$pageVerdicts = Get-PageVerdicts -Routes $repoFacts.routes
+
+$capture = [pscustomobject]@{ ok = $false; screenshot_count = 0; reason = "SKIPPED" }
+if ($Mode -eq "REPO" -and -not [string]::IsNullOrWhiteSpace($BaseUrl)) {
+    $capture = Invoke-Capture -Root $Root -BaseUrl $BaseUrl
+}
+
+$decision = Get-Decision -Mode $Mode -RepoFacts $repoFacts -PageVerdicts $pageVerdicts -CaptureOk $capture.ok -ScreenshotCount $capture.screenshot_count
+
+$repoAudit = [pscustomobject]@{
+    mode = $Mode
+    repo_bound = $true
+    target_root = $resolvedTarget
+    zip_path = $ZipPath
+    base_url = $BaseUrl
+    capture = $capture
+    notes = @(
+        "ZIP mode audits extracted ZIP content.",
+        "REPO mode audits repo filesystem content.",
+        "Live capture is optional side evidence and does not replace repo/zip truth."
+    )
+}
+
+Save-Json -Path (Join-Path $Reports "repo_audit.json") -Object $repoAudit
+Save-Json -Path (Join-Path $Reports "route_inventory.json") -Object $repoFacts.routes
+Save-Json -Path (Join-Path $Reports "page_type_audit.json") -Object $pageVerdicts
+Save-Json -Path (Join-Path $Reports "audit_result.json") -Object ([pscustomobject]@{
+    mode = $Mode
+    source_root = $resolvedTarget
+    repo_facts = $repoFacts
+    page_verdicts = $pageVerdicts
+    decision = $decision
+})
+Save-Json -Path (Join-Path $Reports "HOW_TO_FIX.json") -Object ([pscustomobject]@{
+    mode = $Mode
+    do_next = $decision.do
+    p0 = $decision.p0
+    p1 = $decision.p1
+})
+
+Write-Report -Path (Join-Path $Reports "REPORT.txt") -Mode $Mode -SourceRoot $resolvedTarget -ZipPath $ZipPath -BaseUrl $BaseUrl -Decision $decision -RepoFacts $repoFacts
+
+$summaryText = @(
+    "MODE: $Mode",
+    "CORE: $($decision.core)",
+    "P0: " + ($(if(@($decision.p0).Count){@($decision.p0) -join ' | '}else{'none'}))
+)
+[System.IO.File]::WriteAllText((Join-Path $Reports "11A_EXECUTIVE_SUMMARY.txt"), ($summaryText -join [Environment]::NewLine), [System.Text.UTF8Encoding]::new($false))
+[System.IO.File]::WriteAllText((Join-Path $Reports "00_PRIORITY_ACTIONS.txt"), ((@($decision.do) | ForEach-Object { "- $_" }) -join [Environment]::NewLine), [System.Text.UTF8Encoding]::new($false))
+[System.IO.File]::WriteAllText((Join-Path $Reports "01_TOP_ISSUES.txt"), ((@($decision.p0 + $decision.p1) | ForEach-Object { "- $_" }) -join [Environment]::NewLine), [System.Text.UTF8Encoding]::new($false))
+
+Write-DoneMarker -Path (Join-Path $Reports "DONE.ok") -Status "OK" -Reason "AUDIT_COMPLETE"
+
+$stamp = Get-Date -Format "yyyyMMdd_HHmmss"
+$outZip = Join-Path $Outbox ("site_audit_" + $Mode.ToLowerInvariant() + "_" + $stamp + ".zip")
+if (Test-Path $outZip) { Remove-Item $outZip -Force }
+Compress-Archive -Path (Join-Path $Reports "*") -DestinationPath $outZip -Force
+
+Write-Host ("AUDIT COMPLETE: mode={0}; source={1}; screenshots={2}" -f $Mode, $resolvedTarget, $capture.screenshot_count)
+exit 0

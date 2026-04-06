@@ -3,7 +3,7 @@ import path from 'path';
 import { chromium } from 'playwright';
 
 const ROUTES = ['/', '/hubs/', '/tools/', '/start-here/', '/search/'];
-const BASE = 'https://automation-kb.pages.dev';
+const BASE = process.env.SITE_AUDITOR_BASE_URL || 'https://automation-kb.pages.dev';
 
 const OUT_DIR = 'reports';
 const SCREEN_DIR = path.join(OUT_DIR, 'screenshots');
@@ -23,11 +23,10 @@ function slug(route) {
 
 async function scrollStep(page, position) {
   await page.evaluate((pos) => {
-    const h = document.body.scrollHeight;
+    const h = Math.max(document.body?.scrollHeight || 0, document.documentElement?.scrollHeight || 0);
     window.scrollTo(0, h * pos);
   }, position);
-
-  await delay(600);
+  await delay(700);
 }
 
 async function extract(page) {
@@ -45,36 +44,29 @@ async function extract(page) {
 
 async function processRoute(browser, route) {
   const url = BASE + route;
-  const page = await browser.newPage();
+  const page = await browser.newPage({ viewport: { width: 1440, height: 2200 } });
 
-  let metrics;
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+  await delay(1500);
 
-  await page.goto(url, { waitUntil: 'domcontentloaded' });
-  await delay(1200);
-
-  // --- TOP ---
   await scrollStep(page, 0);
   const topPath = `${SCREEN_DIR}/${slug(route)}_top.png`;
-  await page.screenshot({ path: topPath });
+  await page.screenshot({ path: topPath, fullPage: false });
 
-  // --- MID ---
   await scrollStep(page, 0.5);
   const midPath = `${SCREEN_DIR}/${slug(route)}_mid.png`;
-  await page.screenshot({ path: midPath });
+  await page.screenshot({ path: midPath, fullPage: false });
 
-  // --- BOTTOM ---
   await scrollStep(page, 1);
   const botPath = `${SCREEN_DIR}/${slug(route)}_bot.png`;
-  await page.screenshot({ path: botPath });
+  await page.screenshot({ path: botPath, fullPage: false });
 
-  // назад вверх
   await scrollStep(page, 0);
-
-  metrics = await extract(page);
-
+  const metrics = await extract(page);
   await page.close();
 
   return {
+    route_path: route,
     url,
     status: 'ok',
     screenshotCount: 3,
@@ -88,10 +80,26 @@ async function main() {
   ensureDir(SCREEN_DIR);
 
   const browser = await chromium.launch({ headless: true });
-
   const results = [];
+
   for (const r of ROUTES) {
-    results.push(await processRoute(browser, r));
+    try {
+      results.push(await processRoute(browser, r));
+    } catch (err) {
+      results.push({
+        route_path: r,
+        url: BASE + r,
+        status: 'error',
+        screenshotCount: 0,
+        screenshots: [],
+        title: '',
+        bodyTextLength: 0,
+        links: 0,
+        images: 0,
+        contentMetricsPresent: false,
+        error: String(err && err.message ? err.message : err)
+      });
+    }
   }
 
   await browser.close();
@@ -101,7 +109,10 @@ async function main() {
     JSON.stringify(results, null, 2)
   );
 
-  console.log('V3.6 CAPTURE DONE');
+  console.log(`CAPTURE DONE: ${BASE}`);
 }
 
-main();
+main().catch((err) => {
+  console.error(String(err && err.stack ? err.stack : err));
+  process.exit(1);
+});
