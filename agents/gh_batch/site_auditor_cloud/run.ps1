@@ -41,8 +41,38 @@ function Get-SiteRootFromExpandedZip([string]$ExpandedRoot) {
     throw "Expanded ZIP does not contain repo root with src/: $ExpandedRoot"
 }
 
+function Get-UniqueDestinationPath([string]$Dir, [string]$LeafName) {
+    $baseName = [System.IO.Path]::GetFileNameWithoutExtension($LeafName)
+    $ext = [System.IO.Path]::GetExtension($LeafName)
+    $candidate = Join-Path $Dir $LeafName
+    if (-not (Test-Path -LiteralPath $candidate)) { return $candidate }
+
+    $suffix = (Get-Date).ToString('yyyyMMdd_HHmmss')
+    $candidate = Join-Path $Dir ("{0}_{1}{2}" -f $baseName, $suffix, $ext)
+    if (-not (Test-Path -LiteralPath $candidate)) { return $candidate }
+
+    $i = 1
+    while ($true) {
+        $candidate = Join-Path $Dir ("{0}_{1}_{2}{3}" -f $baseName, $suffix, $i, $ext)
+        if (-not (Test-Path -LiteralPath $candidate)) { return $candidate }
+        $i++
+    }
+}
+
+function Route-ZipFile([string]$SourcePath, [string]$DestinationDir) {
+    if ([string]::IsNullOrWhiteSpace($SourcePath)) { return $null }
+    if (-not (Test-Path -LiteralPath $SourcePath)) { return $null }
+    Ensure-Dir $DestinationDir
+    $dest = Get-UniqueDestinationPath -Dir $DestinationDir -LeafName ([System.IO.Path]::GetFileName($SourcePath))
+    Move-Item -LiteralPath $SourcePath -Destination $dest -Force
+    return $dest
+}
+
 $Root = $PSScriptRoot
 $Inbox = Join-Path $Root 'input/inbox'
+$Processing = Join-Path $Root 'input/processing'
+$Done = Join-Path $Root 'input/done'
+$Failed = Join-Path $Root 'input/failed'
 $Outbox = Join-Path $Root 'outbox'
 $Reports = Join-Path $Root 'reports'
 $TmpZip = Join-Path $Root 'tmp_zip'
@@ -52,8 +82,12 @@ $Agent = Join-Path $Root 'agent.ps1'
 
 Ensure-Dir $Outbox
 Ensure-Dir $Reports
+Ensure-Dir $Processing
+Ensure-Dir $Done
+Ensure-Dir $Failed
 
 $mode = if ([string]::IsNullOrWhiteSpace($env:FORCE_MODE)) { 'URL' } else { $env:FORCE_MODE.ToUpperInvariant() }
+$zipInProcess = $null
 
 try {
     if ($mode -eq 'REPO') {
@@ -73,14 +107,32 @@ try {
         if ([string]::IsNullOrWhiteSpace($zip)) { throw 'ZIP mode forced but no ZIP found in inbox' }
         $zip = "$zip".Trim()
         Write-Host "MODE: ZIP"
-        Write-Host "ZIP PATH: $zip"
-        & $Preflight -ZipPath $zip
+        Write-Host "ZIP FOUND: $zip"
+
+        $zipInProcess = Route-ZipFile -SourcePath $zip -DestinationDir $Processing
+        if ([string]::IsNullOrWhiteSpace($zipInProcess)) { throw 'Failed to move ZIP from inbox to processing' }
+
+        Write-Host "ZIP PATH: $zipInProcess"
+        & $Preflight -ZipPath $zipInProcess
+        Write-Host 'PREFLIGHT OK'
+
         Reset-Dir $TmpZip
-        Expand-Archive -LiteralPath $zip -DestinationPath $TmpZip -Force
+        Expand-Archive -LiteralPath $zipInProcess -DestinationPath $TmpZip -Force
         $auditRoot = Get-SiteRootFromExpandedZip -ExpandedRoot $TmpZip
         Write-Host "AUDIT ROOT: $auditRoot"
+
         & $Agent -Mode ZIP -TargetPath $auditRoot
-        exit $LASTEXITCODE
+        $agentExit = $LASTEXITCODE
+
+        if ($agentExit -eq 0) {
+            $routed = Route-ZipFile -SourcePath $zipInProcess -DestinationDir $Done
+            if ($null -ne $routed) { Write-Host "ZIP ROUTED: DONE -> $routed" }
+            exit 0
+        }
+
+        $routed = Route-ZipFile -SourcePath $zipInProcess -DestinationDir $Failed
+        if ($null -ne $routed) { Write-Host "ZIP ROUTED: FAILED -> $routed" }
+        throw "agent.ps1 failed in ZIP mode (exit=$agentExit)"
     }
 
     $baseUrl = if ([string]::IsNullOrWhiteSpace($env:BASE_URL)) { 'https://automation-kb.pages.dev' } else { $env:BASE_URL }
@@ -92,6 +144,10 @@ try {
 catch {
     $msg = $_.Exception.Message
     Write-Error $msg
+    if ($mode -eq 'ZIP' -and -not [string]::IsNullOrWhiteSpace($zipInProcess) -and (Test-Path -LiteralPath $zipInProcess)) {
+        $routed = Route-ZipFile -SourcePath $zipInProcess -DestinationDir $Failed
+        if ($null -ne $routed) { Write-Host "ZIP ROUTED: FAILED -> $routed" }
+    }
     Write-FailArtifacts -Mode $mode -Message $msg -ReportsDir $Reports -OutboxDir $Outbox
     exit 1
 }
