@@ -5,170 +5,209 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-function Ensure-Dir {
-    param([string]$Path)
+function Ensure-Dir([string]$Path) {
     New-Item -ItemType Directory -Force -Path $Path | Out-Null
 }
 
-function Reset-Dir {
-    param([string]$Path)
+function Reset-Dir([string]$Path) {
     Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $Path | Out-Null
 }
 
-function Route-Zip {
-    param($src, $dstDir)
+function Write-FailArtifacts([string]$Mode, [string]$Message, [string]$ReportsDir, [string]$OutboxDir) {
+    Ensure-Dir $ReportsDir
+    Ensure-Dir $OutboxDir
 
-    if (-not (Test-Path $src)) { return $null }
+@"
+STATUS:
+FAIL
 
-    Ensure-Dir $dstDir
+MODE:
+$Mode
 
-    $name = [IO.Path]::GetFileName($src)
-    $dest = Join-Path $dstDir $name
+ERROR:
+$Message
+"@ | Set-Content -LiteralPath (Join-Path $ReportsDir 'REPORT.txt') -Encoding UTF8
 
-    if (Test-Path $dest) {
-        $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
-        $base = [IO.Path]::GetFileNameWithoutExtension($name)
-        $ext = [IO.Path]::GetExtension($name)
-        $dest = Join-Path $dstDir "$base`_$stamp$ext"
+    @{
+        status = 'FAIL'
+        mode = $Mode
+        error = $Message
+        checked_at_utc = (Get-Date).ToUniversalTime().ToString('o')
+    } |
+        ConvertTo-Json -Depth 5 |
+        Set-Content -LiteralPath (Join-Path $ReportsDir 'audit_result.json') -Encoding UTF8
+
+    "FAIL $Mode`n$Message" |
+        Set-Content -LiteralPath (Join-Path $OutboxDir 'DONE.fail') -Encoding UTF8
+}
+
+function Get-SiteRootFromExpandedZip([string]$ExpandedRoot) {
+    $dirs = Get-ChildItem -LiteralPath $ExpandedRoot -Directory -ErrorAction SilentlyContinue
+    foreach ($dir in $dirs) {
+        if (Test-Path -LiteralPath (Join-Path $dir.FullName 'src')) {
+            return $dir.FullName
+        }
     }
 
-    Move-Item $src $dest -Force
+    if (Test-Path -LiteralPath (Join-Path $ExpandedRoot 'src')) {
+        return $ExpandedRoot
+    }
+
+    throw "Expanded ZIP does not contain repo root with src/: $ExpandedRoot"
+}
+
+function Get-UniqueDestinationPath([string]$Dir, [string]$LeafName) {
+    $baseName = [System.IO.Path]::GetFileNameWithoutExtension($LeafName)
+    $ext = [System.IO.Path]::GetExtension($LeafName)
+    $candidate = Join-Path $Dir $LeafName
+    if (-not (Test-Path -LiteralPath $candidate)) {
+        return $candidate
+    }
+
+    $suffix = (Get-Date).ToString('yyyyMMdd_HHmmss')
+    $candidate = Join-Path $Dir ("{0}_{1}{2}" -f $baseName, $suffix, $ext)
+    if (-not (Test-Path -LiteralPath $candidate)) {
+        return $candidate
+    }
+
+    $i = 1
+    while ($true) {
+        $candidate = Join-Path $Dir ("{0}_{1}_{2}{3}" -f $baseName, $suffix, $i, $ext)
+        if (-not (Test-Path -LiteralPath $candidate)) {
+            return $candidate
+        }
+        $i++
+    }
+}
+
+function Route-ZipFile([string]$SourcePath, [string]$DestinationDir) {
+    if ([string]::IsNullOrWhiteSpace($SourcePath)) { return $null }
+    if (-not (Test-Path -LiteralPath $SourcePath)) { return $null }
+
+    Ensure-Dir $DestinationDir
+    $dest = Get-UniqueDestinationPath -Dir $DestinationDir -LeafName ([System.IO.Path]::GetFileName($SourcePath))
+    Move-Item -LiteralPath $SourcePath -Destination $dest -Force
     return $dest
 }
 
-# ---------------- PATHS ----------------
+$Root = $PSScriptRoot
+$Inbox = Join-Path $Root 'input/inbox'
+$Processing = Join-Path $Root 'input/processing'
+$Done = Join-Path $Root 'input/done'
+$Failed = Join-Path $Root 'input/failed'
+$Outbox = Join-Path $Root 'outbox'
+$Reports = Join-Path $Root 'reports'
+$TmpZip = Join-Path $Root 'tmp_zip'
+$Intake = Join-Path $Root 'lib/intake_zip.ps1'
+$Preflight = Join-Path $Root 'lib/preflight.ps1'
+$Agent = Join-Path $Root 'agent.ps1'
 
-$ROOT = $PSScriptRoot
+Ensure-Dir $Outbox
+Ensure-Dir $Reports
+Ensure-Dir $Processing
+Ensure-Dir $Done
+Ensure-Dir $Failed
 
-$INBOX = Join-Path $ROOT "input/inbox"
-$PROCESSING = Join-Path $ROOT "input/processing"
-$DONE = Join-Path $ROOT "input/done"
-$FAILED = Join-Path $ROOT "input/failed"
-
-$REPORTS = Join-Path $ROOT "reports"
-$OUTBOX = Join-Path $ROOT "outbox"
-$TMP = Join-Path $ROOT "tmp_zip"
-
-Ensure-Dir $PROCESSING
-Ensure-Dir $DONE
-Ensure-Dir $FAILED
-Ensure-Dir $REPORTS
-Ensure-Dir $OUTBOX
-
-# ---------------- MODE ----------------
-
-$MODE = ""
-
-if ($ForceMode) {
-    $MODE = $ForceMode.ToUpper()
-}
-elseif ($env:FORCE_MODE) {
-    $MODE = $env:FORCE_MODE.ToUpper()
-}
-else {
-    $zip = Get-ChildItem $INBOX -Filter *.zip -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($zip) { $MODE = "ZIP" } else { $MODE = "URL" }
+$mode = if (-not [string]::IsNullOrWhiteSpace($ForceMode)) {
+    $ForceMode.ToUpperInvariant()
+} elseif (-not [string]::IsNullOrWhiteSpace($env:FORCE_MODE)) {
+    $env:FORCE_MODE.ToUpperInvariant()
+} else {
+    'URL'
 }
 
-Write-Host "MODE: $MODE"
+$zipInProcess = $null
 
-# ---------------- REPO ----------------
-
-if ($MODE -eq "REPO" -or $MODE -eq "UNIFIED") {
-
-    $repo = $env:TARGET_REPO_PATH
-
-    if (-not $repo) {
-        $repo = Join-Path (Join-Path $ROOT "../../../../") "target_repo"
-    }
-
-    Write-Host "AUDIT ROOT: $repo"
-
-    if (-not (Test-Path $repo)) {
-        Write-Error "REPO NOT FOUND"
-        exit 1
-    }
-
-    if ($MODE -eq "UNIFIED") {
-
-        if (-not $BaseUrl) {
-            if ($env:BASE_URL) {
-                $BaseUrl = $env:BASE_URL
-            } else {
-                $BaseUrl = "https://automation-kb.pages.dev"
-            }
+try {
+    if ($mode -eq 'REPO') {
+        $targetRepo = $env:TARGET_REPO_PATH
+        if ([string]::IsNullOrWhiteSpace($targetRepo)) {
+            $workspaceRoot = [System.IO.Path]::GetFullPath((Join-Path $Root '../../../../'))
+            $targetRepo = Join-Path $workspaceRoot 'target_repo'
         }
 
-        Write-Host "BASE URL: $BaseUrl"
+        Write-Host "MODE: REPO"
+        Write-Host "AUDIT ROOT: $targetRepo"
 
-        & "$ROOT/agent.ps1" -Mode UNIFIED -TargetPath $repo -BaseUrl $BaseUrl
-    }
-    else {
-        & "$ROOT/agent.ps1" -Mode REPO -TargetPath $repo
-    }
+        if (-not (Test-Path -LiteralPath $targetRepo)) {
+            throw "REPO NOT FOUND (checkout failed): $targetRepo"
+        }
 
-    exit $LASTEXITCODE
-}
-
-# ---------------- ZIP ----------------
-
-if ($MODE -eq "ZIP") {
-
-    $zip = Get-ChildItem $INBOX -Filter *.zip -ErrorAction SilentlyContinue | Select-Object -First 1
-
-    if (-not $zip) {
-        Write-Error "NO ZIP FOUND"
-        exit 1
+        $global:LASTEXITCODE = 0
+        & $Agent -Mode REPO -TargetPath $targetRepo
+        if (-not $?) { throw 'agent.ps1 failed in REPO mode' }
+        exit 0
     }
 
-    $zipPath = $zip.FullName
-    Write-Host "ZIP FOUND: $zipPath"
+    if ($mode -eq 'ZIP') {
+        if (-not (Test-Path -LiteralPath $Inbox)) {
+            throw "ZIP mode forced but inbox not found: $Inbox"
+        }
 
-    $procZip = Route-Zip $zipPath $PROCESSING
+        $zip = & $Intake -InboxPath $Inbox
+        if ([string]::IsNullOrWhiteSpace($zip)) {
+            throw 'ZIP mode forced but no ZIP found in inbox'
+        }
 
-    Reset-Dir $TMP
-    Expand-Archive $procZip -DestinationPath $TMP -Force
+        $zip = "$zip".Trim()
+        Write-Host "MODE: ZIP"
+        Write-Host "ZIP FOUND: $zip"
 
-    $dir = Get-ChildItem $TMP -Directory | Select-Object -First 1
+        $zipInProcess = Route-ZipFile -SourcePath $zip -DestinationDir $Processing
+        if ([string]::IsNullOrWhiteSpace($zipInProcess)) {
+            throw 'Failed to move ZIP from inbox to processing'
+        }
 
-    if ($dir) {
-        $root = $dir.FullName
+        Write-Host "ZIP PATH: $zipInProcess"
+
+        & $Preflight -ZipPath $zipInProcess
+        Write-Host 'PREFLIGHT OK'
+
+        Reset-Dir $TmpZip
+        Expand-Archive -LiteralPath $zipInProcess -DestinationPath $TmpZip -Force
+        $auditRoot = Get-SiteRootFromExpandedZip -ExpandedRoot $TmpZip
+        Write-Host "AUDIT ROOT: $auditRoot"
+
+        $global:LASTEXITCODE = 0
+        & $Agent -Mode ZIP -TargetPath $auditRoot
+
+        if ($?) {
+            $routed = Route-ZipFile -SourcePath $zipInProcess -DestinationDir $Done
+            if ($null -ne $routed) { Write-Host "ZIP ROUTED: DONE -> $routed" }
+            exit 0
+        }
+
+        $routed = Route-ZipFile -SourcePath $zipInProcess -DestinationDir $Failed
+        if ($null -ne $routed) { Write-Host "ZIP ROUTED: FAILED -> $routed" }
+        throw 'agent.ps1 failed in ZIP mode'
+    }
+
+    $baseUrl = if (-not [string]::IsNullOrWhiteSpace($BaseUrl)) {
+        $BaseUrl
+    } elseif (-not [string]::IsNullOrWhiteSpace($env:BASE_URL)) {
+        $env:BASE_URL
     } else {
-        $root = $TMP
+        'https://automation-kb.pages.dev'
     }
 
-    Write-Host "AUDIT ROOT: $root"
+    Write-Host "MODE: URL"
+    Write-Host "BASE URL: $baseUrl"
 
-    & "$ROOT/agent.ps1" -Mode ZIP -TargetPath $root
-
-    if ($LASTEXITCODE -eq 0) {
-        Route-Zip $procZip $DONE
-        Write-Host "ZIP → DONE"
-    }
-    else {
-        Route-Zip $procZip $FAILED
-        Write-Host "ZIP → FAILED"
-    }
-
-    exit $LASTEXITCODE
+    $global:LASTEXITCODE = 0
+    & $Agent -Mode URL -BaseUrl $baseUrl
+    if (-not $?) { throw 'agent.ps1 failed in URL mode' }
+    exit 0
 }
+catch {
+    $msg = $_.Exception.Message
+    Write-Error $msg
 
-# ---------------- URL ----------------
-
-if ($MODE -eq "URL") {
-
-    if (-not $BaseUrl) {
-        if ($env:BASE_URL) {
-            $BaseUrl = $env:BASE_URL
-        } else {
-            $BaseUrl = "https://automation-kb.pages.dev"
-        }
+    if ($mode -eq 'ZIP' -and -not [string]::IsNullOrWhiteSpace($zipInProcess) -and (Test-Path -LiteralPath $zipInProcess)) {
+        $routed = Route-ZipFile -SourcePath $zipInProcess -DestinationDir $Failed
+        if ($null -ne $routed) { Write-Host "ZIP ROUTED: FAILED -> $routed" }
     }
 
-    Write-Host "BASE URL: $BaseUrl"
-
-    & "$ROOT/agent.ps1" -Mode URL -BaseUrl $BaseUrl
-
-    exit $LASTEXITCODE
+    Write-FailArtifacts -Mode $mode -Message $msg -ReportsDir $Reports -OutboxDir $Outbox
+    exit 1
 }
