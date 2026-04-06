@@ -2,11 +2,9 @@ name: site-auditor-fixed-list
 
 on:
   workflow_dispatch:
-
   push:
     paths:
       - 'agents/gh_batch/site_auditor_cloud/input/inbox/**'
-      - '.github/workflows/site-auditor-fixed-list.yml'
 
 jobs:
   site-audit:
@@ -16,34 +14,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Show PowerShell version
-        shell: pwsh
-        run: $PSVersionTable
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
 
-      - name: Install Node deps
-        working-directory: agents/gh_batch/site_auditor_cloud
-        run: npm install
+      - name: Install deps
+        run: |
+          cd agents/gh_batch/site_auditor_cloud
+          npm install || true
 
       - name: Run SITE_AUDITOR
-        working-directory: agents/gh_batch/site_auditor_cloud
-        shell: pwsh
-        run: ./run.ps1
-
-      - name: Show reports tree
-        if: always()
-        shell: bash
         run: |
-          echo "== reports =="
-          find agents/gh_batch/site_auditor_cloud/reports -maxdepth 3 -type f 2>/dev/null | sort || true
-          echo "== outbox =="
-          find agents/gh_batch/site_auditor_cloud/outbox -maxdepth 4 -type f 2>/dev/null | sort || true
+          cd agents/gh_batch/site_auditor_cloud
+          pwsh ./run.ps1
 
-      - name: Upload reports artifact
-        if: always()
+      - name: Debug tree
+        run: |
+          ls -R agents/gh_batch/site_auditor_cloud
+
+      - name: Upload reports
         uses: actions/upload-artifact@v4
         with:
           name: audit-output
           path: |
-            agents/gh_batch/site_auditor_cloud/reports/**
             agents/gh_batch/site_auditor_cloud/outbox/**
+            agents/gh_batch/site_auditor_cloud/reports/**
           if-no-files-found: warn
