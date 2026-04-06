@@ -15,7 +15,19 @@ jobs:
       - name: Checkout auditor repo
         uses: actions/checkout@v4
 
+      # ===== ZIP DETECTION =====
+      - name: Detect ZIP
+        id: zipcheck
+        run: |
+          if ls **/*.zip 1> /dev/null 2>&1; then
+            echo "zip_found=true" >> $GITHUB_OUTPUT
+          else
+            echo "zip_found=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ===== TARGET REPO ONLY IF NO ZIP =====
       - name: Checkout target site repo
+        if: steps.zipcheck.outputs.zip_found == 'false'
         uses: actions/checkout@v4
         with:
           repository: ries11217596955-hash/automation-kb
