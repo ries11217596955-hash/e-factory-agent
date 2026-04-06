@@ -30,14 +30,19 @@ jobs:
       - name: Install Node deps
         run: |
           cd agents/gh_batch/site_auditor_cloud
-          npm install
-          npx playwright install --with-deps chromium
+          npm install || true
+
+      - name: Install Playwright browsers
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          cd agents/gh_batch/site_auditor_cloud
+          npx playwright install --with-deps chromium || true
 
       - name: Run SITE_AUDITOR
         env:
           FORCE_MODE: ${{ github.event_name == 'workflow_dispatch' && 'REPO' || 'ZIP' }}
+          TARGET_REPO_PATH: ${{ github.workspace }}/target_repo
           BASE_URL: https://automation-kb.pages.dev
-          TARGET_REPO: ${{ github.workspace }}/target_repo
         run: |
           cd agents/gh_batch/site_auditor_cloud
           pwsh ./run.ps1
@@ -46,6 +51,7 @@ jobs:
         if: always()
         run: |
           ls -R agents/gh_batch/site_auditor_cloud || true
+          ls -R target_repo || true
 
       - name: Upload reports
         if: always()
