@@ -1,3 +1,4 @@
+\
 param(
     [string]$Mode = "URL",
     [string]$TargetPath,
@@ -47,13 +48,12 @@ function Get-RepoRoot([string]$Path) {
 }
 
 function Get-RouteMap([string]$RepoRoot) {
-    $src = Join-Path $RepoRoot 'src'
     return @(
-        @{ path='/';           rel='src/index.md' },
-        @{ path='/hubs/';      rel='src/hubs/index.njk' },
-        @{ path='/tools/';     rel='src/tools/index.md' },
-        @{ path='/start-here/';rel='src/start-here/index.md' },
-        @{ path='/search/';    rel='src/search/index.md' }
+        @{ path='/';            rel='src/index.md' },
+        @{ path='/hubs/';       rel='src/hubs/index.njk' },
+        @{ path='/tools/';      rel='src/tools/index.md' },
+        @{ path='/start-here/'; rel='src/start-here/index.md' },
+        @{ path='/search/';     rel='src/search/index.md' }
     )
 }
 
@@ -269,11 +269,46 @@ function Decide($Scores) {
     }
 }
 
+function Get-UnifiedCompare($FileScores, $LiveScores) {
+    $map = @{}
+    foreach ($s in @($FileScores)) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$s.path)) {
+            $map[[string]$s.path] = [ordered]@{ file = $s; live = $null }
+        }
+    }
+    foreach ($s in @($LiveScores)) {
+        $k = [string]$s.path
+        if ([string]::IsNullOrWhiteSpace($k)) { continue }
+        if (-not $map.ContainsKey($k)) { $map[$k] = [ordered]@{ file = $null; live = $s } }
+        else { $map[$k].live = $s }
+    }
+
+    $rank = @{ missing = 4; bad = 3; thin = 2; weak = 1; ok = 0 }
+    $out = @()
+    foreach ($k in ($map.Keys | Sort-Object)) {
+        $fileBand = if ($null -ne $map[$k].file) { [string]$map[$k].file.band } else { 'missing' }
+        $liveBand = if ($null -ne $map[$k].live) { [string]$map[$k].live.band } else { 'missing' }
+        $delta = $rank[$liveBand] - $rank[$fileBand]
+        $status = 'same'
+        if ($delta -gt 0) { $status = 'live_worse' }
+        elseif ($delta -lt 0) { $status = 'live_better' }
+
+        $out += [pscustomobject]@{
+            path = $k
+            file_band = $fileBand
+            live_band = $liveBand
+            delta = $delta
+            status = $status
+        }
+    }
+    return $out
+}
+
 function Write-JsonFile([string]$Path, $Object) {
     ($Object | ConvertTo-Json -Depth 8) | Set-Content -LiteralPath $Path -Encoding UTF8
 }
 
-function Write-Report([string]$Path, [string]$Status, [string]$Mode, $Decision, $Scores, [bool]$LiveCaptureUsed, [string]$TargetRoot) {
+function Write-StandardReport([string]$Path, [string]$Status, [string]$Mode, $Decision, $Scores, [bool]$LiveCaptureUsed, [string]$TargetRoot) {
     $missingCount = @($Scores | Where-Object { $_.band -eq 'missing' }).Count
     $thinCount = @($Scores | Where-Object { $_.band -in @('bad','thin') }).Count
     $weakCount = @($Scores | Where-Object { $_.band -eq 'weak' }).Count
@@ -287,7 +322,7 @@ function Write-Report([string]$Path, [string]$Status, [string]$Mode, $Decision, 
         default { $Mode }
     }
 
-    @"
+@"
 STATUS:
 $Status
 
@@ -321,6 +356,72 @@ $doLines
 "@ | Set-Content -LiteralPath $Path -Encoding UTF8
 }
 
+function Write-UnifiedReport([string]$Path, [string]$Status, [string]$TargetRoot, [string]$BaseUrl, $FileDecision, $LiveDecision, $FileScores, $LiveScores, $Compare) {
+    $fileMissing = @($FileScores | Where-Object { $_.band -eq 'missing' }).Count
+    $fileThin = @($FileScores | Where-Object { $_.band -in @('bad','thin') }).Count
+    $fileWeak = @($FileScores | Where-Object { $_.band -eq 'weak' }).Count
+    $liveMissing = @($LiveScores | Where-Object { $_.band -eq 'missing' }).Count
+    $liveThin = @($LiveScores | Where-Object { $_.band -in @('bad','thin') }).Count
+    $liveWeak = @($LiveScores | Where-Object { $_.band -eq 'weak' }).Count
+
+    $deltaBad = @($Compare | Where-Object { $_.status -eq 'live_worse' })
+    $deltaGood = @($Compare | Where-Object { $_.status -eq 'live_better' })
+
+    $deltaBlock = if ($deltaBad.Count -gt 0) {
+        ($deltaBad | Select-Object -First 3 | ForEach-Object { "- $($_.path): file=$($_.file_band), live=$($_.live_band)" }) -join "`n"
+    } else {
+        '- no live-worse deltas on critical set'
+    }
+
+    $next = @()
+    $next += 'Fix routes that are weak in both FILE and LIVE layers first.'
+    if ($deltaBad.Count -gt 0) { $next += 'Investigate FILE→LIVE degradation on routes listed in DELTA.' }
+    $next += 'Keep REPO checks and URL capture separate; compare them through unified report only.'
+    $nextText = ($next | Select-Object -First 3 | ForEach-Object { "$([array]::IndexOf($next, $_)+1). $_" }) -join "`n"
+
+@"
+STATUS:
+$Status
+
+MODE:
+UNIFIED
+
+AUDIT SOURCE:
+FILE + LIVE
+
+TARGET REPO:
+$TargetRoot
+
+BASE URL:
+$BaseUrl
+
+FILE CORE:
+$($FileDecision.core)
+
+LIVE CORE:
+$($LiveDecision.core)
+
+FILE SUMMARY:
+- Routes checked: $(@($FileScores).Count)
+- Missing routes: $fileMissing
+- Empty/thin routes: $fileThin
+- Weak routes: $fileWeak
+
+LIVE SUMMARY:
+- Routes checked: $(@($LiveScores).Count)
+- Missing routes: $liveMissing
+- Empty/thin routes: $liveThin
+- Weak routes: $liveWeak
+- Live capture used: True
+
+DELTA (LIVE vs FILE):
+$deltaBlock
+
+DO NEXT:
+$nextText
+"@ | Set-Content -LiteralPath $Path -Encoding UTF8
+}
+
 $Root = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 $ReportsDir = Join-Path $Root 'reports'
 $OutboxDir = Join-Path $Root 'outbox'
@@ -328,61 +429,165 @@ Ensure-Dir $ReportsDir
 Ensure-Dir $OutboxDir
 
 $resolvedMode = if (-not [string]::IsNullOrWhiteSpace($Mode)) { $Mode.ToUpperInvariant() } else { 'URL' }
-$liveCaptureUsed = $false
-$repoRoot = $null
-$inventory = @()
 
-if ($resolvedMode -in @('REPO','ZIP')) {
-    $repoRoot = Get-RepoRoot $TargetPath
-    $inventory = Get-RouteInventoryFromRepo -RepoRoot $repoRoot -Source 'repo'
-} elseif ($resolvedMode -eq 'URL') {
-    if (-not [string]::IsNullOrWhiteSpace($BaseUrl)) { $env:BASE_URL = $BaseUrl }
-    & node (Join-Path $Root 'capture.mjs')
-    if ($LASTEXITCODE -ne 0) { throw "capture.mjs failed with exit code $LASTEXITCODE" }
-    $inventory = Get-RouteInventoryFromVisual (Get-VisualManifest $Root)
-    $liveCaptureUsed = $true
-    $repoRoot = $env:BASE_URL
-} else {
-    throw "Unsupported mode: $resolvedMode"
+switch ($resolvedMode) {
+    'REPO' {
+        $repoRoot = Get-RepoRoot $TargetPath
+        $inventory = Get-RouteInventoryFromRepo -RepoRoot $repoRoot -Source 'repo'
+        if (@($inventory).Count -eq 0) { throw "No inventory produced for mode $resolvedMode" }
+
+        $visualFindings = Get-VisualFindings $inventory
+        $routeScores = Get-RouteScores $inventory
+        $pageTypeAudit = Get-PageTypeAudit $inventory
+        $decision = Decide $routeScores
+        $status = 'PASS'
+
+        $repoAudit = [pscustomobject]@{
+            mode = $resolvedMode
+            repo_bound = $true
+            target_root = $repoRoot
+            live_capture_used = $false
+            routes_seen = @($inventory).Count
+            routes_missing = @($routeScores | Where-Object { $_.band -eq 'missing' } | ForEach-Object { $_.path })
+        }
+
+        $auditResult = [pscustomobject]@{
+            status = $status
+            mode = $resolvedMode
+            target_root = $repoRoot
+            live_capture_used = $false
+            checked_at_utc = (Get-Date).ToUniversalTime().ToString('o')
+        }
+
+        Write-JsonFile (Join-Path $ReportsDir 'route_inventory.json') $inventory
+        Write-JsonFile (Join-Path $ReportsDir 'visual_findings.json') $visualFindings
+        Write-JsonFile (Join-Path $ReportsDir 'route_scores.json') $routeScores
+        Write-JsonFile (Join-Path $ReportsDir 'page_type_audit.json') $pageTypeAudit
+        Write-JsonFile (Join-Path $ReportsDir 'decision_summary.json') $decision
+        Write-JsonFile (Join-Path $ReportsDir 'repo_audit.json') $repoAudit
+        Write-JsonFile (Join-Path $ReportsDir 'audit_result.json') $auditResult
+        Write-StandardReport -Path (Join-Path $ReportsDir 'REPORT.txt') -Status $status -Mode $resolvedMode -Decision $decision -Scores $routeScores -LiveCaptureUsed $false -TargetRoot $repoRoot
+    }
+    'ZIP' {
+        $repoRoot = Get-RepoRoot $TargetPath
+        $inventory = Get-RouteInventoryFromRepo -RepoRoot $repoRoot -Source 'zip'
+        if (@($inventory).Count -eq 0) { throw "No inventory produced for mode $resolvedMode" }
+
+        $visualFindings = Get-VisualFindings $inventory
+        $routeScores = Get-RouteScores $inventory
+        $pageTypeAudit = Get-PageTypeAudit $inventory
+        $decision = Decide $routeScores
+        $status = 'PASS'
+
+        $repoAudit = [pscustomobject]@{
+            mode = $resolvedMode
+            repo_bound = $true
+            target_root = $repoRoot
+            live_capture_used = $false
+            routes_seen = @($inventory).Count
+            routes_missing = @($routeScores | Where-Object { $_.band -eq 'missing' } | ForEach-Object { $_.path })
+        }
+
+        $auditResult = [pscustomobject]@{
+            status = $status
+            mode = $resolvedMode
+            target_root = $repoRoot
+            live_capture_used = $false
+            checked_at_utc = (Get-Date).ToUniversalTime().ToString('o')
+        }
+
+        Write-JsonFile (Join-Path $ReportsDir 'route_inventory.json') $inventory
+        Write-JsonFile (Join-Path $ReportsDir 'visual_findings.json') $visualFindings
+        Write-JsonFile (Join-Path $ReportsDir 'route_scores.json') $routeScores
+        Write-JsonFile (Join-Path $ReportsDir 'page_type_audit.json') $pageTypeAudit
+        Write-JsonFile (Join-Path $ReportsDir 'decision_summary.json') $decision
+        Write-JsonFile (Join-Path $ReportsDir 'repo_audit.json') $repoAudit
+        Write-JsonFile (Join-Path $ReportsDir 'audit_result.json') $auditResult
+        Write-StandardReport -Path (Join-Path $ReportsDir 'REPORT.txt') -Status $status -Mode $resolvedMode -Decision $decision -Scores $routeScores -LiveCaptureUsed $false -TargetRoot $repoRoot
+    }
+    'URL' {
+        if (-not [string]::IsNullOrWhiteSpace($BaseUrl)) { $env:BASE_URL = $BaseUrl }
+        & node (Join-Path $Root 'capture.mjs')
+        if ($LASTEXITCODE -ne 0) { throw "capture.mjs failed with exit code $LASTEXITCODE" }
+
+        $inventory = Get-RouteInventoryFromVisual (Get-VisualManifest $Root)
+        if (@($inventory).Count -eq 0) { throw "No inventory produced for mode $resolvedMode" }
+
+        $visualFindings = Get-VisualFindings $inventory
+        $routeScores = Get-RouteScores $inventory
+        $pageTypeAudit = Get-PageTypeAudit $inventory
+        $decision = Decide $routeScores
+        $status = 'PASS'
+        $repoRoot = $env:BASE_URL
+
+        $repoAudit = [pscustomobject]@{
+            mode = $resolvedMode
+            repo_bound = $false
+            target_root = $repoRoot
+            live_capture_used = $true
+            routes_seen = @($inventory).Count
+            routes_missing = @($routeScores | Where-Object { $_.band -eq 'missing' } | ForEach-Object { $_.path })
+        }
+
+        $auditResult = [pscustomobject]@{
+            status = $status
+            mode = $resolvedMode
+            target_root = $repoRoot
+            live_capture_used = $true
+            checked_at_utc = (Get-Date).ToUniversalTime().ToString('o')
+        }
+
+        Write-JsonFile (Join-Path $ReportsDir 'route_inventory.json') $inventory
+        Write-JsonFile (Join-Path $ReportsDir 'visual_findings.json') $visualFindings
+        Write-JsonFile (Join-Path $ReportsDir 'route_scores.json') $routeScores
+        Write-JsonFile (Join-Path $ReportsDir 'page_type_audit.json') $pageTypeAudit
+        Write-JsonFile (Join-Path $ReportsDir 'decision_summary.json') $decision
+        Write-JsonFile (Join-Path $ReportsDir 'repo_audit.json') $repoAudit
+        Write-JsonFile (Join-Path $ReportsDir 'audit_result.json') $auditResult
+        Write-StandardReport -Path (Join-Path $ReportsDir 'REPORT.txt') -Status $status -Mode $resolvedMode -Decision $decision -Scores $routeScores -LiveCaptureUsed $true -TargetRoot $repoRoot
+    }
+    'UNIFIED' {
+        $repoRoot = Get-RepoRoot $TargetPath
+        if (-not [string]::IsNullOrWhiteSpace($BaseUrl)) { $env:BASE_URL = $BaseUrl }
+
+        $fileInventory = Get-RouteInventoryFromRepo -RepoRoot $repoRoot -Source 'repo'
+        & node (Join-Path $Root 'capture.mjs')
+        if ($LASTEXITCODE -ne 0) { throw "capture.mjs failed with exit code $LASTEXITCODE" }
+        $liveInventory = Get-RouteInventoryFromVisual (Get-VisualManifest $Root)
+
+        if (@($fileInventory).Count -eq 0) { throw 'No FILE inventory produced for UNIFIED mode' }
+        if (@($liveInventory).Count -eq 0) { throw 'No LIVE inventory produced for UNIFIED mode' }
+
+        $fileScores = Get-RouteScores $fileInventory
+        $liveScores = Get-RouteScores $liveInventory
+        $compare = Get-UnifiedCompare -FileScores $fileScores -LiveScores $liveScores
+        $fileDecision = Decide $fileScores
+        $liveDecision = Decide $liveScores
+
+        $status = 'PASS'
+        $auditResult = [pscustomobject]@{
+            status = $status
+            mode = 'UNIFIED'
+            target_root = $repoRoot
+            base_url = $env:BASE_URL
+            live_capture_used = $true
+            checked_at_utc = (Get-Date).ToUniversalTime().ToString('o')
+        }
+
+        Write-JsonFile (Join-Path $ReportsDir 'route_inventory_file.json') $fileInventory
+        Write-JsonFile (Join-Path $ReportsDir 'route_inventory_live.json') $liveInventory
+        Write-JsonFile (Join-Path $ReportsDir 'route_scores_file.json') $fileScores
+        Write-JsonFile (Join-Path $ReportsDir 'route_scores_live.json') $liveScores
+        Write-JsonFile (Join-Path $ReportsDir 'decision_summary_file.json') $fileDecision
+        Write-JsonFile (Join-Path $ReportsDir 'decision_summary_live.json') $liveDecision
+        Write-JsonFile (Join-Path $ReportsDir 'unified_compare.json') $compare
+        Write-JsonFile (Join-Path $ReportsDir 'audit_result.json') $auditResult
+        Write-UnifiedReport -Path (Join-Path $ReportsDir 'REPORT.txt') -Status $status -TargetRoot $repoRoot -BaseUrl $env:BASE_URL -FileDecision $fileDecision -LiveDecision $liveDecision -FileScores $fileScores -LiveScores $liveScores -Compare $compare
+    }
+    default {
+        throw "Unsupported mode: $resolvedMode"
+    }
 }
-
-if (@($inventory).Count -eq 0) { throw "No inventory produced for mode $resolvedMode" }
-
-$visualFindings = Get-VisualFindings $inventory
-$routeScores = Get-RouteScores $inventory
-$pageTypeAudit = Get-PageTypeAudit $inventory
-$decision = Decide $routeScores
-
-$status = 'PASS'
-if (@($routeScores | Where-Object { $_.band -in @('missing','bad','thin','weak') }).Count -gt 0) {
-    $status = 'PASS'
-}
-
-$repoAudit = [pscustomobject]@{
-    mode = $resolvedMode
-    repo_bound = ($resolvedMode -in @('REPO','ZIP'))
-    target_root = $repoRoot
-    live_capture_used = $liveCaptureUsed
-    routes_seen = @($inventory).Count
-    routes_missing = @($routeScores | Where-Object { $_.band -eq 'missing' } | ForEach-Object { $_.path })
-}
-
-$auditResult = [pscustomobject]@{
-    status = $status
-    mode = $resolvedMode
-    target_root = $repoRoot
-    live_capture_used = $liveCaptureUsed
-    checked_at_utc = (Get-Date).ToUniversalTime().ToString('o')
-}
-
-Write-JsonFile (Join-Path $ReportsDir 'route_inventory.json') $inventory
-Write-JsonFile (Join-Path $ReportsDir 'visual_findings.json') $visualFindings
-Write-JsonFile (Join-Path $ReportsDir 'route_scores.json') $routeScores
-Write-JsonFile (Join-Path $ReportsDir 'page_type_audit.json') $pageTypeAudit
-Write-JsonFile (Join-Path $ReportsDir 'decision_summary.json') $decision
-Write-JsonFile (Join-Path $ReportsDir 'repo_audit.json') $repoAudit
-Write-JsonFile (Join-Path $ReportsDir 'audit_result.json') $auditResult
-Write-Report -Path (Join-Path $ReportsDir 'REPORT.txt') -Status $status -Mode $resolvedMode -Decision $decision -Scores $routeScores -LiveCaptureUsed $liveCaptureUsed -TargetRoot $repoRoot
 
 "PASS $resolvedMode" | Set-Content -LiteralPath (Join-Path $OutboxDir 'DONE.ok') -Encoding UTF8
 Write-Host "AGENT PASS: $resolvedMode"

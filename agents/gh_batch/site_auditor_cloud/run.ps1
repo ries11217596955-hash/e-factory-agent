@@ -1,3 +1,4 @@
+\
 param()
 
 $ErrorActionPreference = "Stop"
@@ -14,7 +15,7 @@ function Reset-Dir([string]$Path) {
 function Write-FailArtifacts([string]$Mode, [string]$Message, [string]$ReportsDir, [string]$OutboxDir) {
     Ensure-Dir $ReportsDir
     Ensure-Dir $OutboxDir
-    @"
+@"
 STATUS:
 FAIL
 
@@ -90,20 +91,27 @@ $mode = if ([string]::IsNullOrWhiteSpace($env:FORCE_MODE)) { 'URL' } else { $env
 $zipInProcess = $null
 
 try {
-    if ($mode -eq 'REPO') {
+    if ($mode -eq 'REPO' -or $mode -eq 'UNIFIED') {
         $targetRepo = $env:TARGET_REPO_PATH
         if ([string]::IsNullOrWhiteSpace($targetRepo)) {
             $workspaceRoot = [System.IO.Path]::GetFullPath((Join-Path $Root '../../../../'))
             $targetRepo = Join-Path $workspaceRoot 'target_repo'
         }
-        Write-Host "MODE: REPO (forced by workflow_dispatch)"
+        Write-Host ("MODE: {0}" -f $mode)
         Write-Host "AUDIT ROOT: $targetRepo"
         if (-not (Test-Path -LiteralPath $targetRepo)) {
             throw "REPO NOT FOUND (checkout failed): $targetRepo"
         }
         $global:LASTEXITCODE = 0
-        & $Agent -Mode REPO -TargetPath $targetRepo
-        if (-not $?) { throw 'agent.ps1 failed in REPO mode' }
+        if ($mode -eq 'UNIFIED') {
+            $baseUrl = if ([string]::IsNullOrWhiteSpace($env:BASE_URL)) { 'https://automation-kb.pages.dev' } else { $env:BASE_URL }
+            Write-Host "BASE URL: $baseUrl"
+            & $Agent -Mode UNIFIED -TargetPath $targetRepo -BaseUrl $baseUrl
+            if (-not $?) { throw 'agent.ps1 failed in UNIFIED mode' }
+        } else {
+            & $Agent -Mode REPO -TargetPath $targetRepo
+            if (-not $?) { throw 'agent.ps1 failed in REPO mode' }
+        }
         exit 0
     }
 
@@ -137,7 +145,7 @@ try {
 
         $routed = Route-ZipFile -SourcePath $zipInProcess -DestinationDir $Failed
         if ($null -ne $routed) { Write-Host "ZIP ROUTED: FAILED -> $routed" }
-        throw 'agent.ps1 failed in ZIP mode' 
+        throw 'agent.ps1 failed in ZIP mode'
     }
 
     $baseUrl = if ([string]::IsNullOrWhiteSpace($env:BASE_URL)) { 'https://automation-kb.pages.dev' } else { $env:BASE_URL }
