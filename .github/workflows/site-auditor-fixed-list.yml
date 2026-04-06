@@ -1,13 +1,27 @@
-name: site-auditor-repo-baseline
+name: site-auditor
 
 on:
   workflow_dispatch:
+    inputs:
+      audit_mode:
+        description: 'What to audit'
+        required: true
+        default: 'repo'
+        type: choice
+        options:
+          - repo
+          - url
+      target_url:
+        description: 'Used only when audit_mode=url'
+        required: false
+        default: 'https://automation-kb.pages.dev'
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  site-audit-repo:
+  site-audit:
     runs-on: ubuntu-latest
 
     steps:
@@ -15,16 +29,31 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Checkout target repo
+        if: ${{ inputs.audit_mode == 'repo' }}
         uses: actions/checkout@v4
         with:
           repository: ries11217596955-hash/automation-kb
           token: ${{ secrets.GH_BATCH_PAT }}
           path: target_repo
 
-      - name: Run SITE_AUDITOR in REPO baseline mode
+      - name: Setup Node
+        if: ${{ inputs.audit_mode == 'url' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install URL capture deps
+        if: ${{ inputs.audit_mode == 'url' }}
+        working-directory: agents/gh_batch/site_auditor_cloud
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+
+      - name: Run SITE_AUDITOR
         env:
-          FORCE_MODE: REPO
+          FORCE_MODE: ${{ inputs.audit_mode }}
           TARGET_REPO_PATH: ${{ github.workspace }}/target_repo
+          BASE_URL: ${{ inputs.target_url }}
         run: |
           cd agents/gh_batch/site_auditor_cloud
           pwsh ./run.ps1
@@ -39,7 +68,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: audit-output-repo-baseline
+          name: audit-output-${{ inputs.audit_mode }}
           path: |
             agents/gh_batch/site_auditor_cloud/outbox/**
             agents/gh_batch/site_auditor_cloud/reports/**
