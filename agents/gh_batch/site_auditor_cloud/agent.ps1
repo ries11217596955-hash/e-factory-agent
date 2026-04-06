@@ -191,3 +191,5 @@ $f | Out-File (Join-Path $OutDir "FIX.txt") -Encoding utf8
 $pages | ConvertTo-Json -Depth 5 | Out-File (Join-Path $OutDir "page_type_audit.json")
 
 Write-Output "AUDIT+FIX DONE"
+
+exit 0
