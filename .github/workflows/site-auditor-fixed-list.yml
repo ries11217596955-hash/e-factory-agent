@@ -19,21 +19,25 @@ jobs:
         with:
           node-version: 18
 
-      - name: Install deps
+      - name: Install Node deps
         run: |
           cd agents/gh_batch/site_auditor_cloud
           npm install || true
 
       - name: Run SITE_AUDITOR
+        env:
+          FORCE_MODE: ${{ github.event_name == 'workflow_dispatch' && 'REPO' || 'ZIP' }}
         run: |
           cd agents/gh_batch/site_auditor_cloud
           pwsh ./run.ps1
 
       - name: Debug tree
+        if: always()
         run: |
           ls -R agents/gh_batch/site_auditor_cloud
 
       - name: Upload reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: audit-output
