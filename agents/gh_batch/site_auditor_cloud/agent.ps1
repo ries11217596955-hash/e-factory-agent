@@ -5,12 +5,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-function Get-AllHtmlFiles {
+function Get-HtmlFiles {
     param($root)
     Get-ChildItem -Path $root -Recurse -Include *.html,*.htm -ErrorAction SilentlyContinue
 }
 
-function Read-TextContent {
+function Read-Text {
     param($file)
     try { return Get-Content $file.FullName -Raw } catch { return "" }
 }
@@ -33,15 +33,10 @@ function Detect-Contamination {
     return $false
 }
 
-function Get-Len {
-    param($text)
-    return ($text -replace "\s","").Length
-}
-
 function Classify {
     param($text)
 
-    $len = Get-Len $text
+    $len = ($text -replace "\s","").Length
     $cta = Detect-CTA $text
     $bad = Detect-Contamination $text
 
@@ -51,36 +46,41 @@ function Classify {
     return "WEAK"
 }
 
-function Score {
-    param($text)
+# ===== SCAN =====
 
-    return @{
-        entry = if ($text.Length -gt 300) {1}else{0}
-        flow  = if (Detect-CTA $text) {1}else{0}
-        trust = if (Detect-Contamination $text) {0}else{1}
-    }
-}
-
-# ---------- scan ----------
-
-$files = Get-AllHtmlFiles $TargetPath
+$files = Get-HtmlFiles $TargetPath
 $pages = @()
 
 foreach ($f in $files) {
-    $text = Read-TextContent $f
+    $text = Read-Text $f
     $state = Classify $text
-    $s = Score $text
 
     $pages += [PSCustomObject]@{
-        path=$f.FullName
-        state=$state
-        entry=$s.entry
-        flow=$s.flow
-        trust=$s.trust
+        path  = $f.FullName
+        state = $state
     }
 }
 
-# ---------- decision ----------
+# ===== VISUAL LAYER =====
+
+$Capture = Join-Path $PSScriptRoot "capture.mjs"
+
+$ScreensDir = Join-Path $OutDir "screenshots"
+New-Item -ItemType Directory -Force -Path $ScreensDir | Out-Null
+
+$VisualEnabled = $false
+
+if (Test-Path $Capture) {
+    try {
+        Write-Output "VISUAL: running capture.mjs"
+        node $Capture $TargetPath $ScreensDir
+        $VisualEnabled = $true
+    } catch {
+        Write-Output "VISUAL FAILED"
+    }
+}
+
+# ===== DECISION =====
 
 $p0=@()
 $p1=@()
@@ -89,28 +89,16 @@ if (($pages | Where-Object {$_.state -eq "EMPTY"}).Count -gt 0) {
     $p0 += "Empty pages exist"
 }
 
-if (($pages | Where-Object {$_.flow -eq 0}).Count -gt 2) {
-    $p0 += "No clear CTA across pages"
-}
-
-if (($pages | Where-Object {$_.trust -eq 0}).Count -gt 0) {
-    $p0 += "UI contamination visible"
-}
-
 if (($pages | Where-Object {$_.state -eq "THIN"}).Count -gt 1) {
     $p1 += "Thin content pages"
-}
-
-if (($pages | Where-Object {$_.entry -eq 0}).Count -gt 1) {
-    $p1 += "Weak entry clarity"
 }
 
 $p0 = $p0 | Select-Object -First 3
 $p1 = $p1 | Select-Object -First 3
 
-$core = "Site lacks clear user flow and action direction"
+$core = "Site lacks clear user flow and content depth"
 
-# ---------- REPORT ----------
+# ===== REPORT =====
 
 $r=@()
 $r+="CORE PROBLEM:"
@@ -125,71 +113,18 @@ $r+="P1:"
 $p1 | ForEach-Object { $r+="- $_" }
 $r+=""
 
+$r+="VISUAL_LAYER: $(if ($VisualEnabled) {"ON"} else {"OFF"})"
+
 $r+="DO NEXT:"
-$r+="1. Add one clear CTA"
-$r+="2. Remove UI contamination"
-$r+="3. Expand thin pages"
+$r+="1. Add clear CTA"
+$r+="2. Improve page depth"
+$r+="3. Fix broken/empty pages"
 
-# ---------- FIX ----------
-
-$f=@()
-
-if ($p0 -contains "No clear CTA across pages") {
-$f+=@"
-PROBLEM:
-No clear CTA
-
-FIX:
-Add primary CTA
-
-WHERE:
-Homepage + hubs
-
-HOW:
-Button under headline
-"@
-}
-
-if ($p0 -contains "UI contamination visible") {
-$f+=@"
-PROBLEM:
-UI contamination
-
-FIX:
-Remove dev artifacts
-
-WHERE:
-Visible UI
-
-HOW:
-Delete 'Built with', 'Edit on GitHub'
-"@
-}
-
-if ($p1 -contains "Thin content pages") {
-$f+=@"
-PROBLEM:
-Thin pages
-
-FIX:
-Add structure
-
-WHERE:
-All thin pages
-
-HOW:
-Add problem + solution + next step
-"@
-}
-
-# ---------- output ----------
-
-New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+# ===== SAVE =====
 
 $r | Out-File (Join-Path $OutDir "REPORT.txt") -Encoding utf8
-$f | Out-File (Join-Path $OutDir "FIX.txt") -Encoding utf8
 $pages | ConvertTo-Json -Depth 5 | Out-File (Join-Path $OutDir "page_type_audit.json")
 
-Write-Output "AUDIT+FIX DONE"
+Write-Output "AUDIT COMPLETE"
 
 exit 0
