@@ -3,22 +3,37 @@ param()
 $ErrorActionPreference = "Stop"
 
 $RunId = (Get-Date -Format "yyyyMMdd_HHmmss")
-$Root = "$PSScriptRoot"
+$Root = $PSScriptRoot
 $OutDir = Join-Path $Root "outbox\$RunId"
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
 $ZipPath = Join-Path $Root "input\site.zip"
-$Target = Join-Path $Root "target_repo"
+$RepoPath = Join-Path $Root "target_repo"
 
-# ---------- ZIP MODE ----------
+# ===== MODE LOGIC =====
+# AUTO (ZIP inbox) → ZIP
+# MANUAL → REPO
+
+$Mode = ""
 
 if (Test-Path $ZipPath) {
+    $Mode = "ZIP"
+} else {
+    $Mode = "REPO"
+}
 
-    Write-Output "ZIP MODE DETECTED"
+Write-Output "MODE: $Mode"
+
+# ===== TARGET RESOLUTION =====
+
+if ($Mode -eq "ZIP") {
 
     $Extract = Join-Path $Root "zip_extract"
-    if (Test-Path $Extract) { Remove-Item $Extract -Recurse -Force }
+
+    if (Test-Path $Extract) {
+        Remove-Item $Extract -Recurse -Force
+    }
 
     Expand-Archive -Path $ZipPath -DestinationPath $Extract -Force
 
@@ -32,15 +47,15 @@ if (Test-Path $ZipPath) {
 
 } else {
 
-    Write-Output "REPO MODE"
-
-    if (!(Test-Path $Target)) {
+    if (!(Test-Path $RepoPath)) {
         Write-Error "target_repo not found"
         exit 1
     }
+
+    $Target = $RepoPath
 }
 
-# ---------- RUN CORE ----------
+# ===== RUN CORE =====
 
 $Agent = Join-Path $Root "agent.ps1"
 
@@ -54,12 +69,15 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
+# ===== DONE =====
+
 "DONE.ok" | Out-File (Join-Path $OutDir "DONE.ok")
 
 @"
 RUN_ID: $RunId
 STATUS: PASS
-MODE: $(if (Test-Path $ZipPath) {"ZIP"} else {"REPO"})
+MODE: $Mode
+TARGET: $Target
 "@ | Out-File (Join-Path $OutDir "RUN_REPORT.txt")
 
 Write-Output "DONE: $OutDir"
