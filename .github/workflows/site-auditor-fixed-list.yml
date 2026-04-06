@@ -30,13 +30,12 @@ jobs:
       - name: Install Node deps
         run: |
           cd agents/gh_batch/site_auditor_cloud
-          npm install || true
+          npm install
 
       - name: Install Playwright browsers
-        if: github.event_name == 'workflow_dispatch'
         run: |
           cd agents/gh_batch/site_auditor_cloud
-          npx playwright install --with-deps chromium || true
+          npx playwright install --with-deps chromium
 
       - name: Run SITE_AUDITOR
         env:
