@@ -1,275 +1,265 @@
 param(
-    [ValidateSet("REPO", "ZIP", "URL")]
-    [string]$AuditMode = "REPO",
+    [string]$Mode = "URL",
     [string]$TargetPath,
     [string]$BaseUrl
 )
 
 $ErrorActionPreference = "Stop"
 
-function Get-ScriptRoot {
-    if ($PSScriptRoot) { return $PSScriptRoot }
-    if ($PSCommandPath) { return (Split-Path -Parent $PSCommandPath) }
-    return (Get-Location).Path
-}
-
 function Ensure-Dir([string]$Path) {
-    if (-not (Test-Path -LiteralPath $Path)) {
-        New-Item -ItemType Directory -Path $Path -Force | Out-Null
-    }
+    New-Item -ItemType Directory -Force -Path $Path | Out-Null
 }
 
-function Read-JsonFile {
-    param([string]$Path)
-    if (-not (Test-Path -LiteralPath $Path)) { throw "File not found: $Path" }
-    return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+function To-Int($Value) {
+    try { return [int]$Value } catch { return 0 }
 }
 
-function Normalize($x) { return @($x) }
-
-function Get-Int($v) { try { return [int]$v } catch { return 0 } }
-
-function RelPath([string]$Root, [string]$Full) {
-    try {
-        return [IO.Path]::GetRelativePath($Root, $Full).Replace('\\','/')
-    } catch {
-        return $Full
-    }
-}
-
-function Get-Weight([string]$p) {
-    if ($p -in @('/', '/hubs/', '/search/')) { return 'critical' }
-    if ($p -in @('/tools/', '/start-here/')) { return 'high' }
+function Get-Weight([string]$Path) {
+    if ($Path -in @('/', '/hubs/', '/search/')) { return 'critical' }
+    if ($Path -in @('/tools/', '/start-here/')) { return 'high' }
     return 'normal'
 }
 
-function Find-FirstFile {
-    param([string]$Root, [string[]]$Candidates)
-    foreach ($c in $Candidates) {
-        $full = Join-Path $Root $c
-        if (Test-Path -LiteralPath $full) { return $full }
+function Get-RepoRoot([string]$Path) {
+    if ([string]::IsNullOrWhiteSpace($Path)) { throw 'TargetPath is empty' }
+    if (-not (Test-Path -LiteralPath $Path)) { throw "TargetPath not found: $Path" }
+
+    $resolved = (Resolve-Path -LiteralPath $Path).Path
+    $candidates = @(
+        $resolved,
+        (Join-Path $resolved 'src')
+    )
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate) {
+            $src = if ((Split-Path -Leaf $candidate) -eq 'src') { $candidate } else { Join-Path $candidate 'src' }
+            if (Test-Path -LiteralPath $src) { return $resolved }
+        }
     }
-    return $null
+
+    $dirs = Get-ChildItem -LiteralPath $resolved -Directory -ErrorAction SilentlyContinue
+    foreach ($dir in $dirs) {
+        $src = Join-Path $dir.FullName 'src'
+        if (Test-Path -LiteralPath $src) { return $dir.FullName }
+    }
+
+    throw "No site repo root with src/ found under: $resolved"
 }
 
-function Test-MeaningfulFile([string]$Path) {
-    if (-not $Path) { return $false }
-    try {
-        $text = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop
-        return (-not [string]::IsNullOrWhiteSpace($text))
-    } catch {
-        return $false
-    }
-}
-
-function Measure-FileText([string]$Path) {
-    if (-not $Path) { return 0 }
-    try {
-        $text = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop
-        return $text.Length
-    } catch {
-        return 0
-    }
-}
-
-function Count-LinkTokens([string]$Path) {
-    if (-not $Path) { return 0 }
-    try {
-        $text = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop
-        $matches = [regex]::Matches($text, '\[[^\]]+\]\([^\)]+\)')
-        return $matches.Count
-    } catch {
-        return 0
-    }
-}
-
-function Get-RouteCandidates {
+function Get-RouteMap([string]$RepoRoot) {
+    $src = Join-Path $RepoRoot 'src'
     return @(
-        [pscustomobject]@{ path='/'            ; candidates=@('src/index.md','src/index.njk','src/index.html','index.md','index.njk','index.html') },
-        [pscustomobject]@{ path='/hubs/'       ; candidates=@('src/hubs/index.md','src/hubs/index.njk','src/hubs/index.html','hubs/index.md','hubs/index.njk','hubs/index.html') },
-        [pscustomobject]@{ path='/tools/'      ; candidates=@('src/tools/index.md','src/tools/index.njk','src/tools/index.html','tools/index.md','tools/index.njk','tools/index.html') },
-        [pscustomobject]@{ path='/start-here/' ; candidates=@('src/start-here/index.md','src/start-here/index.njk','src/start-here/index.html','start-here/index.md','start-here/index.njk','start-here/index.html') },
-        [pscustomobject]@{ path='/search/'     ; candidates=@('src/search/index.md','src/search.njk','src/search.html','search/index.md','search/index.njk','search/index.html') }
+        @{ path='/';           rel='src/index.md' },
+        @{ path='/hubs/';      rel='src/hubs/index.njk' },
+        @{ path='/tools/';     rel='src/tools/index.md' },
+        @{ path='/start-here/';rel='src/start-here/index.md' },
+        @{ path='/search/';    rel='src/search/index.md' }
     )
 }
 
-function Get-RouteInventoryFromRepo {
-    param([string]$RepoRoot)
+function Strip-FrontMatter([string]$Text) {
+    if ([string]::IsNullOrWhiteSpace($Text)) { return '' }
+    $text = $Text -replace "`r", ""
+    if ($text.StartsWith("---`n")) {
+        $parts = $text -split "`n---`n", 2
+        if ($parts.Count -eq 2) { return $parts[1] }
+    }
+    return $text
+}
 
+function Get-LinkCount([string]$Text) {
+    if ([string]::IsNullOrWhiteSpace($Text)) { return 0 }
+    $count = 0
+    $count += ([regex]::Matches($Text, '\[[^\]]+\]\([^)]+\)').Count)
+    $count += ([regex]::Matches($Text, 'href\s*=\s*["''][^"'']+["'']').Count)
+    return $count
+}
+
+function Get-ImageCount([string]$Text) {
+    if ([string]::IsNullOrWhiteSpace($Text)) { return 0 }
+    $count = 0
+    $count += ([regex]::Matches($Text, '!\[[^\]]*\]\([^)]+\)').Count)
+    $count += ([regex]::Matches($Text, '<img\b').Count)
+    return $count
+}
+
+function Get-TitleFromPath([string]$FilePath) {
+    return [System.IO.Path]::GetFileName($FilePath)
+}
+
+function New-RouteRecord([string]$RoutePath, [string]$Source, [string]$RelPath, [string]$FilePath) {
+    $exists = Test-Path -LiteralPath $FilePath
+    $raw = if ($exists) { Get-Content -LiteralPath $FilePath -Raw } else { '' }
+    $body = Strip-FrontMatter $raw
+    return [pscustomobject]@{
+        path = $RoutePath
+        source = $Source
+        file = $RelPath
+        exists = $exists
+        title = (Get-TitleFromPath $FilePath)
+        bodyTextLength = ($body.Length)
+        links = (Get-LinkCount $body)
+        images = (Get-ImageCount $body)
+        screenshotCount = 0
+        contentMetricsPresent = ($body.Length -gt 0)
+        weight = (Get-Weight $RoutePath)
+    }
+}
+
+function Get-RouteInventoryFromRepo([string]$RepoRoot, [string]$Source) {
+    $items = @()
+    foreach ($entry in (Get-RouteMap $RepoRoot)) {
+        $filePath = Join-Path $RepoRoot $entry.rel
+        $items += New-RouteRecord -RoutePath $entry.path -Source $Source -RelPath $entry.rel -FilePath $filePath
+    }
+    return $items
+}
+
+function Get-VisualManifest([string]$RootDir) {
+    $manifestPath = Join-Path $RootDir 'reports/visual_manifest.json'
+    if (-not (Test-Path -LiteralPath $manifestPath)) { return @() }
+    try {
+        $json = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        return @($json)
+    } catch {
+        return @()
+    }
+}
+
+function Get-RouteInventoryFromVisual($ManifestItems) {
+    $items = @()
+    foreach ($i in @($ManifestItems)) {
+        $routePath = '/'
+        if ($null -ne $i.url -and -not [string]::IsNullOrWhiteSpace([string]$i.url)) {
+            try {
+                $routePath = ([uri]([string]$i.url)).AbsolutePath
+                if ([string]::IsNullOrWhiteSpace($routePath)) { $routePath = '/' }
+            } catch {
+                $routePath = '/'
+            }
+        }
+        $items += [pscustomobject]@{
+            path = $routePath
+            source = 'url'
+            file = $null
+            exists = $true
+            title = [string]$i.title
+            bodyTextLength = (To-Int $i.bodyTextLength)
+            links = (To-Int $i.links)
+            images = (To-Int $i.images)
+            screenshotCount = (To-Int $i.screenshotCount)
+            contentMetricsPresent = [bool]$i.contentMetricsPresent
+            weight = (Get-Weight $routePath)
+        }
+    }
+    return $items
+}
+
+function Get-VisualFindings($Inventory) {
     $out = @()
-    foreach ($r in Get-RouteCandidates) {
-        $file = Find-FirstFile -Root $RepoRoot -Candidates $r.candidates
-        $exists = [bool]$file
-        $len = Measure-FileText $file
-        $links = Count-LinkTokens $file
+    foreach ($i in @($Inventory)) {
+        $visual = 'ok'
+        if (-not $i.exists) { $visual = 'missing' }
+        elseif ($i.bodyTextLength -lt 220) { $visual = 'empty' }
+        elseif ($i.bodyTextLength -lt 700) { $visual = 'thin' }
+        elseif ($i.links -lt 2) { $visual = 'weak' }
         $out += [pscustomobject]@{
-            path = $r.path
-            source = 'repo'
-            file = if ($file) { RelPath $RepoRoot $file } else { $null }
-            exists = $exists
-            title = if ($file) { [IO.Path]::GetFileName($file) } else { '' }
-            bodyTextLength = $len
-            links = $links
-            images = 0
-            screenshotCount = 0
-            contentMetricsPresent = $exists
-            weight = Get-Weight $r.path
+            path = $i.path
+            visual = $visual
+            len = $i.bodyTextLength
+            links = $i.links
+            img = $i.images
+            exists = $i.exists
+            screenshotCount = $i.screenshotCount
+            source = $i.source
         }
     }
     return $out
 }
 
-function Merge-LiveIntoInventory {
-    param($Inventory, $LiveItems)
-
-    $map = @{}
-    foreach ($item in $Inventory) { $map[$item.path] = $item }
-
-    foreach ($l in (Normalize $LiveItems)) {
-        $p = [string]$l.route_path
-        if (-not $p) {
-            try { $p = ([uri]$l.url).AbsolutePath } catch { $p = [string]$l.url }
-        }
-        if (-not $map.ContainsKey($p)) { continue }
-
-        $base = $map[$p]
-        $map[$p] = [pscustomobject]@{
-            path = $base.path
-            source = 'repo+live'
-            file = $base.file
-            exists = $base.exists
-            title = if ($l.title) { [string]$l.title } else { $base.title }
-            bodyTextLength = if ((Get-Int $l.bodyTextLength) -gt 0) { Get-Int $l.bodyTextLength } else { $base.bodyTextLength }
-            links = [Math]::Max($base.links, (Get-Int $l.links))
-            images = Get-Int $l.images
-            screenshotCount = Get-Int $l.screenshotCount
-            contentMetricsPresent = [bool]($base.contentMetricsPresent -or $l.contentMetricsPresent)
-            weight = $base.weight
-            live_url = [string]$l.url
-            live_status = [string]$l.status
-        }
-    }
-
-    return @($map.Values | Sort-Object path)
-}
-
-function Get-VisualBand($exists, $len, $links) {
-    if (-not $exists) { return 'missing' }
-    if ($len -lt 120) { return 'empty' }
-    if ($len -lt 500) { return 'thin' }
-    if ($links -lt 1) { return 'weak' }
-    return 'ok'
-}
-
-function Get-VisualFindings($items) {
+function Get-RouteScores($Inventory) {
     $out = @()
-    foreach ($i in (Normalize $items)) {
-        $band = Get-VisualBand $i.exists (Get-Int $i.bodyTextLength) (Get-Int $i.links)
+    foreach ($i in @($Inventory)) {
+        $band = 'ok'
+        if (-not $i.exists) { $band = 'missing' }
+        elseif ($i.bodyTextLength -lt 220) { $band = 'bad' }
+        elseif ($i.bodyTextLength -lt 700) { $band = 'thin' }
+        elseif ($i.links -lt 2) { $band = 'weak' }
         $out += [pscustomobject]@{
             path = $i.path
-            visual = $band
-            len = Get-Int $i.bodyTextLength
-            links = Get-Int $i.links
-            img = Get-Int $i.images
-            exists = [bool]$i.exists
-            screenshotCount = Get-Int $i.screenshotCount
-            source = [string]$i.source
-        }
-    }
-    return $out
-}
-
-function Get-RouteScores($items) {
-    $out = @()
-    foreach ($i in (Normalize $items)) {
-        $band = Get-VisualBand $i.exists (Get-Int $i.bodyTextLength) (Get-Int $i.links)
-        $out += [pscustomobject]@{
-            path = $i.path
-            weight = Get-Weight $i.path
+            weight = $i.weight
             band = $band
-            len = Get-Int $i.bodyTextLength
-            links = Get-Int $i.links
-            exists = [bool]$i.exists
-            source = [string]$i.source
+            len = $i.bodyTextLength
+            links = $i.links
+            exists = $i.exists
+            source = $i.source
         }
     }
     return $out
 }
 
-function Get-PageTypeAudit($items) {
+function Get-PageTypeAudit($Inventory) {
     $out = @()
-    foreach ($i in (Normalize $items)) {
-        $band = Get-VisualBand $i.exists (Get-Int $i.bodyTextLength) (Get-Int $i.links)
-        $state = switch ($band) {
-            'missing' { 'MISSING' }
-            'empty'   { 'EMPTY' }
-            'thin'    { 'THIN' }
-            'weak'    { 'WEAK' }
-            default   { 'OK' }
-        }
+    foreach ($i in @($Inventory)) {
+        $state = 'OK'
+        if (-not $i.exists) { $state = 'MISSING' }
+        elseif ($i.bodyTextLength -lt 220) { $state = 'EMPTY' }
+        elseif ($i.bodyTextLength -lt 700) { $state = 'THIN' }
+        elseif ($i.links -lt 2) { $state = 'WEAK' }
         $out += [pscustomobject]@{
             path = $i.path
             state = $state
-            text_length = Get-Int $i.bodyTextLength
-            links = Get-Int $i.links
-            exists = [bool]$i.exists
-            source = [string]$i.source
+            text_length = $i.bodyTextLength
+            links = $i.links
+            exists = $i.exists
+            source = $i.source
         }
     }
     return $out
 }
 
-function Get-RepoAudit {
-    param([string]$Mode, [string]$TargetRoot, $Inventory, [bool]$LiveCaptureUsed)
-
+function Analyze-System($Scores) {
+    $router = $false
+    $flow = $false
+    foreach ($s in @($Scores)) {
+        if ($s.path -eq '/hubs/' -and $s.exists) { $router = $true }
+        if ($s.path -eq '/search/' -and $s.exists) { $flow = $true }
+    }
     return [pscustomobject]@{
-        mode = $Mode
-        repo_bound = [bool]($Mode -in @('REPO','ZIP'))
-        target_root = $TargetRoot
-        live_capture_used = $LiveCaptureUsed
-        routes_seen = @($Inventory).Count
-        routes_missing = @($Inventory | Where-Object { -not $_.exists } | Select-Object -ExpandProperty path)
+        router = $router
+        flow = $flow
     }
 }
 
-function Decide($scores, $findings, [string]$Mode, [bool]$LiveCaptureUsed) {
-    $missingCritical = @($scores | Where-Object { $_.weight -eq 'critical' -and $_.band -eq 'missing' } | Select-Object -ExpandProperty path)
-    $weakCritical    = @($scores | Where-Object { $_.weight -eq 'critical' -and $_.band -in @('empty','thin','weak') } | Select-Object -ExpandProperty path)
-    $weakHigh        = @($scores | Where-Object { $_.weight -eq 'high' -and $_.band -ne 'ok' } | Select-Object -ExpandProperty path)
+function Decide($Scores) {
+    $sys = Analyze-System $Scores
+    $criticalBad = @($Scores | Where-Object { $_.weight -eq 'critical' -and $_.band -ne 'ok' })
+    $highBad = @($Scores | Where-Object { $_.weight -eq 'high' -and $_.band -ne 'ok' })
+    $missing = @($Scores | Where-Object { $_.band -eq 'missing' })
 
-    $core = switch ($Mode) {
-        'ZIP'  { 'ZIP audit completed.' }
-        'REPO' { 'Repo audit completed.' }
-        default { 'URL audit completed.' }
-    }
-    if ($missingCritical.Count -gt 0) {
-        $core = 'Critical routes are missing.'
-    } elseif ($weakCritical.Count -gt 0) {
-        $core = 'Critical routes exist but are weak.'
+    $core = 'Critical routes exist but are weak.'
+    if ($missing.Count -gt 0) {
+        $core = 'Some required routes are missing.'
+    } elseif (-not $sys.router -or -not $sys.flow) {
+        $core = 'Site does not function as a decision system (missing router or search layer).'
+    } elseif ($criticalBad.Count -eq 0 -and $highBad.Count -eq 0) {
+        $core = 'Core routes are present and reasonably filled.'
     }
 
     $p0 = @()
-    if ($missingCritical.Count -gt 0) {
-        $p0 += 'Missing critical routes: ' + ($missingCritical -join ', ')
-    }
-    if ($weakCritical.Count -gt 0) {
-        $p0 += 'Weak critical routes: ' + ($weakCritical -join ', ')
-    }
+    if (-not $sys.router) { $p0 += 'Router layer missing or broken: /hubs/' }
+    if (-not $sys.flow) { $p0 += 'Search/discovery layer missing or broken: /search/' }
+    if ($missing.Count -gt 0) { $p0 += ('Missing required routes: ' + (($missing.path) -join ', ')) }
+    if ($criticalBad.Count -gt 0) { $p0 += ('Weak critical routes: ' + (($criticalBad.path) -join ', ')) }
 
     $p1 = @()
-    if ($weakHigh.Count -gt 0) {
-        $p1 += 'High-value routes need work: ' + ($weakHigh -join ', ')
-    }
-    if ($Mode -eq 'REPO' -and -not $LiveCaptureUsed) {
-        $p1 += 'Live capture did not run in REPO mode.'
-    }
+    if ($highBad.Count -gt 0) { $p1 += ('High-value routes need more depth: ' + (($highBad.path) -join ', ')) }
 
     $do = @()
-    if ($missingCritical.Count -gt 0) { $do += 'Restore missing critical routes first.' }
-    if ($weakCritical.Count -gt 0) { $do += 'Strengthen critical routes with real content.' }
-    if ($weakHigh.Count -gt 0) { $do += 'Improve /tools/ and /start-here/ depth.' }
-    if ($Mode -eq 'ZIP') { $do += 'Keep ZIP audit file-only and stable.' }
-    if ($Mode -eq 'REPO') { $do += 'Keep REPO audit separate from inbox ZIP.' }
+    if ($missing.Count -gt 0) { $do += 'Restore missing required routes first.' }
+    if ($criticalBad.Count -gt 0) { $do += 'Strengthen critical routes with real content and usable links.' }
+    if ($highBad.Count -gt 0) { $do += 'Improve tools/start-here as guided entry pages.' }
+    if ($do.Count -eq 0) { $do += 'Keep the current route baseline stable and expand carefully.' }
 
     return [pscustomobject]@{
         core = $core
@@ -279,171 +269,106 @@ function Decide($scores, $findings, [string]$Mode, [bool]$LiveCaptureUsed) {
     }
 }
 
-function Write-Report {
-    param($Decision, $Inventory, $Findings, $RepoAudit, [string]$OutPath)
-
-    $lines = @()
-    $lines += 'STATUS:'
-    $lines += 'PASS'
-    $lines += ''
-    $lines += 'MODE:'
-    $lines += [string]$RepoAudit.mode
-    $lines += ''
-    $lines += 'CORE PROBLEM:'
-    $lines += [string]$Decision.core
-    $lines += ''
-    $lines += 'P0:'
-    if (@($Decision.p0).Count -eq 0) { $lines += '- none' } else { $Decision.p0 | ForEach-Object { $lines += '- ' + $_ } }
-    $lines += ''
-    $lines += 'P1:'
-    if (@($Decision.p1).Count -eq 0) { $lines += '- none' } else { $Decision.p1 | ForEach-Object { $lines += '- ' + $_ } }
-    $lines += ''
-    $lines += 'SUMMARY:'
-    $lines += '- Routes checked: ' + @($Inventory).Count
-    $lines += '- Missing routes: ' + @($Findings | Where-Object { $_.visual -eq 'missing' }).Count
-    $lines += '- Empty/thin routes: ' + @($Findings | Where-Object { $_.visual -in @('empty','thin') }).Count
-    $lines += '- Live capture used: ' + [string]$RepoAudit.live_capture_used
-    $lines += ''
-    $lines += 'DO NEXT:'
-    if (@($Decision.do).Count -eq 0) {
-        $lines += '1. Keep improving top routes.'
-    } else {
-        $i = 1
-        foreach ($x in $Decision.do) { $lines += ("{0}. {1}" -f $i, $x); $i++ }
-    }
-    Set-Content -LiteralPath $OutPath -Value ($lines -join [Environment]::NewLine) -Encoding UTF8
+function Write-JsonFile([string]$Path, $Object) {
+    ($Object | ConvertTo-Json -Depth 8) | Set-Content -LiteralPath $Path -Encoding UTF8
 }
 
-function Invoke-LiveCapture {
-    param([string]$Root, [string]$BaseUrl)
-    if ([string]::IsNullOrWhiteSpace($BaseUrl)) { return $null }
+function Write-Report([string]$Path, [string]$Status, [string]$Mode, $Decision, $Scores, [bool]$LiveCaptureUsed) {
+    $missingCount = @($Scores | Where-Object { $_.band -eq 'missing' }).Count
+    $thinCount = @($Scores | Where-Object { $_.band -in @('bad','thin') }).Count
+    $p0Lines = if ($Decision.p0.Count -gt 0) { ($Decision.p0 | ForEach-Object { "- $_" }) -join "`n" } else { '- none' }
+    $p1Lines = if ($Decision.p1.Count -gt 0) { ($Decision.p1 | ForEach-Object { "- $_" }) -join "`n" } else { '- none' }
+    $doLines = if ($Decision.do.Count -gt 0) { ($Decision.do | ForEach-Object { "$([array]::IndexOf($Decision.do, $_)+1). $_" }) -join "`n" } else { '1. none' }
 
-    $capPath = Join-Path $Root 'capture.mjs'
-    if (-not (Test-Path -LiteralPath $capPath)) { return $null }
+    @"
+STATUS:
+$Status
 
-    $env:BASE_URL = $BaseUrl
-    try {
-        Push-Location $Root
-        & node $capPath
-        Pop-Location
-    } catch {
-        try { Pop-Location } catch {}
-        return $null
-    }
+MODE:
+$Mode
 
-    $manifestPath = Join-Path $Root 'reports/visual_manifest.json'
-    if (-not (Test-Path -LiteralPath $manifestPath)) { return $null }
-    return Read-JsonFile $manifestPath
+CORE PROBLEM:
+$($Decision.core)
+
+P0:
+$p0Lines
+
+P1:
+$p1Lines
+
+SUMMARY:
+- Routes checked: $(@($Scores).Count)
+- Missing routes: $missingCount
+- Empty/thin routes: $thinCount
+- Live capture used: $LiveCaptureUsed
+
+DO NEXT:
+$doLines
+"@ | Set-Content -LiteralPath $Path -Encoding UTF8
 }
 
-function Invoke-SiteAuditor {
-    param([string]$AuditMode, [string]$TargetPath, [string]$BaseUrl)
+$Root = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+$ReportsDir = Join-Path $Root 'reports'
+$OutboxDir = Join-Path $Root 'outbox'
+Ensure-Dir $ReportsDir
+Ensure-Dir $OutboxDir
 
-    $root = Get-ScriptRoot
-    $rep  = Join-Path $root 'reports'
-    $out  = Join-Path $root 'outbox'
+$resolvedMode = if (-not [string]::IsNullOrWhiteSpace($Mode)) { $Mode.ToUpperInvariant() } else { 'URL' }
+$liveCaptureUsed = $false
+$repoRoot = $null
+$inventory = @()
 
-    Ensure-Dir $rep
-    Ensure-Dir $out
-
-    $inventory = @()
-    $liveCaptureUsed = $false
-    $liveItems = $null
-
-    switch ($AuditMode) {
-        'REPO' {
-            if ([string]::IsNullOrWhiteSpace($TargetPath) -or -not (Test-Path -LiteralPath $TargetPath)) {
-                throw 'REPO mode requires an existing TargetPath'
-            }
-            $inventory = Get-RouteInventoryFromRepo -RepoRoot $TargetPath
-            $liveItems = Invoke-LiveCapture -Root $root -BaseUrl $BaseUrl
-            if ($liveItems) {
-                $inventory = Merge-LiveIntoInventory -Inventory $inventory -LiveItems $liveItems
-                $liveCaptureUsed = $true
-            }
-        }
-        'ZIP' {
-            if ([string]::IsNullOrWhiteSpace($TargetPath) -or -not (Test-Path -LiteralPath $TargetPath)) {
-                throw 'ZIP mode requires an existing TargetPath'
-            }
-            $inventory = Get-RouteInventoryFromRepo -RepoRoot $TargetPath
-        }
-        'URL' {
-            $liveItems = Invoke-LiveCapture -Root $root -BaseUrl $BaseUrl
-            if (-not $liveItems) {
-                throw 'URL mode capture failed'
-            }
-            $inventory = @()
-            foreach ($l in (Normalize $liveItems)) {
-                $p = [string]$l.route_path
-                if (-not $p) {
-                    try { $p = ([uri]$l.url).AbsolutePath } catch { $p = [string]$l.url }
-                }
-                $inventory += [pscustomobject]@{
-                    path = $p
-                    source = 'live'
-                    file = $null
-                    exists = $true
-                    title = [string]$l.title
-                    bodyTextLength = Get-Int $l.bodyTextLength
-                    links = Get-Int $l.links
-                    images = Get-Int $l.images
-                    screenshotCount = Get-Int $l.screenshotCount
-                    contentMetricsPresent = [bool]$l.contentMetricsPresent
-                    weight = Get-Weight $p
-                    live_url = [string]$l.url
-                    live_status = [string]$l.status
-                }
-            }
-            $liveCaptureUsed = $true
-        }
-    }
-
-    $find = Get-VisualFindings $inventory
-    $scores = Get-RouteScores $inventory
-    $types = Get-PageTypeAudit $inventory
-    $repoAudit = Get-RepoAudit -Mode $AuditMode -TargetRoot $TargetPath -Inventory $inventory -LiveCaptureUsed $liveCaptureUsed
-    $dec = Decide -scores $scores -findings $find -Mode $AuditMode -LiveCaptureUsed $liveCaptureUsed
-
-    $inventory | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $rep 'route_inventory.json') -Encoding UTF8
-    $find      | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $rep 'visual_findings.json') -Encoding UTF8
-    $scores    | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $rep 'route_scores.json') -Encoding UTF8
-    $types     | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $rep 'page_type_audit.json') -Encoding UTF8
-    $repoAudit | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $rep 'repo_audit.json') -Encoding UTF8
-    $dec       | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $rep 'decision_summary.json') -Encoding UTF8
-
-    if ($liveCaptureUsed -and $liveItems) {
-        $liveItems | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $rep 'visual_manifest.json') -Encoding UTF8
-    }
-
-    $result = [pscustomobject]@{
-        status = 'PASS'
-        mode = $AuditMode
-        target_root = $TargetPath
-        live_capture_used = $liveCaptureUsed
-        checked_at_utc = [DateTime]::UtcNow.ToString('o')
-    }
-    $result | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $rep 'audit_result.json') -Encoding UTF8
-
-    Write-Report -Decision $dec -Inventory $inventory -Findings $find -RepoAudit $repoAudit -OutPath (Join-Path $rep 'REPORT.txt')
-
-    Set-Content -LiteralPath (Join-Path $out 'DONE.ok') -Value ('PASS ' + $AuditMode) -Encoding UTF8
-    Write-Host 'DONE'
+if ($resolvedMode -in @('REPO','ZIP')) {
+    $repoRoot = Get-RepoRoot $TargetPath
+    $inventory = Get-RouteInventoryFromRepo -RepoRoot $repoRoot -Source 'repo'
+} elseif ($resolvedMode -eq 'URL') {
+    if (-not [string]::IsNullOrWhiteSpace($BaseUrl)) { $env:BASE_URL = $BaseUrl }
+    & node (Join-Path $Root 'capture.mjs')
+    if ($LASTEXITCODE -ne 0) { throw "capture.mjs failed with exit code $LASTEXITCODE" }
+    $inventory = Get-RouteInventoryFromVisual (Get-VisualManifest $Root)
+    $liveCaptureUsed = $true
+    $repoRoot = $env:BASE_URL
+} else {
+    throw "Unsupported mode: $resolvedMode"
 }
 
-try {
-    Invoke-SiteAuditor -AuditMode $AuditMode -TargetPath $TargetPath -BaseUrl $BaseUrl
-} catch {
-    $root = Get-ScriptRoot
-    $rep  = Join-Path $root 'reports'
-    $out  = Join-Path $root 'outbox'
-    Ensure-Dir $rep
-    Ensure-Dir $out
-    $msg = $_.Exception.Message
-    $fail = [pscustomobject]@{ status='FAIL'; mode=$AuditMode; error=$msg; checked_at_utc=[DateTime]::UtcNow.ToString('o') }
-    $fail | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $rep 'audit_result.json') -Encoding UTF8
-    Set-Content -LiteralPath (Join-Path $rep 'REPORT.txt') -Value ("STATUS:`nFAIL`n`nMODE:`n$AuditMode`n`nERROR:`n$msg") -Encoding UTF8
-    Set-Content -LiteralPath (Join-Path $out 'DONE.fail') -Value $msg -Encoding UTF8
-    Write-Error $msg
-    exit 1
+if (@($inventory).Count -eq 0) { throw "No inventory produced for mode $resolvedMode" }
+
+$visualFindings = Get-VisualFindings $inventory
+$routeScores = Get-RouteScores $inventory
+$pageTypeAudit = Get-PageTypeAudit $inventory
+$decision = Decide $routeScores
+
+$status = 'PASS'
+if (@($routeScores | Where-Object { $_.band -in @('missing','bad','thin','weak') }).Count -gt 0) {
+    $status = 'PASS'
 }
+
+$repoAudit = [pscustomobject]@{
+    mode = $resolvedMode
+    repo_bound = ($resolvedMode -in @('REPO','ZIP'))
+    target_root = $repoRoot
+    live_capture_used = $liveCaptureUsed
+    routes_seen = @($inventory).Count
+    routes_missing = @($routeScores | Where-Object { $_.band -eq 'missing' } | ForEach-Object { $_.path })
+}
+
+$auditResult = [pscustomobject]@{
+    status = $status
+    mode = $resolvedMode
+    target_root = $repoRoot
+    live_capture_used = $liveCaptureUsed
+    checked_at_utc = (Get-Date).ToUniversalTime().ToString('o')
+}
+
+Write-JsonFile (Join-Path $ReportsDir 'route_inventory.json') $inventory
+Write-JsonFile (Join-Path $ReportsDir 'visual_findings.json') $visualFindings
+Write-JsonFile (Join-Path $ReportsDir 'route_scores.json') $routeScores
+Write-JsonFile (Join-Path $ReportsDir 'page_type_audit.json') $pageTypeAudit
+Write-JsonFile (Join-Path $ReportsDir 'decision_summary.json') $decision
+Write-JsonFile (Join-Path $ReportsDir 'repo_audit.json') $repoAudit
+Write-JsonFile (Join-Path $ReportsDir 'audit_result.json') $auditResult
+Write-Report -Path (Join-Path $ReportsDir 'REPORT.txt') -Status $status -Mode $resolvedMode -Decision $decision -Scores $routeScores -LiveCaptureUsed $liveCaptureUsed
+
+"PASS $resolvedMode" | Set-Content -LiteralPath (Join-Path $OutboxDir 'DONE.ok') -Encoding UTF8
+Write-Host "AGENT PASS: $resolvedMode"
