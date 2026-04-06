@@ -1,5 +1,8 @@
 \
-param()
+param(
+    [string]$ForceMode = "",
+    [string]$BaseUrl = ""
+)
 
 $ErrorActionPreference = "Stop"
 
