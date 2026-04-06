@@ -1,14 +1,14 @@
-
 param(
     [string]$InboxPath
 )
 
-$zip = Get-ChildItem $InboxPath -Filter *.zip | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$zip = Get-ChildItem -Path $InboxPath -Filter *.zip -File -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
 
-if (!$zip) {
-    Write-Output "NO ZIP FOUND"
+if (-not $zip) {
     return $null
 }
 
-Write-Output "ZIP FOUND: $($zip.FullName)"
-return $zip.FullName
+Write-Host "ZIP FOUND: $($zip.FullName)"
+$zip.FullName
