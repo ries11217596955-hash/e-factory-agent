@@ -8,16 +8,20 @@ $OutDir = Join-Path $Root "outbox\$RunId"
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
-$ZipPath = Join-Path $Root "input\site.zip"
+$InputDir = Join-Path $Root "input"
 $RepoPath = Join-Path $Root "target_repo"
 
-# ===== MODE LOGIC =====
-# AUTO (ZIP inbox) → ZIP
-# MANUAL → REPO
+# ===== ZIP DETECTION =====
 
-$Mode = ""
+$ZipFile = $null
 
-if (Test-Path $ZipPath) {
+if (Test-Path $InputDir) {
+    $ZipFile = Get-ChildItem $InputDir -Filter *.zip | Select-Object -First 1
+}
+
+# ===== MODE =====
+
+if ($ZipFile) {
     $Mode = "ZIP"
 } else {
     $Mode = "REPO"
@@ -25,9 +29,11 @@ if (Test-Path $ZipPath) {
 
 Write-Output "MODE: $Mode"
 
-# ===== TARGET RESOLUTION =====
+# ===== TARGET =====
 
 if ($Mode -eq "ZIP") {
+
+    Write-Output "ZIP FILE: $($ZipFile.Name)"
 
     $Extract = Join-Path $Root "zip_extract"
 
@@ -35,7 +41,7 @@ if ($Mode -eq "ZIP") {
         Remove-Item $Extract -Recurse -Force
     }
 
-    Expand-Archive -Path $ZipPath -DestinationPath $Extract -Force
+    Expand-Archive -Path $ZipFile.FullName -DestinationPath $Extract -Force
 
     $sub = Get-ChildItem $Extract
 
@@ -48,14 +54,14 @@ if ($Mode -eq "ZIP") {
 } else {
 
     if (!(Test-Path $RepoPath)) {
-        Write-Error "target_repo not found"
+        Write-Error "target_repo not found (REPO mode)"
         exit 1
     }
 
     $Target = $RepoPath
 }
 
-# ===== RUN CORE =====
+# ===== RUN AGENT =====
 
 $Agent = Join-Path $Root "agent.ps1"
 
@@ -78,6 +84,7 @@ RUN_ID: $RunId
 STATUS: PASS
 MODE: $Mode
 TARGET: $Target
+ZIP: $(if ($ZipFile) {$ZipFile.Name} else {"NONE"})
 "@ | Out-File (Join-Path $OutDir "RUN_REPORT.txt")
 
 Write-Output "DONE: $OutDir"
