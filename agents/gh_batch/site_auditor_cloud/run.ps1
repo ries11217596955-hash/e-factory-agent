@@ -1,46 +1,48 @@
-param()
-
 $ErrorActionPreference = "Stop"
 
-$RunId = Get-Date -Format "yyyyMMdd_HHmmss"
-$Root  = $PSScriptRoot
-$OutDir = Join-Path $Root "outbox\$RunId"
+$scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+Write-Host "PREFLIGHT"
+Write-Host "scriptRoot: $scriptRoot"
 
-New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
-
-$RepoPath = Join-Path $Root "target_repo"
-
-if (!(Test-Path $RepoPath)) {
-    Write-Error "target_repo not found"
-    exit 1
+$agentPath = Join-Path $scriptRoot "agent.ps1"
+if (-not (Test-Path -LiteralPath $agentPath)) {
+    throw "agent.ps1 not found at $agentPath"
 }
 
-$Agent = Join-Path $Root "agent.ps1"
+Write-Host "LOADING AGENT: $agentPath"
+. $agentPath
 
-if (!(Test-Path $Agent)) {
-    Write-Error "agent.ps1 not found"
-    exit 1
+if (-not (Get-Command Build-RouteInventory -ErrorAction SilentlyContinue)) {
+    throw "Build-RouteInventory NOT LOADED"
+}
+if (-not (Get-Command Invoke-SiteAuditor -ErrorAction SilentlyContinue)) {
+    throw "Invoke-SiteAuditor NOT LOADED"
 }
 
-Write-Output "MODE: REPO"
-Write-Output "TARGET: $RepoPath"
+$BaseUrl = "https://automation-kb.pages.dev"
+Write-Host "BASE URL: $BaseUrl"
 
-& $Agent `
-    -TargetPath $RepoPath `
-    -OutDir $OutDir
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "agent failed"
-    exit 1
+$reportsDir = Join-Path $scriptRoot "reports"
+if (-not (Test-Path -LiteralPath $reportsDir)) {
+    New-Item -ItemType Directory -Path $reportsDir -Force | Out-Null
 }
 
-"DONE.ok" | Out-File (Join-Path $OutDir "DONE.ok") -Encoding utf8
+Push-Location $scriptRoot
+try {
+    Write-Host "RUN CAPTURE: node capture.mjs"
+    & node capture.mjs
+    if ($LASTEXITCODE -ne 0) {
+        throw "capture.mjs failed with exit code $LASTEXITCODE"
+    }
+}
+finally {
+    Pop-Location
+}
 
-@"
-RUN_ID: $RunId
-STATUS: PASS
-MODE: REPO
-TARGET: $RepoPath
-"@ | Out-File (Join-Path $OutDir "RUN_REPORT.txt") -Encoding utf8
+$manifestPath = Join-Path $reportsDir "visual_manifest.json"
+if (-not (Test-Path -LiteralPath $manifestPath)) {
+    throw "visual_manifest.json not created at $manifestPath"
+}
 
-Write-Output "DONE: $OutDir"
+Build-RouteInventory -BaseUrl $BaseUrl
+Invoke-SiteAuditor -BaseUrl $BaseUrl
