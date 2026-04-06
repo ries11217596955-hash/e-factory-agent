@@ -8,33 +8,64 @@ $Out   = Join-Path $Root "outbox"
 
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
 
+$ForceMode = $env:FORCE_MODE
 $Intake = Join-Path $Root "lib/intake_zip.ps1"
 
-if (!(Test-Path $Inbox)) {
-    Write-Host "NO INBOX -> fallback to LIVE"
+if ($ForceMode -eq "REPO") {
+    Write-Host "MODE: REPO (forced by workflow_dispatch)"
     & "$Root\agent.ps1"
-    exit 0
+    exit $LASTEXITCODE
 }
 
-$zip = & $Intake -InboxPath $Inbox
+if ($ForceMode -eq "ZIP") {
+    if (!(Test-Path $Inbox)) {
+        Write-Error "ZIP mode forced but inbox not found: $Inbox"
+        exit 1
+    }
 
-if ([string]::IsNullOrWhiteSpace($zip)) {
-    Write-Host "NO ZIP -> fallback LIVE"
-    & "$Root\agent.ps1"
-    exit 0
+    $zip = & $Intake -InboxPath $Inbox
+
+    if ([string]::IsNullOrWhiteSpace($zip)) {
+        Write-Error "ZIP mode forced but no ZIP found in inbox"
+        exit 1
+    }
+
+    $zip = "$zip".Trim()
+
+    Write-Host "MODE: ZIP"
+    Write-Host "ZIP PATH: $zip"
+
+    $Preflight = Join-Path $Root "lib/preflight.ps1"
+    & $Preflight -ZipPath $zip
+
+    $tmp = Join-Path $Root "tmp_zip"
+    Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    Expand-Archive -Path $zip -DestinationPath $tmp -Force
+
+    & "$Root\agent.ps1" -TargetPath $tmp
+    exit $LASTEXITCODE
 }
 
-$zip = "$zip".Trim()
+# fallback safety
+if (Test-Path $Inbox) {
+    $zip = & $Intake -InboxPath $Inbox
+    if (-not [string]::IsNullOrWhiteSpace($zip)) {
+        $zip = "$zip".Trim()
+        Write-Host "MODE: ZIP (fallback)"
+        Write-Host "ZIP PATH: $zip"
 
-Write-Host "MODE: ZIP"
-Write-Host "ZIP PATH: $zip"
+        $Preflight = Join-Path $Root "lib/preflight.ps1"
+        & $Preflight -ZipPath $zip
 
-$Preflight = Join-Path $Root "lib/preflight.ps1"
-& $Preflight -ZipPath $zip
+        $tmp = Join-Path $Root "tmp_zip"
+        Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+        Expand-Archive -Path $zip -DestinationPath $tmp -Force
 
-$tmp = Join-Path $Root "tmp_zip"
-Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
-Expand-Archive -Path $zip -DestinationPath $tmp -Force
+        & "$Root\agent.ps1" -TargetPath $tmp
+        exit $LASTEXITCODE
+    }
+}
 
-& "$Root\agent.ps1" -TargetPath $tmp
+Write-Host "MODE: LIVE/REPO (fallback)"
+& "$Root\agent.ps1"
 exit $LASTEXITCODE
