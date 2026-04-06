@@ -1,40 +1,56 @@
-name: site-auditor
+name: site-auditor-fixed-list
 
 on:
   workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
 
 jobs:
   site-audit:
     runs-on: ubuntu-latest
 
+    env:
+      GH_PAT: ${{ secrets.GH_BATCH_PAT }}
+
     steps:
-      - name: Checkout auditor repo
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Checkout target repo (manual)
-        uses: actions/checkout@v4
-        with:
-          repository: ries11217596955-hash/automation-kb
-          path: agents/gh_batch/site_auditor/target_repo
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 18
-
-      - name: Install deps
-        working-directory: agents/gh_batch/site_auditor
-        run: npm install
-
-      - name: Run SITE_AUDITOR (REPO)
-        working-directory: agents/gh_batch/site_auditor
+      - name: Show PowerShell version
         shell: pwsh
-        run: ./run.ps1
+        run: |
+          $PSVersionTable.PSVersion.ToString()
 
-      - name: Upload artifacts
+      - name: Install Node deps
+        run: |
+          cd agents/gh_batch/site_auditor_cloud
+          npm install
+          npx playwright install chromium
+
+      - name: Run SITE_AUDITOR
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          ./agents/gh_batch/site_auditor_cloud/run.ps1
+
+      - name: Show reports tree
+        if: always()
+        shell: bash
+        run: |
+          echo "PWD=$(pwd)"
+          if [ -d "agents/gh_batch/site_auditor_cloud/reports" ]; then
+            echo "REPORTS FOUND"
+            find agents/gh_batch/site_auditor_cloud/reports -maxdepth 3 -type f | sort
+          else
+            echo "REPORTS DIR NOT FOUND"
+          fi
+
+      - name: Upload reports artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: audit-output
-          path: agents/gh_batch/site_auditor/outbox/**
-          if-no-files-found: warn
+          name: site-audit-reports
+          path: agents/gh_batch/site_auditor_cloud/reports
+          if-no-files-found: error
