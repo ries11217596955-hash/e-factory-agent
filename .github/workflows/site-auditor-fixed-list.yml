@@ -3,6 +3,10 @@ name: site-auditor-fixed-list
 on:
   workflow_dispatch:
 
+  push:
+    paths:
+      - 'agents/site_auditor_cloud/input/**'
+
 permissions:
   contents: read
   actions: read
