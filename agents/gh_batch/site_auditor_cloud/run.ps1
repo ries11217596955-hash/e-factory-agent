@@ -97,8 +97,10 @@ try {
         }
         Write-Host "MODE: REPO (forced by workflow_dispatch)"
         Write-Host "AUDIT ROOT: $targetRepo"
+        $global:LASTEXITCODE = 0
         & $Agent -Mode REPO -TargetPath $targetRepo
-        exit $LASTEXITCODE
+        if (-not $?) { throw 'agent.ps1 failed in REPO mode' }
+        exit 0
     }
 
     if ($mode -eq 'ZIP') {
@@ -121,10 +123,9 @@ try {
         $auditRoot = Get-SiteRootFromExpandedZip -ExpandedRoot $TmpZip
         Write-Host "AUDIT ROOT: $auditRoot"
 
+        $global:LASTEXITCODE = 0
         & $Agent -Mode ZIP -TargetPath $auditRoot
-        $agentExit = $LASTEXITCODE
-
-        if ($agentExit -eq 0) {
+        if ($?) {
             $routed = Route-ZipFile -SourcePath $zipInProcess -DestinationDir $Done
             if ($null -ne $routed) { Write-Host "ZIP ROUTED: DONE -> $routed" }
             exit 0
@@ -132,14 +133,16 @@ try {
 
         $routed = Route-ZipFile -SourcePath $zipInProcess -DestinationDir $Failed
         if ($null -ne $routed) { Write-Host "ZIP ROUTED: FAILED -> $routed" }
-        throw "agent.ps1 failed in ZIP mode (exit=$agentExit)"
+        throw 'agent.ps1 failed in ZIP mode' 
     }
 
     $baseUrl = if ([string]::IsNullOrWhiteSpace($env:BASE_URL)) { 'https://automation-kb.pages.dev' } else { $env:BASE_URL }
     Write-Host "MODE: URL"
     Write-Host "BASE URL: $baseUrl"
+    $global:LASTEXITCODE = 0
     & $Agent -Mode URL -BaseUrl $baseUrl
-    exit $LASTEXITCODE
+    if (-not $?) { throw 'agent.ps1 failed in URL mode' }
+    exit 0
 }
 catch {
     $msg = $_.Exception.Message
