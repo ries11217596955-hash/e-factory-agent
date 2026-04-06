@@ -9,8 +9,6 @@ on:
 jobs:
   site-audit:
     runs-on: ubuntu-latest
-    env:
-      SITE_AUDITOR_BASE_URL: https://automation-kb.pages.dev
 
     steps:
       - name: Checkout agent repo
@@ -33,16 +31,13 @@ jobs:
         run: |
           cd agents/gh_batch/site_auditor_cloud
           npm install
-
-      - name: Install Playwright browsers
-        run: |
-          cd agents/gh_batch/site_auditor_cloud
           npx playwright install --with-deps chromium
 
       - name: Run SITE_AUDITOR
         env:
           FORCE_MODE: ${{ github.event_name == 'workflow_dispatch' && 'REPO' || 'ZIP' }}
-          TARGET_REPO_PATH: ${{ github.workspace }}/target_repo
+          BASE_URL: https://automation-kb.pages.dev
+          TARGET_REPO: ${{ github.workspace }}/target_repo
         run: |
           cd agents/gh_batch/site_auditor_cloud
           pwsh ./run.ps1
@@ -51,7 +46,6 @@ jobs:
         if: always()
         run: |
           ls -R agents/gh_batch/site_auditor_cloud || true
-          ls -R target_repo || true
 
       - name: Upload reports
         if: always()
