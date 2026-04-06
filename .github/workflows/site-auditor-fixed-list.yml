@@ -5,19 +5,11 @@ on:
 
   push:
     paths:
-      - 'agents/site_auditor_cloud/input/**'
-
-permissions:
-  contents: read
-  actions: read
+      - '**.zip'
 
 jobs:
   site-audit:
     runs-on: ubuntu-latest
-
-    env:
-      GH_PAT: ${{ secrets.GH_BATCH_PAT }}
-      TARGET_REPO_SLUG: ries11217596955-hash/automation-kb
 
     steps:
       - name: Checkout auditor repo
@@ -27,55 +19,24 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ries11217596955-hash/automation-kb
-          token: ${{ secrets.GH_BATCH_PAT }}
-          path: target_repo
-          fetch-depth: 1
-          persist-credentials: false
+          path: agents/site_auditor_cloud/target_repo
 
-      - name: Bind target repo path
-        shell: bash
-        run: |
-          echo "TARGET_REPO_PATH=$GITHUB_WORKSPACE/target_repo" >> "$GITHUB_ENV"
-          echo "TARGET_REPO_SLUG=ries11217596955-hash/automation-kb" >> "$GITHUB_ENV"
-          echo "TARGET_REPO_PATH=$GITHUB_WORKSPACE/target_repo"
-          ls -la "$GITHUB_WORKSPACE/target_repo" | sed -n '1,80p'
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
 
-      - name: Show PowerShell version
-        shell: pwsh
-        run: |
-          $PSVersionTable.PSVersion.ToString()
-
-      - name: Install Node deps
-        run: |
-          cd agents/gh_batch/site_auditor_cloud
-          npm install
-          npx playwright install chromium
+      - name: Install deps
+        working-directory: agents/site_auditor_cloud
+        run: npm install
 
       - name: Run SITE_AUDITOR
-        shell: pwsh
+        working-directory: agents/site_auditor_cloud
         run: |
-          $ErrorActionPreference = "Stop"
-          ./agents/gh_batch/site_auditor_cloud/run.ps1
+          pwsh -File run.ps1
 
-      - name: Show reports tree
-        if: always()
-        shell: bash
-        run: |
-          echo "PWD=$(pwd)"
-          echo "TARGET_REPO_PATH=${TARGET_REPO_PATH}"
-          if [ -d "agents/gh_batch/site_auditor_cloud/reports" ]; then
-            echo "REPORTS FOUND"
-            find agents/gh_batch/site_auditor_cloud/reports -maxdepth 3 -type f | sort
-            echo "--- repo_audit.json ---"
-            cat agents/gh_batch/site_auditor_cloud/reports/repo_audit.json || true
-          else
-            echo "REPORTS DIR NOT FOUND"
-          fi
-
-      - name: Upload reports artifact
-        if: always()
+      - name: Upload reports
         uses: actions/upload-artifact@v4
         with:
-          name: site-audit-reports
-          path: agents/gh_batch/site_auditor_cloud/reports
-          if-no-files-found: error
+          name: audit-output
+          path: agents/site_auditor_cloud/outbox/**
