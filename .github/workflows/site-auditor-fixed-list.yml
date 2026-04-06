@@ -11,9 +11,8 @@ on:
         options:
           - REPO
           - URL
-          - UNIFIED
       base_url:
-        description: 'Base URL for URL or UNIFIED mode'
+        description: 'Base URL for URL mode'
         required: false
         default: 'https://automation-kb.pages.dev'
         type: string
@@ -29,28 +28,28 @@ jobs:
       - name: Checkout agent repo
         uses: actions/checkout@v4
 
-      - name: Checkout target repo for REPO / UNIFIED audit
-        if: github.event_name == 'workflow_dispatch' && (inputs.audit_mode == 'REPO' || inputs.audit_mode == 'UNIFIED')
+      - name: Checkout target repo for manual REPO audit
+        if: github.event_name == 'workflow_dispatch' && inputs.audit_mode == 'REPO'
         uses: actions/checkout@v4
         with:
           repository: ries11217596955-hash/automation-kb
           token: ${{ secrets.GH_BATCH_PAT }}
           path: target_repo
 
-      - name: Setup Node for URL / UNIFIED mode
-        if: github.event_name == 'workflow_dispatch' && (inputs.audit_mode == 'URL' || inputs.audit_mode == 'UNIFIED')
+      - name: Setup Node for URL mode
+        if: github.event_name == 'workflow_dispatch' && inputs.audit_mode == 'URL'
         uses: actions/setup-node@v4
         with:
           node-version: 18
 
-      - name: Install Node deps for URL / UNIFIED mode
-        if: github.event_name == 'workflow_dispatch' && (inputs.audit_mode == 'URL' || inputs.audit_mode == 'UNIFIED')
+      - name: Install Node deps for URL mode
+        if: github.event_name == 'workflow_dispatch' && inputs.audit_mode == 'URL'
         run: |
           cd agents/gh_batch/site_auditor_cloud
           npm install
 
-      - name: Install Playwright browsers for URL / UNIFIED mode
-        if: github.event_name == 'workflow_dispatch' && (inputs.audit_mode == 'URL' || inputs.audit_mode == 'UNIFIED')
+      - name: Install Playwright browsers for URL mode
+        if: github.event_name == 'workflow_dispatch' && inputs.audit_mode == 'URL'
         run: |
           cd agents/gh_batch/site_auditor_cloud
           npx playwright install --with-deps chromium
