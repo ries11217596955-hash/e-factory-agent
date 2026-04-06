@@ -3,6 +3,8 @@ param(
     [string]$OutDir
 )
 
+$ErrorActionPreference = "Stop"
+
 function Get-AllHtmlFiles {
     param($root)
     Get-ChildItem -Path $root -Recurse -Include *.html,*.htm -ErrorAction SilentlyContinue
@@ -16,14 +18,18 @@ function Read-TextContent {
 function Detect-CTA {
     param($text)
     $patterns = @("get started","start","try","use","buy","sign up","download","learn more","continue")
-    foreach ($p in $patterns) { if ($text -match $p) { return $true } }
+    foreach ($p in $patterns) {
+        if ($text -match $p) { return $true }
+    }
     return $false
 }
 
 function Detect-Contamination {
     param($text)
     $bad = @("built with","edit on github","batch-","localhost","debug")
-    foreach ($b in $bad) { if ($text -match $b) { return $true } }
+    foreach ($b in $bad) {
+        if ($text -match $b) { return $true }
+    }
     return $false
 }
 
@@ -55,6 +61,8 @@ function Score {
     }
 }
 
+# ---------- scan ----------
+
 $files = Get-AllHtmlFiles $TargetPath
 $pages = @()
 
@@ -72,32 +80,58 @@ foreach ($f in $files) {
     }
 }
 
-# decision
-$p0=@(); $p1=@()
+# ---------- decision ----------
 
-if (($pages | Where {$_.state -eq "EMPTY"}).Count -gt 0) { $p0+="Empty pages exist" }
-if (($pages | Where {$_.flow -eq 0}).Count -gt 2) { $p0+="No clear CTA across pages" }
-if (($pages | Where {$_.trust -eq 0}).Count -gt 0) { $p0+="UI contamination visible" }
+$p0=@()
+$p1=@()
 
-if (($pages | Where {$_.state -eq "THIN"}).Count -gt 1) { $p1+="Thin content pages" }
-if (($pages | Where {$_.entry -eq 0}).Count -gt 1) { $p1+="Weak entry clarity" }
+if (($pages | Where-Object {$_.state -eq "EMPTY"}).Count -gt 0) {
+    $p0 += "Empty pages exist"
+}
 
-$p0 = $p0 | Select -First 3
-$p1 = $p1 | Select -First 3
+if (($pages | Where-Object {$_.flow -eq 0}).Count -gt 2) {
+    $p0 += "No clear CTA across pages"
+}
+
+if (($pages | Where-Object {$_.trust -eq 0}).Count -gt 0) {
+    $p0 += "UI contamination visible"
+}
+
+if (($pages | Where-Object {$_.state -eq "THIN"}).Count -gt 1) {
+    $p1 += "Thin content pages"
+}
+
+if (($pages | Where-Object {$_.entry -eq 0}).Count -gt 1) {
+    $p1 += "Weak entry clarity"
+}
+
+$p0 = $p0 | Select-Object -First 3
+$p1 = $p1 | Select-Object -First 3
 
 $core = "Site lacks clear user flow and action direction"
 
-# REPORT
+# ---------- REPORT ----------
+
 $r=@()
-$r+="CORE PROBLEM:"; $r+=$core; $r+=""
-$r+="P0:"; $p0|%{$r+="- $_"}; $r+=""
-$r+="P1:"; $p1|%{$r+="- $_"}; $r+=""
+$r+="CORE PROBLEM:"
+$r+=$core
+$r+=""
+
+$r+="P0:"
+$p0 | ForEach-Object { $r+="- $_" }
+$r+=""
+
+$r+="P1:"
+$p1 | ForEach-Object { $r+="- $_" }
+$r+=""
+
 $r+="DO NEXT:"
 $r+="1. Add one clear CTA"
 $r+="2. Remove UI contamination"
 $r+="3. Expand thin pages"
 
-# FIX
+# ---------- FIX ----------
+
 $f=@()
 
 if ($p0 -contains "No clear CTA across pages") {
@@ -148,9 +182,12 @@ Add problem + solution + next step
 "@
 }
 
+# ---------- output ----------
+
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
-$r | Out-File "$OutDir\REPORT.txt" -Encoding utf8
-$f | Out-File "$OutDir\FIX.txt" -Encoding utf8
-$pages | ConvertTo-Json -Depth 5 | Out-File "$OutDir\page_type_audit.json"
+
+$r | Out-File (Join-Path $OutDir "REPORT.txt") -Encoding utf8
+$f | Out-File (Join-Path $OutDir "FIX.txt") -Encoding utf8
+$pages | ConvertTo-Json -Depth 5 | Out-File (Join-Path $OutDir "page_type_audit.json")
 
 Write-Output "AUDIT+FIX DONE"
