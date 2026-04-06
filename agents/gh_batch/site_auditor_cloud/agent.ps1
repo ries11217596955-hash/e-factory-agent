@@ -273,12 +273,19 @@ function Write-JsonFile([string]$Path, $Object) {
     ($Object | ConvertTo-Json -Depth 8) | Set-Content -LiteralPath $Path -Encoding UTF8
 }
 
-function Write-Report([string]$Path, [string]$Status, [string]$Mode, $Decision, $Scores, [bool]$LiveCaptureUsed) {
+function Write-Report([string]$Path, [string]$Status, [string]$Mode, $Decision, $Scores, [bool]$LiveCaptureUsed, [string]$TargetRoot) {
     $missingCount = @($Scores | Where-Object { $_.band -eq 'missing' }).Count
     $thinCount = @($Scores | Where-Object { $_.band -in @('bad','thin') }).Count
+    $weakCount = @($Scores | Where-Object { $_.band -eq 'weak' }).Count
     $p0Lines = if ($Decision.p0.Count -gt 0) { ($Decision.p0 | ForEach-Object { "- $_" }) -join "`n" } else { '- none' }
     $p1Lines = if ($Decision.p1.Count -gt 0) { ($Decision.p1 | ForEach-Object { "- $_" }) -join "`n" } else { '- none' }
     $doLines = if ($Decision.do.Count -gt 0) { ($Decision.do | ForEach-Object { "$([array]::IndexOf($Decision.do, $_)+1). $_" }) -join "`n" } else { '1. none' }
+    $sourceLabel = switch ($Mode) {
+        'REPO' { 'REPO / file truth' }
+        'ZIP'  { 'ZIP / file truth' }
+        'URL'  { 'URL / live truth' }
+        default { $Mode }
+    }
 
     @"
 STATUS:
@@ -286,6 +293,12 @@ $Status
 
 MODE:
 $Mode
+
+AUDIT SOURCE:
+$sourceLabel
+
+TARGET:
+$TargetRoot
 
 CORE PROBLEM:
 $($Decision.core)
@@ -300,6 +313,7 @@ SUMMARY:
 - Routes checked: $(@($Scores).Count)
 - Missing routes: $missingCount
 - Empty/thin routes: $thinCount
+- Weak routes: $weakCount
 - Live capture used: $LiveCaptureUsed
 
 DO NEXT:
@@ -368,7 +382,7 @@ Write-JsonFile (Join-Path $ReportsDir 'page_type_audit.json') $pageTypeAudit
 Write-JsonFile (Join-Path $ReportsDir 'decision_summary.json') $decision
 Write-JsonFile (Join-Path $ReportsDir 'repo_audit.json') $repoAudit
 Write-JsonFile (Join-Path $ReportsDir 'audit_result.json') $auditResult
-Write-Report -Path (Join-Path $ReportsDir 'REPORT.txt') -Status $status -Mode $resolvedMode -Decision $decision -Scores $routeScores -LiveCaptureUsed $liveCaptureUsed
+Write-Report -Path (Join-Path $ReportsDir 'REPORT.txt') -Status $status -Mode $resolvedMode -Decision $decision -Scores $routeScores -LiveCaptureUsed $liveCaptureUsed -TargetRoot $repoRoot
 
 "PASS $resolvedMode" | Set-Content -LiteralPath (Join-Path $OutboxDir 'DONE.ok') -Encoding UTF8
 Write-Host "AGENT PASS: $resolvedMode"
