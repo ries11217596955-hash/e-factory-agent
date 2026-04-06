@@ -3,16 +3,14 @@ name: site-auditor-fixed-list
 on:
   workflow_dispatch:
 
-permissions:
-  contents: read
-  actions: read
+  push:
+    paths:
+      - 'agents/gh_batch/site_auditor_cloud/input/inbox/**'
+      - '.github/workflows/site-auditor-fixed-list.yml'
 
 jobs:
   site-audit:
     runs-on: ubuntu-latest
-
-    env:
-      GH_PAT: ${{ secrets.GH_BATCH_PAT }}
 
     steps:
       - name: Checkout
@@ -20,37 +18,32 @@ jobs:
 
       - name: Show PowerShell version
         shell: pwsh
-        run: |
-          $PSVersionTable.PSVersion.ToString()
+        run: $PSVersionTable
 
       - name: Install Node deps
-        run: |
-          cd agents/gh_batch/site_auditor_cloud
-          npm install
-          npx playwright install chromium
+        working-directory: agents/gh_batch/site_auditor_cloud
+        run: npm install
 
       - name: Run SITE_AUDITOR
+        working-directory: agents/gh_batch/site_auditor_cloud
         shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          ./agents/gh_batch/site_auditor_cloud/run.ps1
+        run: ./run.ps1
 
       - name: Show reports tree
         if: always()
         shell: bash
         run: |
-          echo "PWD=$(pwd)"
-          if [ -d "agents/gh_batch/site_auditor_cloud/reports" ]; then
-            echo "REPORTS FOUND"
-            find agents/gh_batch/site_auditor_cloud/reports -maxdepth 3 -type f | sort
-          else
-            echo "REPORTS DIR NOT FOUND"
-          fi
+          echo "== reports =="
+          find agents/gh_batch/site_auditor_cloud/reports -maxdepth 3 -type f 2>/dev/null | sort || true
+          echo "== outbox =="
+          find agents/gh_batch/site_auditor_cloud/outbox -maxdepth 4 -type f 2>/dev/null | sort || true
 
       - name: Upload reports artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: site-audit-reports
-          path: agents/gh_batch/site_auditor_cloud/reports
-          if-no-files-found: error
+          name: audit-output
+          path: |
+            agents/gh_batch/site_auditor_cloud/reports/**
+            agents/gh_batch/site_auditor_cloud/outbox/**
+          if-no-files-found: warn
