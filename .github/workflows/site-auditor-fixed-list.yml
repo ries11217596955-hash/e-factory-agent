@@ -2,6 +2,20 @@ name: site-auditor-fixed-list
 
 on:
   workflow_dispatch:
+    inputs:
+      audit_mode:
+        description: 'Manual audit mode'
+        required: true
+        default: 'REPO'
+        type: choice
+        options:
+          - REPO
+          - URL
+      base_url:
+        description: 'Base URL for URL mode'
+        required: false
+        default: 'https://automation-kb.pages.dev'
+        type: string
   push:
     paths:
       - 'agents/gh_batch/site_auditor_cloud/input/inbox/**'
@@ -14,34 +28,37 @@ jobs:
       - name: Checkout agent repo
         uses: actions/checkout@v4
 
-      - name: Checkout target repo for manual audit
-        if: github.event_name == 'workflow_dispatch'
+      - name: Checkout target repo for manual REPO audit
+        if: github.event_name == 'workflow_dispatch' && inputs.audit_mode == 'REPO'
         uses: actions/checkout@v4
         with:
           repository: ries11217596955-hash/automation-kb
           token: ${{ secrets.GH_BATCH_PAT }}
           path: target_repo
 
-      - name: Setup Node
+      - name: Setup Node for URL mode
+        if: github.event_name == 'workflow_dispatch' && inputs.audit_mode == 'URL'
         uses: actions/setup-node@v4
         with:
           node-version: 18
 
-      - name: Install Node deps
+      - name: Install Node deps for URL mode
+        if: github.event_name == 'workflow_dispatch' && inputs.audit_mode == 'URL'
         run: |
           cd agents/gh_batch/site_auditor_cloud
           npm install
 
-      - name: Install Playwright browsers
+      - name: Install Playwright browsers for URL mode
+        if: github.event_name == 'workflow_dispatch' && inputs.audit_mode == 'URL'
         run: |
           cd agents/gh_batch/site_auditor_cloud
           npx playwright install --with-deps chromium
 
       - name: Run SITE_AUDITOR
         env:
-          FORCE_MODE: ${{ github.event_name == 'workflow_dispatch' && 'REPO' || 'ZIP' }}
+          FORCE_MODE: ${{ github.event_name == 'push' && 'ZIP' || inputs.audit_mode }}
           TARGET_REPO_PATH: ${{ github.workspace }}/target_repo
-          BASE_URL: https://automation-kb.pages.dev
+          BASE_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.base_url || 'https://automation-kb.pages.dev' }}
         run: |
           cd agents/gh_batch/site_auditor_cloud
           pwsh ./run.ps1
