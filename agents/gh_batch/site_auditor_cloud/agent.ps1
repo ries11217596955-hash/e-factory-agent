@@ -5,7 +5,16 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$base = $PSScriptRoot
+$workspace = $env:GITHUB_WORKSPACE
+if (-not [string]::IsNullOrWhiteSpace($workspace)) {
+    $base = Join-Path $workspace 'agents/gh_batch/site_auditor_cloud'
+}
+else {
+    $base = $PSScriptRoot
+}
+
+Write-Host "OUTPUT BASE: $base"
+
 $outboxDir = Join-Path $base 'outbox'
 $reportsDir = Join-Path $base 'reports'
 $runtimeDir = Join-Path $base 'runtime'

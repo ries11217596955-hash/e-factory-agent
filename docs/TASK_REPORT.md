@@ -1,5 +1,5 @@
 ## Summary
-Fixed a `SITE_AUDITOR` output contract regression introduced after Phase C by adding a guaranteed artifact finalization path in `agent.ps1`. Main execution now records caught errors and always runs an `Ensure-OutputContract` function in `finally`, which guarantees `reports/audit_result.json`, `outbox/REPORT.txt`, and exactly one done marker (`DONE.ok` or `DONE.fail`) even when upstream logic fails.
+Fixed `SITE_AUDITOR` artifact path resolution so runtime output paths match GitHub Actions artifact upload expectations. `agent.ps1` now resolves a workspace-aware base path from `$env:GITHUB_WORKSPACE` when running in Actions, falls back to `$PSScriptRoot` for local execution, rebuilds `outbox/`, `reports/`, and `runtime/` from that base, and logs the resolved output base.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -10,7 +10,7 @@ Fixed a `SITE_AUDITOR` output contract regression introduced after Phase C by ad
 
 ## Current entrypoints/paths
 - Primary entrypoint: `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- Downstream outputs preserved:
+- Downstream outputs (now rooted at `"$GITHUB_WORKSPACE/agents/gh_batch/site_auditor_cloud"` in GitHub Actions, otherwise script root):
   - `agents/gh_batch/site_auditor_cloud/reports/audit_result.json`
   - `agents/gh_batch/site_auditor_cloud/outbox/REPORT.txt`
   - `agents/gh_batch/site_auditor_cloud/outbox/DONE.ok`
@@ -18,5 +18,5 @@ Fixed a `SITE_AUDITOR` output contract regression introduced after Phase C by ad
   - existing optional reports from normal flow remain unchanged (`HOW_TO_FIX.json`, `00_PRIORITY_ACTIONS.txt`, `01_TOP_ISSUES.txt`, `11A_EXECUTIVE_SUMMARY.txt`, `run_manifest.json`).
 
 ## Risks/blockers
-- `DONE.ok` is still driven by overall computed `PASS` status, so if a downstream write failure occurs after status computation, contract output will remain deterministic but final result may be `DONE.fail` due to caught exception (intended for safety).
-- Full end-to-end verification for all modes (`REPO`, `ZIP`, `URL`) remains environment/input dependent; local checks focused on contract guarantees under failure path.
+- This change assumes GitHub Actions checks out the repository at `$GITHUB_WORKSPACE` (standard behavior); custom checkout paths could still require workflow-side alignment.
+- End-to-end artifact upload validation requires a GitHub Actions run; local validation can only verify path selection logic and script syntax.
