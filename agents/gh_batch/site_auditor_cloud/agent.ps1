@@ -275,10 +275,19 @@ function Invoke-LiveAudit {
         $totalShots = ($routes | Measure-Object -Property screenshotCount -Sum).Sum
         if ($null -eq $totalShots) { $totalShots = 0 }
 
+        $routeDetailsAndRollups = Build-PageQualityFindings -Routes $routes
+        $routeDetails = @($routeDetailsAndRollups.route_details)
+        $rollups = $routeDetailsAndRollups.rollups
+
         $findings = New-Object System.Collections.Generic.List[string]
         if ($errored.Count -gt 0) { $findings.Add("$($errored.Count) route(s) returned errors or HTTP >= 400.") }
         if ($totalShots -eq 0) { $findings.Add('No screenshots were captured.') }
         if (@($routes).Count -eq 0) { $findings.Add('visual_manifest.json has zero routes.') }
+        if ($rollups.empty_routes -gt 0) { $findings.Add("$($rollups.empty_routes) empty route(s) detected.") }
+        if ($rollups.thin_routes -gt 0) { $findings.Add("$($rollups.thin_routes) thin route(s) detected.") }
+        if ($rollups.weak_cta_routes -gt 0) { $findings.Add("Weak CTA on $($rollups.weak_cta_routes) route(s).") }
+        if ($rollups.dead_end_routes -gt 0) { $findings.Add("$($rollups.dead_end_routes) dead-end route(s) detected.") }
+        if ($rollups.contaminated_routes -gt 0) { $findings.Add("UI contamination found on $($rollups.contaminated_routes) route(s).") }
 
         return (New-LiveLayer -Overrides @{
             enabled = $true
@@ -290,7 +299,13 @@ function Invoke-LiveAudit {
                 healthy_routes = $healthy.Count
                 error_routes = $errored.Count
                 screenshot_count = [int]$totalShots
+                empty_routes = [int]$rollups.empty_routes
+                thin_routes = [int]$rollups.thin_routes
+                weak_cta_routes = [int]$rollups.weak_cta_routes
+                dead_end_routes = [int]$rollups.dead_end_routes
+                contaminated_routes = [int]$rollups.contaminated_routes
             }
+            route_details = $routeDetails
             findings = @($findings)
             warnings = @()
             ok = (@($routes).Count -gt 0 -and $errored.Count -eq 0 -and [int]$totalShots -gt 0)
@@ -309,6 +324,100 @@ function Invoke-LiveAudit {
             warnings = @("Live audit encountered an execution error: $failure")
             ok = $false
         })
+    }
+}
+
+function Build-PageQualityFindings {
+    param([object[]]$Routes)
+
+    $result = New-Object System.Collections.Generic.List[object]
+    $emptyRoutes = 0
+    $thinRoutes = 0
+    $weakCtaRoutes = 0
+    $deadEndRoutes = 0
+    $contaminatedRoutes = 0
+
+    foreach ($route in @($Routes)) {
+        $status = Safe-Get -Object $route -Key 'status' -Default 'error'
+        $bodyTextLength = [int](Safe-Get -Object $route -Key 'bodyTextLength' -Default 0)
+        $links = [int](Safe-Get -Object $route -Key 'links' -Default 0)
+        $images = [int](Safe-Get -Object $route -Key 'images' -Default 0)
+        $title = [string](Safe-Get -Object $route -Key 'title' -Default '')
+        $h1Count = [int](Safe-Get -Object $route -Key 'h1Count' -Default 0)
+        $buttonCount = [int](Safe-Get -Object $route -Key 'buttonCount' -Default 0)
+        $hasMain = [bool](Safe-Get -Object $route -Key 'hasMain' -Default $false)
+        $hasArticle = [bool](Safe-Get -Object $route -Key 'hasArticle' -Default $false)
+        $hasNav = [bool](Safe-Get -Object $route -Key 'hasNav' -Default $false)
+        $hasFooter = [bool](Safe-Get -Object $route -Key 'hasFooter' -Default $false)
+        $visibleTextSample = [string](Safe-Get -Object $route -Key 'visibleTextSample' -Default '')
+        $contaminationFlags = @(Safe-Get -Object $route -Key 'contaminationFlags' -Default @())
+        $normalizedText = ($visibleTextSample + ' ' + $title).ToLowerInvariant()
+
+        # v1 deterministic thresholds:
+        # - empty: <= 120 visible chars or explicit error route.
+        # - thin: 121-420 chars and not empty.
+        # - weak_cta: no buttons and no action language.
+        # - dead_end: very low next-step affordances (links + buttons <= 2).
+        # - ui_contamination: explicit contamination flags from capture output.
+        $statusCode = 0
+        $statusParsed = [int]::TryParse([string]$status, [ref]$statusCode)
+        $isErrorRoute = ($status -eq 'error') -or ($statusParsed -and $statusCode -ge 400)
+        $empty = $isErrorRoute -or $bodyTextLength -le 120
+        $thin = (-not $empty) -and $bodyTextLength -le 420
+        $hasActionLanguage = $normalizedText -match '(start|contact|book|schedule|get started|sign up|learn more|request|apply|buy|download|join)'
+        $weakCta = (-not $empty) -and $buttonCount -eq 0 -and (-not $hasActionLanguage)
+        $deadEnd = (-not $empty) -and (($links + $buttonCount) -le 2) -and (-not $hasNav)
+        $uiContamination = @($contaminationFlags).Count -gt 0
+
+        if ($empty) { $emptyRoutes++ }
+        if ($thin) { $thinRoutes++ }
+        if ($weakCta) { $weakCtaRoutes++ }
+        if ($deadEnd) { $deadEndRoutes++ }
+        if ($uiContamination) { $contaminatedRoutes++ }
+
+        $routeFindings = New-Object System.Collections.Generic.List[string]
+        if ($empty) { $routeFindings.Add('Route has empty or near-empty visible content.') }
+        if ($thin) { $routeFindings.Add('Route content is thin and likely underdeveloped.') }
+        if ($weakCta) { $routeFindings.Add('Route lacks clear CTA affordances.') }
+        if ($deadEnd) { $routeFindings.Add('Route appears to be a dead-end with limited onward navigation.') }
+        if ($uiContamination) { $routeFindings.Add("UI contamination markers detected: $(@($contaminationFlags) -join ', ').") }
+
+        $result.Add([ordered]@{
+            route_path = Safe-Get -Object $route -Key 'route_path' -Default ''
+            status = $status
+            screenshotCount = [int](Safe-Get -Object $route -Key 'screenshotCount' -Default 0)
+            bodyTextLength = $bodyTextLength
+            links = $links
+            images = $images
+            title = $title
+            page_flags = @{
+                empty = $empty
+                thin = $thin
+                weak_cta = $weakCta
+                dead_end = $deadEnd
+                ui_contamination = $uiContamination
+            }
+            findings = @($routeFindings)
+            h1Count = $h1Count
+            buttonCount = $buttonCount
+            hasMain = $hasMain
+            hasArticle = $hasArticle
+            hasNav = $hasNav
+            hasFooter = $hasFooter
+            visibleTextSample = $visibleTextSample
+            contaminationFlags = @($contaminationFlags)
+        })
+    }
+
+    return @{
+        route_details = @($result)
+        rollups = @{
+            empty_routes = [int]$emptyRoutes
+            thin_routes = [int]$thinRoutes
+            weak_cta_routes = [int]$weakCtaRoutes
+            dead_end_routes = [int]$deadEndRoutes
+            contaminated_routes = [int]$contaminatedRoutes
+        }
     }
 }
 
@@ -350,6 +459,29 @@ function Build-DecisionLayer {
 
     if ($LiveLayer.enabled -and $LiveLayer.ok) {
         $p2.Add('Live route capture completed with healthy status codes and screenshots.')
+    }
+
+    if ($LiveLayer.enabled) {
+        $liveSummary = Safe-Get -Object $LiveLayer -Key 'summary' -Default @{}
+        $emptyRoutes = [int](Safe-Get -Object $liveSummary -Key 'empty_routes' -Default 0)
+        $thinRoutes = [int](Safe-Get -Object $liveSummary -Key 'thin_routes' -Default 0)
+        $weakCtaRoutes = [int](Safe-Get -Object $liveSummary -Key 'weak_cta_routes' -Default 0)
+        $deadEndRoutes = [int](Safe-Get -Object $liveSummary -Key 'dead_end_routes' -Default 0)
+        $contaminatedRoutes = [int](Safe-Get -Object $liveSummary -Key 'contaminated_routes' -Default 0)
+
+        if ($emptyRoutes -ge 2) {
+            $p0.Add("$emptyRoutes empty routes detected across live pages.")
+        } elseif ($emptyRoutes -eq 1) {
+            $p1.Add('1 empty route detected in live pages.')
+        }
+        if ($thinRoutes -gt 0) { $p1.Add("$thinRoutes thin route(s) need richer content coverage.") }
+        if ($weakCtaRoutes -gt 0) { $p1.Add("Weak CTA on $weakCtaRoutes route(s).") }
+        if ($deadEndRoutes -gt 0) { $p1.Add("$deadEndRoutes route(s) appear to be dead-ends for user flow.") }
+        if ($contaminatedRoutes -gt 0) { $p1.Add("UI contamination found on $contaminatedRoutes route(s).") }
+
+        if ($emptyRoutes -eq 0 -and $thinRoutes -eq 0 -and $weakCtaRoutes -eq 0 -and $deadEndRoutes -eq 0 -and $contaminatedRoutes -eq 0 -and $LiveLayer.ok) {
+            $p2.Add('No page-quality v1 concerns detected in sampled live routes.')
+        }
     }
 
     if ($p0.Count -gt 0) {
@@ -455,6 +587,15 @@ function Write-OperatorOutputs {
         "Generated: $timestamp",
         'Primary evidence: reports/audit_result.json'
     )
+    $liveSummary = Safe-Get -Object $AuditResult.live -Key 'summary' -Default @{}
+    if ([bool](Safe-Get -Object $AuditResult.live -Key 'enabled' -Default $false)) {
+        $summaryLines += 'Page quality rollup:'
+        $summaryLines += "- empty routes: $([int](Safe-Get -Object $liveSummary -Key 'empty_routes' -Default 0))"
+        $summaryLines += "- thin routes: $([int](Safe-Get -Object $liveSummary -Key 'thin_routes' -Default 0))"
+        $summaryLines += "- weak CTA routes: $([int](Safe-Get -Object $liveSummary -Key 'weak_cta_routes' -Default 0))"
+        $summaryLines += "- dead-end routes: $([int](Safe-Get -Object $liveSummary -Key 'dead_end_routes' -Default 0))"
+        $summaryLines += "- contaminated routes: $([int](Safe-Get -Object $liveSummary -Key 'contaminated_routes' -Default 0))"
+    }
     $summaryPath = Join-Path $reportsDir '11A_EXECUTIVE_SUMMARY.txt'
     Write-TextFile -Path $summaryPath -Lines $summaryLines
     $reportFiles.Add('reports/11A_EXECUTIVE_SUMMARY.txt')
@@ -468,6 +609,14 @@ function Write-OperatorOutputs {
         "CORE PROBLEM: $($Decision.core_problem)",
         'P0:'
     )
+    if ([bool](Safe-Get -Object $AuditResult.live -Key 'enabled' -Default $false)) {
+        $reportLines += 'PAGE QUALITY ROLLUP:'
+        $reportLines += "- empty routes: $([int](Safe-Get -Object $liveSummary -Key 'empty_routes' -Default 0))"
+        $reportLines += "- thin routes: $([int](Safe-Get -Object $liveSummary -Key 'thin_routes' -Default 0))"
+        $reportLines += "- weak CTA routes: $([int](Safe-Get -Object $liveSummary -Key 'weak_cta_routes' -Default 0))"
+        $reportLines += "- dead-end routes: $([int](Safe-Get -Object $liveSummary -Key 'dead_end_routes' -Default 0))"
+        $reportLines += "- contaminated routes: $([int](Safe-Get -Object $liveSummary -Key 'contaminated_routes' -Default 0))"
+    }
     $reportLines += if ($Decision.p0.Count -gt 0) { $Decision.p0 | ForEach-Object { "- $_" } } else { '- none' }
     $reportLines += 'P1:'
     $reportLines += if ($Decision.p1.Count -gt 0) { $Decision.p1 | ForEach-Object { "- $_" } } else { '- none' }
@@ -579,6 +728,7 @@ try {
             root = $liveLayer.root
             base_url = $liveLayer.base_url
             summary = $liveLayer.summary
+            route_details = @(Safe-Get -Object $liveLayer -Key 'route_details' -Default @())
             findings = @($liveLayer.findings)
         }
         decision = $decision
@@ -626,6 +776,7 @@ catch {
             root = $liveLayer.root
             base_url = $liveLayer.base_url
             summary = $liveLayer.summary
+            route_details = @(Safe-Get -Object $liveLayer -Key 'route_details' -Default @())
             findings = @($liveLayer.findings)
         }
         decision = $decision

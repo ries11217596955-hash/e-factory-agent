@@ -31,11 +31,38 @@ async function scrollStep(page, position) {
 async function extract(page) {
   return page.evaluate(() => {
     const text = document.body?.innerText || '';
+    const normalize = (value) => (value || '').toLowerCase();
+    const bodyTextLower = normalize(text);
+    const title = document.title || '';
+    const titleLower = normalize(title);
+    const contaminationFlags = [];
+    const contaminationChecks = [
+      { key: 'edit_on_github', phrase: 'edit on github' },
+      { key: 'built_with', phrase: 'built with' },
+      { key: 'placeholder_lorem', phrase: 'lorem ipsum' },
+      { key: 'placeholder_todo', phrase: 'todo' },
+      { key: 'placeholder_coming_soon', phrase: 'coming soon' },
+      { key: 'placeholder_placeholder', phrase: 'placeholder' },
+    ];
+    for (const check of contaminationChecks) {
+      if (bodyTextLower.includes(check.phrase) || titleLower.includes(check.phrase)) {
+        contaminationFlags.push(check.key);
+      }
+    }
+    const visibleTextSample = text.replace(/\s+/g, ' ').trim().slice(0, 280);
     return {
-      title: document.title || '',
+      title,
       bodyTextLength: text.length,
       links: document.querySelectorAll('a').length,
       images: document.querySelectorAll('img').length,
+      h1Count: document.querySelectorAll('h1').length,
+      buttonCount: document.querySelectorAll('button').length,
+      hasMain: !!document.querySelector('main'),
+      hasArticle: !!document.querySelector('article'),
+      hasNav: !!document.querySelector('nav'),
+      hasFooter: !!document.querySelector('footer'),
+      visibleTextSample,
+      contaminationFlags,
       contentMetricsPresent: text.length > 0,
     };
   });
@@ -85,6 +112,14 @@ async function processRoute(browser, route) {
       bodyTextLength: 0,
       links: 0,
       images: 0,
+      h1Count: 0,
+      buttonCount: 0,
+      hasMain: false,
+      hasArticle: false,
+      hasNav: false,
+      hasFooter: false,
+      visibleTextSample: '',
+      contaminationFlags: [],
       contentMetricsPresent: false,
     };
   } finally {
