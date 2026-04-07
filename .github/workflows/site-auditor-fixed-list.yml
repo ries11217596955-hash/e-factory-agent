@@ -4,25 +4,21 @@ on:
   workflow_dispatch:
     inputs:
       audit_mode:
-        description: 'Audit mode'
+        description: 'Manual audit mode'
         required: true
         default: 'REPO'
         type: choice
         options:
           - REPO
-          - ZIP
           - URL
       base_url:
-        description: 'Used only for URL mode'
+        description: 'Base URL for URL mode'
         required: false
         default: 'https://automation-kb.pages.dev'
         type: string
   push:
     paths:
       - 'agents/gh_batch/site_auditor_cloud/input/inbox/**'
-
-permissions:
-  contents: read
 
 jobs:
   site-audit:
@@ -32,7 +28,7 @@ jobs:
       - name: Checkout agent repo
         uses: actions/checkout@v4
 
-      - name: Checkout target repo for REPO mode
+      - name: Checkout target repo for manual REPO audit
         if: github.event_name == 'workflow_dispatch' && inputs.audit_mode == 'REPO'
         uses: actions/checkout@v4
         with:
@@ -44,13 +40,18 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.audit_mode == 'URL'
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 18
 
-      - name: Install URL capture dependencies
+      - name: Install Node deps for URL mode
         if: github.event_name == 'workflow_dispatch' && inputs.audit_mode == 'URL'
-        working-directory: agents/gh_batch/site_auditor_cloud
         run: |
-          npm install playwright
+          cd agents/gh_batch/site_auditor_cloud
+          npm install
+
+      - name: Install Playwright browsers for URL mode
+        if: github.event_name == 'workflow_dispatch' && inputs.audit_mode == 'URL'
+        run: |
+          cd agents/gh_batch/site_auditor_cloud
           npx playwright install --with-deps chromium
 
       - name: Run SITE_AUDITOR
