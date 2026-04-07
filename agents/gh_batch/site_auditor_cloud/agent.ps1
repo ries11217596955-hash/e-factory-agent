@@ -41,6 +41,28 @@ function Write-TextFile {
     $Lines -join "`n" | Out-File -FilePath $Path -Encoding utf8
 }
 
+function New-SourceLayer {
+    param([hashtable]$Overrides = @{})
+
+    $sourceLayer = @{
+        enabled = $false
+        required = $false
+        kind = $null
+        root = $null
+        extracted_root = $null
+        base_url = $null
+        summary = @{}
+        findings = @()
+        ok = $false
+    }
+
+    foreach ($key in @($Overrides.Keys)) {
+        $sourceLayer[$key] = $Overrides[$key]
+    }
+
+    return $sourceLayer
+}
+
 function Get-SourceSummary {
     param([string]$Root)
 
@@ -93,15 +115,16 @@ function Invoke-SourceAuditRepo {
     $repoRoot = (Resolve-Path $TargetRepoPath).Path
     $sourceData = Get-SourceSummary -Root $repoRoot
 
-    return @{
-        enabled = $true
-        kind = 'repo'
-        root = $repoRoot
-        extracted_root = $null
-        summary = $sourceData.summary
-        findings = $sourceData.findings
-        ok = ($sourceData.summary.file_count -gt 0)
-    }
+    return (New-SourceLayer -Overrides @{
+            enabled = $true
+            kind = 'repo'
+            root = $repoRoot
+            extracted_root = $null
+            base_url = $null
+            summary = $sourceData.summary
+            findings = $sourceData.findings
+            ok = ($sourceData.summary.file_count -gt 0)
+        })
 }
 
 function Invoke-SourceAuditZip {
@@ -131,21 +154,22 @@ function Invoke-SourceAuditZip {
     $sourceData = Get-SourceSummary -Root $zipWorkRoot
 
     $zipInfo = Get-Item -Path $zipPath
-    return @{
-        enabled = $true
-        kind = 'zip'
-        root = $zipInfo.FullName
-        extracted_root = $zipWorkRoot
-        zip_payload = @{
-            path = $zipInfo.FullName
-            name = $zipInfo.Name
-            size_bytes = $zipInfo.Length
-            last_write_time = $zipInfo.LastWriteTimeUtc.ToString('o')
-        }
-        summary = $sourceData.summary
-        findings = $sourceData.findings
-        ok = ($sourceData.summary.file_count -gt 0)
-    }
+    return (New-SourceLayer -Overrides @{
+            enabled = $true
+            kind = 'zip'
+            root = $zipInfo.FullName
+            extracted_root = $zipWorkRoot
+            base_url = $null
+            zip_payload = @{
+                path = $zipInfo.FullName
+                name = $zipInfo.Name
+                size_bytes = $zipInfo.Length
+                last_write_time = $zipInfo.LastWriteTimeUtc.ToString('o')
+            }
+            summary = $sourceData.summary
+            findings = $sourceData.findings
+            ok = ($sourceData.summary.file_count -gt 0)
+        })
 }
 
 function Invoke-LiveAudit {
@@ -390,7 +414,7 @@ $resolvedMode = $MODE.ToUpperInvariant()
 $warnings = New-Object System.Collections.Generic.List[string]
 $requiredInputs = @()
 $missingInputs = New-Object System.Collections.Generic.List[string]
-$sourceLayer = @{ enabled = $false; required = $false; kind = $null; root = $null; extracted_root = $null; base_url = $null; summary = @{}; findings = @(); ok = $false }
+$sourceLayer = New-SourceLayer
 $liveLayer = @{ enabled = $false; required = $false; root = $null; base_url = $null; summary = @{}; findings = @(); warnings = @(); ok = $false }
 
 try {
@@ -402,7 +426,7 @@ try {
             if ([string]::IsNullOrWhiteSpace($env:TARGET_REPO_PATH)) { $missingInputs.Add('TARGET_REPO_PATH') }
             if ([string]::IsNullOrWhiteSpace($env:BASE_URL)) { $missingInputs.Add('BASE_URL') }
             if ($missingInputs.Count -gt 0) { throw ("Missing required input(s) for REPO mode: " + ($missingInputs -join ', ')) }
-            $sourceLayer = Invoke-SourceAuditRepo -TargetRepoPath $env:TARGET_REPO_PATH
+            $sourceLayer = New-SourceLayer -Overrides (Invoke-SourceAuditRepo -TargetRepoPath $env:TARGET_REPO_PATH)
             $sourceLayer.required = $true
             $liveLayer = Invoke-LiveAudit -BaseUrl $env:BASE_URL
             $liveLayer.required = $true
@@ -413,7 +437,7 @@ try {
             $liveLayer.required = $true
             if ([string]::IsNullOrWhiteSpace($env:BASE_URL)) { $missingInputs.Add('BASE_URL') }
             if ($missingInputs.Count -gt 0) { throw ("Missing required input(s) for ZIP mode: " + ($missingInputs -join ', ')) }
-            $sourceLayer = Invoke-SourceAuditZip -InboxPath (Join-Path $base 'input/inbox')
+            $sourceLayer = New-SourceLayer -Overrides (Invoke-SourceAuditZip -InboxPath (Join-Path $base 'input/inbox'))
             $sourceLayer.required = $true
             $liveLayer = Invoke-LiveAudit -BaseUrl $env:BASE_URL
             $liveLayer.required = $true
