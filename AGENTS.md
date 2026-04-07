@@ -1,42 +1,168 @@
-# Codex Operating Contract
+# AGENTS.md
 
-## Scope
-- Applies to the entire repository tree from this root.
+## Purpose
+This repository is operated under a controlled Codex execution model.
+All changes must be safe, minimal, and reviewable.
 
-## Execution Mode (PR-First)
-1. All non-trivial tasks must follow this order:
-   1) commit on the active Codex branch
-   2) open or update a pull request
-   3) wait for operator review
-   4) merge only after explicit approval
-2. A UI diff or summary is not considered an applied result.
+---
 
-## Commit and PR Requirements
-- Commit is mandatory for non-trivial changes.
-- Pull request creation or update is mandatory after commit.
-- Auto-merge is forbidden unless explicitly requested by the operator.
+## Execution model (PR-FIRST)
 
-## Mandatory Task Report
-- `docs/TASK_REPORT.md` is required for every non-trivial task.
-- `docs/TASK_REPORT.md` must include these exact sections:
-  - Summary
-  - Changed files
-  - Moved files/folders
-  - Current entrypoints/paths
-  - Risks/blockers
-- PR description must include a short 5-bullet summary.
+All work is considered applied only after:
 
-## Protected Infrastructure Paths
-- Do not move, modify, quarantine, or delete active infrastructure paths without explicit permission.
-- Protected minimum:
-  - `.github/workflows/`
+Task → branch commit → PR → operator review → merge
 
-## Safe Cleanup Mode
-- For cleanup/refactor tasks, use `_quarantine/` or `_foreign/` first.
-- Do not delete directly unless explicitly requested.
-- Record cleanup actions in `docs/TASK_REPORT.md`.
+Rules:
+- Never treat UI diff as applied result
+- Never skip PR
+- Never merge automatically unless explicitly allowed by safe rules
 
-## Change Scope Policy
-- Prefer explicit file-level changes.
-- Do not perform broad refactors unless explicitly requested.
-- If uncertain, state uncertainty instead of guessing.
+---
+
+## Task discipline
+
+All tasks must be executed using structured format:
+- Task
+- Repository scope (Allowed / Forbidden)
+- Mode
+- Requirements
+- Reporting
+
+Free-form or vague tasks must not be executed as-is.
+
+---
+
+## Scope control
+
+Every task must define:
+
+Allowed paths:
+- Explicit list of files or directories
+
+Forbidden paths (minimum):
+- .github/workflows/
+- config files
+- entrypoints
+- runtime logic
+- deployment configuration
+
+Codex must NOT expand scope beyond what is defined.
+
+---
+
+## Commit convention
+
+Use structured commits:
+
+type(scope): short description
+
+Examples:
+- fix(tools): add missing content blocks
+- feat(agent): improve audit detection
+- chore(config): add codex config
+
+---
+
+## Branch naming
+
+Use:
+
+codex/<area>-<task>
+
+Examples:
+- codex/tools-fix
+- codex/start-here-content
+- codex/agent-audit-fix
+
+---
+
+## Reporting (MANDATORY)
+
+Each non-trivial task must produce:
+
+docs/TASK_REPORT.md
+
+With sections:
+- Summary
+- Changed files
+- Moved files/folders
+- Current entrypoints/paths
+- Risks/blockers
+
+Also include 5-bullet summary in PR description.
+
+---
+
+## Repo safety rules
+
+Protected paths (NEVER change without explicit instruction):
+
+- .github/workflows/
+- deployment config
+- routing/entrypoints
+- runtime logic
+- agent execution flow
+- packaging/install logic
+
+If task requires touching these → STOP and ask.
+
+---
+
+## Cleanup / refactor (SAFE MODE)
+
+If cleanup is requested:
+
+1. Move files first:
+   - _quarantine/
+   - _foreign/
+
+2. Do NOT delete immediately
+
+3. Document all actions in TASK_REPORT.md
+
+4. Do NOT break:
+   - workflows
+   - entrypoints
+   - runtime
+   - repo structure
+
+---
+
+## Safe auto-merge rules
+
+Auto-merge is allowed ONLY if ALL conditions are met:
+
+- 1–2 files changed
+- changes are inside allowed scope
+- no protected paths touched
+- no structural changes
+- TASK_REPORT.md present
+- changes are small and deterministic
+
+Otherwise:
+→ require operator review
+
+---
+
+## Default behavior
+
+- Minimal changes only
+- No broad refactor
+- No speculative improvements
+- No hidden changes
+- No scope expansion
+
+If uncertain:
+→ state uncertainty, do not guess
+
+---
+
+## Deliverable expectation
+
+Every task must end with:
+
+- commit created
+- PR opened
+- TASK_REPORT.md created/updated
+- PR summary present
+- no auto-merge unless safe conditions are met
