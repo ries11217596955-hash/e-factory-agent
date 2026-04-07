@@ -2,24 +2,27 @@
 
 Purpose:
 - keep canonical source layout for active agents
-- separate source files from release packages
-- reduce root-level archive clutter and source ambiguity
+- separate canonical source files from quarantined legacy material
+- keep the repository root non-mixed and predictable
 
 Current active agents:
 - `GH_BATCH`
 - `SITE_AUDITOR_AGENT`
 
-Canonical layout:
-- `agents/gh_batch/` = source-of-truth files for GH_BATCH
-- `agents/site_auditor_agent/` = source-of-truth files for SITE_AUDITOR_AGENT
-- `releases/` = release-package storage only
-- `docs/` = repo-level structure, cleanup and packaging guidance
+Canonical root layout:
+- `agents/` = source-of-truth agent code and related assets
+- `scripts/` = operational scripts used by canonical workflows
+- `config/` = active configuration
+- `docs/` = documentation, closeout notes, and migration records
+- `tests/` = automated checks and validation assets
+- `_quarantine/` = retained legacy/non-canonical material (not deleted)
+- `_foreign/` = retained non-canonical web/content trees
+- `.gitignore`
+- `README.md`
 
 Rules for this repo:
-1. Root must not be used as long-term storage for versioned ZIP releases.
-2. Active agent source must live under `agents/`.
-3. Release ZIP is a deliverable, not the source of truth.
-4. Runtime outputs, inbox/outbox state and logs must stay outside source folders unless explicitly documented.
-5. Packaging presence must not be written as runtime PASS.
-
-This cleanup patch establishes canonical folders for the two active agents. Old root ZIP files should be removed or moved after this patch is applied.
+1. Active agent source must live under `agents/`.
+2. Runtime/output and queue-era folders must not remain at root.
+3. Legacy web/content trees must not remain at root.
+4. Legacy artifacts are preserved by moving them into `_quarantine/` or `_foreign/`.
+5. Entrypoints for active agents must remain valid after cleanup.
