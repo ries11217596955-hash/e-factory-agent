@@ -38,20 +38,20 @@ jobs:
           token: ${{ secrets.GH_BATCH_PAT }}
           path: target_repo
 
-      - name: Setup Node for URL mode
-        if: github.event_name == 'workflow_dispatch' && inputs.audit_mode == 'URL'
+      - name: Setup Node for live audit modes
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.audit_mode == 'REPO' || inputs.audit_mode == 'URL'))
         uses: actions/setup-node@v4
         with:
           node-version: 18
 
-      - name: Install Node deps for URL mode
-        if: github.event_name == 'workflow_dispatch' && inputs.audit_mode == 'URL'
+      - name: Install Node deps for live audit modes
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.audit_mode == 'REPO' || inputs.audit_mode == 'URL'))
         run: |
           cd agents/gh_batch/site_auditor_cloud
           npm install
 
-      - name: Install Playwright browsers for URL mode
-        if: github.event_name == 'workflow_dispatch' && inputs.audit_mode == 'URL'
+      - name: Install Playwright browsers for live audit modes
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.audit_mode == 'REPO' || inputs.audit_mode == 'URL'))
         run: |
           cd agents/gh_batch/site_auditor_cloud
           npx playwright install --with-deps chromium
