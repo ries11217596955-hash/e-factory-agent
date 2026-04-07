@@ -84,6 +84,49 @@ function New-LiveLayer {
     return $layer
 }
 
+function Safe-Get {
+    param(
+        [object]$Object,
+        [string]$Key,
+        [object]$Default = $null
+    )
+
+    if ($null -eq $Object) {
+        return $Default
+    }
+
+    if ($Object -is [System.Collections.IDictionary]) {
+        if ($Object.Contains($Key)) {
+            return $Object[$Key]
+        }
+        return $Default
+    }
+
+    $property = $Object.PSObject.Properties[$Key]
+    if ($null -ne $property) {
+        return $property.Value
+    }
+
+    return $Default
+}
+
+function Normalize-AuditResult {
+    param([hashtable]$AuditResult)
+
+    if ($null -eq $AuditResult) {
+        $AuditResult = @{}
+    }
+
+    $AuditResult.source = New-SourceLayer -Overrides (Safe-Get -Object $AuditResult -Key 'source' -Default @{})
+    $AuditResult.live = New-LiveLayer -Overrides (Safe-Get -Object $AuditResult -Key 'live' -Default @{})
+
+    if (-not $AuditResult.ContainsKey('required_inputs') -or $null -eq $AuditResult.required_inputs) {
+        $AuditResult.required_inputs = @()
+    }
+
+    return $AuditResult
+}
+
 function Get-SourceSummary {
     param([string]$Root)
 
@@ -349,6 +392,8 @@ function Write-OperatorOutputs {
         [hashtable]$Decision
     )
 
+    $AuditResult = Normalize-AuditResult -AuditResult $AuditResult
+
     $auditResultPath = Join-Path $reportsDir 'audit_result.json'
     Write-JsonFile -Path $auditResultPath -Data $AuditResult
     $reportFiles.Add('reports/audit_result.json')
@@ -392,9 +437,12 @@ function Write-OperatorOutputs {
     Write-TextFile -Path $issuesPath -Lines $topIssues
     $reportFiles.Add('reports/01_TOP_ISSUES.txt')
 
-    $sourceStatus = if (-not $AuditResult.source.enabled) { 'OFF' } elseif ($AuditResult.source.ok) { 'PASS' } else { 'FAIL' }
-    $liveStatus = if (-not $AuditResult.live.enabled) { 'OFF' } elseif ($AuditResult.live.ok) { 'PASS' } else { 'FAIL' }
-    $requiredInputsLine = if ($AuditResult.required_inputs.Count -gt 0) { $AuditResult.required_inputs -join ', ' } else { 'none' }
+    $sourceStatus = if (-not (Safe-Get -Object $AuditResult.source -Key 'enabled' -Default $false)) { 'OFF' } elseif (Safe-Get -Object $AuditResult.source -Key 'ok' -Default $false) { 'PASS' } else { 'FAIL' }
+    $liveStatus = if (-not (Safe-Get -Object $AuditResult.live -Key 'enabled' -Default $false)) { 'OFF' } elseif (Safe-Get -Object $AuditResult.live -Key 'ok' -Default $false) { 'PASS' } else { 'FAIL' }
+    $requiredInputs = @(Safe-Get -Object $AuditResult -Key 'required_inputs' -Default @())
+    $requiredInputsLine = if ($requiredInputs.Count -gt 0) { $requiredInputs -join ', ' } else { 'none' }
+    $repoRoot = Safe-Get -Object $AuditResult.source -Key 'root' -Default $null
+    $sourceEnabled = [bool](Safe-Get -Object $AuditResult.source -Key 'enabled' -Default $false)
 
     $summaryLines = @(
         'SITE_AUDITOR EXECUTIVE SUMMARY',
@@ -431,8 +479,8 @@ function Write-OperatorOutputs {
     $manifest = @{
         mode = $ResolvedMode
         status = $FinalStatus
-        repo_root = $AuditResult.source.root
-        target_repo_bound = [bool]($AuditResult.source.enabled)
+        repo_root = $repoRoot
+        target_repo_bound = $sourceEnabled
         output_root = $base
         report_files = @($reportFiles)
         timestamp = $timestamp
