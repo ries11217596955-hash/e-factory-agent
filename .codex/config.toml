@@ -1,0 +1,8 @@
+# Codex project-level configuration
+# Safe baseline for controlled PR-first execution
+
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+[tools]
+web_search = true
