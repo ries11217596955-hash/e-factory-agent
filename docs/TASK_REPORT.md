@@ -1,5 +1,5 @@
 ## Summary
-Implemented the real SITE_AUDITOR routing contract with unified source/live/decision layering and honest FAIL behavior: REPO now supports REPO+URL, ZIP now performs real extraction/inventory plus optional URL audit, and URL remains live-only with required visual evidence.
+Tightened SITE_AUDITOR to enforce the mandatory routing contract: REPO now requires both `TARGET_REPO_PATH` and `BASE_URL`, ZIP now requires both ZIP payload and `BASE_URL`, and URL continues to require `BASE_URL`. Removed REPO/ZIP warning-only fallback for missing `BASE_URL`, strengthened decision wording, and expanded report/status outputs to show explicit source/live PASS/FAIL/OFF and required input visibility.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -31,4 +31,4 @@ Implemented the real SITE_AUDITOR routing contract with unified source/live/deci
 ## Risks/blockers
 - URL/live auditing still requires Node.js + Playwright availability and reachable target routes.
 - ZIP extraction uses platform archive support (`Expand-Archive`); malformed or unsupported archives correctly force FAIL.
-- REPO/ZIP without BASE_URL intentionally remains source-only and is surfaced as an explicit warning in decision outputs.
+- REPO and ZIP now hard-fail when `BASE_URL` is missing; operators must provide all required inputs per mode before execution.
