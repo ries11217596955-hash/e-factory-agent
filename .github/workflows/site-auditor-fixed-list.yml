@@ -12,7 +12,7 @@ on:
           - REPO
           - URL
       base_url:
-        description: 'Base URL for URL mode'
+        description: 'Base URL for audit target (required by SITE_AUDITOR in REPO/ZIP/URL modes)'
         required: false
         default: 'https://automation-kb.pages.dev'
         type: string
@@ -23,6 +23,8 @@ on:
 jobs:
   site-audit:
     runs-on: ubuntu-latest
+    env:
+      DEFAULT_BASE_URL: https://automation-kb.pages.dev
 
     steps:
       - name: Checkout agent repo
@@ -58,7 +60,10 @@ jobs:
         env:
           FORCE_MODE: ${{ github.event_name == 'push' && 'ZIP' || inputs.audit_mode }}
           TARGET_REPO_PATH: ${{ github.workspace }}/target_repo
-          BASE_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.base_url || 'https://automation-kb.pages.dev' }}
+          # SITE_AUDITOR requires BASE_URL in every mode.
+          # - workflow_dispatch URL/REPO: operator-provided base_url (or fallback)
+          # - push ZIP: default deployed URL fallback
+          BASE_URL: ${{ github.event_name == 'workflow_dispatch' && (inputs.base_url != '' && inputs.base_url || env.DEFAULT_BASE_URL) || env.DEFAULT_BASE_URL }}
         run: |
           cd agents/gh_batch/site_auditor_cloud
           pwsh ./run.ps1
