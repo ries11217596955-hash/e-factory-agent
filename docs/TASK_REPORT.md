@@ -1,5 +1,5 @@
 ## Summary
-Tightened SITE_AUDITOR to enforce the mandatory routing contract: REPO now requires both `TARGET_REPO_PATH` and `BASE_URL`, ZIP now requires both ZIP payload and `BASE_URL`, and URL continues to require `BASE_URL`. Removed REPO/ZIP warning-only fallback for missing `BASE_URL`, strengthened decision wording, and expanded report/status outputs to show explicit source/live PASS/FAIL/OFF and required input visibility.
+Fixed a SITE_AUDITOR runtime crash in REPO/ZIP flows by normalizing `sourceLayer` shape so `base_url` is always present. Added a `New-SourceLayer` normalizer and updated `Invoke-SourceAuditRepo` / `Invoke-SourceAuditZip` returns to include `base_url = $null` while preserving routing and FAIL/decision logic.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -31,4 +31,4 @@ Tightened SITE_AUDITOR to enforce the mandatory routing contract: REPO now requi
 ## Risks/blockers
 - URL/live auditing still requires Node.js + Playwright availability and reachable target routes.
 - ZIP extraction uses platform archive support (`Expand-Archive`); malformed or unsupported archives correctly force FAIL.
-- REPO and ZIP now hard-fail when `BASE_URL` is missing; operators must provide all required inputs per mode before execution.
+- Did not change mode-routing, status decisioning, or failure criteria; this patch is structural normalization only.
