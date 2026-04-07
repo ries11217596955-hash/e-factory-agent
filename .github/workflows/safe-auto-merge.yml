@@ -1,0 +1,78 @@
+name: Safe Auto Merge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  safe-merge:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check changed files count
+        id: files
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const files = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number
+            });
+
+            const changedFiles = files.data.map(f => f.filename);
+            core.setOutput("count", changedFiles.length);
+            core.setOutput("files", JSON.stringify(changedFiles));
+
+      - name: Validate safe conditions
+        id: validate
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const files = JSON.parse('${{ steps.files.outputs.files }}');
+
+            let safe = true;
+
+            // Rule 1: max 2 files
+            if (files.length > 2) safe = false;
+
+            // Rule 2: forbidden paths
+            const forbidden = [
+              ".github/workflows/",
+              "config",
+              "package.json",
+              "package-lock.json"
+            ];
+
+            for (const f of files) {
+              for (const bad of forbidden) {
+                if (f.includes(bad)) {
+                  safe = false;
+                }
+              }
+            }
+
+            core.setOutput("safe", safe);
+
+      - name: Check TASK_REPORT exists
+        id: report
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const files = JSON.parse('${{ steps.files.outputs.files }}');
+            const hasReport = files.includes("docs/TASK_REPORT.md");
+            core.setOutput("hasReport", hasReport);
+
+      - name: Auto merge PR
+        if: steps.validate.outputs.safe == 'true' && steps.report.outputs.hasReport == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.pulls.merge({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              merge_method: "squash"
+            });
+
+            console.log("PR auto-merged (safe)");
