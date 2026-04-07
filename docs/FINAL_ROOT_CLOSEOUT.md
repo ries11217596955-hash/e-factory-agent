@@ -79,3 +79,8 @@ Date: 2026-04-07 (UTC)
 - If CI depends on root `.github/workflows`, pipeline triggers will not run until workflows are restored/migrated.
 - If any external automation expects root-level `releases/` or legacy web files, those integrations must be repointed to `_quarantine/root_legacy/` or `_foreign/webops/`.
 - No deletions were performed; only moves.
+
+## Correction note (2026-04-07 UTC)
+
+- `.github/workflows/` is an active infrastructure path and must remain at repository root for GitHub Actions to trigger correctly.
+- Three workflow files were restored to root `.github/workflows/` after the cleanup quarantine step.
