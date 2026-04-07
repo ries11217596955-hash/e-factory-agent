@@ -4,8 +4,8 @@ import { chromium } from 'playwright';
 
 const ROUTES = ['/', '/hubs/', '/tools/', '/start-here/', '/search/'];
 const BASE = process.env.BASE_URL || 'https://automation-kb.pages.dev';
-const OUT_DIR = 'reports';
-const SCREEN_DIR = path.join(OUT_DIR, 'screenshots');
+const REPORTS_DIR = path.resolve(process.env.REPORTS_DIR || path.join(process.cwd(), 'reports'));
+const SCREEN_DIR = path.join(REPORTS_DIR, 'screenshots');
 
 function ensureDir(p) {
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
@@ -41,9 +41,11 @@ async function extract(page) {
   });
 }
 
-async function safeShot(page, filePath) {
+async function safeShot(page, route, posLabel) {
+  const fileName = `${slug(route)}_${posLabel}.png`;
+  const filePath = path.join(SCREEN_DIR, fileName);
   await page.screenshot({ path: filePath, fullPage: false });
-  return filePath;
+  return `screenshots/${fileName}`;
 }
 
 async function processRoute(browser, route) {
@@ -56,11 +58,11 @@ async function processRoute(browser, route) {
     await delay(1500);
 
     await scrollStep(page, 0);
-    shots.push(await safeShot(page, `${SCREEN_DIR}/${slug(route)}_top.png`));
+    shots.push(await safeShot(page, route, 'top'));
     await scrollStep(page, 0.5);
-    shots.push(await safeShot(page, `${SCREEN_DIR}/${slug(route)}_mid.png`));
+    shots.push(await safeShot(page, route, 'mid'));
     await scrollStep(page, 1);
-    shots.push(await safeShot(page, `${SCREEN_DIR}/${slug(route)}_bot.png`));
+    shots.push(await safeShot(page, route, 'bot'));
 
     const metrics = await extract(page);
     return {
@@ -91,7 +93,7 @@ async function processRoute(browser, route) {
 }
 
 async function main() {
-  ensureDir(OUT_DIR);
+  ensureDir(REPORTS_DIR);
   ensureDir(SCREEN_DIR);
   const browser = await chromium.launch({ headless: true });
   const results = [];
@@ -99,7 +101,7 @@ async function main() {
     results.push(await processRoute(browser, route));
   }
   await browser.close();
-  fs.writeFileSync(path.join(OUT_DIR, 'visual_manifest.json'), JSON.stringify(results, null, 2));
+  fs.writeFileSync(path.join(REPORTS_DIR, 'visual_manifest.json'), JSON.stringify(results, null, 2));
   console.log(`CAPTURE DONE ${BASE}`);
 }
 
