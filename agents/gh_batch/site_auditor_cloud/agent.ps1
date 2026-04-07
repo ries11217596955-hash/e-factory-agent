@@ -109,7 +109,7 @@ function Invoke-SourceAuditZip {
 
     $zipPath = & (Join-Path $base 'lib/intake_zip.ps1') -InboxPath $InboxPath
     if ([string]::IsNullOrWhiteSpace($zipPath)) {
-        throw 'No ZIP payload found in input/inbox.'
+        throw 'Missing required input: ZIP payload in input/inbox for ZIP mode.'
     }
 
     & (Join-Path $base 'lib/preflight.ps1') -ZipPath $zipPath | Out-Null
@@ -209,6 +209,7 @@ function Build-DecisionLayer {
         [string]$ResolvedMode,
         [hashtable]$SourceLayer,
         [hashtable]$LiveLayer,
+        [string[]]$MissingInputs,
         [System.Collections.Generic.List[string]]$Warnings
     )
 
@@ -217,14 +218,18 @@ function Build-DecisionLayer {
     $p2 = New-Object System.Collections.Generic.List[string]
     $doNext = New-Object System.Collections.Generic.List[string]
 
-    if ($ResolvedMode -in @('REPO', 'ZIP')) {
+    foreach ($missing in @($MissingInputs)) {
+        $p0.Add("Missing required input: $missing")
+    }
+
+    if ($ResolvedMode -in @('REPO', 'ZIP') -and $SourceLayer.required) {
         if (-not $SourceLayer.enabled -or -not $SourceLayer.ok) {
-            $p0.Add('Source audit failed or returned invalid inventory.')
+            $p0.Add("Source audit failure in $ResolvedMode mode.")
         }
     }
 
-    if ($LiveLayer.enabled -and -not $LiveLayer.ok) {
-        $p0.Add('Live audit failed: routes contain errors, missing screenshots, or missing manifest evidence.')
+    if ($LiveLayer.required -and (-not $LiveLayer.enabled -or -not $LiveLayer.ok)) {
+        $p0.Add("Live audit failure in $ResolvedMode mode.")
     }
 
     foreach ($warning in $Warnings) {
@@ -246,7 +251,11 @@ function Build-DecisionLayer {
         $core = $p1[0]
         $doNext.Add('Address P1 warnings to move from partial to complete audit coverage.')
     } else {
-        $core = 'No blocking problems detected from source/live audit data.'
+        if ($ResolvedMode -in @('REPO', 'ZIP')) {
+            $core = "Combined source + live audit succeeded for $ResolvedMode mode."
+        } else {
+            $core = 'Live URL audit succeeded for URL mode.'
+        }
         $doNext.Add('Proceed with normal remediation planning using low-priority findings.')
     }
 
@@ -318,12 +327,17 @@ function Write-OperatorOutputs {
     Write-TextFile -Path $issuesPath -Lines $topIssues
     $reportFiles.Add('reports/01_TOP_ISSUES.txt')
 
+    $sourceStatus = if (-not $AuditResult.source.enabled) { 'OFF' } elseif ($AuditResult.source.ok) { 'PASS' } else { 'FAIL' }
+    $liveStatus = if (-not $AuditResult.live.enabled) { 'OFF' } elseif ($AuditResult.live.ok) { 'PASS' } else { 'FAIL' }
+    $requiredInputsLine = if ($AuditResult.required_inputs.Count -gt 0) { $AuditResult.required_inputs -join ', ' } else { 'none' }
+
     $summaryLines = @(
         'SITE_AUDITOR EXECUTIVE SUMMARY',
         "Mode: $ResolvedMode",
         "Status: $FinalStatus",
-        "Source audit enabled: $($AuditResult.source.enabled)",
-        "Live audit enabled: $($AuditResult.live.enabled)",
+        "Required inputs: $requiredInputsLine",
+        "Source audit: $sourceStatus",
+        "Live audit: $liveStatus",
         "Core problem: $($Decision.core_problem)",
         "Generated: $timestamp",
         'Primary evidence: reports/audit_result.json'
@@ -334,9 +348,10 @@ function Write-OperatorOutputs {
 
     $reportLines = @(
         "MODE: $ResolvedMode",
-        "SOURCE AUDIT: $(if ($AuditResult.source.enabled) { 'ON' } else { 'OFF' })",
-        "LIVE AUDIT: $(if ($AuditResult.live.enabled) { 'ON' } else { 'OFF' })",
-        "STATUS: $FinalStatus",
+        "REQUIRED INPUTS: $requiredInputsLine",
+        "SOURCE AUDIT: $sourceStatus",
+        "LIVE AUDIT: $liveStatus",
+        "OVERALL STATUS: $FinalStatus",
         "CORE PROBLEM: $($Decision.core_problem)",
         'P0:'
     )
@@ -373,30 +388,43 @@ Ensure-Dir $runtimeDir
 
 $resolvedMode = $MODE.ToUpperInvariant()
 $warnings = New-Object System.Collections.Generic.List[string]
-$sourceLayer = @{ enabled = $false; kind = $null; root = $null; extracted_root = $null; summary = @{}; findings = @(); ok = $true }
-$liveLayer = @{ enabled = $false; base_url = $null; summary = @{}; findings = @(); warnings = @(); ok = $true }
+$requiredInputs = @()
+$missingInputs = New-Object System.Collections.Generic.List[string]
+$sourceLayer = @{ enabled = $false; required = $false; kind = $null; root = $null; extracted_root = $null; base_url = $null; summary = @{}; findings = @(); ok = $false }
+$liveLayer = @{ enabled = $false; required = $false; root = $null; base_url = $null; summary = @{}; findings = @(); warnings = @(); ok = $false }
 
 try {
     switch ($resolvedMode) {
         'REPO' {
+            $requiredInputs = @('TARGET_REPO_PATH', 'BASE_URL')
+            $sourceLayer.required = $true
+            $liveLayer.required = $true
+            if ([string]::IsNullOrWhiteSpace($env:TARGET_REPO_PATH)) { $missingInputs.Add('TARGET_REPO_PATH') }
+            if ([string]::IsNullOrWhiteSpace($env:BASE_URL)) { $missingInputs.Add('BASE_URL') }
+            if ($missingInputs.Count -gt 0) { throw ("Missing required input(s) for REPO mode: " + ($missingInputs -join ', ')) }
             $sourceLayer = Invoke-SourceAuditRepo -TargetRepoPath $env:TARGET_REPO_PATH
+            $sourceLayer.required = $true
             $liveLayer = Invoke-LiveAudit -BaseUrl $env:BASE_URL
-            if (-not $liveLayer.enabled) {
-                $warnings.Add('BASE_URL missing in REPO mode: source-only audit completed.')
-            }
+            $liveLayer.required = $true
         }
         'ZIP' {
+            $requiredInputs = @('ZIP payload in input/inbox', 'BASE_URL')
+            $sourceLayer.required = $true
+            $liveLayer.required = $true
+            if ([string]::IsNullOrWhiteSpace($env:BASE_URL)) { $missingInputs.Add('BASE_URL') }
+            if ($missingInputs.Count -gt 0) { throw ("Missing required input(s) for ZIP mode: " + ($missingInputs -join ', ')) }
             $sourceLayer = Invoke-SourceAuditZip -InboxPath (Join-Path $base 'input/inbox')
+            $sourceLayer.required = $true
             $liveLayer = Invoke-LiveAudit -BaseUrl $env:BASE_URL
-            if (-not $liveLayer.enabled) {
-                $warnings.Add('BASE_URL missing in ZIP mode: source-only audit completed.')
-            }
+            $liveLayer.required = $true
         }
         'URL' {
+            $requiredInputs = @('BASE_URL')
+            $liveLayer.required = $true
+            if ([string]::IsNullOrWhiteSpace($env:BASE_URL)) { $missingInputs.Add('BASE_URL') }
+            if ($missingInputs.Count -gt 0) { throw ("Missing required input(s) for URL mode: " + ($missingInputs -join ', ')) }
             $liveLayer = Invoke-LiveAudit -BaseUrl $env:BASE_URL
-            if (-not $liveLayer.enabled) {
-                throw 'BASE_URL is required for URL mode.'
-            }
+            $liveLayer.required = $true
         }
         default {
             throw "Unsupported mode: $MODE"
@@ -405,29 +433,34 @@ try {
 
     foreach ($lw in @($liveLayer.warnings)) { $warnings.Add($lw) }
 
-    $decision = Build-DecisionLayer -ResolvedMode $resolvedMode -SourceLayer $sourceLayer -LiveLayer $liveLayer -Warnings $warnings
+    $decision = Build-DecisionLayer -ResolvedMode $resolvedMode -SourceLayer $sourceLayer -LiveLayer $liveLayer -MissingInputs @($missingInputs) -Warnings $warnings
 
     $status = 'PASS'
-    if ($resolvedMode -in @('REPO', 'ZIP')) {
-        if (-not $sourceLayer.ok) { $status = 'FAIL' }
-    }
-    if ($liveLayer.enabled -and -not $liveLayer.ok) { $status = 'FAIL' }
-    if ($resolvedMode -eq 'URL' -and (-not $liveLayer.enabled -or -not $liveLayer.ok)) { $status = 'FAIL' }
+    if ($missingInputs.Count -gt 0) { $status = 'FAIL' }
+    if ($sourceLayer.required -and (-not $sourceLayer.enabled -or -not $sourceLayer.ok)) { $status = 'FAIL' }
+    if ($liveLayer.required -and (-not $liveLayer.enabled -or -not $liveLayer.ok)) { $status = 'FAIL' }
 
     $auditResult = @{
         status = $status
         timestamp = $timestamp
         mode = $resolvedMode
+        required_inputs = $requiredInputs
         source = @{
             enabled = [bool]$sourceLayer.enabled
+            required = [bool]$sourceLayer.required
+            ok = [bool]$sourceLayer.ok
             kind = $sourceLayer.kind
             root = $sourceLayer.root
             extracted_root = $sourceLayer.extracted_root
+            base_url = $sourceLayer.base_url
             summary = $sourceLayer.summary
             findings = @($sourceLayer.findings)
         }
         live = @{
             enabled = [bool]$liveLayer.enabled
+            required = [bool]$liveLayer.required
+            ok = [bool]$liveLayer.ok
+            root = $liveLayer.root
             base_url = $liveLayer.base_url
             summary = $liveLayer.summary
             findings = @($liveLayer.findings)
@@ -455,16 +488,23 @@ catch {
         status = 'FAIL'
         timestamp = $timestamp
         mode = $resolvedMode
+        required_inputs = $requiredInputs
         source = @{
             enabled = [bool]$sourceLayer.enabled
+            required = [bool]$sourceLayer.required
+            ok = [bool]$sourceLayer.ok
             kind = $sourceLayer.kind
             root = $sourceLayer.root
             extracted_root = $sourceLayer.extracted_root
+            base_url = $sourceLayer.base_url
             summary = $sourceLayer.summary
             findings = @($sourceLayer.findings)
         }
         live = @{
             enabled = [bool]$liveLayer.enabled
+            required = [bool]$liveLayer.required
+            ok = [bool]$liveLayer.ok
+            root = $liveLayer.root
             base_url = $liveLayer.base_url
             summary = $liveLayer.summary
             findings = @($liveLayer.findings)
