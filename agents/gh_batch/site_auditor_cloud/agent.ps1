@@ -12,6 +12,8 @@ $runtimeDir = Join-Path $base 'runtime'
 $zipWorkRoot = Join-Path $runtimeDir 'zip_extracted'
 $timestamp = (Get-Date).ToString('o')
 $status = 'FAIL'
+$failureReason = $null
+$global:AuditError = $null
 $reportFiles = New-Object System.Collections.Generic.List[string]
 
 function Ensure-Dir([string]$Path) {
@@ -644,9 +646,51 @@ function Write-OperatorOutputs {
     Write-TextFile -Path $reportPath -Lines $reportLines
 }
 
-Ensure-Dir $outboxDir
-Ensure-Dir $reportsDir
-Ensure-Dir $runtimeDir
+function Ensure-OutputContract {
+    param(
+        [string]$ResolvedMode,
+        [string]$FinalStatus,
+        [string]$FailureReason
+    )
+
+    Ensure-Dir $outboxDir
+    Ensure-Dir $reportsDir
+
+    $auditResultPath = Join-Path $reportsDir 'audit_result.json'
+    if (-not (Test-Path $auditResultPath -PathType Leaf)) {
+        $fallbackAuditResult = @{
+            status = $FinalStatus
+            timestamp = (Get-Date).ToString('o')
+            mode = $ResolvedMode
+            error = if ([string]::IsNullOrWhiteSpace($FailureReason)) { 'FAILED: no report generated' } else { $FailureReason }
+        }
+        Write-JsonFile -Path $auditResultPath -Data $fallbackAuditResult
+    }
+
+    $reportPath = Join-Path $outboxDir 'REPORT.txt'
+    if (-not (Test-Path $reportPath -PathType Leaf)) {
+        $fallbackReason = if ([string]::IsNullOrWhiteSpace($FailureReason)) { 'no report generated' } else { $FailureReason }
+        $fallbackLines = @(
+            "MODE: $ResolvedMode",
+            "OVERALL STATUS: $FinalStatus",
+            "FAILED: $fallbackReason",
+            'Primary evidence: reports/audit_result.json'
+        )
+        Write-TextFile -Path $reportPath -Lines $fallbackLines
+    }
+
+    $doneOk = Join-Path $outboxDir 'DONE.ok'
+    $doneFail = Join-Path $outboxDir 'DONE.fail'
+    if (Test-Path $doneOk) { Remove-Item $doneOk -Force }
+    if (Test-Path $doneFail) { Remove-Item $doneFail -Force }
+
+    if ($FinalStatus -eq 'PASS' -and $null -eq $global:AuditError) {
+        New-Item -ItemType File -Path $doneOk -Force | Out-Null
+    }
+    else {
+        New-Item -ItemType File -Path $doneFail -Force | Out-Null
+    }
+}
 
 $resolvedMode = $MODE.ToUpperInvariant()
 $warnings = New-Object System.Collections.Generic.List[string]
@@ -656,6 +700,10 @@ $sourceLayer = New-SourceLayer
 $liveLayer = New-LiveLayer
 
 try {
+    Ensure-Dir $outboxDir
+    Ensure-Dir $reportsDir
+    Ensure-Dir $runtimeDir
+
     switch ($resolvedMode) {
         'REPO' {
             $requiredInputs = @('TARGET_REPO_PATH', 'BASE_URL')
@@ -737,9 +785,10 @@ try {
     Write-OperatorOutputs -ResolvedMode $resolvedMode -FinalStatus $status -AuditResult $auditResult -Decision $decision
 }
 catch {
+    $global:AuditError = $_
     $status = 'FAIL'
 
-    $failureReason = $_.Exception.Message
+    $failureReason = $global:AuditError.Exception.Message
     if (-not $failureReason) { $failureReason = 'Unknown failure while running SITE_AUDITOR.' }
 
     $sourceLayer = New-SourceLayer -Overrides $sourceLayer
@@ -784,18 +833,14 @@ catch {
 
     Write-OperatorOutputs -ResolvedMode $resolvedMode -FinalStatus 'FAIL' -AuditResult $auditResult -Decision $decision
 }
+finally {
+    Ensure-OutputContract -ResolvedMode $resolvedMode -FinalStatus $status -FailureReason $failureReason
+}
 
-$doneOk = Join-Path $outboxDir 'DONE.ok'
-$doneFail = Join-Path $outboxDir 'DONE.fail'
-if (Test-Path $doneOk) { Remove-Item $doneOk -Force }
-if (Test-Path $doneFail) { Remove-Item $doneFail -Force }
-
-if ($status -eq 'PASS') {
-    New-Item -ItemType File -Path $doneOk -Force | Out-Null
+if ($status -eq 'PASS' -and $null -eq $global:AuditError) {
     Write-Host "SITE_AUDITOR completed successfully. Artifacts: $outboxDir ; $reportsDir"
     exit 0
 }
 
-New-Item -ItemType File -Path $doneFail -Force | Out-Null
 Write-Host "SITE_AUDITOR failed. Artifacts: $outboxDir ; $reportsDir"
 exit 1
