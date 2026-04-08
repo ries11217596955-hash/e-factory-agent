@@ -121,6 +121,114 @@ function Safe-Get {
     return $Default
 }
 
+function Convert-ToIntSafe {
+    param(
+        [object]$Value,
+        [int]$Default = 0
+    )
+
+    if ($null -eq $Value) { return $Default }
+    $parsed = 0
+    if ([int]::TryParse([string]$Value, [ref]$parsed)) {
+        return $parsed
+    }
+    return $Default
+}
+
+function Convert-ToBoolSafe {
+    param(
+        [object]$Value,
+        [bool]$Default = $false
+    )
+
+    if ($null -eq $Value) { return $Default }
+    if ($Value -is [bool]) { return [bool]$Value }
+
+    $text = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($text)) { return $Default }
+    $normalized = $text.Trim().ToLowerInvariant()
+    if ($normalized -in @('true', '1', 'yes', 'y')) { return $true }
+    if ($normalized -in @('false', '0', 'no', 'n')) { return $false }
+    return $Default
+}
+
+function Convert-ToObjectArraySafe {
+    param(
+        [object]$Value
+    )
+
+    if ($null -eq $Value) { return @() }
+    if ($Value -is [string]) {
+        if ([string]::IsNullOrWhiteSpace($Value)) { return @() }
+        return @([string]$Value)
+    }
+    if ($Value -is [System.Collections.IDictionary] -or $Value -is [PSCustomObject]) {
+        return @($Value)
+    }
+    if ($Value -is [System.Collections.IEnumerable]) {
+        return @($Value)
+    }
+    return @($Value)
+}
+
+function Normalize-LiveRoutes {
+    param([object]$ManifestData)
+
+    $rawRoutes = @()
+    if ($ManifestData -is [System.Collections.IDictionary] -or $ManifestData -is [PSCustomObject]) {
+        $rawRoutes = @(Convert-ToObjectArraySafe (Safe-Get -Object $ManifestData -Key 'routes' -Default @()))
+    }
+    elseif ($ManifestData -is [System.Collections.IEnumerable] -and -not ($ManifestData -is [string])) {
+        $rawRoutes = @($ManifestData)
+    }
+    else {
+        $rawRoutes = @(Convert-ToObjectArraySafe $ManifestData)
+    }
+
+    $normalized = New-Object System.Collections.Generic.List[object]
+    $shapeWarnings = New-Object System.Collections.Generic.List[string]
+
+    foreach ($route in @($rawRoutes)) {
+        if ($null -eq $route) {
+            $shapeWarnings.Add('ROUTE_NORMALIZATION: dropped null route entry.')
+            continue
+        }
+
+        if (-not ($route -is [System.Collections.IDictionary] -or $route -is [PSCustomObject])) {
+            $shapeWarnings.Add("ROUTE_NORMALIZATION: dropped non-object route entry of type $($route.GetType().FullName).")
+            continue
+        }
+
+        $flagsRaw = Convert-ToObjectArraySafe (Safe-Get -Object $route -Key 'contaminationFlags' -Default @())
+        $flags = @($flagsRaw | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+
+        $normalized.Add([ordered]@{
+            route_path = [string](Safe-Get -Object $route -Key 'route_path' -Default '')
+            status = Safe-Get -Object $route -Key 'status' -Default 'error'
+            screenshotCount = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'screenshotCount' -Default 0) -Default 0
+            bodyTextLength = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'bodyTextLength' -Default 0) -Default 0
+            links = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'links' -Default 0) -Default 0
+            images = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'images' -Default 0) -Default 0
+            title = [string](Safe-Get -Object $route -Key 'title' -Default '')
+            h1Count = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'h1Count' -Default 0) -Default 0
+            buttonCount = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'buttonCount' -Default 0) -Default 0
+            hasMain = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasMain' -Default $false) -Default $false
+            hasArticle = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasArticle' -Default $false) -Default $false
+            hasNav = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasNav' -Default $false) -Default $false
+            hasFooter = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasFooter' -Default $false) -Default $false
+            visibleTextSample = [string](Safe-Get -Object $route -Key 'visibleTextSample' -Default '')
+            contaminationFlags = @($flags)
+        })
+    }
+
+    return @{
+        routes = @($normalized)
+        raw_count = @($rawRoutes).Count
+        dropped_count = [int]([Math]::Max(0, @($rawRoutes).Count - $normalized.Count))
+        warnings = @($shapeWarnings)
+    }
+}
+
 function Normalize-AuditResult {
     param([hashtable]$AuditResult)
 
@@ -263,6 +371,9 @@ function Invoke-LiveAudit {
         })
     }
 
+    $liveStage = 'CAPTURE'
+    $fallbackRouteDetails = @()
+    $fallbackRouteCount = 0
     try {
         $captureScript = Join-Path $base 'capture.mjs'
         if (-not (Test-Path $captureScript -PathType Leaf)) {
@@ -275,22 +386,56 @@ function Invoke-LiveAudit {
             throw "capture.mjs execution failed: $($captureOutput -join ' | ')"
         }
 
+        $liveStage = 'LOAD_VISUAL_MANIFEST'
         $visualManifestPath = Join-Path $reportsDir 'visual_manifest.json'
         if (-not (Test-Path $visualManifestPath -PathType Leaf)) {
             throw 'visual_manifest.json was not generated by capture.mjs.'
         }
 
-        $routes = @(Get-Content -Path $visualManifestPath -Raw | ConvertFrom-Json)
-        $errored = @($routes | Where-Object { $_.status -eq 'error' -or ([int]$_.status -ge 400) })
-        $healthy = @($routes | Where-Object { $_.status -ne 'error' -and ([int]$_.status -lt 400) })
+        $manifestRaw = Get-Content -Path $visualManifestPath -Raw
+        $manifestData = $manifestRaw | ConvertFrom-Json
+
+        $liveStage = 'ROUTE_NORMALIZATION'
+        $normalizedRoutesData = Normalize-LiveRoutes -ManifestData $manifestData
+        $routes = @($normalizedRoutesData.routes)
+        $fallbackRouteDetails = @($routes)
+        $fallbackRouteCount = @($routes).Count
+        $shapeWarnings = @($normalizedRoutesData.warnings)
+        $droppedCount = [int](Safe-Get -Object $normalizedRoutesData -Key 'dropped_count' -Default 0)
+
+        $liveStage = 'ROUTE_MERGE'
+        $errored = @($routes | Where-Object {
+                $statusValue = Safe-Get -Object $_ -Key 'status' -Default 'error'
+                $statusCode = Convert-ToIntSafe -Value $statusValue -Default -1
+                ($statusValue -eq 'error') -or ($statusCode -ge 400)
+            })
+        $healthy = @($routes | Where-Object {
+                $statusValue = Safe-Get -Object $_ -Key 'status' -Default 'error'
+                $statusCode = Convert-ToIntSafe -Value $statusValue -Default -1
+                ($statusValue -ne 'error') -and ($statusCode -ge 0) -and ($statusCode -lt 400)
+            })
         $totalShots = ($routes | Measure-Object -Property screenshotCount -Sum).Sum
         if ($null -eq $totalShots) { $totalShots = 0 }
 
+        $liveStage = 'PAGE_QUALITY_BUILD'
         $routeDetailsAndRollups = Build-PageQualityFindings -Routes $routes
         $routeDetails = @($routeDetailsAndRollups.route_details)
         $rollups = $routeDetailsAndRollups.rollups
 
         $findings = New-Object System.Collections.Generic.List[string]
+        $warnings = New-Object System.Collections.Generic.List[string]
+        $pageQualityStatus = 'EVALUATED'
+        if (@($routes).Count -eq 0) {
+            $pageQualityStatus = 'NOT_EVALUATED'
+            $warnings.Add('PAGE_QUALITY_BUILD: no normalized routes available for evaluation.')
+        }
+        elseif ($droppedCount -gt 0) {
+            $pageQualityStatus = 'PARTIAL'
+            $warnings.Add("ROUTE_NORMALIZATION: dropped $droppedCount route entries due to incompatible shape.")
+        }
+        foreach ($shapeWarning in $shapeWarnings) {
+            $warnings.Add($shapeWarning)
+        }
         if ($errored.Count -gt 0) { $findings.Add("$($errored.Count) route(s) returned errors or HTTP >= 400.") }
         if ($totalShots -eq 0) { $findings.Add('No screenshots were captured.') }
         if (@($routes).Count -eq 0) { $findings.Add('visual_manifest.json has zero routes.') }
@@ -315,11 +460,15 @@ function Invoke-LiveAudit {
                 weak_cta_routes = [int]$rollups.weak_cta_routes
                 dead_end_routes = [int]$rollups.dead_end_routes
                 contaminated_routes = [int]$rollups.contaminated_routes
+                page_quality_status = $pageQualityStatus
+                raw_route_entries = [int](Safe-Get -Object $normalizedRoutesData -Key 'raw_count' -Default 0)
+                normalized_route_entries = @($routes).Count
+                dropped_route_entries = $droppedCount
             }
             route_details = $routeDetails
             findings = @($findings)
-            warnings = @()
-            ok = (@($routes).Count -gt 0 -and $errored.Count -eq 0 -and [int]$totalShots -gt 0)
+            warnings = @($warnings)
+            ok = (@($routes).Count -gt 0 -and $errored.Count -eq 0 -and [int]$totalShots -gt 0 -and $pageQualityStatus -eq 'EVALUATED')
         })
     }
     catch {
@@ -330,9 +479,15 @@ function Invoke-LiveAudit {
             required = $false
             root = $BaseUrl
             base_url = $BaseUrl
-            summary = @{}
-            findings = @("Live audit capture failed: $failure")
-            warnings = @("Live audit encountered an execution error: $failure")
+            summary = @{
+                page_quality_status = 'NOT_EVALUATED'
+                failure_stage = $liveStage
+                evaluation_error = $failure
+                total_routes = [int]$fallbackRouteCount
+            }
+            findings = @("Live audit failed at stage $liveStage: $failure")
+            warnings = @("Live audit encountered an execution error at stage $liveStage: $failure")
+            route_details = @($fallbackRouteDetails)
             ok = $false
         })
     }
@@ -490,7 +645,15 @@ function Build-DecisionLayer {
         if ($deadEndRoutes -gt 0) { $p1.Add("$deadEndRoutes route(s) appear to be dead-ends for user flow.") }
         if ($contaminatedRoutes -gt 0) { $p1.Add("UI contamination found on $contaminatedRoutes route(s).") }
 
-        if ($emptyRoutes -eq 0 -and $thinRoutes -eq 0 -and $weakCtaRoutes -eq 0 -and $deadEndRoutes -eq 0 -and $contaminatedRoutes -eq 0 -and $LiveLayer.ok) {
+        $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
+        if ($pageQualityStatus -eq 'PARTIAL') {
+            $p1.Add('Page-quality evaluation is PARTIAL due to route normalization or merge issues.')
+        }
+        if ($pageQualityStatus -eq 'NOT_EVALUATED') {
+            $p0.Add('Page-quality evaluation is NOT_EVALUATED; live findings are incomplete.')
+        }
+
+        if ($emptyRoutes -eq 0 -and $thinRoutes -eq 0 -and $weakCtaRoutes -eq 0 -and $deadEndRoutes -eq 0 -and $contaminatedRoutes -eq 0 -and $LiveLayer.ok -and $pageQualityStatus -eq 'EVALUATED') {
             $p2.Add('No page-quality v1 concerns detected in sampled live routes.')
         }
     }
@@ -600,12 +763,19 @@ function Write-OperatorOutputs {
     )
     $liveSummary = Safe-Get -Object $AuditResult.live -Key 'summary' -Default @{}
     if ([bool](Safe-Get -Object $AuditResult.live -Key 'enabled' -Default $false)) {
-        $summaryLines += 'Page quality rollup:'
-        $summaryLines += "- empty routes: $([int](Safe-Get -Object $liveSummary -Key 'empty_routes' -Default 0))"
-        $summaryLines += "- thin routes: $([int](Safe-Get -Object $liveSummary -Key 'thin_routes' -Default 0))"
-        $summaryLines += "- weak CTA routes: $([int](Safe-Get -Object $liveSummary -Key 'weak_cta_routes' -Default 0))"
-        $summaryLines += "- dead-end routes: $([int](Safe-Get -Object $liveSummary -Key 'dead_end_routes' -Default 0))"
-        $summaryLines += "- contaminated routes: $([int](Safe-Get -Object $liveSummary -Key 'contaminated_routes' -Default 0))"
+        $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
+        $summaryLines += "Page quality status: $pageQualityStatus"
+        if ($pageQualityStatus -eq 'NOT_EVALUATED') {
+            $summaryLines += "- page quality rollup unavailable (stage: $([string](Safe-Get -Object $liveSummary -Key 'failure_stage' -Default 'unknown')))."
+        }
+        else {
+            $summaryLines += 'Page quality rollup:'
+            $summaryLines += "- empty routes: $([int](Safe-Get -Object $liveSummary -Key 'empty_routes' -Default 0))"
+            $summaryLines += "- thin routes: $([int](Safe-Get -Object $liveSummary -Key 'thin_routes' -Default 0))"
+            $summaryLines += "- weak CTA routes: $([int](Safe-Get -Object $liveSummary -Key 'weak_cta_routes' -Default 0))"
+            $summaryLines += "- dead-end routes: $([int](Safe-Get -Object $liveSummary -Key 'dead_end_routes' -Default 0))"
+            $summaryLines += "- contaminated routes: $([int](Safe-Get -Object $liveSummary -Key 'contaminated_routes' -Default 0))"
+        }
     }
     $summaryPath = Join-Path $reportsDir '11A_EXECUTIVE_SUMMARY.txt'
     Write-TextFile -Path $summaryPath -Lines $summaryLines
@@ -621,12 +791,19 @@ function Write-OperatorOutputs {
         'P0:'
     )
     if ([bool](Safe-Get -Object $AuditResult.live -Key 'enabled' -Default $false)) {
-        $reportLines += 'PAGE QUALITY ROLLUP:'
-        $reportLines += "- empty routes: $([int](Safe-Get -Object $liveSummary -Key 'empty_routes' -Default 0))"
-        $reportLines += "- thin routes: $([int](Safe-Get -Object $liveSummary -Key 'thin_routes' -Default 0))"
-        $reportLines += "- weak CTA routes: $([int](Safe-Get -Object $liveSummary -Key 'weak_cta_routes' -Default 0))"
-        $reportLines += "- dead-end routes: $([int](Safe-Get -Object $liveSummary -Key 'dead_end_routes' -Default 0))"
-        $reportLines += "- contaminated routes: $([int](Safe-Get -Object $liveSummary -Key 'contaminated_routes' -Default 0))"
+        $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
+        $reportLines += "PAGE QUALITY STATUS: $pageQualityStatus"
+        if ($pageQualityStatus -eq 'NOT_EVALUATED') {
+            $reportLines += "PAGE QUALITY ROLLUP: unavailable (stage: $([string](Safe-Get -Object $liveSummary -Key 'failure_stage' -Default 'unknown')))"
+        }
+        else {
+            $reportLines += 'PAGE QUALITY ROLLUP:'
+            $reportLines += "- empty routes: $([int](Safe-Get -Object $liveSummary -Key 'empty_routes' -Default 0))"
+            $reportLines += "- thin routes: $([int](Safe-Get -Object $liveSummary -Key 'thin_routes' -Default 0))"
+            $reportLines += "- weak CTA routes: $([int](Safe-Get -Object $liveSummary -Key 'weak_cta_routes' -Default 0))"
+            $reportLines += "- dead-end routes: $([int](Safe-Get -Object $liveSummary -Key 'dead_end_routes' -Default 0))"
+            $reportLines += "- contaminated routes: $([int](Safe-Get -Object $liveSummary -Key 'contaminated_routes' -Default 0))"
+        }
     }
     $reportLines += if ($Decision.p0.Count -gt 0) { $Decision.p0 | ForEach-Object { "- $_" } } else { '- none' }
     $reportLines += 'P1:'

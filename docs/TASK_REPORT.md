@@ -1,5 +1,9 @@
 ## Summary
-Fixed `SITE_AUDITOR` artifact path resolution so runtime output paths match GitHub Actions artifact upload expectations. `agent.ps1` now resolves a workspace-aware base path from `$env:GITHUB_WORKSPACE` when running in Actions, falls back to `$PSScriptRoot` for local execution, rebuilds `outbox/`, `reports/`, and `runtime/` from that base, and logs the resolved output base.
+- Fixed the live-layer runtime type mismatch by normalizing visual manifest route data before evaluation, eliminating hard casts against inconsistent JSON shapes.
+- Added stage-specific diagnostics (`CAPTURE`, `LOAD_VISUAL_MANIFEST`, `ROUTE_NORMALIZATION`, `ROUTE_MERGE`, `PAGE_QUALITY_BUILD`) so failures are attributable to the exact live audit phase.
+- Made page-quality reporting explicit with `page_quality_status` values (`EVALUATED`, `PARTIAL`, `NOT_EVALUATED`) and ensured partial/failure states are surfaced in warnings and decision output.
+- Prevented misleading clean zero rollups when live evaluation is not completed by reporting rollups as unavailable in `REPORT.txt` / executive summary for `NOT_EVALUATED` states.
+- Preserved partial visual value by retaining normalized route details in live-layer fallback responses when downstream live evaluation fails.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -9,14 +13,13 @@ Fixed `SITE_AUDITOR` artifact path resolution so runtime output paths match GitH
 - None.
 
 ## Current entrypoints/paths
-- Primary entrypoint: `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- Downstream outputs (now rooted at `"$GITHUB_WORKSPACE/agents/gh_batch/site_auditor_cloud"` in GitHub Actions, otherwise script root):
-  - `agents/gh_batch/site_auditor_cloud/reports/audit_result.json`
-  - `agents/gh_batch/site_auditor_cloud/outbox/REPORT.txt`
-  - `agents/gh_batch/site_auditor_cloud/outbox/DONE.ok`
-  - `agents/gh_batch/site_auditor_cloud/outbox/DONE.fail`
-  - existing optional reports from normal flow remain unchanged (`HOW_TO_FIX.json`, `00_PRIORITY_ACTIONS.txt`, `01_TOP_ISSUES.txt`, `11A_EXECUTIVE_SUMMARY.txt`, `run_manifest.json`).
+- Primary cloud agent entrypoint remains: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- Output contract remains unchanged:
+  - `outbox/REPORT.txt`
+  - `reports/audit_result.json`
+  - `reports/run_manifest.json`
+  - `outbox/DONE.ok` / `outbox/DONE.fail`
 
 ## Risks/blockers
-- This change assumes GitHub Actions checks out the repository at `$GITHUB_WORKSPACE` (standard behavior); custom checkout paths could still require workflow-side alignment.
-- End-to-end artifact upload validation requires a GitHub Actions run; local validation can only verify path selection logic and script syntax.
+- Runtime verification of the end-to-end live capture path was limited in this environment because PowerShell (`pwsh`) is unavailable.
+- Stage-level diagnostics were added to reduce troubleshooting risk in CI and to make follow-up validation actionable.
