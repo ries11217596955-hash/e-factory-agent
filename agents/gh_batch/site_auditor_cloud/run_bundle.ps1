@@ -144,6 +144,49 @@ function Get-BundleLogicalStatus {
     return 'OK'
 }
 
+function Get-RepoScreenshotManifest {
+    $repoRoot = Join-Path $bundleRoot 'repo'
+    $sourceRoots = @(
+        Join-Path $repoRoot 'reports'
+        Join-Path $repoRoot 'outbox'
+    )
+
+    $manifest = New-Object System.Collections.Generic.List[object]
+    $nameCounts = @{}
+
+    foreach ($sourceRoot in $sourceRoots) {
+        if (-not (Test-Path -Path $sourceRoot -PathType Container)) {
+            continue
+        }
+
+        $pngFiles = Get-ChildItem -Path $sourceRoot -Filter '*.png' -File -ErrorAction SilentlyContinue | Sort-Object -Property Name, FullName
+        foreach ($pngFile in $pngFiles) {
+            $baseName = $pngFile.Name
+            if (-not $nameCounts.ContainsKey($baseName)) {
+                $nameCounts[$baseName] = 0
+            }
+
+            $nameCounts[$baseName] += 1
+            $copyName = if ($nameCounts[$baseName] -eq 1) {
+                $baseName
+            }
+            else {
+                $stem = [System.IO.Path]::GetFileNameWithoutExtension($baseName)
+                $ext = [System.IO.Path]::GetExtension($baseName)
+                "$stem-$($nameCounts[$baseName])$ext"
+            }
+
+            $manifest.Add([ordered]@{
+                source = $pngFile.FullName
+                relative_path = "bundle_artifacts/$copyName"
+                file_name = $copyName
+            })
+        }
+    }
+
+    return @($manifest)
+}
+
 function Invoke-AssemblyStage {
     param([object[]]$ModeResults)
 
@@ -158,11 +201,15 @@ function Invoke-AssemblyStage {
 
     $bundleLogicalStatus = Get-BundleLogicalStatus -ModeResults $ModeResults
 
+    $repoScreenshotManifest = Get-RepoScreenshotManifest
+    $repoArtifacts = @($repoScreenshotManifest | ForEach-Object { $_.relative_path })
+
     $bundleStatus = [ordered]@{
         repo = [ordered]@{
             status = $repoResult.status
             reason = $repoResult.reason
             artifacts_present = [bool]$repoResult.artifacts_present
+            artifacts = $repoArtifacts
         }
         zip = [ordered]@{
             status = 'SKIPPED'
@@ -212,6 +259,23 @@ function New-ReportLines {
     $lines.Add('EXECUTION LOG: audit_bundle/EXECUTION_LOG.txt')
     $lines.Add('MASTER SUMMARY: audit_bundle/master_summary.json')
     $lines.Add('BUNDLE STATUS: audit_bundle/audit_bundle_summary.json')
+    $lines.Add('')
+    $lines.Add('SCREENSHOTS')
+    $lines.Add('-----------')
+
+    $repoArtifacts = @()
+    if ($null -ne $Assembled.bundle_status -and $null -ne $Assembled.bundle_status.repo -and $null -ne $Assembled.bundle_status.repo.artifacts) {
+        $repoArtifacts = @($Assembled.bundle_status.repo.artifacts)
+    }
+
+    if ($repoArtifacts.Count -eq 0) {
+        $lines.Add('No screenshots captured')
+    }
+    else {
+        foreach ($artifact in $repoArtifacts) {
+            $lines.Add("- $([System.IO.Path]::GetFileName([string]$artifact))")
+        }
+    }
 
     return $lines
 }
@@ -222,6 +286,21 @@ function Invoke-WritingStage {
     Add-ExecutionLog 'STAGE 3 (WRITING) started.'
 
     Ensure-Directory -Path $bundleRoot
+    $bundleArtifactsRoot = Join-Path $bundleRoot 'bundle_artifacts'
+    Ensure-Directory -Path $bundleArtifactsRoot
+
+    $repoScreenshotManifest = Get-RepoScreenshotManifest
+    foreach ($artifact in $repoScreenshotManifest) {
+        $destinationPath = Join-Path $bundleRoot $artifact.relative_path
+        $destinationDirectory = Split-Path -Path $destinationPath -Parent
+        Ensure-Directory -Path $destinationDirectory
+        Copy-Item -Path $artifact.source -Destination $destinationPath -Force -ErrorAction SilentlyContinue
+    }
+
+    if ($null -eq $Assembled.bundle_status.repo) {
+        $Assembled.bundle_status.repo = [ordered]@{}
+    }
+    $Assembled.bundle_status.repo.artifacts = @($repoScreenshotManifest | ForEach-Object { $_.relative_path })
 
     try {
         $assembled.bundle_status | ConvertTo-Json -Depth 6 | Out-File -FilePath $bundleStatusPath -Encoding utf8
