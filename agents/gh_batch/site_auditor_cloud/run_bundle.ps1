@@ -149,43 +149,137 @@ function Invoke-AssemblyStage {
 
     Add-ExecutionLog 'STAGE 2 (ASSEMBLY) started.'
 
-    $repoResult = $ModeResults | Where-Object { $_.mode -eq 'REPO' } | Select-Object -First 1
-    if ($null -eq $repoResult) {
-        $repoResult = New-ModeResult -Mode 'REPO' -Status 'FAIL' -Reason 'REPO subrun was not captured' -ExitCode 1 -Executed $false -OutboxCopied $false -ReportsCopied $false
-        $ModeResults = @($repoResult) + @($ModeResults)
-        Add-ExecutionLog 'REPO result was missing; injected deterministic FAIL result.'
-    }
+    try {
+        $safeModeResults = if ($null -eq $ModeResults) { @() } else { @($ModeResults) }
 
-    $bundleLogicalStatus = Get-BundleLogicalStatus -ModeResults $ModeResults
+        $repoResult = $safeModeResults | Where-Object { $_.mode -eq 'REPO' } | Select-Object -First 1
+        $zipResult = $safeModeResults | Where-Object { $_.mode -eq 'ZIP' } | Select-Object -First 1
+        $urlResult = $safeModeResults | Where-Object { $_.mode -eq 'URL' } | Select-Object -First 1
 
-    $bundleStatus = [ordered]@{
-        repo = [ordered]@{
-            status = $repoResult.status
-            reason = $repoResult.reason
-            artifacts_present = [bool]$repoResult.artifacts_present
+        $repo = if ($null -ne $repoResult) {
+            @{
+                name = 'repo'
+                status = [string]$repoResult.status
+                reason = [string]$repoResult.reason
+                artifacts_present = [bool]$repoResult.artifacts_present
+            }
         }
-        zip = [ordered]@{
-            status = 'SKIPPED'
-            reason = 'SKIPPED_BY_STAGE_ACTIVATION'
+        else {
+            $null
+        }
+
+        $zip = if ($null -ne $zipResult) {
+            @{
+                name = 'zip'
+                status = [string]$zipResult.status
+                reason = [string]$zipResult.reason
+                artifacts_present = [bool]$zipResult.artifacts_present
+            }
+        }
+        else {
+            $null
+        }
+
+        $url = if ($null -ne $urlResult) {
+            @{
+                name = 'url'
+                status = [string]$urlResult.status
+                reason = [string]$urlResult.reason
+                artifacts_present = [bool]$urlResult.artifacts_present
+            }
+        }
+        else {
+            $null
+        }
+
+        $repo = [hashtable]$repo
+        $zip = [hashtable]$zip
+        $url = [hashtable]$url
+
+        $repo = $repo ?? @{
+            name = 'repo'
+            status = 'FAIL'
+            reason = 'NULL_RESULT'
             artifacts_present = $false
         }
-        url = [ordered]@{
-            status = 'SKIPPED'
-            reason = 'SKIPPED_BY_STAGE_ACTIVATION'
+        $zip = $zip ?? @{
+            name = 'zip'
+            status = 'FAIL'
+            reason = 'NULL_RESULT'
             artifacts_present = $false
         }
-        overall = $bundleLogicalStatus
-    }
+        $url = $url ?? @{
+            name = 'url'
+            status = 'FAIL'
+            reason = 'NULL_RESULT'
+            artifacts_present = $false
+        }
 
-    $assembled = [ordered]@{
-        generated_at = (Get-Date).ToString('o')
-        mode_results = @($ModeResults)
-        bundle_status = $bundleStatus
-        overall_status = $bundleLogicalStatus
-    }
+        $bundle = @{
+            repo = $repo
+            zip = $zip
+            url = $url
+        }
 
-    Add-ExecutionLog "STAGE 2 (ASSEMBLY) completed with overall=$bundleLogicalStatus."
-    return $assembled
+        $statuses = @($repo.status, $zip.status, $url.status)
+
+        if ($statuses -contains 'FAIL') {
+            $overall = 'FAIL'
+        }
+        elseif ($statuses -contains 'PARTIAL') {
+            $overall = 'PARTIAL'
+        }
+        else {
+            $overall = 'OK'
+        }
+
+        $bundleStatus = [ordered]@{
+            repo = [ordered]@{
+                status = [string]$bundle.repo.status
+                reason = [string]$bundle.repo.reason
+                artifacts_present = [bool]$bundle.repo.artifacts_present
+            }
+            zip = [ordered]@{
+                status = [string]$bundle.zip.status
+                reason = [string]$bundle.zip.reason
+                artifacts_present = [bool]$bundle.zip.artifacts_present
+            }
+            url = [ordered]@{
+                status = [string]$bundle.url.status
+                reason = [string]$bundle.url.reason
+                artifacts_present = [bool]$bundle.url.artifacts_present
+            }
+            overall = $overall
+        }
+
+        $assembled = [ordered]@{
+            generated_at = (Get-Date).ToString('o')
+            mode_results = $safeModeResults
+            bundle_status = $bundleStatus
+            overall_status = $overall
+        }
+
+        Add-ExecutionLog 'ASSEMBLY_OK'
+        Add-ExecutionLog "STAGE 2 (ASSEMBLY) completed with overall=$overall."
+        return $assembled
+    }
+    catch {
+        $errorMessage = $_.Exception.Message
+        $bundle = @{
+            overall = 'FAIL'
+            reason = $errorMessage
+        }
+
+        $assembled = [ordered]@{
+            generated_at = (Get-Date).ToString('o')
+            mode_results = if ($null -eq $ModeResults) { @() } else { @($ModeResults) }
+            bundle_status = $bundle
+            overall_status = 'FAIL'
+        }
+
+        Add-ExecutionLog "ASSEMBLY_FAIL: $errorMessage"
+        return $assembled
+    }
 }
 
 function New-ReportLines {
