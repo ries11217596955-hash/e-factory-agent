@@ -17,8 +17,11 @@ on:
         default: 'https://automation-kb.pages.dev'
         type: string
   push:
+    branches:
+      - main
     paths:
-      - 'agents/gh_batch/site_auditor_cloud/input/inbox/**'
+      - 'agents/gh_batch/site_auditor_cloud/**'
+      - '.github/workflows/site-auditor-fixed-list.yml'
 
 jobs:
   site-audit:

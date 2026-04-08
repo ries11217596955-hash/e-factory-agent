@@ -485,8 +485,8 @@ function Invoke-LiveAudit {
                 evaluation_error = $failure
                 total_routes = [int]$fallbackRouteCount
             }
-            findings = @("Live audit failed at stage $liveStage: $failure")
-            warnings = @("Live audit encountered an execution error at stage $liveStage: $failure")
+            findings = @("Live audit failed at stage ${liveStage}: $failure")
+            warnings = @("Live audit encountered an execution error at stage ${liveStage}: $failure")
             route_details = @($fallbackRouteDetails)
             ok = $false
         })
