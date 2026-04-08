@@ -444,6 +444,25 @@ function Get-BundleExitCode {
     return 0
 }
 
+function Normalize-Result {
+    param(
+        $r,
+        [string]$name
+    )
+
+    if ($null -eq $r -or $r -isnot [hashtable]) {
+        return @{
+            status = 'FAIL'
+            reason = "${name}_INVALID_RESULT"
+        }
+    }
+
+    return @{
+        status = [string]$r.status
+        reason = [string]$r.reason
+    }
+}
+
 $assembled = $null
 $modeResults = @()
 $hadRuntimeCrash = $false
@@ -466,4 +485,30 @@ Invoke-WritingStage -Assembled $assembled
 
 $exitCode = Get-BundleExitCode -Assembled $assembled -HadRuntimeCrash $hadRuntimeCrash
 Write-Host "Bundle completed with overall status $($assembled.overall_status) and exit code $exitCode."
-exit $exitCode
+$global:LASTEXITCODE = $exitCode
+
+$overall = if ($null -ne $assembled -and $null -ne $assembled.bundle_status -and $null -ne $assembled.bundle_status.overall) {
+    $assembled.bundle_status.overall
+}
+else {
+    $assembled.overall_status
+}
+
+$repo = if ($null -ne $assembled -and $null -ne $assembled.bundle_status) { $assembled.bundle_status.repo } else { $null }
+$zip = if ($null -ne $assembled -and $null -ne $assembled.bundle_status) { $assembled.bundle_status.zip } else { $null }
+$url = if ($null -ne $assembled -and $null -ne $assembled.bundle_status) { $assembled.bundle_status.url } else { $null }
+
+$repo = Normalize-Result $repo 'repo'
+$zip = Normalize-Result $zip 'zip'
+$url = Normalize-Result $url 'url'
+
+$manifest = @{
+    overall = [string]$overall
+    repo = $repo
+    zip = $zip
+    url = $url
+}
+
+$manifest = $manifest | ConvertTo-Json -Depth 5 | ConvertFrom-Json
+Add-ExecutionLog 'MANIFEST_NORMALIZED_OK'
+return $manifest
