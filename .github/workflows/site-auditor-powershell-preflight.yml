@@ -1,0 +1,25 @@
+name: SITE_AUDITOR PowerShell Preflight
+
+on:
+  pull_request:
+    paths:
+      - 'agents/gh_batch/site_auditor_cloud/**/*.ps1'
+      - '.github/workflows/site-auditor-powershell-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-powershell:
+    name: validate-powershell
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run SITE_AUDITOR PowerShell preflight validator
+        shell: pwsh
+        run: |
+          ./agents/gh_batch/site_auditor_cloud/lib/validate-powershell-preflight.ps1 -RepoRoot "${{ github.workspace }}"

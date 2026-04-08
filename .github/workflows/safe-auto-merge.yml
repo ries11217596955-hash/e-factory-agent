@@ -52,7 +52,12 @@ jobs:
               }
             }
 
+            const requiresSiteAuditorPsValidation = files.some((f) =>
+              f.startsWith('agents/gh_batch/site_auditor_cloud/') && f.endsWith('.ps1')
+            );
+
             core.setOutput("safe", safe);
+            core.setOutput("requires_site_auditor_ps_validation", requiresSiteAuditorPsValidation);
 
       - name: Check TASK_REPORT exists
         id: report
@@ -63,8 +68,45 @@ jobs:
             const hasReport = files.includes("docs/TASK_REPORT.md");
             core.setOutput("hasReport", hasReport);
 
+      - name: Require SITE_AUDITOR PowerShell preflight check
+        id: ps_preflight
+        if: steps.validate.outputs.requires_site_auditor_ps_validation == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const headSha = context.payload.pull_request.head.sha;
+            const checks = await github.rest.checks.listForRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: headSha,
+              per_page: 100
+            });
+
+            const preflight = checks.data.check_runs.find((run) => run.name === 'validate-powershell');
+            if (!preflight) {
+              core.setFailed('SITE_AUDITOR PowerShell preflight check (validate-powershell) not found.');
+              return;
+            }
+
+            core.info(`Found check run ${preflight.name} with status=${preflight.status} conclusion=${preflight.conclusion}`);
+
+            if (preflight.status !== 'completed') {
+              core.setFailed('SITE_AUDITOR PowerShell preflight check has not completed yet.');
+              return;
+            }
+
+            if (preflight.conclusion !== 'success') {
+              core.setFailed(`SITE_AUDITOR PowerShell preflight check failed with conclusion=${preflight.conclusion}.`);
+              return;
+            }
+
+            core.setOutput('ok', 'true');
+
       - name: Auto merge PR
-        if: steps.validate.outputs.safe == 'true' && steps.report.outputs.hasReport == 'true'
+        if: >-
+          steps.validate.outputs.safe == 'true' &&
+          steps.report.outputs.hasReport == 'true' &&
+          (steps.validate.outputs.requires_site_auditor_ps_validation != 'true' || steps.ps_preflight.outputs.ok == 'true')
         uses: actions/github-script@v7
         with:
           script: |
