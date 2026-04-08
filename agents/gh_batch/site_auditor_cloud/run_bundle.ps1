@@ -247,8 +247,38 @@ function Get-BundleExitCode {
     return 0
 }
 
+function Validate-BundleScriptSyntax {
+    Add-ExecutionLog 'Validating PowerShell syntax...'
+
+    $parseErrors = @()
+    $tokens = @()
+    $source = Get-Content -Raw -Path $PSCommandPath
+    [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$parseErrors) | Out-Null
+
+    if ($parseErrors.Count -gt 0) {
+        $errorSummary = ($parseErrors | ForEach-Object { $_.Message }) -join '; '
+        Add-ExecutionLog "PowerShell parser reported syntax issues: $errorSummary"
+    }
+    else {
+        Add-ExecutionLog 'PowerShell parser validation passed.'
+    }
+
+    $invalidLogicalTokens = $tokens | Where-Object {
+        $_.Kind -eq [System.Management.Automation.Language.TokenKind]::Identifier -and $_.Text -match '^(?i:and|or)$'
+    }
+
+    if ($invalidLogicalTokens.Count -gt 0) {
+        $tokenSummary = ($invalidLogicalTokens | ForEach-Object { "'$($_.Text)' at line $($_.Extent.StartLineNumber)" }) -join ', '
+        Add-ExecutionLog "Invalid logical token(s) detected; correction needed: $tokenSummary"
+    }
+    else {
+        Add-ExecutionLog 'No invalid logical operator tokens detected.'
+    }
+}
+
 try {
     Ensure-Directory -Path $bundleRoot
+    Validate-BundleScriptSyntax
     Add-ExecutionLog 'Bundle execution started.'
 
     foreach ($mode in @('REPO', 'ZIP', 'URL')) {
