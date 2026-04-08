@@ -27,6 +27,15 @@
       <p class="lead">{{ summary }}</p>
     {% endif %}
 
+    <div class="card card--soft section-gap">
+      <h2 class="h3">What you can get in the next 10 minutes</h2>
+      <p>
+        Leave this page with one concrete improvement shipped: a clearer decision, a stronger listing section,
+        or a cleaner workflow step you can run today.
+      </p>
+      <p><strong>After this page you will have:</strong> one live change published, one metric to watch, and one next-step route.</p>
+    </div>
+
     <p class="meta">
       {% if updated %}Updated {{ updated | dateReadable }}{% else %}{{ date | dateReadable }}{% endif %} · {{ content | readingTime }} min read
       {% if author %}
@@ -35,9 +44,43 @@
     </p>
   </header>
 
+  <section class="card section-gap">
+    <h2>Instant action block</h2>
+    <p><strong>If you only do one thing → do this:</strong> pick one weak section, rewrite it using one buyer phrase from reviews, then publish and track conversion for 7 days.</p>
+  </section>
+
+  <section class="card card--soft section-gap">
+    <h2>Execution checklist (under 30 seconds to start)</h2>
+    <ol>
+      <li>Open your current draft or listing right now.</li>
+      <li>Highlight one sentence that is generic or unclear.</li>
+      <li>Replace it with a concrete buyer outcome + proof point.</li>
+      <li>Publish or queue the update before reading the next page.</li>
+    </ol>
+  </section>
+
   <div class="content section-gap">
     {{ content | safe }}
   </div>
+
+  <section class="card section-gap">
+    <h2>Real value example (before vs after)</h2>
+    <ul>
+      <li><strong>Before:</strong> “High-quality material, durable design.”</li>
+      <li><strong>After:</strong> “Rip-stop fabric survived 42 gym sessions with no seam failures.”</li>
+      <li><strong>Outcome:</strong> clearer buyer trust signal and a measurable claim you can validate.</li>
+    </ul>
+  </section>
+
+  <section class="card card--soft section-gap">
+    <h2>Search fallback (never stop at zero results)</h2>
+    <p>If search returns no matches, run one of these routes now:</p>
+    <ul>
+      <li><a href="/posts/2026-04-02-best-ai-tools-for-amazon/">Popular tools: AI tools for Amazon</a></li>
+      <li><a href="/hubs/amazon-ai/">Suggested route: Amazon hub start path</a></li>
+      <li><a href="/hubs/ai-tools/">Suggested route: AI tools hub</a></li>
+    </ul>
+  </section>
 
   {% if collections and collections.revenuePosts and primaryTag %}
     {% set allow = ["ai-for-sales", "ecommerce-automation"] %}

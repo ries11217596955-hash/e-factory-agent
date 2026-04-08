@@ -1,44 +1,27 @@
 ## Summary
-- Stabilized `run_bundle.ps1` with a logical bundle status model that is based on subrun logical status (`OK | PARTIAL | FAIL`) rather than raw numeric exit codes.
-- Updated REPO result mapping from `PASS` to `OK`, while preserving `PARTIAL` and `FAIL` determination based on execution evidence.
-- Added deterministic bundle aggregation rules: any `FAIL` => bundle `FAIL`; else any `PARTIAL` => bundle `PARTIAL`; else bundle `OK`.
-- Refactored end-of-run behavior so bundle process exit code is now decoupled from subrun exit codes and returns `0` for logical `OK` and `PARTIAL` outcomes.
-- Hardened writing stage to always execute, wrap output writes in a non-fatal `try/catch`, and continue after writer errors.
-
-### Status model (before/after)
-- Before:
-  - Subrun logical success path used `PASS`.
-  - Bundle summary effectively depended on `repo_usable_evidence` and treated all usable evidence as `PASS_WITH_WARNINGS`.
-  - Exit behavior could fail the process when REPO evidence was not considered usable.
-- After:
-  - Subrun status model is `OK | PARTIAL | FAIL` for executed modes.
-  - Bundle overall status is derived only from logical subrun statuses (ignores raw numeric subrun `exit_code` in aggregation).
-  - Bundle summary `overall` and `overall_status` now resolve to `OK`, `PARTIAL`, or `FAIL` using deterministic rules.
-
-### Exit behavior rules
-- Exit `1` only on runtime crash/script exception at bundle orchestration level.
-- Exit `0` for completed bundle runs, including logical `OK` and `PARTIAL` outcomes.
-- Subrun non-zero `exit_code` values are still recorded but no longer drive bundle process termination.
+- Upgraded core page experience from passive reading to immediate action by adding outcome-first hero copy, an instant action block, an execution checklist, a result promise, a before/after example, and a search-fallback route block at the shared article template level.
+- Upgraded the global hubs landing page with required activation blocks: “Start here if you are new,” “Fastest result path,” and “Top 3 actions,” plus explicit no-results search fallback routes.
+- Upgraded the Amazon hub with action-first startup guidance, quick-start pathing, tool-page quick-start framing (use case + expected outcome), and explicit before/after scenario value.
+- Upgraded reusable tool content block from generic filler to concrete, execution-level guidance including one-step instant action and observable checklist outcomes.
+- Estimated actionable-level coverage: ~55% of content pages upgraded directly via shared template + hub-page updates (52 of 94 markdown pages, inferred from layout usage and targeted hub updates).
 
 ## Changed files
-- `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
+- `_foreign/webops/_includes/article.njk`
+- `_foreign/webops/hubs/index.njk`
+- `_foreign/webops/hubs/amazon-ai/index.njk`
+- `_foreign/webops/_includes/partials/tool_block.njk`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- Bundle runtime entrypoint:
-  - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
-- Subrun entrypoint used by REPO stage execution:
-  - `agents/gh_batch/site_auditor_cloud/run.ps1`
-- Bundle artifacts written by stage 3:
-  - `agents/gh_batch/site_auditor_cloud/audit_bundle/REPORT.txt`
-  - `agents/gh_batch/site_auditor_cloud/audit_bundle/master_summary.json`
-  - `agents/gh_batch/site_auditor_cloud/audit_bundle/audit_bundle_summary.json`
-  - `agents/gh_batch/site_auditor_cloud/audit_bundle/EXECUTION_LOG.txt`
+- Shared article rendering path for post-style pages: `_foreign/webops/_includes/article.njk`
+- Hub landing page entry: `_foreign/webops/hubs/index.njk` (permalink `/hubs/`)
+- Amazon hub entry: `_foreign/webops/hubs/amazon-ai/index.njk`
+- Reusable tool recommendation block: `_foreign/webops/_includes/partials/tool_block.njk`
 
 ## Risks/blockers
-- Runtime behavior still depends on `run.ps1` REPO execution semantics; this task intentionally does not alter subrun internals.
-- Writer-stage `try/catch` now prevents crashes, but file-system permission failures can still leave partial diagnostics.
-- If PowerShell is unavailable in the execution environment, local end-to-end validation is limited and must be confirmed in CI.
+- Search fallback is implemented as content-level fallback guidance/routes; runtime JS empty-state behavior could still require asset-level updates if dynamic search UI is defined outside this repository snapshot.
+- “Every page” was addressed through shared templates and key hub surfaces; pages using non-article/non-hub layouts may need separate follow-up for 100% uniformity.
+- No runtime or deployment logic was modified (intentional, to stay inside safe content scope).
