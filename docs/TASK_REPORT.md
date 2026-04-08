@@ -1,9 +1,9 @@
 ## Summary
-- Implemented fault-tolerant TRI-AUDIT orchestration so REPO, ZIP, and URL subruns are each wrapped in isolated try/catch blocks.
-- Added explicit subrun status behavior to preserve execution on failure (`REPO: PASS|FAIL|PARTIAL`, `ZIP/URL: PASS|FAIL|SKIPPED`).
-- Added bundle-level status artifact `audit_bundle/audit_bundle_summary.json` and retained `master_summary.json` diagnostics output.
-- Added clear terminal summary output (`=== TRI-AUDIT SUMMARY ===`) with failure/skip reasons per subrun.
-- Updated final exit logic to return `1` only when all subruns are `FAIL`; otherwise return `0` so partial execution remains CI-usable.
+- Reworked TRI-AUDIT bundle orchestration in `run_bundle.ps1` to execute REPO, ZIP, and URL as isolated subruns with controlled failure capture and no fail-fast termination.
+- Added deterministic subrun state contract fields (`mode`, `status`, `reason`, `artifacts_present`, plus execution metadata) and standardized status outcomes to `PASS|FAIL|SKIPPED|PARTIAL`.
+- Implemented bundle summary aggregation to always emit `audit_bundle/audit_bundle_summary.json` with `repo/zip/url` objects and an `overall` operator status.
+- Updated operator logging to print `=== TRI-AUDIT RESULT ===` with REPO/ZIP/URL/OVERALL lines and reasons.
+- Enforced artifact guarantees and exit-code policy: bundle artifacts are always written, and process exits `1` only when REPO was not executed.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
@@ -15,12 +15,12 @@
 ## Current entrypoints/paths
 - TRI-AUDIT bundle entrypoint:
   - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
-- Bundle artifacts produced by this entrypoint:
+- Guaranteed bundle artifacts:
   - `agents/gh_batch/site_auditor_cloud/audit_bundle/EXECUTION_LOG.txt`
   - `agents/gh_batch/site_auditor_cloud/audit_bundle/REPORT.txt`
   - `agents/gh_batch/site_auditor_cloud/audit_bundle/master_summary.json`
   - `agents/gh_batch/site_auditor_cloud/audit_bundle/audit_bundle_summary.json`
 
 ## Risks/blockers
-- PowerShell runtime (`pwsh`) is not available in this container, so end-to-end execution verification of `run_bundle.ps1` could not be performed locally.
-- `REPO` status `PARTIAL` is derived from artifact-copy evidence (`outbox`/`reports`) when `run.ps1` exits non-zero; this behavior should be validated in CI with representative failing inputs.
+- `pwsh` is not available in this execution container, so runtime validation of the updated PowerShell control flow could not be executed locally.
+- The fallback diagnostics writer path is defensive and should be exercised in CI to confirm behavior under forced I/O or script-level failure conditions.

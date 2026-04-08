@@ -45,24 +45,49 @@ function New-ModeResult {
     param(
         [string]$Mode,
         [string]$Status,
+        [string]$Reason,
         [int]$ExitCode,
-        [string]$FailureMessage,
-        [string]$CrashStage,
+        [bool]$Executed,
         [bool]$OutboxCopied,
-        [bool]$ReportsCopied,
-        [bool]$Skipped
+        [bool]$ReportsCopied
     )
+
+    $artifactsPresent = $OutboxCopied -or $ReportsCopied
 
     return [ordered]@{
         mode = $Mode
         status = $Status
+        reason = $Reason
+        artifacts_present = $artifactsPresent
         exit_code = $ExitCode
-        skipped = $Skipped
-        failure_message = $FailureMessage
-        crash_stage = $CrashStage
+        executed = $Executed
         outbox_copied = $OutboxCopied
         reports_copied = $ReportsCopied
         timestamp = (Get-Date).ToString('o')
+    }
+}
+
+function Get-ModeResult {
+    param([string]$Mode)
+
+    return $script:ModeResults | Where-Object { $_.mode -eq $Mode } | Select-Object -First 1
+}
+
+function Convert-ToSummaryEntry {
+    param($Result)
+
+    if ($null -eq $Result) {
+        return [ordered]@{
+            status = 'FAIL'
+            reason = 'subrun missing'
+            artifacts_present = $false
+        }
+    }
+
+    return [ordered]@{
+        status = $Result.status
+        reason = if ([string]::IsNullOrWhiteSpace($Result.reason)) { '' } else { $Result.reason }
+        artifacts_present = [bool]$Result.artifacts_present
     }
 }
 
@@ -78,27 +103,25 @@ function Invoke-ModeSafely {
         $zipExists = Test-Path $zipInbox -PathType Container -and ((Get-ChildItem -Path $zipInbox -Filter '*.zip' -File -ErrorAction SilentlyContinue | Measure-Object).Count -gt 0)
         if (-not $zipExists) {
             Add-ExecutionLog "Mode ZIP skipped: no ZIP payload found in $zipInbox"
-            return (New-ModeResult -Mode $modeUpper -Status 'SKIPPED' -ExitCode 0 -FailureMessage 'no zip input' -CrashStage 'before_run_ps1' -OutboxCopied $false -ReportsCopied $false -Skipped $true)
+            return (New-ModeResult -Mode $modeUpper -Status 'SKIPPED' -Reason 'no zip input' -ExitCode 0 -Executed $false -OutboxCopied $false -ReportsCopied $false)
         }
     }
 
     if ($modeUpper -eq 'URL' -and [string]::IsNullOrWhiteSpace($env:BASE_URL)) {
         Add-ExecutionLog 'Mode URL skipped: BASE_URL is missing.'
-        return (New-ModeResult -Mode $modeUpper -Status 'SKIPPED' -ExitCode 0 -FailureMessage 'missing BASE_URL' -CrashStage 'before_run_ps1' -OutboxCopied $false -ReportsCopied $false -Skipped $true)
+        return (New-ModeResult -Mode $modeUpper -Status 'SKIPPED' -Reason 'missing BASE_URL' -ExitCode 0 -Executed $false -OutboxCopied $false -ReportsCopied $false)
     }
 
     Add-ExecutionLog "Mode $modeUpper starting run.ps1 invocation."
 
     $exitCode = 1
-    $crashStage = $null
-    $failureMessage = $null
+    $failureMessage = ''
 
     try {
         & (Join-Path $PSScriptRoot 'run.ps1') -MODE $modeUpper
         $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
     }
     catch {
-        $crashStage = 'after_run_ps1_invocation'
         $failureMessage = $_.Exception.Message
         Add-ExecutionLog "Mode $modeUpper invocation crashed: $failureMessage"
         $exitCode = 1
@@ -109,12 +132,9 @@ function Invoke-ModeSafely {
 
     if ($exitCode -eq 0 -and [string]::IsNullOrWhiteSpace($failureMessage)) {
         Add-ExecutionLog "Mode $modeUpper completed successfully."
-        return (New-ModeResult -Mode $modeUpper -Status 'PASS' -ExitCode $exitCode -FailureMessage $null -CrashStage $null -OutboxCopied $outboxCopied -ReportsCopied $reportsCopied -Skipped $false)
+        return (New-ModeResult -Mode $modeUpper -Status 'PASS' -Reason '' -ExitCode $exitCode -Executed $true -OutboxCopied $outboxCopied -ReportsCopied $reportsCopied)
     }
 
-    if ([string]::IsNullOrWhiteSpace($crashStage)) {
-        $crashStage = 'after_run_ps1_invocation'
-    }
     if ([string]::IsNullOrWhiteSpace($failureMessage)) {
         $failureMessage = "run.ps1 exited with code $exitCode"
     }
@@ -124,66 +144,78 @@ function Invoke-ModeSafely {
         $status = 'PARTIAL'
     }
 
-    Add-ExecutionLog "Mode $modeUpper finished with status=$status. crash_stage=$crashStage; reason=$failureMessage"
-    return (New-ModeResult -Mode $modeUpper -Status $status -ExitCode $exitCode -FailureMessage $failureMessage -CrashStage $crashStage -OutboxCopied $outboxCopied -ReportsCopied $reportsCopied -Skipped $false)
+    Add-ExecutionLog "Mode $modeUpper finished with status=$status; reason=$failureMessage"
+    return (New-ModeResult -Mode $modeUpper -Status $status -Reason $failureMessage -ExitCode $exitCode -Executed $true -OutboxCopied $outboxCopied -ReportsCopied $reportsCopied)
 }
 
-function Get-BundleStatusSummary {
-    $statusIndex = @{}
-    foreach ($result in $script:ModeResults) {
-        $statusIndex[$result.mode] = $result
+function Ensure-PrimaryRepoResult {
+    $repoResult = Get-ModeResult -Mode 'REPO'
+    if ($null -eq $repoResult) {
+        Add-ExecutionLog 'REPO result missing; injecting deterministic FAIL result.'
+        $script:ModeResults.Add((New-ModeResult -Mode 'REPO' -Status 'FAIL' -Reason 'REPO subrun was not executed' -ExitCode 1 -Executed $false -OutboxCopied $false -ReportsCopied $false))
+    }
+}
+
+function Get-OverallStatus {
+    $repoResult = Get-ModeResult -Mode 'REPO'
+    if ($null -eq $repoResult -or -not $repoResult.executed) {
+        return 'FAIL'
     }
 
+    if ($repoResult.status -eq 'FAIL') {
+        return 'FAIL'
+    }
+
+    $hasWarnings = ($script:ModeResults | Where-Object { $_.mode -ne 'REPO' -and $_.status -in @('FAIL', 'PARTIAL', 'SKIPPED') }).Count -gt 0
+    if ($repoResult.status -eq 'PARTIAL' -or $hasWarnings) {
+        return 'PASS_WITH_WARNINGS'
+    }
+
+    return 'PASS'
+}
+
+function Build-BundleStatusSummary {
+    $repoResult = Get-ModeResult -Mode 'REPO'
+    $zipResult = Get-ModeResult -Mode 'ZIP'
+    $urlResult = Get-ModeResult -Mode 'URL'
+
     return [ordered]@{
-        repo = if ($statusIndex.ContainsKey('REPO')) { $statusIndex['REPO'].status } else { 'FAIL' }
-        zip = if ($statusIndex.ContainsKey('ZIP')) { $statusIndex['ZIP'].status } else { 'FAIL' }
-        url = if ($statusIndex.ContainsKey('URL')) { $statusIndex['URL'].status } else { 'FAIL' }
+        repo = Convert-ToSummaryEntry -Result $repoResult
+        zip = Convert-ToSummaryEntry -Result $zipResult
+        url = Convert-ToSummaryEntry -Result $urlResult
+        overall = Get-OverallStatus
     }
 }
 
 function Write-BundleDiagnostics {
-    $hasFail = ($script:ModeResults | Where-Object { $_.status -eq 'FAIL' }).Count -gt 0
-    $hasPartial = ($script:ModeResults | Where-Object { $_.status -eq 'PARTIAL' }).Count -gt 0
-    $hasPass = ($script:ModeResults | Where-Object { $_.status -eq 'PASS' }).Count -gt 0
+    Ensure-Directory -Path $bundleRoot
 
-    $overallStatus = 'SKIPPED'
-    if ($hasFail) { $overallStatus = 'FAIL' }
-    elseif ($hasPartial) { $overallStatus = 'PARTIAL' }
-    elseif ($hasPass) { $overallStatus = 'PASS' }
-
-    $bundleSummary = Get-BundleStatusSummary
-    $bundleSummary | ConvertTo-Json -Depth 4 | Out-File -FilePath $bundleStatusPath -Encoding utf8
+    $bundleSummary = Build-BundleStatusSummary
+    $bundleSummary | ConvertTo-Json -Depth 6 | Out-File -FilePath $bundleStatusPath -Encoding utf8
 
     $summary = [ordered]@{
         generated_at = (Get-Date).ToString('o')
-        overall_status = $overallStatus
+        overall_status = $bundleSummary.overall
         mode_results = @($script:ModeResults)
         bundle_status = $bundleSummary
     }
-
     $summary | ConvertTo-Json -Depth 8 | Out-File -FilePath $summaryPath -Encoding utf8
 
     $reportLines = New-Object System.Collections.Generic.List[string]
     $reportLines.Add('SITE_AUDITOR TRI-AUDIT BUNDLE REPORT')
     $reportLines.Add("GENERATED AT: $($summary.generated_at)")
-    $reportLines.Add("OVERALL STATUS: $overallStatus")
+    $reportLines.Add("OVERALL STATUS: $($bundleSummary.overall)")
     $reportLines.Add('')
     $reportLines.Add('MODE RESULTS:')
 
     foreach ($result in $script:ModeResults) {
         $reportLines.Add("- $($result.mode): $($result.status)")
-        if ($result.skipped) {
-            $reportLines.Add("  skipped_reason: $($result.failure_message)")
-            $reportLines.Add("  crash_stage: $($result.crash_stage)")
+        if (-not [string]::IsNullOrWhiteSpace($result.reason)) {
+            $reportLines.Add("  reason: $($result.reason)")
         }
-        elseif ($result.status -eq 'FAIL' -or $result.status -eq 'PARTIAL') {
-            $reportLines.Add("  failure_message: $($result.failure_message)")
-            $reportLines.Add("  crash_stage: $($result.crash_stage)")
-            $reportLines.Add("  exit_code: $($result.exit_code)")
-        }
-        else {
-            $reportLines.Add("  exit_code: $($result.exit_code)")
-        }
+        $reportLines.Add("  executed: $($result.executed)")
+        $reportLines.Add("  exit_code: $($result.exit_code)")
+        $reportLines.Add("  artifacts_present: $($result.artifacts_present)")
         $reportLines.Add("  artifacts: outbox=$($result.outbox_copied); reports=$($result.reports_copied)")
     }
 
@@ -196,30 +228,19 @@ function Write-BundleDiagnostics {
     $script:ExecutionLog | Out-File -FilePath $executionLogPath -Encoding utf8
 }
 
-function Get-StatusLine {
-    param([hashtable]$Result)
-
-    if ([string]::IsNullOrWhiteSpace($Result.failure_message)) {
-        return "$($Result.mode): $($Result.status)"
-    }
-
-    return "$($Result.mode): $($Result.status) (reason: $($Result.failure_message))"
-}
-
 function Write-TriAuditSummary {
-    $repoResult = $script:ModeResults | Where-Object { $_.mode -eq 'REPO' } | Select-Object -First 1
-    $zipResult = $script:ModeResults | Where-Object { $_.mode -eq 'ZIP' } | Select-Object -First 1
-    $urlResult = $script:ModeResults | Where-Object { $_.mode -eq 'URL' } | Select-Object -First 1
+    $bundleSummary = Build-BundleStatusSummary
 
-    Write-Host '=== TRI-AUDIT SUMMARY ==='
-    if ($null -ne $repoResult) { Write-Host (Get-StatusLine -Result $repoResult) }
-    if ($null -ne $zipResult) { Write-Host (Get-StatusLine -Result $zipResult) }
-    if ($null -ne $urlResult) { Write-Host (Get-StatusLine -Result $urlResult) }
+    Write-Host '=== TRI-AUDIT RESULT ==='
+    Write-Host "REPO: $($bundleSummary.repo.status)$(if (-not [string]::IsNullOrWhiteSpace($bundleSummary.repo.reason)) { " ($($bundleSummary.repo.reason))" })"
+    Write-Host "ZIP: $($bundleSummary.zip.status)$(if (-not [string]::IsNullOrWhiteSpace($bundleSummary.zip.reason)) { " ($($bundleSummary.zip.reason))" })"
+    Write-Host "URL: $($bundleSummary.url.status)$(if (-not [string]::IsNullOrWhiteSpace($bundleSummary.url.reason)) { " ($($bundleSummary.url.reason))" })"
+    Write-Host "OVERALL: $($bundleSummary.overall)"
 }
 
 function Get-BundleExitCode {
-    $allFailed = ($script:ModeResults.Count -gt 0) -and (($script:ModeResults | Where-Object { $_.status -eq 'FAIL' }).Count -eq $script:ModeResults.Count)
-    if ($allFailed) {
+    $repoResult = Get-ModeResult -Mode 'REPO'
+    if ($null -eq $repoResult -or -not $repoResult.executed) {
         return 1
     }
 
@@ -230,42 +251,24 @@ try {
     Ensure-Directory -Path $bundleRoot
     Add-ExecutionLog 'Bundle execution started.'
 
-    # REPO isolated subrun
-    try {
-        Add-ExecutionLog 'REPO subrun attempt started.'
-        $script:ModeResults.Add((Invoke-ModeSafely -Mode 'REPO'))
-    }
-    catch {
-        $failureMessage = $_.Exception.Message
-        Add-ExecutionLog "REPO subrun crashed: $failureMessage"
-        $script:ModeResults.Add((New-ModeResult -Mode 'REPO' -Status 'FAIL' -ExitCode 1 -FailureMessage $failureMessage -CrashStage 'subrun_wrapper' -OutboxCopied $false -ReportsCopied $false -Skipped $false))
-    }
-
-    # ZIP isolated subrun
-    try {
-        Add-ExecutionLog 'ZIP subrun attempt started.'
-        $script:ModeResults.Add((Invoke-ModeSafely -Mode 'ZIP'))
-    }
-    catch {
-        $failureMessage = $_.Exception.Message
-        Add-ExecutionLog "ZIP subrun crashed: $failureMessage"
-        $script:ModeResults.Add((New-ModeResult -Mode 'ZIP' -Status 'FAIL' -ExitCode 1 -FailureMessage $failureMessage -CrashStage 'subrun_wrapper' -OutboxCopied $false -ReportsCopied $false -Skipped $false))
+    foreach ($mode in @('REPO', 'ZIP', 'URL')) {
+        try {
+            Add-ExecutionLog "$mode subrun attempt started."
+            $script:ModeResults.Add((Invoke-ModeSafely -Mode $mode))
+        }
+        catch {
+            $failureMessage = $_.Exception.Message
+            Add-ExecutionLog "$mode subrun crashed before deterministic result capture: $failureMessage"
+            $script:ModeResults.Add((New-ModeResult -Mode $mode -Status 'FAIL' -Reason $failureMessage -ExitCode 1 -Executed $false -OutboxCopied $false -ReportsCopied $false))
+        }
     }
 
-    # URL isolated subrun
-    try {
-        Add-ExecutionLog 'URL subrun attempt started.'
-        $script:ModeResults.Add((Invoke-ModeSafely -Mode 'URL'))
-    }
-    catch {
-        $failureMessage = $_.Exception.Message
-        Add-ExecutionLog "URL subrun crashed: $failureMessage"
-        $script:ModeResults.Add((New-ModeResult -Mode 'URL' -Status 'FAIL' -ExitCode 1 -FailureMessage $failureMessage -CrashStage 'subrun_wrapper' -OutboxCopied $false -ReportsCopied $false -Skipped $false))
-    }
+    Ensure-PrimaryRepoResult
 }
 catch {
     $topFailureMessage = $_.Exception.Message
     Add-ExecutionLog "Top-level bundle crash: $topFailureMessage"
+    Ensure-PrimaryRepoResult
 }
 finally {
     try {
@@ -273,8 +276,38 @@ finally {
         Add-ExecutionLog 'Bundle diagnostics written successfully.'
     }
     catch {
+        Ensure-Directory -Path $bundleRoot
         $fallback = "[$((Get-Date).ToString('o'))] Failed to write diagnostics cleanly: $($_.Exception.Message)"
         $script:ExecutionLog.Add($fallback)
+
+        if (-not (Test-Path $reportPath)) {
+            @(
+                'SITE_AUDITOR TRI-AUDIT BUNDLE REPORT',
+                'OVERALL STATUS: FAIL',
+                'reason: diagnostics writer crashed',
+                "details: $($_.Exception.Message)",
+                'BUNDLE STATUS: unavailable'
+            ) | Out-File -FilePath $reportPath -Encoding utf8
+        }
+
+        if (-not (Test-Path $bundleStatusPath)) {
+            [ordered]@{
+                repo = [ordered]@{ status = 'FAIL'; reason = 'diagnostics writer crashed'; artifacts_present = $false }
+                zip = [ordered]@{ status = 'FAIL'; reason = 'diagnostics writer crashed'; artifacts_present = $false }
+                url = [ordered]@{ status = 'FAIL'; reason = 'diagnostics writer crashed'; artifacts_present = $false }
+                overall = 'FAIL'
+            } | ConvertTo-Json -Depth 6 | Out-File -FilePath $bundleStatusPath -Encoding utf8
+        }
+
+        if (-not (Test-Path $summaryPath)) {
+            [ordered]@{
+                generated_at = (Get-Date).ToString('o')
+                overall_status = 'FAIL'
+                mode_results = @($script:ModeResults)
+                bundle_status = (Get-Content -Raw -Path $bundleStatusPath | ConvertFrom-Json)
+            } | ConvertTo-Json -Depth 8 | Out-File -FilePath $summaryPath -Encoding utf8
+        }
+
         $script:ExecutionLog | Out-File -FilePath $executionLogPath -Encoding utf8
     }
 }
