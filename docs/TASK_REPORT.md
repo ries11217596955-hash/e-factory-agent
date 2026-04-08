@@ -1,28 +1,22 @@
 ## Summary
-- Optimized SITE_AUDITOR startup in `.github/workflows/site-auditor-fixed-list.yml` by removing unconditional Playwright browser reinstall behavior and switching to conditional installation.
-- Added Playwright cache restore/save via `actions/cache@v4` using `~/.cache/ms-playwright` with key `playwright-${{ runner.os }}`.
-- Added filesystem presence check for Playwright browser cache before installation; install now runs only when cache is empty/missing.
-- Replaced heavy browser install path with lightweight `npx playwright install chromium` (without apt-style full dependency reinstall) to reduce setup overhead.
-- Added explicit startup telemetry logs: `PLAYWRIGHT_INSTALL_SKIPPED` and `PLAYWRIGHT_INSTALL_DONE`.
-- Runtime impact expectation:
-  - Before: setup was dominated by repeated Playwright browser install/deps work (often several minutes).
-  - After: cached runs should skip Playwright install (setup target <30s), with audit phase target <90s and total target <2 minutes.
+- Fixed a manifest return-stage type mismatch in `agents/gh_batch/site_auditor_cloud/run_bundle.ps1` by introducing strict normalization for `repo`, `zip`, and `url` result blocks.
+- Added `Normalize-Result` to enforce deterministic `{ status, reason }` hashtable shape for each manifest component before manifest assembly.
+- Rebuilt final manifest using strict schema keys (`overall`, `repo`, `zip`, `url`) and explicit string casting.
+- Added a final JSON round-trip stabilization guard (`ConvertTo-Json | ConvertFrom-Json`) before return to avoid runtime type mismatch at return stage.
+- Added manifest success telemetry log `MANIFEST_NORMALIZED_OK` and switched final output to `return $manifest` while preserving `$LASTEXITCODE`.
 
 ## Changed files
-- `.github/workflows/site-auditor-fixed-list.yml`
+- `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- Workflow entrypoint: `.github/workflows/site-auditor-fixed-list.yml`
-- Playwright cache path: `~/.cache/ms-playwright`
-- Cache key: `playwright-${{ runner.os }}`
-- Conditional install command: `npx playwright install chromium`
-- Install skip condition: cached Playwright directory exists and contains at least one browser folder/file.
+- Bundle runner entrypoint: `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
+- Fix location in file: finalization section after `Invoke-WritingStage` and before script termination/return.
+- Added normalization helper: `Normalize-Result` in `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`.
 
 ## Risks/blockers
-- First run on a fresh runner (cold cache) still performs Playwright install and can exceed the fast-path setup target; subsequent runs are expected to benefit from cache.
-- Cache key is OS-wide (`playwright-${{ runner.os }}`) and not version-pinned; if Playwright version changes significantly, stale cache behavior may require key bumping.
-- This change intentionally does not modify `run_bundle.ps1`, Phase C, or repo binding logic per scope restrictions.
+- Final guard intentionally converts the hashtable manifest into a deserialized object (`PSCustomObject`) to stabilize return types; downstream callers that require literal hashtable semantics may need to consume properties rather than hashtable methods.
+- Existing behavior changed from `exit $exitCode` to returning manifest object with `$LASTEXITCODE` set; callers depending on direct process termination semantics should validate integration behavior.
