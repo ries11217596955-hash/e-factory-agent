@@ -25,6 +25,18 @@ function Ensure-Directory {
     }
 }
 
+function Reset-ModeArtifacts {
+    $outboxPath = Join-Path $PSScriptRoot 'outbox'
+    $reportsPath = Join-Path $PSScriptRoot 'reports'
+
+    if (Test-Path $outboxPath) {
+        Remove-Item -Path $outboxPath -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if (Test-Path $reportsPath) {
+        Remove-Item -Path $reportsPath -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Copy-IfExists {
     param(
         [string]$Source,
@@ -86,6 +98,7 @@ function Invoke-ModeSafely {
         return (New-ModeResult -Mode $modeUpper -Status 'SKIPPED' -ExitCode 0 -FailureMessage 'Missing BASE_URL.' -CrashStage 'before_run_ps1' -OutboxCopied $false -ReportsCopied $false -Skipped $true)
     }
 
+    Reset-ModeArtifacts
     Add-ExecutionLog "Mode $modeUpper starting run.ps1 invocation."
 
     $exitCode = 1
@@ -118,8 +131,9 @@ function Invoke-ModeSafely {
         $failureMessage = "run.ps1 exited with code $exitCode"
     }
 
-    Add-ExecutionLog "Mode $modeUpper failed. crash_stage=$crashStage; reason=$failureMessage"
-    return (New-ModeResult -Mode $modeUpper -Status 'FAIL' -ExitCode $exitCode -FailureMessage $failureMessage -CrashStage $crashStage -OutboxCopied $outboxCopied -ReportsCopied $reportsCopied -Skipped $false)
+    $status = if ($outboxCopied -or $reportsCopied) { 'PARTIAL' } else { 'FAIL' }
+    Add-ExecutionLog "Mode $modeUpper completed with status $status. crash_stage=$crashStage; reason=$failureMessage"
+    return (New-ModeResult -Mode $modeUpper -Status $status -ExitCode $exitCode -FailureMessage $failureMessage -CrashStage $crashStage -OutboxCopied $outboxCopied -ReportsCopied $reportsCopied -Skipped $false)
 }
 
 function Write-BundleDiagnostics {
@@ -139,7 +153,8 @@ function Write-BundleDiagnostics {
         mode_results = @($script:ModeResults)
         notes = @(
             'Calibration mode preserves artifacts for operator review.',
-            'Bundle exits with code 0 after diagnostics are written.'
+            'Bundle exits with code 0 after diagnostics are written.',
+            (if ([string]::IsNullOrWhiteSpace($env:TARGET_REPO_DIAG)) { 'Target repo checkout diagnostics: not provided by workflow.' } else { "Target repo checkout diagnostics: $($env:TARGET_REPO_DIAG)" })
         )
     }
 

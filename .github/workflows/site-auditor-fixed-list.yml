@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       audit_mode:
-        description: 'Manual audit mode'
+        description: 'Manual audit mode (single mode run)'
         required: true
         default: 'REPO'
         type: choice
@@ -33,13 +33,27 @@ jobs:
       - name: Checkout agent repo
         uses: actions/checkout@v4
 
-      - name: Checkout target repo for manual REPO audit
-        if: github.event_name == 'workflow_dispatch' && inputs.audit_mode == 'REPO'
+      - name: Checkout target repo for REPO-capable runs
+        id: checkout_target_repo
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.audit_mode == 'REPO')
+        continue-on-error: true
         uses: actions/checkout@v4
         with:
           repository: ries11217596955-hash/automation-kb
           token: ${{ secrets.GH_BATCH_PAT }}
           path: target_repo
+
+      - name: Record target repo checkout diagnostics
+        if: always()
+        shell: bash
+        run: |
+          if [ -d "${GITHUB_WORKSPACE}/target_repo/.git" ]; then
+            echo "TARGET_REPO_READY=true" >> "$GITHUB_ENV"
+            echo "TARGET_REPO_DIAG=Target repo checkout succeeded." >> "$GITHUB_ENV"
+          else
+            echo "TARGET_REPO_READY=false" >> "$GITHUB_ENV"
+            echo "TARGET_REPO_DIAG=Target repo checkout unavailable; REPO mode will report failure explicitly." >> "$GITHUB_ENV"
+          fi
 
       - name: Setup Node for live audit modes
         if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.audit_mode == 'REPO' || inputs.audit_mode == 'URL'))
@@ -59,14 +73,23 @@ jobs:
           cd agents/gh_batch/site_auditor_cloud
           npx playwright install --with-deps chromium
 
-      - name: Run SITE_AUDITOR
+      - name: Run SITE_AUDITOR bundle (push to main)
+        if: github.event_name == 'push'
         env:
-          FORCE_MODE: ${{ github.event_name == 'push' && 'ZIP' || inputs.audit_mode }}
           TARGET_REPO_PATH: ${{ github.workspace }}/target_repo
-          # SITE_AUDITOR requires BASE_URL in every mode.
-          # - workflow_dispatch URL/REPO: operator-provided base_url (or fallback)
-          # - push ZIP: default deployed URL fallback
-          BASE_URL: ${{ github.event_name == 'workflow_dispatch' && (inputs.base_url != '' && inputs.base_url || env.DEFAULT_BASE_URL) || env.DEFAULT_BASE_URL }}
+          BASE_URL: ${{ env.DEFAULT_BASE_URL }}
+          TARGET_REPO_DIAG: ${{ env.TARGET_REPO_DIAG }}
+        run: |
+          cd agents/gh_batch/site_auditor_cloud
+          pwsh ./run_bundle.ps1
+
+      - name: Run SITE_AUDITOR single mode (workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          FORCE_MODE: ${{ inputs.audit_mode }}
+          TARGET_REPO_PATH: ${{ github.workspace }}/target_repo
+          BASE_URL: ${{ inputs.base_url != '' && inputs.base_url || env.DEFAULT_BASE_URL }}
+          TARGET_REPO_DIAG: ${{ env.TARGET_REPO_DIAG }}
         run: |
           cd agents/gh_batch/site_auditor_cloud
           pwsh ./run.ps1
@@ -77,11 +100,19 @@ jobs:
           ls -R agents/gh_batch/site_auditor_cloud || true
           ls -R target_repo || true
 
-      - name: Upload reports
+      - name: Upload primary audit bundle
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: audit-output
+          name: site-auditor-bundle
+          path: agents/gh_batch/site_auditor_cloud/audit_bundle/**
+          if-no-files-found: warn
+
+      - name: Upload single-mode outputs (workflow_dispatch)
+        if: always() && github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-auditor-single-mode
           path: |
             agents/gh_batch/site_auditor_cloud/outbox/**
             agents/gh_batch/site_auditor_cloud/reports/**

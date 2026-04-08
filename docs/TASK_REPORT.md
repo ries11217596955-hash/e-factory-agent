@@ -1,11 +1,12 @@
 ## Summary
-- Added a new TRI-AUDIT bundle orchestrator script at `agents/gh_batch/site_auditor_cloud/run_bundle.ps1` with a top-level protective wrapper so diagnostics are still produced even if unexpected exceptions occur.
-- Implemented resilient per-mode execution for `REPO`, `ZIP`, and `URL` subruns: each mode is isolated, failures are converted into structured mode-level FAIL records, and bundle execution continues.
-- Preserved skip semantics for missing calibration inputs by marking ZIP as `SKIPPED` when no ZIP payload exists and URL as `SKIPPED` when `BASE_URL` is absent.
-- Ensured diagnostics are always written to `audit_bundle/REPORT.txt`, `audit_bundle/master_summary.json`, and `audit_bundle/EXECUTION_LOG.txt`, including failure message and crash stage metadata.
-- Kept calibration behavior non-blocking by exiting bundle with code 0 after writing diagnostics/artifacts, even when overall bundle status is FAIL.
+- Rewired the SITE_AUDITOR workflow so `push` to `main` executes the bundle entrypoint (`run_bundle.ps1`) and `workflow_dispatch` remains available for single-mode runs (`run.ps1`).
+- Added REPO-first checkout behavior for both auto-runs and manual REPO runs, with explicit target-checkout diagnostics exported to runtime env for operator visibility.
+- Changed artifact publishing to one primary bundle artifact (`site-auditor-bundle`) sourced from `audit_bundle/**`, so operators can use one artifact for end-to-end diagnosis.
+- Hardened bundle mode isolation by resetting `outbox/` and `reports/` before each subrun, preventing cross-mode artifact bleed in per-mode folders.
+- Updated bundle status semantics so failed mode invocations with usable evidence are reported as `PARTIAL` (instead of hard `FAIL`), while no-evidence failures stay `FAIL` and missing ZIP/URL inputs remain `SKIPPED`.
 
 ## Changed files
+- `.github/workflows/site-auditor-fixed-list.yml`
 - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 - `docs/TASK_REPORT.md`
 
@@ -13,17 +14,19 @@
 - None.
 
 ## Current entrypoints/paths
-- Bundle entrypoint: `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`.
-- Subrun entrypoint used by bundle: `agents/gh_batch/site_auditor_cloud/run.ps1`.
-- Always-written bundle diagnostics:
+- Auto-run bundle entrypoint (push to `main`): `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`.
+- Manual single-mode entrypoint (`workflow_dispatch`): `agents/gh_batch/site_auditor_cloud/run.ps1`.
+- Primary artifact bundle path: `agents/gh_batch/site_auditor_cloud/audit_bundle/**`.
+- Required bundle diagnostics files:
   - `agents/gh_batch/site_auditor_cloud/audit_bundle/REPORT.txt`
   - `agents/gh_batch/site_auditor_cloud/audit_bundle/master_summary.json`
   - `agents/gh_batch/site_auditor_cloud/audit_bundle/EXECUTION_LOG.txt`
-- Per-mode artifact copy targets:
+- Per-mode output folders under bundle:
   - `agents/gh_batch/site_auditor_cloud/audit_bundle/repo/`
   - `agents/gh_batch/site_auditor_cloud/audit_bundle/zip/`
   - `agents/gh_batch/site_auditor_cloud/audit_bundle/url/`
 
 ## Risks/blockers
-- This environment does not include the full CI/runtime inputs expected by SITE_AUDITOR, so validation was limited to local script execution behavior with missing inputs.
-- Existing `run.ps1`/`agent.ps1` contracts were intentionally not modified; mode-level PASS/PARTIAL classification is inferred from process exit behavior and may need future enhancement if PARTIAL must be derived from deeper report content.
+- Local container does not include `pwsh`, so PowerShell runtime validation was not executable here; workflow/runtime behavior is validated by static edits and YAML parse only.
+- The workflow uses `continue-on-error` for target repo checkout to preserve diagnostics-first behavior; if checkout fails, REPO mode will still run and report explicit failure rather than silently passing.
+- URL live-audit quality remains intentionally non-gold in this macro pass; this change targets honest mode status + operator-usable bundling baseline.
