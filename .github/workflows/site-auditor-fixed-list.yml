@@ -42,8 +42,8 @@ jobs:
       - name: Checkout agent repo
         uses: actions/checkout@v4
 
-      - name: Checkout target repo for manual REPO single-mode audit
-        if: github.event_name == 'workflow_dispatch' && inputs.execution_path == 'SINGLE_MODE' && inputs.audit_mode == 'REPO'
+      - name: Checkout target repo for REPO-bound executions (bundle + manual REPO single-mode)
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.execution_path == 'BUNDLE' || (inputs.execution_path == 'SINGLE_MODE' && inputs.audit_mode == 'REPO')))
         uses: actions/checkout@v4
         with:
           repository: ries11217596955-hash/automation-kb

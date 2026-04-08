@@ -1,49 +1,50 @@
 ## Summary
-- Restored screenshot propagation for REPO subrun artifacts by detecting PNG files from `audit_bundle/repo/reports` and `audit_bundle/repo/outbox` during bundle processing.
-- Added deterministic screenshot manifest assembly so `bundle_status.repo.artifacts` is populated with `bundle_artifacts/<name>.png` entries.
-- Added writing-stage copy flow that materializes screenshots into `audit_bundle/bundle_artifacts/` for artifact packaging.
-- Updated `REPORT.txt` generation to include a `SCREENSHOTS` section listing captured screenshot filenames.
-- Added safe no-screenshot behavior: report now writes `No screenshots captured` without failing the bundle.
+- Root cause: `run_bundle.ps1` could invoke REPO subrun without a verified bound repo path, so REPO could execute with an unbound/invalid target and produce non-deterministic downstream assembly behavior.
+- Added deterministic REPO binding gate in bundle execution: explicit `TARGET_REPO_PATH` validation now emits `REPO_BINDING_OK path=<...>` or `REPO_BINDING_FAIL reason=<...>` and returns a normalized REPO FAIL object when invalid.
+- Normalized subrun contract through `New-ModeResult` so assembly receives a consistent object shape and REPO results always include the strict fields (`mode`, `executed`, `status`, `reason`, `exit_code`, `repo_root`, `target_repo_bound`, `artifacts_present`, `outbox_path`, `reports_path`).
+- Added assembly input validation (`Test-ModeResultShape`) and malformed-input fallback conversion with `ASSEMBLY_INPUT_OK` logging to prevent mixed-object aggregation and avoid type mismatch crashes.
+- Updated workflow target checkout condition so bundle/manual REPO runs explicitly bind `${{ github.workspace }}/target_repo` before REPO mode execution.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
+- `.github/workflows/site-auditor-fixed-list.yml`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- Bundle orchestrator: `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
-- Screenshot source scan roots: `agents/gh_batch/site_auditor_cloud/audit_bundle/repo/reports` and `agents/gh_batch/site_auditor_cloud/audit_bundle/repo/outbox`
-- Screenshot bundle destination: `agents/gh_batch/site_auditor_cloud/audit_bundle/bundle_artifacts`
-- Report output: `agents/gh_batch/site_auditor_cloud/audit_bundle/REPORT.txt`
-- Artifact upload path (already configured wildcard): `.github/workflows/site-auditor-fixed-list.yml` uploads `agents/gh_batch/site_auditor_cloud/audit_bundle/**`
+- Bundle entrypoint: `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
+- REPO binding input: environment variable `TARGET_REPO_PATH`
+- Workflow binding producer: `.github/workflows/site-auditor-fixed-list.yml`
+  - Checkout target repo into `target_repo`
+  - Export `TARGET_REPO_PATH: ${{ github.workspace }}/target_repo` for bundle and single-mode runs
 
 ## Risks/blockers
-- If two screenshots share the same filename across `reports/` and `outbox/`, names are de-duplicated using a numeric suffix (for example `screen.png`, `screen-2.png`); downstream tooling should not assume original duplicates remain unchanged.
-- This change intentionally does not modify workflow files due scope and protected-path constraints; inclusion in artifact ZIP relies on existing `audit_bundle/**` upload wildcard.
-- Flow remains non-fatal for missing screenshots by design.
+- If `target_repo` checkout fails (e.g., token/repo access issue), REPO subrun now deterministically returns FAIL (by design) instead of attempting to proceed.
+- Assembly now enforces mode-result shape and converts malformed items into deterministic FAIL records; this is safer, but may expose previously hidden producer bugs.
+- ZIP/URL modes remain stage-skipped by current activation policy and were not reactivated in this change.
 
-### Artifact flow (before/after)
-- Before: REPO screenshots could exist in `reports/` or `outbox/` but were not copied into bundle output, not enumerated in bundle assembly metadata, and not listed in `REPORT.txt`.
-- After: REPO screenshots are detected -> manifest created -> copied into `audit_bundle/bundle_artifacts/` -> registered in `bundle_status.repo.artifacts` -> listed in `REPORT.txt` under `SCREENSHOTS`.
+### Root cause
+- REPO execution path lacked a hard preflight bind check in `run_bundle.ps1`; execution could continue without guaranteed `TARGET_REPO_PATH` validity.
 
-### Paths used
-- Input scan:
-  - `audit_bundle/repo/reports/*.png`
-  - `audit_bundle/repo/outbox/*.png`
-- Output copy:
-  - `audit_bundle/bundle_artifacts/*.png`
-- Metadata/report:
-  - `audit_bundle/audit_bundle_summary.json` (`repo.artifacts`)
-  - `audit_bundle/REPORT.txt` (`SCREENSHOTS` section)
+### Binding path before/after
+- Before:
+  - Bundle workflow exported `TARGET_REPO_PATH`, but target repo checkout was only conditional for manual REPO single-mode.
+  - Bundle REPO path could be absent on push/manual-bundle runs.
+- After:
+  - Workflow now checks out target repo for push bundle, manual bundle, and manual REPO single-mode.
+  - `run_bundle.ps1` validates `TARGET_REPO_PATH` exists and is a directory before invoking REPO subrun.
 
-### Example output
-- `audit_bundle_summary.json`:
-  - `"repo": { "artifacts": ["bundle_artifacts/screenshot_home.png", "bundle_artifacts/screenshot_checkout-2.png"] }`
-- `REPORT.txt`:
-  - `SCREENSHOTS`
-  - `-----------`
-  - `- screenshot_home.png`
-  - `- screenshot_checkout-2.png`
-  - *(or `No screenshots captured` when absent)*
+### Result object schema
+- REPO result object (strict):
+  - `mode` = `"REPO"`
+  - `executed` = bool
+  - `status` = `"OK" | "PARTIAL" | "FAIL"`
+  - `reason` = string
+  - `exit_code` = int
+  - `repo_root` = string|null
+  - `target_repo_bound` = bool
+  - `artifacts_present` = bool
+  - `outbox_path` = string|null
+  - `reports_path` = string|null
