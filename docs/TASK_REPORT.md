@@ -1,32 +1,26 @@
 ## Summary
-- Audited SITE_AUDITOR routing entrypoints in the fixed-list workflow and confirmed legacy CI routing was still invoking `run.ps1` directly.
-- Rewired CI/post-merge (`push` to `main`) execution to use TRI-AUDIT bundle only via `run_bundle.ps1`.
-- Added explicit manual execution-path selection for `workflow_dispatch` so operators can intentionally choose `BUNDLE` or `SINGLE_MODE`.
-- Isolated legacy single-mode (`run.ps1`) to manual-only path and removed CI ambiguity that could force top-level ZIP resolution.
-- Promoted bundle output as the primary artifact by including `audit_bundle/**` in upload output and naming artifact for bundle-first operator consumption.
+- Implemented fault-tolerant TRI-AUDIT orchestration so REPO, ZIP, and URL subruns are each wrapped in isolated try/catch blocks.
+- Added explicit subrun status behavior to preserve execution on failure (`REPO: PASS|FAIL|PARTIAL`, `ZIP/URL: PASS|FAIL|SKIPPED`).
+- Added bundle-level status artifact `audit_bundle/audit_bundle_summary.json` and retained `master_summary.json` diagnostics output.
+- Added clear terminal summary output (`=== TRI-AUDIT SUMMARY ===`) with failure/skip reasons per subrun.
+- Updated final exit logic to return `1` only when all subruns are `FAIL`; otherwise return `0` so partial execution remains CI-usable.
 
 ## Changed files
-- `.github/workflows/site-auditor-fixed-list.yml`
+- `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- CI/post-merge auto path (`push` on `main`):
-  - `.github/workflows/site-auditor-fixed-list.yml`
-  - Step: `Run SITE_AUDITOR TRI-AUDIT bundle (CI/post-merge + manual bundle)`
-  - Entrypoint: `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
-- Manual bundle path (`workflow_dispatch` with `execution_path=BUNDLE`):
-  - `.github/workflows/site-auditor-fixed-list.yml`
-  - Entrypoint: `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
-- Manual legacy single-mode path (`workflow_dispatch` with `execution_path=SINGLE_MODE`):
-  - `.github/workflows/site-auditor-fixed-list.yml`
-  - Entrypoint: `agents/gh_batch/site_auditor_cloud/run.ps1`
-  - Mode source: `FORCE_MODE=${{ inputs.audit_mode }}`
-- Bundle internals remain TRI-AUDIT subruns:
-  - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1` invokes `run.ps1` per subrun for `REPO`, `ZIP`, `URL`.
+- TRI-AUDIT bundle entrypoint:
+  - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
+- Bundle artifacts produced by this entrypoint:
+  - `agents/gh_batch/site_auditor_cloud/audit_bundle/EXECUTION_LOG.txt`
+  - `agents/gh_batch/site_auditor_cloud/audit_bundle/REPORT.txt`
+  - `agents/gh_batch/site_auditor_cloud/audit_bundle/master_summary.json`
+  - `agents/gh_batch/site_auditor_cloud/audit_bundle/audit_bundle_summary.json`
 
 ## Risks/blockers
-- Validation in this container is limited to static workflow/script inspection because GitHub Actions runtime cannot be executed locally here.
-- Bundle behavior depends on runtime inputs (ZIP payload and BASE_URL) and will still skip ZIP/URL honestly when missing by design.
+- PowerShell runtime (`pwsh`) is not available in this container, so end-to-end execution verification of `run_bundle.ps1` could not be performed locally.
+- `REPO` status `PARTIAL` is derived from artifact-copy evidence (`outbox`/`reports`) when `run.ps1` exits non-zero; this behavior should be validated in CI with representative failing inputs.
