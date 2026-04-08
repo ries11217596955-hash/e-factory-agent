@@ -1,26 +1,32 @@
 ## Summary
-- Fixed TRI-AUDIT bundle guardrails in `run_bundle.ps1` by validating script syntax/tokens before mode execution starts.
-- Added explicit preflight logging line: `Validating PowerShell syntax...` so bundle logs show syntax validation before subruns.
-- Added AST/token-based validation to detect parser issues and standalone invalid logical tokens (`and`/`or`) in the script source.
-- Verified no raw ` and ` / ` or ` operator-style tokens remain in `run_bundle.ps1`.
-- Kept the existing execution flow intact so REPO/ZIP/URL subruns continue under the same deterministic orchestration model.
+- Added a real SITE_AUDITOR PowerShell preflight validator script that parses required `.ps1` files with PowerShell parser APIs and fails on parser errors.
+- Added a token misuse guard that fails on standalone `and` / `or` identifiers where PowerShell expects `-and` / `-or`.
+- Added a dedicated GitHub Actions workflow (`SITE_AUDITOR PowerShell Preflight`) that runs `pwsh` validation for PRs that touch SITE_AUDITOR PowerShell files.
+- Updated Safe Auto Merge so PRs changing `agents/gh_batch/site_auditor_cloud/*.ps1` must have a successful `validate-powershell` check before auto-merge is allowed.
+- Validator output now includes per-file syntax/token status plus structured JSON summary for machine and operator review.
 
 ## Changed files
-- `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
+- `.github/workflows/site-auditor-powershell-preflight.yml`
+- `.github/workflows/safe-auto-merge.yml`
+- `agents/gh_batch/site_auditor_cloud/lib/validate-powershell-preflight.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- TRI-AUDIT bundle entrypoint:
+- CI validator workflow:
+  - `.github/workflows/site-auditor-powershell-preflight.yml`
+- Safe auto-merge gate integration:
+  - `.github/workflows/safe-auto-merge.yml`
+- PowerShell validator script:
+  - `agents/gh_batch/site_auditor_cloud/lib/validate-powershell-preflight.ps1`
+- Validated SITE_AUDITOR script contour:
+  - `agents/gh_batch/site_auditor_cloud/run.ps1`
   - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
-- Bundle artifact paths:
-  - `agents/gh_batch/site_auditor_cloud/audit_bundle/EXECUTION_LOG.txt`
-  - `agents/gh_batch/site_auditor_cloud/audit_bundle/REPORT.txt`
-  - `agents/gh_batch/site_auditor_cloud/audit_bundle/master_summary.json`
-  - `agents/gh_batch/site_auditor_cloud/audit_bundle/audit_bundle_summary.json`
+  - `agents/gh_batch/site_auditor_cloud/agent.ps1`
+  - `agents/gh_batch/site_auditor_cloud/lib/*.ps1`
 
 ## Risks/blockers
-- `pwsh` runtime execution is not validated in this environment; only static/token checks were run from shell tooling.
-- If external edits later introduce invalid tokens, the new validator logs the condition but intentionally does not terminate execution.
+- Local container does not include `pwsh`, so execution of the validator was not runnable in this environment; runtime verification depends on GitHub Actions runner execution.
+- Branch protection settings are repository-level configuration outside this codebase; this task enforces the gate via workflow checks and Safe Auto Merge logic within repository-controlled automation.
