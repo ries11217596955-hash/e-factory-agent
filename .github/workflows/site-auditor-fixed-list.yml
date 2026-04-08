@@ -33,8 +33,8 @@ jobs:
       - name: Checkout agent repo
         uses: actions/checkout@v4
 
-      - name: Checkout target repo for manual REPO audit
-        if: github.event_name == 'workflow_dispatch' && inputs.audit_mode == 'REPO'
+      - name: Checkout target repo for push + manual REPO audit
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.audit_mode == 'REPO')
         uses: actions/checkout@v4
         with:
           repository: ries11217596955-hash/automation-kb
@@ -59,17 +59,14 @@ jobs:
           cd agents/gh_batch/site_auditor_cloud
           npx playwright install --with-deps chromium
 
-      - name: Run SITE_AUDITOR
+      - name: Run SITE_AUDITOR bundle
         env:
-          FORCE_MODE: ${{ github.event_name == 'push' && 'ZIP' || inputs.audit_mode }}
           TARGET_REPO_PATH: ${{ github.workspace }}/target_repo
-          # SITE_AUDITOR requires BASE_URL in every mode.
-          # - workflow_dispatch URL/REPO: operator-provided base_url (or fallback)
-          # - push ZIP: default deployed URL fallback
-          BASE_URL: ${{ github.event_name == 'workflow_dispatch' && (inputs.base_url != '' && inputs.base_url || env.DEFAULT_BASE_URL) || env.DEFAULT_BASE_URL }}
+          EXPLICIT_BASE_URL: ${{ github.event_name == 'workflow_dispatch' && (inputs.base_url != '' && inputs.base_url || '') || '' }}
+          DEFAULT_BASE_URL: ${{ env.DEFAULT_BASE_URL }}
         run: |
           cd agents/gh_batch/site_auditor_cloud
-          pwsh ./run.ps1
+          pwsh ./run_bundle.ps1
 
       - name: Debug tree
         if: always()
@@ -83,6 +80,7 @@ jobs:
         with:
           name: audit-output
           path: |
+            agents/gh_batch/site_auditor_cloud/audit_bundle/**
             agents/gh_batch/site_auditor_cloud/outbox/**
             agents/gh_batch/site_auditor_cloud/reports/**
           if-no-files-found: warn
