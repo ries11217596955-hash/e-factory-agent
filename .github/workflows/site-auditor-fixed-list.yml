@@ -62,11 +62,23 @@ jobs:
           cd agents/gh_batch/site_auditor_cloud
           npm install
 
-      - name: Install Playwright browsers for bundle or live single-mode audits
+      - name: Cache Playwright browsers for bundle or live single-mode audits
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.execution_path == 'BUNDLE' || (inputs.execution_path == 'SINGLE_MODE' && (inputs.audit_mode == 'REPO' || inputs.audit_mode == 'URL'))))
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}
+
+      - name: Install Playwright browsers for bundle or live single-mode audits (if needed)
         if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.execution_path == 'BUNDLE' || (inputs.execution_path == 'SINGLE_MODE' && (inputs.audit_mode == 'REPO' || inputs.audit_mode == 'URL'))))
         run: |
           cd agents/gh_batch/site_auditor_cloud
-          npx playwright install --with-deps chromium
+          if [ -d "$HOME/.cache/ms-playwright" ] && [ "$(find "$HOME/.cache/ms-playwright" -mindepth 1 -maxdepth 1 | wc -l)" -gt 0 ]; then
+            echo "PLAYWRIGHT_INSTALL_SKIPPED"
+          else
+            npx playwright install chromium
+            echo "PLAYWRIGHT_INSTALL_DONE"
+          fi
 
       - name: Run SITE_AUDITOR TRI-AUDIT bundle (CI/post-merge + manual bundle)
         if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.execution_path == 'BUNDLE')
