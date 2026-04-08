@@ -1,9 +1,9 @@
 ## Summary
-- Implemented staged TRI-AUDIT activation in `run_bundle.ps1` so only REPO executes in bundle mode.
-- Kept the 3-mode TRI-AUDIT contract intact (`REPO`, `ZIP`, `URL`) while forcing ZIP and URL to deterministic SKIPPED results.
-- Added explicit skip reason `SKIPPED_BY_STAGE_ACTIVATION` for non-active bundle modes to keep output honest and operator-readable.
-- Ensured ZIP/URL bundle paths are created and reported without invoking `run.ps1`, preventing ZIP/URL runtime failures from crashing bundle execution.
-- Left manual single-mode execution behavior unchanged; CI/main bundle path remains TRI-AUDIT but now runs REPO-only by stage design.
+- Refactored `run_bundle.ps1` into a strict 3-stage runtime (`EXECUTION -> ASSEMBLY -> WRITING`) so orchestration, status computation, and file output are separated.
+- Kept REPO as the only active subrun and forced ZIP/URL to deterministic `SKIPPED_BY_STAGE_ACTIVATION` mode results.
+- Simplified diagnostics output so writer stage only serializes pre-assembled objects and does not execute bundle business logic.
+- Added a minimal emergency fallback writer that creates a plain text report and execution log if diagnostics writing fails.
+- Aligned final exit-code behavior to a single end-of-run decision from assembled status (`0` only when REPO produced usable evidence: `PASS` or `PARTIAL`).
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
@@ -13,13 +13,16 @@
 - None.
 
 ## Current entrypoints/paths
-- Bundle entrypoint (staged TRI-AUDIT, REPO active):
+- Bundle runtime entrypoint:
   - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
-- Manual single-mode entrypoint (explicit operator path, unchanged):
+- Subrun entrypoint used by REPO stage execution:
   - `agents/gh_batch/site_auditor_cloud/run.ps1`
-- CI workflow invoking bundle path:
-  - `.github/workflows/site-auditor-fixed-list.yml`
+- Bundle artifacts written by stage 3:
+  - `agents/gh_batch/site_auditor_cloud/audit_bundle/REPORT.txt`
+  - `agents/gh_batch/site_auditor_cloud/audit_bundle/master_summary.json`
+  - `agents/gh_batch/site_auditor_cloud/audit_bundle/audit_bundle_summary.json`
+  - `agents/gh_batch/site_auditor_cloud/audit_bundle/EXECUTION_LOG.txt`
 
 ## Risks/blockers
-- Local environment may not have `pwsh`, so full runtime validation of the PowerShell bundle path may require GitHub Actions or a PowerShell-enabled runner.
-- This task intentionally does not stabilize ZIP/URL runtime internals; those modes are explicitly staged as SKIPPED by design until later activation.
+- Runtime behavior still depends on `run.ps1` for REPO execution outcomes; this task intentionally does not modify REPO internals.
+- If the environment cannot execute PowerShell (`pwsh` unavailable), end-to-end local runtime validation is limited and should be verified in CI or a PowerShell-capable runner.
