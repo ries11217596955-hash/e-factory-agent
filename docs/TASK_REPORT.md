@@ -1,29 +1,25 @@
 ## Summary
-- Added a new TRI-AUDIT bundle orchestrator script at `agents/gh_batch/site_auditor_cloud/run_bundle.ps1` with a top-level protective wrapper so diagnostics are still produced even if unexpected exceptions occur.
-- Implemented resilient per-mode execution for `REPO`, `ZIP`, and `URL` subruns: each mode is isolated, failures are converted into structured mode-level FAIL records, and bundle execution continues.
-- Preserved skip semantics for missing calibration inputs by marking ZIP as `SKIPPED` when no ZIP payload exists and URL as `SKIPPED` when `BASE_URL` is absent.
-- Ensured diagnostics are always written to `audit_bundle/REPORT.txt`, `audit_bundle/master_summary.json`, and `audit_bundle/EXECUTION_LOG.txt`, including failure message and crash stage metadata.
-- Kept calibration behavior non-blocking by exiting bundle with code 0 after writing diagnostics/artifacts, even when overall bundle status is FAIL.
+- Stabilized Phase C manifest ingestion by adding shape-safe route extraction (`Resolve-ManifestRoutes`) so both `[{...}]` and `{ routes: [...] }` payloads are accepted, and single-object manifests with route-like keys are no longer silently discarded.
+- Hardened route normalization to be deterministic under real-world shape variance: per-route try/catch, index-aware drop warnings, synthetic route path fallback, mixed status normalization, and tolerant contamination flag normalization.
+- Removed fragile direct casts in page-quality evaluation and switched to safe converters so malformed numeric/boolean fields no longer crash route evaluation.
+- Preserved visual evidence flow into `route_details` and page rollups by normalizing contamination flags into stable string arrays and keeping partial-route evaluation alive when some entries are malformed.
+- Kept honesty semantics intact: malformed entries are dropped with warnings (supporting PARTIAL outcomes) while NOT_EVALUATED remains reserved for cases where no normalized routes are available.
 
 ## Changed files
-- `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
+- `agents/gh_batch/site_auditor_cloud/agent.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- Bundle entrypoint: `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`.
-- Subrun entrypoint used by bundle: `agents/gh_batch/site_auditor_cloud/run.ps1`.
-- Always-written bundle diagnostics:
-  - `agents/gh_batch/site_auditor_cloud/audit_bundle/REPORT.txt`
-  - `agents/gh_batch/site_auditor_cloud/audit_bundle/master_summary.json`
-  - `agents/gh_batch/site_auditor_cloud/audit_bundle/EXECUTION_LOG.txt`
-- Per-mode artifact copy targets:
-  - `agents/gh_batch/site_auditor_cloud/audit_bundle/repo/`
-  - `agents/gh_batch/site_auditor_cloud/audit_bundle/zip/`
-  - `agents/gh_batch/site_auditor_cloud/audit_bundle/url/`
+- Main auditor entrypoint: `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- Live capture producer: `agents/gh_batch/site_auditor_cloud/capture.mjs`
+- Phase C live pipeline stages in `agent.ps1`: `LOAD_VISUAL_MANIFEST` -> `ROUTE_NORMALIZATION` -> `ROUTE_MERGE` -> `PAGE_QUALITY_BUILD`
+- Key outputs consumed after fix:
+  - `agents/gh_batch/site_auditor_cloud/reports/visual_manifest.json`
+  - `agents/gh_batch/site_auditor_cloud/outbox/audit_result.json`
 
 ## Risks/blockers
-- This environment does not include the full CI/runtime inputs expected by SITE_AUDITOR, so validation was limited to local script execution behavior with missing inputs.
-- Existing `run.ps1`/`agent.ps1` contracts were intentionally not modified; mode-level PASS/PARTIAL classification is inferred from process exit behavior and may need future enhancement if PARTIAL must be derived from deeper report content.
+- Runtime validation against a full REPO + screenshot run could not be executed in this container because PowerShell (`pwsh`) is unavailable.
+- This change is intentionally normalization-focused; scoring thresholds and broader decision-policy design were not redesigned in this task.

@@ -171,54 +171,125 @@ function Convert-ToObjectArraySafe {
     return @($Value)
 }
 
+function Convert-ToStringArraySafe {
+    param(
+        [object]$Value
+    )
+
+    $items = Convert-ToObjectArraySafe -Value $Value
+    $normalized = New-Object System.Collections.Generic.List[string]
+
+    foreach ($item in @($items)) {
+        if ($null -eq $item) { continue }
+
+        if ($item -is [System.Collections.IDictionary] -or $item -is [PSCustomObject]) {
+            $json = $item | ConvertTo-Json -Depth 8 -Compress
+            if (-not [string]::IsNullOrWhiteSpace($json)) {
+                $normalized.Add([string]$json)
+            }
+            continue
+        }
+
+        $text = [string]$item
+        if (-not [string]::IsNullOrWhiteSpace($text)) {
+            $normalized.Add($text)
+        }
+    }
+
+    return @($normalized)
+}
+
+function Resolve-ManifestRoutes {
+    param([object]$ManifestData)
+
+    if ($null -eq $ManifestData) { return @() }
+
+    if ($ManifestData -is [System.Collections.IDictionary] -or $ManifestData -is [PSCustomObject]) {
+        $explicitRoutes = Safe-Get -Object $ManifestData -Key 'routes' -Default $null
+        if ($null -ne $explicitRoutes) {
+            return @(Convert-ToObjectArraySafe -Value $explicitRoutes)
+        }
+
+        $hasRouteShape =
+            ($null -ne (Safe-Get -Object $ManifestData -Key 'route_path' -Default $null)) -or
+            ($null -ne (Safe-Get -Object $ManifestData -Key 'url' -Default $null)) -or
+            ($null -ne (Safe-Get -Object $ManifestData -Key 'status' -Default $null))
+
+        if ($hasRouteShape) {
+            return @($ManifestData)
+        }
+
+        return @()
+    }
+
+    if ($ManifestData -is [System.Collections.IEnumerable] -and -not ($ManifestData -is [string])) {
+        return @($ManifestData)
+    }
+
+    return @(Convert-ToObjectArraySafe -Value $ManifestData)
+}
+
 function Normalize-LiveRoutes {
     param([object]$ManifestData)
 
-    $rawRoutes = @()
-    if ($ManifestData -is [System.Collections.IDictionary] -or $ManifestData -is [PSCustomObject]) {
-        $rawRoutes = @(Convert-ToObjectArraySafe (Safe-Get -Object $ManifestData -Key 'routes' -Default @()))
-    }
-    elseif ($ManifestData -is [System.Collections.IEnumerable] -and -not ($ManifestData -is [string])) {
-        $rawRoutes = @($ManifestData)
-    }
-    else {
-        $rawRoutes = @(Convert-ToObjectArraySafe $ManifestData)
-    }
+    $rawRoutes = @(Resolve-ManifestRoutes -ManifestData $ManifestData)
 
     $normalized = New-Object System.Collections.Generic.List[object]
     $shapeWarnings = New-Object System.Collections.Generic.List[string]
 
-    foreach ($route in @($rawRoutes)) {
+    for ($index = 0; $index -lt @($rawRoutes).Count; $index++) {
+        $route = $rawRoutes[$index]
         if ($null -eq $route) {
-            $shapeWarnings.Add('ROUTE_NORMALIZATION: dropped null route entry.')
+            $shapeWarnings.Add("ROUTE_NORMALIZATION: dropped null route entry at index $index.")
             continue
         }
 
         if (-not ($route -is [System.Collections.IDictionary] -or $route -is [PSCustomObject])) {
-            $shapeWarnings.Add("ROUTE_NORMALIZATION: dropped non-object route entry of type $($route.GetType().FullName).")
+            $shapeWarnings.Add("ROUTE_NORMALIZATION: dropped non-object route entry at index $index of type $($route.GetType().FullName).")
             continue
         }
 
-        $flagsRaw = Convert-ToObjectArraySafe (Safe-Get -Object $route -Key 'contaminationFlags' -Default @())
-        $flags = @($flagsRaw | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        try {
+            $routePathRaw = Safe-Get -Object $route -Key 'route_path' -Default (Safe-Get -Object $route -Key 'routePath' -Default '')
+            if ([string]::IsNullOrWhiteSpace([string]$routePathRaw)) {
+                $routePathRaw = Safe-Get -Object $route -Key 'url' -Default ''
+            }
+            $routePath = [string]$routePathRaw
+            if ([string]::IsNullOrWhiteSpace($routePath)) {
+                $routePath = "/unnamed-route-$index"
+                $shapeWarnings.Add("ROUTE_NORMALIZATION: route index $index had no route_path/url; generated synthetic path $routePath.")
+            }
 
-        $normalized.Add([ordered]@{
-            route_path = [string](Safe-Get -Object $route -Key 'route_path' -Default '')
-            status = Safe-Get -Object $route -Key 'status' -Default 'error'
-            screenshotCount = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'screenshotCount' -Default 0) -Default 0
-            bodyTextLength = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'bodyTextLength' -Default 0) -Default 0
-            links = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'links' -Default 0) -Default 0
-            images = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'images' -Default 0) -Default 0
-            title = [string](Safe-Get -Object $route -Key 'title' -Default '')
-            h1Count = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'h1Count' -Default 0) -Default 0
-            buttonCount = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'buttonCount' -Default 0) -Default 0
-            hasMain = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasMain' -Default $false) -Default $false
-            hasArticle = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasArticle' -Default $false) -Default $false
-            hasNav = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasNav' -Default $false) -Default $false
-            hasFooter = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasFooter' -Default $false) -Default $false
-            visibleTextSample = [string](Safe-Get -Object $route -Key 'visibleTextSample' -Default '')
-            contaminationFlags = @($flags)
-        })
+            $statusValue = Safe-Get -Object $route -Key 'status' -Default 'error'
+            $statusCode = Convert-ToIntSafe -Value $statusValue -Default -1
+            $normalizedStatus = if ($statusCode -ge 0) { $statusCode } else { [string]$statusValue }
+
+            $flags = Convert-ToStringArraySafe -Value (Safe-Get -Object $route -Key 'contaminationFlags' -Default @())
+
+            $normalized.Add([ordered]@{
+                    route_path = $routePath
+                    status = $normalizedStatus
+                    screenshotCount = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'screenshotCount' -Default 0) -Default 0
+                    bodyTextLength = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'bodyTextLength' -Default 0) -Default 0
+                    links = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'links' -Default 0) -Default 0
+                    images = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'images' -Default 0) -Default 0
+                    title = [string](Safe-Get -Object $route -Key 'title' -Default '')
+                    h1Count = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'h1Count' -Default 0) -Default 0
+                    buttonCount = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'buttonCount' -Default 0) -Default 0
+                    hasMain = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasMain' -Default $false) -Default $false
+                    hasArticle = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasArticle' -Default $false) -Default $false
+                    hasNav = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasNav' -Default $false) -Default $false
+                    hasFooter = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasFooter' -Default $false) -Default $false
+                    visibleTextSample = [string](Safe-Get -Object $route -Key 'visibleTextSample' -Default '')
+                    contaminationFlags = @($flags)
+                })
+        }
+        catch {
+            $routeError = $_.Exception.Message
+            if ([string]::IsNullOrWhiteSpace($routeError)) { $routeError = 'Unknown route normalization error.' }
+            $shapeWarnings.Add("ROUTE_NORMALIZATION: dropped route index $index due to normalization error: $routeError")
+            continue
+        }
     }
 
     return @{
@@ -505,18 +576,18 @@ function Build-PageQualityFindings {
 
     foreach ($route in @($Routes)) {
         $status = Safe-Get -Object $route -Key 'status' -Default 'error'
-        $bodyTextLength = [int](Safe-Get -Object $route -Key 'bodyTextLength' -Default 0)
-        $links = [int](Safe-Get -Object $route -Key 'links' -Default 0)
-        $images = [int](Safe-Get -Object $route -Key 'images' -Default 0)
+        $bodyTextLength = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'bodyTextLength' -Default 0) -Default 0
+        $links = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'links' -Default 0) -Default 0
+        $images = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'images' -Default 0) -Default 0
         $title = [string](Safe-Get -Object $route -Key 'title' -Default '')
-        $h1Count = [int](Safe-Get -Object $route -Key 'h1Count' -Default 0)
-        $buttonCount = [int](Safe-Get -Object $route -Key 'buttonCount' -Default 0)
-        $hasMain = [bool](Safe-Get -Object $route -Key 'hasMain' -Default $false)
-        $hasArticle = [bool](Safe-Get -Object $route -Key 'hasArticle' -Default $false)
-        $hasNav = [bool](Safe-Get -Object $route -Key 'hasNav' -Default $false)
-        $hasFooter = [bool](Safe-Get -Object $route -Key 'hasFooter' -Default $false)
+        $h1Count = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'h1Count' -Default 0) -Default 0
+        $buttonCount = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'buttonCount' -Default 0) -Default 0
+        $hasMain = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasMain' -Default $false) -Default $false
+        $hasArticle = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasArticle' -Default $false) -Default $false
+        $hasNav = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasNav' -Default $false) -Default $false
+        $hasFooter = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasFooter' -Default $false) -Default $false
         $visibleTextSample = [string](Safe-Get -Object $route -Key 'visibleTextSample' -Default '')
-        $contaminationFlags = @(Safe-Get -Object $route -Key 'contaminationFlags' -Default @())
+        $contaminationFlags = Convert-ToStringArraySafe -Value (Safe-Get -Object $route -Key 'contaminationFlags' -Default @())
         $normalizedText = ($visibleTextSample + ' ' + $title).ToLowerInvariant()
 
         # v1 deterministic thresholds:
@@ -551,7 +622,7 @@ function Build-PageQualityFindings {
         $result.Add([ordered]@{
             route_path = Safe-Get -Object $route -Key 'route_path' -Default ''
             status = $status
-            screenshotCount = [int](Safe-Get -Object $route -Key 'screenshotCount' -Default 0)
+            screenshotCount = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'screenshotCount' -Default 0) -Default 0
             bodyTextLength = $bodyTextLength
             links = $links
             images = $images
