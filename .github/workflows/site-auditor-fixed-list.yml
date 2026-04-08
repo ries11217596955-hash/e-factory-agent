@@ -19,12 +19,26 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'agents/gh_batch/site_auditor_cloud/**'
-      - '.github/workflows/site-auditor-fixed-list.yml'
+  workflow_run:
+    workflows:
+      - Safe Auto Merge
+    types:
+      - completed
+
+concurrency:
+  group: site-auditor-${{ github.event_name }}-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+  cancel-in-progress: true
 
 jobs:
   site-audit:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push' ||
+      (
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'main'
+      )
     runs-on: ubuntu-latest
     env:
       DEFAULT_BASE_URL: https://automation-kb.pages.dev
@@ -42,30 +56,30 @@ jobs:
           path: target_repo
 
       - name: Setup Node for live audit modes
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.audit_mode == 'REPO' || inputs.audit_mode == 'URL'))
+        if: github.event_name == 'push' || github.event_name == 'workflow_run' || (github.event_name == 'workflow_dispatch' && (inputs.audit_mode == 'REPO' || inputs.audit_mode == 'URL'))
         uses: actions/setup-node@v4
         with:
           node-version: 18
 
       - name: Install Node deps for live audit modes
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.audit_mode == 'REPO' || inputs.audit_mode == 'URL'))
+        if: github.event_name == 'push' || github.event_name == 'workflow_run' || (github.event_name == 'workflow_dispatch' && (inputs.audit_mode == 'REPO' || inputs.audit_mode == 'URL'))
         run: |
           cd agents/gh_batch/site_auditor_cloud
           npm install
 
       - name: Install Playwright browsers for live audit modes
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.audit_mode == 'REPO' || inputs.audit_mode == 'URL'))
+        if: github.event_name == 'push' || github.event_name == 'workflow_run' || (github.event_name == 'workflow_dispatch' && (inputs.audit_mode == 'REPO' || inputs.audit_mode == 'URL'))
         run: |
           cd agents/gh_batch/site_auditor_cloud
           npx playwright install --with-deps chromium
 
       - name: Run SITE_AUDITOR
         env:
-          FORCE_MODE: ${{ github.event_name == 'push' && 'ZIP' || inputs.audit_mode }}
+          FORCE_MODE: ${{ (github.event_name == 'push' || github.event_name == 'workflow_run') && 'ZIP' || inputs.audit_mode }}
           TARGET_REPO_PATH: ${{ github.workspace }}/target_repo
           # SITE_AUDITOR requires BASE_URL in every mode.
           # - workflow_dispatch URL/REPO: operator-provided base_url (or fallback)
-          # - push ZIP: default deployed URL fallback
+          # - push/workflow_run ZIP: default deployed URL fallback
           BASE_URL: ${{ github.event_name == 'workflow_dispatch' && (inputs.base_url != '' && inputs.base_url || env.DEFAULT_BASE_URL) || env.DEFAULT_BASE_URL }}
         run: |
           cd agents/gh_batch/site_auditor_cloud
@@ -74,8 +88,8 @@ jobs:
       - name: Debug tree
         if: always()
         run: |
-          ls -R agents/gh_batch/site_auditor_cloud || true
-          ls -R target_repo || true
+          find agents/gh_batch/site_auditor_cloud -maxdepth 4 -print || true
+          find target_repo -maxdepth 4 -print || true
 
       - name: Upload reports
         if: always()
