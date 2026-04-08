@@ -1,19 +1,21 @@
 ## Summary
-- Fixed the live-layer runtime type mismatch by normalizing visual manifest route data before evaluation, eliminating hard casts against inconsistent JSON shapes.
-- Added stage-specific diagnostics (`CAPTURE`, `LOAD_VISUAL_MANIFEST`, `ROUTE_NORMALIZATION`, `ROUTE_MERGE`, `PAGE_QUALITY_BUILD`) so failures are attributable to the exact live audit phase.
-- Made page-quality reporting explicit with `page_quality_status` values (`EVALUATED`, `PARTIAL`, `NOT_EVALUATED`) and ensured partial/failure states are surfaced in warnings and decision output.
-- Prevented misleading clean zero rollups when live evaluation is not completed by reporting rollups as unavailable in `REPORT.txt` / executive summary for `NOT_EVALUATED` states.
-- Preserved partial visual value by retaining normalized route details in live-layer fallback responses when downstream live evaluation fails.
+- Fixed unsafe PowerShell interpolation in live-stage failure messaging by bracing `$liveStage` where it is immediately followed by a colon, preventing parse/runtime interpolation issues while preserving existing message contract.
+- Preserved the current live-layer hardening behavior and output schema; only interpolation safety was adjusted in the live audit failure path.
+- Updated the `site-auditor-fixed-list` workflow to auto-run on pushes to `main`.
+- Scoped push-triggered workflow execution to SITE_AUDITOR code and its workflow file only.
+- Kept manual `workflow_dispatch` execution behavior intact.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- `.github/workflows/site-auditor-fixed-list.yml`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- Primary cloud agent entrypoint remains: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- Agent entrypoint remains: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- Workflow entrypoint remains: `.github/workflows/site-auditor-fixed-list.yml`.
 - Output contract remains unchanged:
   - `outbox/REPORT.txt`
   - `reports/audit_result.json`
@@ -21,5 +23,5 @@
   - `outbox/DONE.ok` / `outbox/DONE.fail`
 
 ## Risks/blockers
-- Runtime verification of the end-to-end live capture path was limited in this environment because PowerShell (`pwsh`) is unavailable.
-- Stage-level diagnostics were added to reduce troubleshooting risk in CI and to make follow-up validation actionable.
+- End-to-end runtime validation of `pwsh` execution was not performed in this environment; validation here is static/diff-based.
+- Workflow behavior change depends on GitHub Actions event context (push to `main` with matching path filters) and should be confirmed in CI after merge.
