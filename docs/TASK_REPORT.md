@@ -1,12 +1,14 @@
 ## Summary
-- Root cause: `run_bundle.ps1` could invoke REPO subrun without a verified bound repo path, so REPO could execute with an unbound/invalid target and produce non-deterministic downstream assembly behavior.
-- Added deterministic REPO binding gate in bundle execution: explicit `TARGET_REPO_PATH` validation now emits `REPO_BINDING_OK path=<...>` or `REPO_BINDING_FAIL reason=<...>` and returns a normalized REPO FAIL object when invalid.
-- Normalized subrun contract through `New-ModeResult` so assembly receives a consistent object shape and REPO results always include the strict fields (`mode`, `executed`, `status`, `reason`, `exit_code`, `repo_root`, `target_repo_bound`, `artifacts_present`, `outbox_path`, `reports_path`).
-- Added assembly input validation (`Test-ModeResultShape`) and malformed-input fallback conversion with `ASSEMBLY_INPUT_OK` logging to prevent mixed-object aggregation and avoid type mismatch crashes.
-- Updated workflow target checkout condition so bundle/manual REPO runs explicitly bind `${{ github.workspace }}/target_repo` before REPO mode execution.
+- Optimized SITE_AUDITOR startup in `.github/workflows/site-auditor-fixed-list.yml` by removing unconditional Playwright browser reinstall behavior and switching to conditional installation.
+- Added Playwright cache restore/save via `actions/cache@v4` using `~/.cache/ms-playwright` with key `playwright-${{ runner.os }}`.
+- Added filesystem presence check for Playwright browser cache before installation; install now runs only when cache is empty/missing.
+- Replaced heavy browser install path with lightweight `npx playwright install chromium` (without apt-style full dependency reinstall) to reduce setup overhead.
+- Added explicit startup telemetry logs: `PLAYWRIGHT_INSTALL_SKIPPED` and `PLAYWRIGHT_INSTALL_DONE`.
+- Runtime impact expectation:
+  - Before: setup was dominated by repeated Playwright browser install/deps work (often several minutes).
+  - After: cached runs should skip Playwright install (setup target <30s), with audit phase target <90s and total target <2 minutes.
 
 ## Changed files
-- `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 - `.github/workflows/site-auditor-fixed-list.yml`
 - `docs/TASK_REPORT.md`
 
@@ -14,37 +16,13 @@
 - None.
 
 ## Current entrypoints/paths
-- Bundle entrypoint: `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
-- REPO binding input: environment variable `TARGET_REPO_PATH`
-- Workflow binding producer: `.github/workflows/site-auditor-fixed-list.yml`
-  - Checkout target repo into `target_repo`
-  - Export `TARGET_REPO_PATH: ${{ github.workspace }}/target_repo` for bundle and single-mode runs
+- Workflow entrypoint: `.github/workflows/site-auditor-fixed-list.yml`
+- Playwright cache path: `~/.cache/ms-playwright`
+- Cache key: `playwright-${{ runner.os }}`
+- Conditional install command: `npx playwright install chromium`
+- Install skip condition: cached Playwright directory exists and contains at least one browser folder/file.
 
 ## Risks/blockers
-- If `target_repo` checkout fails (e.g., token/repo access issue), REPO subrun now deterministically returns FAIL (by design) instead of attempting to proceed.
-- Assembly now enforces mode-result shape and converts malformed items into deterministic FAIL records; this is safer, but may expose previously hidden producer bugs.
-- ZIP/URL modes remain stage-skipped by current activation policy and were not reactivated in this change.
-
-### Root cause
-- REPO execution path lacked a hard preflight bind check in `run_bundle.ps1`; execution could continue without guaranteed `TARGET_REPO_PATH` validity.
-
-### Binding path before/after
-- Before:
-  - Bundle workflow exported `TARGET_REPO_PATH`, but target repo checkout was only conditional for manual REPO single-mode.
-  - Bundle REPO path could be absent on push/manual-bundle runs.
-- After:
-  - Workflow now checks out target repo for push bundle, manual bundle, and manual REPO single-mode.
-  - `run_bundle.ps1` validates `TARGET_REPO_PATH` exists and is a directory before invoking REPO subrun.
-
-### Result object schema
-- REPO result object (strict):
-  - `mode` = `"REPO"`
-  - `executed` = bool
-  - `status` = `"OK" | "PARTIAL" | "FAIL"`
-  - `reason` = string
-  - `exit_code` = int
-  - `repo_root` = string|null
-  - `target_repo_bound` = bool
-  - `artifacts_present` = bool
-  - `outbox_path` = string|null
-  - `reports_path` = string|null
+- First run on a fresh runner (cold cache) still performs Playwright install and can exceed the fast-path setup target; subsequent runs are expected to benefit from cache.
+- Cache key is OS-wide (`playwright-${{ runner.os }}`) and not version-pinned; if Playwright version changes significantly, stale cache behavior may require key bumping.
+- This change intentionally does not modify `run_bundle.ps1`, Phase C, or repo binding logic per scope restrictions.
