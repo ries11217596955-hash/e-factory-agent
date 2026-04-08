@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       audit_mode:
-        description: 'Manual audit mode'
+        description: 'Manual trigger mode (bundle always runs REPO+ZIP+URL; this field is retained for operator compatibility)'
         required: true
         default: 'REPO'
         type: choice
@@ -12,9 +12,9 @@ on:
           - REPO
           - URL
       base_url:
-        description: 'Base URL for audit target (required by SITE_AUDITOR in REPO/ZIP/URL modes)'
+        description: 'Explicit base URL override for URL resolution (highest priority)'
         required: false
-        default: 'https://automation-kb.pages.dev'
+        default: ''
         type: string
   push:
     branches:
@@ -33,43 +33,38 @@ jobs:
       - name: Checkout agent repo
         uses: actions/checkout@v4
 
-      - name: Checkout target repo for manual REPO audit
-        if: github.event_name == 'workflow_dispatch' && inputs.audit_mode == 'REPO'
+      - name: Checkout target repo for REPO subrun
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         uses: actions/checkout@v4
+        continue-on-error: true
         with:
           repository: ries11217596955-hash/automation-kb
           token: ${{ secrets.GH_BATCH_PAT }}
           path: target_repo
 
       - name: Setup Node for live audit modes
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.audit_mode == 'REPO' || inputs.audit_mode == 'URL'))
         uses: actions/setup-node@v4
         with:
           node-version: 18
 
       - name: Install Node deps for live audit modes
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.audit_mode == 'REPO' || inputs.audit_mode == 'URL'))
         run: |
           cd agents/gh_batch/site_auditor_cloud
           npm install
 
       - name: Install Playwright browsers for live audit modes
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.audit_mode == 'REPO' || inputs.audit_mode == 'URL'))
         run: |
           cd agents/gh_batch/site_auditor_cloud
           npx playwright install --with-deps chromium
 
-      - name: Run SITE_AUDITOR
+      - name: Run SITE_AUDITOR TRI-AUDIT BUNDLE (temporary calibration)
         env:
-          FORCE_MODE: ${{ github.event_name == 'push' && 'ZIP' || inputs.audit_mode }}
           TARGET_REPO_PATH: ${{ github.workspace }}/target_repo
-          # SITE_AUDITOR requires BASE_URL in every mode.
-          # - workflow_dispatch URL/REPO: operator-provided base_url (or fallback)
-          # - push ZIP: default deployed URL fallback
-          BASE_URL: ${{ github.event_name == 'workflow_dispatch' && (inputs.base_url != '' && inputs.base_url || env.DEFAULT_BASE_URL) || env.DEFAULT_BASE_URL }}
+          EXPLICIT_BASE_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.base_url || '' }}
+          DEFAULT_BASE_URL: ${{ env.DEFAULT_BASE_URL }}
         run: |
           cd agents/gh_batch/site_auditor_cloud
-          pwsh ./run.ps1
+          pwsh ./run_bundle.ps1
 
       - name: Debug tree
         if: always()
@@ -83,6 +78,7 @@ jobs:
         with:
           name: audit-output
           path: |
+            agents/gh_batch/site_auditor_cloud/audit_bundle/**
             agents/gh_batch/site_auditor_cloud/outbox/**
             agents/gh_batch/site_auditor_cloud/reports/**
           if-no-files-found: warn
