@@ -47,21 +47,58 @@ function New-ModeResult {
         [string]$Reason,
         [int]$ExitCode,
         [bool]$Executed,
-        [bool]$OutboxCopied,
-        [bool]$ReportsCopied
+        [string]$RepoRoot,
+        [bool]$TargetRepoBound,
+        [bool]$ArtifactsPresent,
+        [string]$OutboxPath,
+        [string]$ReportsPath
     )
 
     [ordered]@{
         mode = $Mode
+        executed = $Executed
         status = $Status
         reason = $Reason
         exit_code = $ExitCode
-        executed = $Executed
-        outbox_copied = $OutboxCopied
-        reports_copied = $ReportsCopied
-        artifacts_present = ($OutboxCopied -or $ReportsCopied)
-        timestamp = (Get-Date).ToString('o')
+        repo_root = $RepoRoot
+        target_repo_bound = $TargetRepoBound
+        artifacts_present = $ArtifactsPresent
+        outbox_path = $OutboxPath
+        reports_path = $ReportsPath
     }
+}
+
+function Test-ModeResultShape {
+    param(
+        [hashtable]$Result,
+        [string]$Mode
+    )
+
+    if ($null -eq $Result) {
+        return $false
+    }
+
+    $requiredKeys = @(
+        'mode',
+        'executed',
+        'status',
+        'reason',
+        'exit_code',
+        'repo_root',
+        'target_repo_bound',
+        'artifacts_present',
+        'outbox_path',
+        'reports_path'
+    )
+
+    foreach ($key in $requiredKeys) {
+        if (-not $Result.Contains($key)) {
+            Add-ExecutionLog "ASSEMBLY_INPUT_FAIL mode=$Mode missing_key=$key"
+            return $false
+        }
+    }
+
+    return $true
 }
 
 function Invoke-RepoExecution {
@@ -71,8 +108,31 @@ function Invoke-RepoExecution {
 
     Add-ExecutionLog 'REPO subrun started.'
 
+    $repoRoot = if ([string]::IsNullOrWhiteSpace($env:TARGET_REPO_PATH)) { $null } else { $env:TARGET_REPO_PATH }
+    $targetRepoBound = $false
     $exitCode = 1
     $reason = ''
+    $outboxPath = $null
+    $reportsPath = $null
+
+    if ([string]::IsNullOrWhiteSpace($repoRoot)) {
+        $reason = 'TARGET_REPO_PATH is empty'
+        Add-ExecutionLog "REPO_BINDING_FAIL reason=$reason"
+        $result = New-ModeResult -Mode $mode -Status 'FAIL' -Reason $reason -ExitCode 1 -Executed $false -RepoRoot $null -TargetRepoBound $false -ArtifactsPresent $false -OutboxPath $null -ReportsPath $null
+        Add-ExecutionLog 'REPO_RESULT_NORMALIZED'
+        return $result
+    }
+
+    if (-not (Test-Path -LiteralPath $repoRoot -PathType Container)) {
+        $reason = "TARGET_REPO_PATH does not exist: $repoRoot"
+        Add-ExecutionLog "REPO_BINDING_FAIL reason=$reason"
+        $result = New-ModeResult -Mode $mode -Status 'FAIL' -Reason $reason -ExitCode 1 -Executed $false -RepoRoot $repoRoot -TargetRepoBound $false -ArtifactsPresent $false -OutboxPath $null -ReportsPath $null
+        Add-ExecutionLog 'REPO_RESULT_NORMALIZED'
+        return $result
+    }
+
+    $targetRepoBound = $true
+    Add-ExecutionLog "REPO_BINDING_OK path=$repoRoot"
 
     try {
         & (Join-Path $PSScriptRoot 'run.ps1') -MODE $mode
@@ -86,6 +146,8 @@ function Invoke-RepoExecution {
 
     $outboxCopied = Copy-IfExists -Source (Join-Path $PSScriptRoot 'outbox') -Destination (Join-Path $modeRoot 'outbox')
     $reportsCopied = Copy-IfExists -Source (Join-Path $PSScriptRoot 'reports') -Destination (Join-Path $modeRoot 'reports')
+    if ($outboxCopied) { $outboxPath = Join-Path $modeRoot 'outbox' }
+    if ($reportsCopied) { $reportsPath = Join-Path $modeRoot 'reports' }
 
     $status = 'FAIL'
     if ($exitCode -eq 0 -and [string]::IsNullOrWhiteSpace($reason)) {
@@ -106,14 +168,16 @@ function Invoke-RepoExecution {
         Add-ExecutionLog "REPO subrun completed with FAIL: $reason"
     }
 
-    return (New-ModeResult -Mode $mode -Status $status -Reason $reason -ExitCode $exitCode -Executed $true -OutboxCopied $outboxCopied -ReportsCopied $reportsCopied)
+    $result = New-ModeResult -Mode $mode -Status $status -Reason $reason -ExitCode $exitCode -Executed $true -RepoRoot $repoRoot -TargetRepoBound $targetRepoBound -ArtifactsPresent ($outboxCopied -or $reportsCopied) -OutboxPath $outboxPath -ReportsPath $reportsPath
+    Add-ExecutionLog 'REPO_RESULT_NORMALIZED'
+    return $result
 }
 
 function New-ForcedSkippedModeResult {
     param([string]$Mode)
 
     Add-ExecutionLog "$Mode forced skipped by staged activation."
-    return (New-ModeResult -Mode $Mode -Status 'SKIPPED' -Reason 'SKIPPED_BY_STAGE_ACTIVATION' -ExitCode 0 -Executed $false -OutboxCopied $false -ReportsCopied $false)
+    return (New-ModeResult -Mode $Mode -Status 'SKIPPED' -Reason 'SKIPPED_BY_STAGE_ACTIVATION' -ExitCode 0 -Executed $false -RepoRoot $null -TargetRepoBound $false -ArtifactsPresent $false -OutboxPath $null -ReportsPath $null)
 }
 
 function Invoke-ExecutionStage {
@@ -192,14 +256,27 @@ function Invoke-AssemblyStage {
 
     Add-ExecutionLog 'STAGE 2 (ASSEMBLY) started.'
 
-    $repoResult = $ModeResults | Where-Object { $_.mode -eq 'REPO' } | Select-Object -First 1
+    $safeResults = New-Object System.Collections.Generic.List[hashtable]
+    foreach ($modeResult in @($ModeResults)) {
+        if ($modeResult -is [hashtable] -and (Test-ModeResultShape -Result $modeResult -Mode ([string]$modeResult.mode))) {
+            $safeResults.Add($modeResult)
+        }
+        else {
+            $rawMode = if ($null -ne $modeResult -and $modeResult.PSObject.Properties['mode']) { [string]$modeResult.mode } else { 'UNKNOWN' }
+            Add-ExecutionLog "ASSEMBLY_INPUT_MALFORMED mode=$rawMode"
+            $safeResults.Add((New-ModeResult -Mode $rawMode -Status 'FAIL' -Reason 'MALFORMED_SUBRUN_RESULT' -ExitCode 1 -Executed $false -RepoRoot $null -TargetRepoBound $false -ArtifactsPresent $false -OutboxPath $null -ReportsPath $null))
+        }
+    }
+
+    Add-ExecutionLog 'ASSEMBLY_INPUT_OK'
+    $repoResult = @($safeResults) | Where-Object { $_.mode -eq 'REPO' } | Select-Object -First 1
     if ($null -eq $repoResult) {
-        $repoResult = New-ModeResult -Mode 'REPO' -Status 'FAIL' -Reason 'REPO subrun was not captured' -ExitCode 1 -Executed $false -OutboxCopied $false -ReportsCopied $false
-        $ModeResults = @($repoResult) + @($ModeResults)
+        $repoResult = New-ModeResult -Mode 'REPO' -Status 'FAIL' -Reason 'REPO subrun was not captured' -ExitCode 1 -Executed $false -RepoRoot $null -TargetRepoBound $false -ArtifactsPresent $false -OutboxPath $null -ReportsPath $null
+        $safeResults.Insert(0, $repoResult)
         Add-ExecutionLog 'REPO result was missing; injected deterministic FAIL result.'
     }
 
-    $bundleLogicalStatus = Get-BundleLogicalStatus -ModeResults $ModeResults
+    $bundleLogicalStatus = Get-BundleLogicalStatus -ModeResults @($safeResults)
 
     $repoScreenshotManifest = Get-RepoScreenshotManifest
     $repoArtifacts = @($repoScreenshotManifest | ForEach-Object { $_.relative_path })
@@ -226,7 +303,7 @@ function Invoke-AssemblyStage {
 
     $assembled = [ordered]@{
         generated_at = (Get-Date).ToString('o')
-        mode_results = @($ModeResults)
+        mode_results = @($safeResults)
         bundle_status = $bundleStatus
         overall_status = $bundleLogicalStatus
     }
@@ -325,7 +402,7 @@ function New-FallbackAssembled {
 
     if (-not ($safeModeResults | Where-Object { $_.mode -eq 'REPO' })) {
         $safeModeResults = @(
-            (New-ModeResult -Mode 'REPO' -Status 'FAIL' -Reason 'REPO subrun was not captured due to runtime crash' -ExitCode 1 -Executed $false -OutboxCopied $false -ReportsCopied $false)
+            (New-ModeResult -Mode 'REPO' -Status 'FAIL' -Reason 'REPO subrun was not captured due to runtime crash' -ExitCode 1 -Executed $false -RepoRoot $null -TargetRepoBound $false -ArtifactsPresent $false -OutboxPath $null -ReportsPath $null)
         ) + $safeModeResults
     }
 
