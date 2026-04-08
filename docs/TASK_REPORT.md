@@ -1,32 +1,25 @@
 ## Summary
-- Added a real SITE_AUDITOR PowerShell preflight validator script that parses required `.ps1` files with PowerShell parser APIs and fails on parser errors.
-- Added a token misuse guard that fails on standalone `and` / `or` identifiers where PowerShell expects `-and` / `-or`.
-- Added a dedicated GitHub Actions workflow (`SITE_AUDITOR PowerShell Preflight`) that runs `pwsh` validation for PRs that touch SITE_AUDITOR PowerShell files.
-- Updated Safe Auto Merge so PRs changing `agents/gh_batch/site_auditor_cloud/*.ps1` must have a successful `validate-powershell` check before auto-merge is allowed.
-- Validator output now includes per-file syntax/token status plus structured JSON summary for machine and operator review.
+- Implemented staged TRI-AUDIT activation in `run_bundle.ps1` so only REPO executes in bundle mode.
+- Kept the 3-mode TRI-AUDIT contract intact (`REPO`, `ZIP`, `URL`) while forcing ZIP and URL to deterministic SKIPPED results.
+- Added explicit skip reason `SKIPPED_BY_STAGE_ACTIVATION` for non-active bundle modes to keep output honest and operator-readable.
+- Ensured ZIP/URL bundle paths are created and reported without invoking `run.ps1`, preventing ZIP/URL runtime failures from crashing bundle execution.
+- Left manual single-mode execution behavior unchanged; CI/main bundle path remains TRI-AUDIT but now runs REPO-only by stage design.
 
 ## Changed files
-- `.github/workflows/site-auditor-powershell-preflight.yml`
-- `.github/workflows/safe-auto-merge.yml`
-- `agents/gh_batch/site_auditor_cloud/lib/validate-powershell-preflight.ps1`
+- `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- CI validator workflow:
-  - `.github/workflows/site-auditor-powershell-preflight.yml`
-- Safe auto-merge gate integration:
-  - `.github/workflows/safe-auto-merge.yml`
-- PowerShell validator script:
-  - `agents/gh_batch/site_auditor_cloud/lib/validate-powershell-preflight.ps1`
-- Validated SITE_AUDITOR script contour:
-  - `agents/gh_batch/site_auditor_cloud/run.ps1`
+- Bundle entrypoint (staged TRI-AUDIT, REPO active):
   - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
-  - `agents/gh_batch/site_auditor_cloud/agent.ps1`
-  - `agents/gh_batch/site_auditor_cloud/lib/*.ps1`
+- Manual single-mode entrypoint (explicit operator path, unchanged):
+  - `agents/gh_batch/site_auditor_cloud/run.ps1`
+- CI workflow invoking bundle path:
+  - `.github/workflows/site-auditor-fixed-list.yml`
 
 ## Risks/blockers
-- Local container does not include `pwsh`, so execution of the validator was not runnable in this environment; runtime verification depends on GitHub Actions runner execution.
-- Branch protection settings are repository-level configuration outside this codebase; this task enforces the gate via workflow checks and Safe Auto Merge logic within repository-controlled automation.
+- Local environment may not have `pwsh`, so full runtime validation of the PowerShell bundle path may require GitHub Actions or a PowerShell-enabled runner.
+- This task intentionally does not stabilize ZIP/URL runtime internals; those modes are explicitly staged as SKIPPED by design until later activation.

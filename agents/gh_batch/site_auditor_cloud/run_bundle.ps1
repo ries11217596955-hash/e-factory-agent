@@ -8,6 +8,7 @@ $bundleStatusPath = Join-Path $bundleRoot 'audit_bundle_summary.json'
 
 $script:ExecutionLog = New-Object System.Collections.Generic.List[string]
 $script:ModeResults = New-Object System.Collections.Generic.List[object]
+$script:ActiveModes = @('REPO')
 
 function Add-ExecutionLog {
     param([string]$Message)
@@ -97,6 +98,12 @@ function Invoke-ModeSafely {
     $modeUpper = $Mode.ToUpperInvariant()
     $modeOutputRoot = Join-Path $bundleRoot $modeUpper.ToLowerInvariant()
     Ensure-Directory -Path $modeOutputRoot
+
+    if ($script:ActiveModes -notcontains $modeUpper) {
+        $stageReason = 'SKIPPED_BY_STAGE_ACTIVATION'
+        Add-ExecutionLog "Mode $modeUpper forced skipped: $stageReason"
+        return (New-ModeResult -Mode $modeUpper -Status 'SKIPPED' -Reason $stageReason -ExitCode 0 -Executed $false -OutboxCopied $false -ReportsCopied $false)
+    }
 
     if ($modeUpper -eq 'ZIP') {
         $zipInbox = Join-Path $PSScriptRoot 'input/inbox'
