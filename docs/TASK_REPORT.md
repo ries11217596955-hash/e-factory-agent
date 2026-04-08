@@ -1,27 +1,49 @@
 ## Summary
-- Upgraded core page experience from passive reading to immediate action by adding outcome-first hero copy, an instant action block, an execution checklist, a result promise, a before/after example, and a search-fallback route block at the shared article template level.
-- Upgraded the global hubs landing page with required activation blocks: “Start here if you are new,” “Fastest result path,” and “Top 3 actions,” plus explicit no-results search fallback routes.
-- Upgraded the Amazon hub with action-first startup guidance, quick-start pathing, tool-page quick-start framing (use case + expected outcome), and explicit before/after scenario value.
-- Upgraded reusable tool content block from generic filler to concrete, execution-level guidance including one-step instant action and observable checklist outcomes.
-- Estimated actionable-level coverage: ~55% of content pages upgraded directly via shared template + hub-page updates (52 of 94 markdown pages, inferred from layout usage and targeted hub updates).
+- Restored screenshot propagation for REPO subrun artifacts by detecting PNG files from `audit_bundle/repo/reports` and `audit_bundle/repo/outbox` during bundle processing.
+- Added deterministic screenshot manifest assembly so `bundle_status.repo.artifacts` is populated with `bundle_artifacts/<name>.png` entries.
+- Added writing-stage copy flow that materializes screenshots into `audit_bundle/bundle_artifacts/` for artifact packaging.
+- Updated `REPORT.txt` generation to include a `SCREENSHOTS` section listing captured screenshot filenames.
+- Added safe no-screenshot behavior: report now writes `No screenshots captured` without failing the bundle.
 
 ## Changed files
-- `_foreign/webops/_includes/article.njk`
-- `_foreign/webops/hubs/index.njk`
-- `_foreign/webops/hubs/amazon-ai/index.njk`
-- `_foreign/webops/_includes/partials/tool_block.njk`
+- `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- Shared article rendering path for post-style pages: `_foreign/webops/_includes/article.njk`
-- Hub landing page entry: `_foreign/webops/hubs/index.njk` (permalink `/hubs/`)
-- Amazon hub entry: `_foreign/webops/hubs/amazon-ai/index.njk`
-- Reusable tool recommendation block: `_foreign/webops/_includes/partials/tool_block.njk`
+- Bundle orchestrator: `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
+- Screenshot source scan roots: `agents/gh_batch/site_auditor_cloud/audit_bundle/repo/reports` and `agents/gh_batch/site_auditor_cloud/audit_bundle/repo/outbox`
+- Screenshot bundle destination: `agents/gh_batch/site_auditor_cloud/audit_bundle/bundle_artifacts`
+- Report output: `agents/gh_batch/site_auditor_cloud/audit_bundle/REPORT.txt`
+- Artifact upload path (already configured wildcard): `.github/workflows/site-auditor-fixed-list.yml` uploads `agents/gh_batch/site_auditor_cloud/audit_bundle/**`
 
 ## Risks/blockers
-- Search fallback is implemented as content-level fallback guidance/routes; runtime JS empty-state behavior could still require asset-level updates if dynamic search UI is defined outside this repository snapshot.
-- “Every page” was addressed through shared templates and key hub surfaces; pages using non-article/non-hub layouts may need separate follow-up for 100% uniformity.
-- No runtime or deployment logic was modified (intentional, to stay inside safe content scope).
+- If two screenshots share the same filename across `reports/` and `outbox/`, names are de-duplicated using a numeric suffix (for example `screen.png`, `screen-2.png`); downstream tooling should not assume original duplicates remain unchanged.
+- This change intentionally does not modify workflow files due scope and protected-path constraints; inclusion in artifact ZIP relies on existing `audit_bundle/**` upload wildcard.
+- Flow remains non-fatal for missing screenshots by design.
+
+### Artifact flow (before/after)
+- Before: REPO screenshots could exist in `reports/` or `outbox/` but were not copied into bundle output, not enumerated in bundle assembly metadata, and not listed in `REPORT.txt`.
+- After: REPO screenshots are detected -> manifest created -> copied into `audit_bundle/bundle_artifacts/` -> registered in `bundle_status.repo.artifacts` -> listed in `REPORT.txt` under `SCREENSHOTS`.
+
+### Paths used
+- Input scan:
+  - `audit_bundle/repo/reports/*.png`
+  - `audit_bundle/repo/outbox/*.png`
+- Output copy:
+  - `audit_bundle/bundle_artifacts/*.png`
+- Metadata/report:
+  - `audit_bundle/audit_bundle_summary.json` (`repo.artifacts`)
+  - `audit_bundle/REPORT.txt` (`SCREENSHOTS` section)
+
+### Example output
+- `audit_bundle_summary.json`:
+  - `"repo": { "artifacts": ["bundle_artifacts/screenshot_home.png", "bundle_artifacts/screenshot_checkout-2.png"] }`
+- `REPORT.txt`:
+  - `SCREENSHOTS`
+  - `-----------`
+  - `- screenshot_home.png`
+  - `- screenshot_checkout-2.png`
+  - *(or `No screenshots captured` when absent)*
