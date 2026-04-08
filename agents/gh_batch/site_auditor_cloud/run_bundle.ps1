@@ -89,8 +89,8 @@ function Invoke-RepoExecution {
 
     $status = 'FAIL'
     if ($exitCode -eq 0 -and [string]::IsNullOrWhiteSpace($reason)) {
-        $status = 'PASS'
-        Add-ExecutionLog 'REPO subrun completed with PASS.'
+        $status = 'OK'
+        Add-ExecutionLog 'REPO subrun completed with OK.'
     }
     elseif ($outboxCopied -or $reportsCopied) {
         $status = 'PARTIAL'
@@ -128,6 +128,22 @@ function Invoke-ExecutionStage {
     return @($results)
 }
 
+function Get-BundleLogicalStatus {
+    param([object[]]$ModeResults)
+
+    $logicalResults = @($ModeResults | Where-Object { $_.status -in @('OK', 'PARTIAL', 'FAIL') })
+
+    if ($logicalResults | Where-Object { $_.status -eq 'FAIL' }) {
+        return 'FAIL'
+    }
+
+    if ($logicalResults | Where-Object { $_.status -eq 'PARTIAL' }) {
+        return 'PARTIAL'
+    }
+
+    return 'OK'
+}
+
 function Invoke-AssemblyStage {
     param([object[]]$ModeResults)
 
@@ -140,13 +156,7 @@ function Invoke-AssemblyStage {
         Add-ExecutionLog 'REPO result was missing; injected deterministic FAIL result.'
     }
 
-    $repoUsableEvidence = [bool]($repoResult.executed -and ($repoResult.status -in @('PASS', 'PARTIAL')))
-    $overall = if ($repoUsableEvidence) {
-        if ($repoResult.status -eq 'PARTIAL') { 'PASS_WITH_WARNINGS' } else { 'PASS_WITH_WARNINGS' }
-    }
-    else {
-        'FAIL'
-    }
+    $bundleLogicalStatus = Get-BundleLogicalStatus -ModeResults $ModeResults
 
     $bundleStatus = [ordered]@{
         repo = [ordered]@{
@@ -164,18 +174,17 @@ function Invoke-AssemblyStage {
             reason = 'SKIPPED_BY_STAGE_ACTIVATION'
             artifacts_present = $false
         }
-        overall = $overall
+        overall = $bundleLogicalStatus
     }
 
     $assembled = [ordered]@{
         generated_at = (Get-Date).ToString('o')
         mode_results = @($ModeResults)
         bundle_status = $bundleStatus
-        overall_status = $overall
-        repo_usable_evidence = $repoUsableEvidence
+        overall_status = $bundleLogicalStatus
     }
 
-    Add-ExecutionLog "STAGE 2 (ASSEMBLY) completed with overall=$overall."
+    Add-ExecutionLog "STAGE 2 (ASSEMBLY) completed with overall=$bundleLogicalStatus."
     return $assembled
 }
 
@@ -214,49 +223,74 @@ function Invoke-WritingStage {
 
     Ensure-Directory -Path $bundleRoot
 
-    $assembled.bundle_status | ConvertTo-Json -Depth 6 | Out-File -FilePath $bundleStatusPath -Encoding utf8
-    $assembled | ConvertTo-Json -Depth 8 | Out-File -FilePath $summaryPath -Encoding utf8
-    (New-ReportLines -Assembled $Assembled) | Out-File -FilePath $reportPath -Encoding utf8
-    $script:ExecutionLog | Out-File -FilePath $executionLogPath -Encoding utf8
+    try {
+        $assembled.bundle_status | ConvertTo-Json -Depth 6 | Out-File -FilePath $bundleStatusPath -Encoding utf8
+        $assembled | ConvertTo-Json -Depth 8 | Out-File -FilePath $summaryPath -Encoding utf8
+        (New-ReportLines -Assembled $Assembled) | Out-File -FilePath $reportPath -Encoding utf8
+        $script:ExecutionLog | Out-File -FilePath $executionLogPath -Encoding utf8
+    }
+    catch {
+        Add-ExecutionLog "STAGE 3 (WRITING) encountered an error: $($_.Exception.Message)"
+    }
 
     Add-ExecutionLog 'STAGE 3 (WRITING) completed.'
 }
 
-function Write-MinimalEmergencyReport {
+function New-FallbackAssembled {
     param(
-        [string]$FailureMessage,
-        [string]$OverallStatus
+        [object[]]$ModeResults,
+        [string]$FailureMessage
     )
 
-    Ensure-Directory -Path $bundleRoot
+    $safeModeResults = if ($null -eq $ModeResults) { @() } else { @($ModeResults) }
 
-    @(
-        'SITE_AUDITOR TRI-AUDIT BUNDLE REPORT',
-        "GENERATED AT: $((Get-Date).ToString('o'))",
-        "OVERALL STATUS: $OverallStatus",
-        'reason: diagnostics writing failed',
-        "details: $FailureMessage"
-    ) | Out-File -FilePath $reportPath -Encoding utf8
+    if (-not ($safeModeResults | Where-Object { $_.mode -eq 'REPO' })) {
+        $safeModeResults = @(
+            (New-ModeResult -Mode 'REPO' -Status 'FAIL' -Reason 'REPO subrun was not captured due to runtime crash' -ExitCode 1 -Executed $false -OutboxCopied $false -ReportsCopied $false)
+        ) + $safeModeResults
+    }
 
-    $script:ExecutionLog.Add("[$((Get-Date).ToString('o'))] Emergency report written after diagnostics failure: $FailureMessage")
-    $script:ExecutionLog | Out-File -FilePath $executionLogPath -Encoding utf8
+    return [ordered]@{
+        generated_at = (Get-Date).ToString('o')
+        mode_results = $safeModeResults
+        bundle_status = [ordered]@{
+            repo = [ordered]@{
+                status = 'FAIL'
+                reason = $FailureMessage
+                artifacts_present = $false
+            }
+            zip = [ordered]@{
+                status = 'SKIPPED'
+                reason = 'SKIPPED_BY_STAGE_ACTIVATION'
+                artifacts_present = $false
+            }
+            url = [ordered]@{
+                status = 'SKIPPED'
+                reason = 'SKIPPED_BY_STAGE_ACTIVATION'
+                artifacts_present = $false
+            }
+            overall = 'FAIL'
+        }
+        overall_status = 'FAIL'
+    }
 }
 
 function Get-BundleExitCode {
-    param($Assembled)
+    param(
+        $Assembled,
+        [bool]$HadRuntimeCrash
+    )
 
-    if ($null -eq $Assembled) {
+    if ($HadRuntimeCrash -or $null -eq $Assembled) {
         return 1
     }
 
-    if ($Assembled.repo_usable_evidence) {
-        return 0
-    }
-
-    return 1
+    return 0
 }
 
 $assembled = $null
+$modeResults = @()
+$hadRuntimeCrash = $false
 
 try {
     Ensure-Directory -Path $bundleRoot
@@ -264,19 +298,16 @@ try {
 
     $modeResults = Invoke-ExecutionStage
     $assembled = Invoke-AssemblyStage -ModeResults $modeResults
-
-    try {
-        Invoke-WritingStage -Assembled $assembled
-    }
-    catch {
-        Write-MinimalEmergencyReport -FailureMessage $_.Exception.Message -OverallStatus $assembled.overall_status
-    }
 }
 catch {
+    $hadRuntimeCrash = $true
     $fatalMessage = $_.Exception.Message
-    Write-MinimalEmergencyReport -FailureMessage $fatalMessage -OverallStatus 'FAIL'
+    Add-ExecutionLog "Bundle runtime failure: $fatalMessage"
+    $assembled = New-FallbackAssembled -ModeResults $modeResults -FailureMessage $fatalMessage
 }
 
-$exitCode = Get-BundleExitCode -Assembled $assembled
-Write-Host "Bundle completed with exit code $exitCode."
+Invoke-WritingStage -Assembled $assembled
+
+$exitCode = Get-BundleExitCode -Assembled $assembled -HadRuntimeCrash $hadRuntimeCrash
+Write-Host "Bundle completed with overall status $($assembled.overall_status) and exit code $exitCode."
 exit $exitCode
