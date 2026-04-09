@@ -15,7 +15,7 @@
 - `docs/legacy_root_notes/APPLY_NOTE.md`
 
 ## Task
-Upgrade `reports/12A_META_AUDIT_BRIEF.txt` generation from static handoff style to comparison-guided analyst brief behavior.
+Add a deterministic contradiction-detection layer to `SITE_AUDITOR` so cross-layer mismatches are explicitly surfaced in route/site outputs and analyst-facing reports.
 
 ## Repository scope (Allowed / Forbidden)
 - Allowed paths used:
@@ -23,83 +23,85 @@ Upgrade `reports/12A_META_AUDIT_BRIEF.txt` generation from static handoff style 
   - `docs/TASK_REPORT.md`
 - Forbidden/protected paths respected:
   - no `.github/workflows/` changes
-  - no entrypoint/runtime-flow redesign
+  - no workflow edits
   - no Playwright redesign
-  - no broad refactor
-  - no unrelated file cleanup
+  - no repo binding redesign
+  - no broad architecture rewrite
+  - no unrelated cleanup/refactor
+  - no site/content changes
 
 ## Mode
 PR-first.
 
-## Current brief baseline
-- BEFORE: `12A_META_AUDIT_BRIEF.txt` existed and was deterministic, but primarily summary/handoff oriented.
-- It contained mission, truth files, confidence, dominant pattern, suspicious routes, checks, contradiction watchlist, decision-first questions, and analyst expectation.
-- It did not explicitly direct screenshot comparison order, route grouping comparisons, repo-vs-live prompts, concrete contradiction hotspots, or analyst pass sequencing.
+## Current contradiction baseline
+- BEFORE: deterministic outputs already had route verdicts, page flags, site pattern summary, and contradiction-oriented analyst wording in `12A_META_AUDIT_BRIEF.txt` generation.
+- BEFORE: contradiction handling was mostly implicit (heuristics in brief/watchlist text) rather than a first-class deterministic data layer.
+- BEFORE: no dedicated contradiction object in `audit_result.json` and no explicit contradiction rollup in `11A_EXECUTIVE_SUMMARY.txt`/core decision output.
 
-## Upgrade design
-- Extended `Build-MetaAuditBriefLines` only (deterministic logic preserved).
-- Added deterministic route-set derivation from existing evidence (`route_details`, `page_flags`, `verdict_class`, `site_pattern_summary`, run state).
-- Added new guidance sections with concise action lines:
-  - `SCREENSHOT COMPARISON PLAN`
-  - `ROUTE COMPARISON GROUPS`
-  - `REPO-vs-LIVE CHECK PROMPTS`
-  - `CONTRADICTION HOTSPOTS`
-  - `ANALYST FOCUS ORDER`
-- Preserved all previously required brief sections and output path contract.
+## Contradiction model added
+- Added deterministic route-level contradiction candidates during page-quality evaluation:
+  - `HEALTHY_BUT_VISUALLY_WEAK`
+  - `NON_EMPTY_BUT_LOW_VALUE`
+- Added deterministic cross-layer contradiction aggregator (`Build-ContradictionLayer`) to produce:
+  - route-level candidates
+  - site-level candidates
+  - class counts and totals
+- Added site-level contradiction classes where data supports them:
+  - `SOURCE_EXPECTS_MORE_THAN_LIVE_DELIVERS`
+  - `SUMMARY_UNDERSTATES_PATTERN`
+  - `PARTIAL_BUT_EVIDENCE_RICH`
+- Wired contradiction summary into decision output (`decision.contradiction_summary`) and clean-state labeling (`CLEAN` / `SUSPICIOUSLY_CLEAN` / `NOT_CLEAN`).
 
 ## Before / After
 ### BEFORE
-- Brief was strong as a deterministic summary but lacked comparison-first analyst steering.
+- Contradictions were mostly hinted in analyst instructions/hotspots text.
+- No normalized contradiction candidate structure was exported as primary deterministic evidence.
+- Executive summary top-line could be read as clean without an explicit “suspiciously clean” gate.
 
 ### AFTER
-- Brief now directs screenshot-first triage based on highest-risk routes, dominant pattern routes, and suspicious HEALTHY routes.
-- Brief now includes compact route-to-route comparison groups (worst vs best, suspicious HEALTHY vs weak, contamination vs non-contamination, dominant-pattern cluster).
-- Brief now includes deterministic repo-vs-live prompts to reconcile source structure with live page reality.
-- Contradiction guidance is now split into explicit `CONTRADICTION HOTSPOTS` + existing `CONTRADICTION WATCHLIST`.
-- Brief now includes an ordered `ANALYST FOCUS ORDER` sequence for analyst pass execution.
+- Deterministic contradiction candidates are generated and attached to route details plus site-level rollups.
+- Contradiction summary is propagated to:
+  - `reports/audit_result.json` (via `live.summary.contradiction_summary` and `decision.contradiction_summary`)
+  - `reports/11A_EXECUTIVE_SUMMARY.txt` (counts/classes + suspiciously-clean warning)
+  - `reports/12A_META_AUDIT_BRIEF.txt` (run-level contradiction counts/classes + stronger analyst check)
+- Clean-vs-suspiciously-clean distinction is now explicit via `decision.clean_state` and summary/report lines.
 
 ## Validation evidence
 1. **BEFORE validation**
-   - Confirmed pre-change function emitted summary-oriented sections and lacked explicit comparison-guided section headers.
+   - Verified pre-change logic had page quality, verdicts, and pattern summaries but lacked a dedicated contradiction layer object and contradiction rollups in executive summary output.
 
 2. **AFTER validation**
-   - `SCREENSHOT COMPARISON PLAN` section added.
-   - `ROUTE COMPARISON GROUPS` section added.
-   - `REPO-vs-LIVE CHECK PROMPTS` section added.
-   - `CONTRADICTION HOTSPOTS` section added with concrete mismatch checks.
-   - `ANALYST FOCUS ORDER` section added with deterministic ordered steps.
+   - Contradiction candidates are explicitly generated (`route_details[*].contradiction_candidates` + `decision/live contradiction_summary`).
+   - Route-level contradiction path represented (`HEALTHY_BUT_VISUALLY_WEAK`, `NON_EMPTY_BUT_LOW_VALUE`).
+   - Site-level contradiction path represented (`SOURCE_EXPECTS_MORE_THAN_LIVE_DELIVERS`, `SUMMARY_UNDERSTATES_PATTERN`, `PARTIAL_BUT_EVIDENCE_RICH`).
+   - Analyst-facing outputs include contradiction totals/classes and extra deterministic review prompt.
+   - Clean-vs-suspiciously-clean state is explicitly labeled and propagated.
 
 3. **NON-REGRESSION validation**
-   - Existing sections remain present:
-     - audit mission
-     - primary truth files
-     - run status / confidence
-     - dominant site pattern
-     - suspicious routes
-     - contradiction watchlist
-     - what to decide first
-     - analyst output expectation
-   - Output contract preserved: same target file (`reports/12A_META_AUDIT_BRIEF.txt`) and same generation flow (`Write-OperatorOutputs`).
-   - `run_bundle.ps1` was intentionally not changed; operator/bundle behavior remains intact.
+   - Existing output files and generation flow remain intact:
+     - `reports/audit_result.json`
+     - `reports/11A_EXECUTIVE_SUMMARY.txt`
+     - `reports/12A_META_AUDIT_BRIEF.txt`
+     - outbox `REPORT.txt`
+   - No report path/contract removal.
+   - Deterministic rule-based contract preserved (no probabilistic/LLM-only inference layer).
 
-4. **EXAMPLE CONTENT (from generated brief templates in code)**
-   - Screenshot comparison item example:
-     - `Start with highest-risk routes: <route set>.`
-   - Route comparison group example:
-     - `Worst vs best: [<worst routes>] vs [<best healthy routes>].`
-   - Repo-vs-live prompt example:
-     - `Do repo/source route structures and templates support what each live route claims to be?`
-   - Contradiction hotspot example:
-     - `HEALTHY-but-suspicious routes need screenshot verification: <route set>.`
-   - Analyst focus order line example:
-     - `1) Verify dominant pattern claim against route evidence: <dominant pattern>.`
+4. **EXAMPLE CONTENT**
+   - Contradiction candidate line example:
+     - `Contradiction candidate [NON_EMPTY_BUT_LOW_VALUE]: bodyTextLength=... avoids EMPTY, but weak_cta=... dead_end=...`
+   - Route contradiction example:
+     - route with `verdict=HEALTHY` and weak/low evidence emits `HEALTHY_BUT_VISUALLY_WEAK` candidate.
+   - Site-level contradiction summary line example:
+     - `repeated_pattern_count=... with aggregate issue observations=... can make top-line summary sound milder...`
+   - Analyst-facing strengthened prompt example:
+     - `Prioritize contradiction classes from the deterministic layer before final interpretation.`
 
 ## Summary
-- Upgraded deterministic analyst brief generation to comparison-guided behavior without changing output contract.
-- Added screenshot-priority planning from highest-risk and dominant-pattern evidence.
-- Added concise route comparison groups for faster route-to-route analyst verification.
-- Added repo-vs-live prompts and explicit contradiction hotspots for better human verification.
-- Added ordered analyst focus sequence while preserving prior decision/watchlist sections.
+- Added deterministic contradiction candidate generation at route and site levels.
+- Introduced explicit contradiction rollups/class counts and propagated them into decision/live summary structures.
+- Strengthened executive summary and analyst brief with contradiction totals/classes and suspiciously-clean warnings.
+- Preserved existing report contract and existing file outputs.
+- Kept change minimal and scoped to allowed files only.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -115,5 +117,5 @@ PR-first.
   - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 
 ## Risks/blockers
-- Runtime execution proof is limited in this environment because PowerShell execution (`pwsh`/`powershell`) is unavailable.
-- Validation is static logic/contract verification via source inspection, not a live generated brief run.
+- Runtime execution validation is limited here because `pwsh`/`powershell` is not available in this environment.
+- Validation was performed via static source inspection and deterministic logic tracing; not full live end-to-end report generation.
