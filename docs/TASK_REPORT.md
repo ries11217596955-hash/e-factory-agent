@@ -2,6 +2,8 @@
 - `AGENTS.md`
 - `docs/REPO_LAYOUT.md`
 - `docs/TASK_REPORT.md` (pre-change)
+- `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 - `docs/README.md`
 - `docs/CLEANUP_PLAN.md`
 - `docs/WORKFLOW_RESTORE_NOTE.md`
@@ -9,84 +11,98 @@
 - `docs/PHASE3_STATUS.md`
 - `docs/FINAL_ROOT_CLOSEOUT.md`
 - `docs/history/site_auditor_agent/README.md`
-- `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- `agents/gh_batch/site_auditor_cloud/run.ps1`
-- `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
+- `docs/legacy_root_notes/index.md`
+- `docs/legacy_root_notes/APPLY_NOTE.md`
 
 ## Task
-Add a deterministic meta-analysis handoff layer to SITE_AUDITOR by generating `reports/12A_META_AUDIT_BRIEF.txt` from existing evidence.
+Upgrade `reports/12A_META_AUDIT_BRIEF.txt` generation from static handoff style to comparison-guided analyst brief behavior.
 
 ## Repository scope (Allowed / Forbidden)
 - Allowed paths used:
   - `agents/gh_batch/site_auditor_cloud/agent.ps1`
-  - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
   - `docs/TASK_REPORT.md`
 - Forbidden/protected paths respected:
   - no `.github/workflows/` changes
-  - no entrypoint or runtime-flow redesign
+  - no entrypoint/runtime-flow redesign
   - no Playwright redesign
-  - no broad refactor or unrelated cleanup
+  - no broad refactor
+  - no unrelated file cleanup
 
 ## Mode
 PR-first.
 
-## Current baseline
-- Operator outputs existed (`00_PRIORITY_ACTIONS`, `01_TOP_ISSUES`, `11A_EXECUTIVE_SUMMARY`, `REPORT.txt`, JSON truth files), but there was no dedicated analyst handoff layer.
-- Analysts had to manually infer comparison targets from mixed operator/technical artifacts.
+## Current brief baseline
+- BEFORE: `12A_META_AUDIT_BRIEF.txt` existed and was deterministic, but primarily summary/handoff oriented.
+- It contained mission, truth files, confidence, dominant pattern, suspicious routes, checks, contradiction watchlist, decision-first questions, and analyst expectation.
+- It did not explicitly direct screenshot comparison order, route grouping comparisons, repo-vs-live prompts, concrete contradiction hotspots, or analyst pass sequencing.
 
-## Why analyst handoff layer is needed
-- Deterministic outputs already capture strong route-level and site-pattern evidence, but there was no explicit bridge telling the next analyst what to compare, distrust, and decide first.
-- A structured handoff reduces interpretation drift and makes degraded/PARTIAL honesty explicit.
+## Upgrade design
+- Extended `Build-MetaAuditBriefLines` only (deterministic logic preserved).
+- Added deterministic route-set derivation from existing evidence (`route_details`, `page_flags`, `verdict_class`, `site_pattern_summary`, run state).
+- Added new guidance sections with concise action lines:
+  - `SCREENSHOT COMPARISON PLAN`
+  - `ROUTE COMPARISON GROUPS`
+  - `REPO-vs-LIVE CHECK PROMPTS`
+  - `CONTRADICTION HOTSPOTS`
+  - `ANALYST FOCUS ORDER`
+- Preserved all previously required brief sections and output path contract.
 
 ## Before / After
 ### BEFORE
-- No `reports/12A_META_AUDIT_BRIEF.txt` file generation.
-- No deterministic watchlist-oriented analyst brief section in reporting phase.
+- Brief was strong as a deterministic summary but lacked comparison-first analyst steering.
 
 ### AFTER
-- Added deterministic `Build-MetaAuditBriefLines` in `agent.ps1` and write phase now emits `reports/12A_META_AUDIT_BRIEF.txt`.
-- New file includes all required sections:
-  1. AUDIT MISSION
-  2. PRIMARY TRUTH FILES
-  3. RUN STATUS / CONFIDENCE
-  4. DOMINANT SITE PATTERN
-  5. SUSPICIOUS ROUTES TO REVIEW
-  6. REQUIRED ANALYST CHECKS
-  7. CONTRADICTION WATCHLIST
-  8. WHAT TO DECIDE FIRST
-  9. ANALYST OUTPUT EXPECTATION
-- `run_bundle.ps1` now propagates visibility by copying this brief into `audit_bundle/12A_META_AUDIT_BRIEF.txt` and listing it in bundle report outputs.
+- Brief now directs screenshot-first triage based on highest-risk routes, dominant pattern routes, and suspicious HEALTHY routes.
+- Brief now includes compact route-to-route comparison groups (worst vs best, suspicious HEALTHY vs weak, contamination vs non-contamination, dominant-pattern cluster).
+- Brief now includes deterministic repo-vs-live prompts to reconcile source structure with live page reality.
+- Contradiction guidance is now split into explicit `CONTRADICTION HOTSPOTS` + existing `CONTRADICTION WATCHLIST`.
+- Brief now includes an ordered `ANALYST FOCUS ORDER` sequence for analyst pass execution.
 
 ## Validation evidence
-1. **Primary truth file pointers included:** the brief explicitly lists `reports/audit_result.json`, `reports/run_manifest.json`, `reports/visual_manifest.json`, `reports/11A_EXECUTIVE_SUMMARY.txt`, and marks `audit_bundle/REPORT.txt` as secondary.
-2. **Suspicious routes included:** routes are deterministically ranked from `route_details` using status + verdict/page-flag scoring and emitted as a prioritized review list.
-3. **Dominant pattern included:** sourced from `live.summary.site_pattern_summary.dominant_pattern`, with deterministic fallback to mixed/no-dominant pattern.
-4. **Contradiction watchlist included:** deterministic watch items for NOT_EVALUATED/PARTIAL states, healthy-but-thin evidence mismatch, and summary flattening risk.
-5. **Decision questions included:** exactly 3 analyst-first decision prompts are emitted under WHAT TO DECIDE FIRST.
-6. **Honest degraded behavior:** run-state mapping (`full`, `partial`, `degraded`, `failed`) and confidence-limiters are explicitly generated from final status + page-quality state.
+1. **BEFORE validation**
+   - Confirmed pre-change function emitted summary-oriented sections and lacked explicit comparison-guided section headers.
 
-## Non-regression notes
-- Existing output paths were preserved and not renamed.
-- Existing operator and decision contract remained intact (`p0/p1/p2/do_next`, existing text/json outputs).
-- `run_manifest.json` now includes the added report path without changing manifest shape.
-- Bundle assembly contract remains intact; only additive visibility for the new analyst brief was introduced.
+2. **AFTER validation**
+   - `SCREENSHOT COMPARISON PLAN` section added.
+   - `ROUTE COMPARISON GROUPS` section added.
+   - `REPO-vs-LIVE CHECK PROMPTS` section added.
+   - `CONTRADICTION HOTSPOTS` section added with concrete mismatch checks.
+   - `ANALYST FOCUS ORDER` section added with deterministic ordered steps.
 
-## Example content
-- Suspicious route reference example format: `- /pricing [verdict=WEAK_CONVERSION] :: weak CTA, dead-end flow`.
-- Dominant pattern line example format: `- repeated thin-content pattern (REPEATED, 3 route(s))`.
-- Contradiction-watch item example: `- Some routes are labeled HEALTHY with low visible text; confirm screenshots are not visually thin.`
-- Analyst decision question example: `- Do screenshots confirm the deterministic verdict classes on highest-risk routes?`
+3. **NON-REGRESSION validation**
+   - Existing sections remain present:
+     - audit mission
+     - primary truth files
+     - run status / confidence
+     - dominant site pattern
+     - suspicious routes
+     - contradiction watchlist
+     - what to decide first
+     - analyst output expectation
+   - Output contract preserved: same target file (`reports/12A_META_AUDIT_BRIEF.txt`) and same generation flow (`Write-OperatorOutputs`).
+   - `run_bundle.ps1` was intentionally not changed; operator/bundle behavior remains intact.
+
+4. **EXAMPLE CONTENT (from generated brief templates in code)**
+   - Screenshot comparison item example:
+     - `Start with highest-risk routes: <route set>.`
+   - Route comparison group example:
+     - `Worst vs best: [<worst routes>] vs [<best healthy routes>].`
+   - Repo-vs-live prompt example:
+     - `Do repo/source route structures and templates support what each live route claims to be?`
+   - Contradiction hotspot example:
+     - `HEALTHY-but-suspicious routes need screenshot verification: <route set>.`
+   - Analyst focus order line example:
+     - `1) Verify dominant pattern claim against route evidence: <dominant pattern>.`
 
 ## Summary
-- Added deterministic meta-analysis handoff file generation in `agent.ps1` (`reports/12A_META_AUDIT_BRIEF.txt`).
-- Wired the new report into reporting outputs while preserving all existing output contracts.
-- Added deterministic suspicious-route prioritization and contradiction watchlist logic based on existing route/pattern evidence.
-- Added explicit run-state + confidence-limiter text for honest PARTIAL/NOT_EVALUATED/FAIL states.
-- Added bundle-level visibility for the handoff brief in `run_bundle.ps1`.
+- Upgraded deterministic analyst brief generation to comparison-guided behavior without changing output contract.
+- Added screenshot-priority planning from highest-risk and dominant-pattern evidence.
+- Added concise route comparison groups for faster route-to-route analyst verification.
+- Added repo-vs-live prompts and explicit contradiction hotspots for better human verification.
+- Added ordered analyst focus sequence while preserving prior decision/watchlist sections.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
@@ -99,5 +115,5 @@ PR-first.
   - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 
 ## Risks/blockers
-- Runtime execution validation is limited in this environment because `pwsh`/`powershell` is unavailable.
-- Validation in this task is static path/logic verification, not live SITE_AUDITOR execution output.
+- Runtime execution proof is limited in this environment because PowerShell execution (`pwsh`/`powershell`) is unavailable.
+- Validation is static logic/contract verification via source inspection, not a live generated brief run.

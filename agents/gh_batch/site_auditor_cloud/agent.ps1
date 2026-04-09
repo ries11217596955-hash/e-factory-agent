@@ -1082,6 +1082,130 @@ function Build-MetaAuditBriefLines {
         $suspiciousRouteLines.Add('- none detected from deterministic route scoring; verify a representative screenshot sample anyway.')
     }
 
+    $formatRouteSet = {
+        param([object[]]$Routes, [int]$Max = 3)
+
+        $paths = New-Object System.Collections.Generic.List[string]
+        foreach ($routeItem in @($Routes | Select-Object -First $Max)) {
+            $path = [string](Safe-Get -Object $routeItem -Key 'route_path' -Default '')
+            if (-not [string]::IsNullOrWhiteSpace($path)) {
+                $paths.Add($path)
+            }
+        }
+
+        if ($paths.Count -eq 0) { return 'none' }
+        return ($paths -join ', ')
+    }
+
+    $sortedScoredRoutes = @($scoredRoutes | Sort-Object -Property @{Expression = 'score'; Descending = $true }, @{Expression = 'route_path'; Descending = $false })
+    $worstRouteSet = @($sortedScoredRoutes | Select-Object -First 3)
+    $suspiciousHealthyRoutes = @($routeDetails | Where-Object {
+            $verdict = [string](Safe-Get -Object $_ -Key 'verdict_class' -Default '')
+            $pageFlags = Safe-Get -Object $_ -Key 'page_flags' -Default @{}
+            $bodyTextLength = [int](Safe-Get -Object $_ -Key 'bodyTextLength' -Default 0)
+            $status = [int](Safe-Get -Object $_ -Key 'status' -Default 0)
+            $verdict -eq 'HEALTHY' -and (
+                [bool](Safe-Get -Object $pageFlags -Key 'thin' -Default $false) -or
+                [bool](Safe-Get -Object $pageFlags -Key 'empty' -Default $false) -or
+                [bool](Safe-Get -Object $pageFlags -Key 'weak_cta' -Default $false) -or
+                [bool](Safe-Get -Object $pageFlags -Key 'dead_end' -Default $false) -or
+                [bool](Safe-Get -Object $pageFlags -Key 'ui_contamination' -Default $false) -or
+                $bodyTextLength -lt 250 -or
+                $status -ge 400 -or $status -eq 0
+            )
+        })
+    $bestHealthyRoutes = @($routeDetails | Where-Object {
+            $verdict = [string](Safe-Get -Object $_ -Key 'verdict_class' -Default '')
+            $pageFlags = Safe-Get -Object $_ -Key 'page_flags' -Default @{}
+            $status = [int](Safe-Get -Object $_ -Key 'status' -Default 0)
+            $verdict -eq 'HEALTHY' -and
+            -not [bool](Safe-Get -Object $pageFlags -Key 'empty' -Default $false) -and
+            -not [bool](Safe-Get -Object $pageFlags -Key 'thin' -Default $false) -and
+            -not [bool](Safe-Get -Object $pageFlags -Key 'weak_cta' -Default $false) -and
+            -not [bool](Safe-Get -Object $pageFlags -Key 'dead_end' -Default $false) -and
+            -not [bool](Safe-Get -Object $pageFlags -Key 'ui_contamination' -Default $false) -and
+            $status -gt 0 -and $status -lt 400
+        } | Sort-Object -Property @{Expression = { [int](Safe-Get -Object $_ -Key 'bodyTextLength' -Default 0) }; Descending = $true }, @{Expression = { [string](Safe-Get -Object $_ -Key 'route_path' -Default '') }; Descending = $false } | Select-Object -First 3)
+    $contaminatedRoutes = @($routeDetails | Where-Object {
+            $pageFlags = Safe-Get -Object $_ -Key 'page_flags' -Default @{}
+            [bool](Safe-Get -Object $pageFlags -Key 'ui_contamination' -Default $false)
+        })
+    $cleanRoutes = @($routeDetails | Where-Object {
+            $pageFlags = Safe-Get -Object $_ -Key 'page_flags' -Default @{}
+            -not [bool](Safe-Get -Object $pageFlags -Key 'ui_contamination' -Default $false)
+        })
+
+    $dominantKeyword = [string](Safe-Get -Object $dominantPattern -Key 'label' -Default '')
+    $dominantRoutes = @()
+    if (-not [string]::IsNullOrWhiteSpace($dominantKeyword)) {
+        $normalizedDominant = $dominantKeyword.ToLowerInvariant()
+        $dominantRoutes = @($routeDetails | Where-Object {
+                $pageFlags = Safe-Get -Object $_ -Key 'page_flags' -Default @{}
+                ($normalizedDominant -match 'empty' -and [bool](Safe-Get -Object $pageFlags -Key 'empty' -Default $false)) -or
+                ($normalizedDominant -match 'thin' -and [bool](Safe-Get -Object $pageFlags -Key 'thin' -Default $false)) -or
+                ($normalizedDominant -match 'weak' -and [bool](Safe-Get -Object $pageFlags -Key 'weak_cta' -Default $false)) -or
+                ($normalizedDominant -match 'dead-end' -and [bool](Safe-Get -Object $pageFlags -Key 'dead_end' -Default $false)) -or
+                ($normalizedDominant -match 'contaminat' -and [bool](Safe-Get -Object $pageFlags -Key 'ui_contamination' -Default $false))
+            })
+    }
+
+    $screenshotPlan = New-Object System.Collections.Generic.List[string]
+    $screenshotPlan.Add("- Start with highest-risk routes: $(& $formatRouteSet $worstRouteSet 3).")
+    if (@($dominantRoutes).Count -gt 0) {
+        $screenshotPlan.Add("- Validate dominant pattern routes early ($dominantPatternLine): $(& $formatRouteSet $dominantRoutes 3).")
+    }
+    if ($suspiciousHealthyRoutes.Count -gt 0) {
+        $screenshotPlan.Add("- Compare suspicious HEALTHY routes against weak routes to catch false-positive health labels: $(& $formatRouteSet $suspiciousHealthyRoutes 3).")
+    }
+    if ($runState -in @('partial', 'degraded', 'failed')) {
+        $screenshotPlan.Add("- Run is $runState; increase screenshot-first validation because deterministic rollups may be incomplete.")
+    }
+    if ($screenshotPlan.Count -eq 0) {
+        $screenshotPlan.Add('- No deterministic high-risk cluster available; review one route per verdict class from visual_manifest.')
+    }
+
+    $comparisonGroups = New-Object System.Collections.Generic.List[string]
+    $comparisonGroups.Add("- Worst vs best: [$(& $formatRouteSet $worstRouteSet 2)] vs [$(& $formatRouteSet $bestHealthyRoutes 2)].")
+    if ($suspiciousHealthyRoutes.Count -gt 0) {
+        $comparisonGroups.Add("- Suspicious HEALTHY vs clearly weak: [$(& $formatRouteSet $suspiciousHealthyRoutes 2)] vs [$(& $formatRouteSet $worstRouteSet 2)].")
+    }
+    if ($contaminatedRoutes.Count -gt 0) {
+        $comparisonGroups.Add("- Trust contamination contrast: contaminated [$(& $formatRouteSet $contaminatedRoutes 2)] vs non-contaminated [$(& $formatRouteSet $cleanRoutes 2)].")
+    }
+    if ($dominantRoutes.Count -gt 0) {
+        $comparisonGroups.Add("- Same dominant verdict-pattern cluster: [$(& $formatRouteSet $dominantRoutes 3)].")
+    }
+
+    $repoVsLivePrompts = @(
+        '- Do repo/source route structures and templates support what each live route claims to be?',
+        '- Where live pages look thin/shell-like, does source/repo show missing content wiring or only presentation weakness?',
+        '- Do navigation and CTA elements in source/repo map to what screenshots show, or are critical conversion paths absent live?',
+        '- Does each priority route screenshot look like a product-ready page, or only a framework shell despite expected repo structure?'
+    )
+
+    $contradictionHotspots = New-Object System.Collections.Generic.List[string]
+    if ($suspiciousHealthyRoutes.Count -gt 0) {
+        $contradictionHotspots.Add("- HEALTHY-but-suspicious routes need screenshot verification: $(& $formatRouteSet $suspiciousHealthyRoutes 3).")
+    }
+    if ($contaminatedRoutes.Count -gt 0) {
+        $contradictionHotspots.Add("- Summary may look acceptable while contamination is visually obvious on: $(& $formatRouteSet $contaminatedRoutes 3).")
+    }
+    if ($runState -in @('partial', 'degraded', 'failed')) {
+        $contradictionHotspots.Add("- Deterministic wording may understate live severity because run state is $runState; verify screenshot evidence before trusting aggregate text.")
+    }
+    if ($dominantRoutes.Count -gt 0 -and $worstRouteSet.Count -gt 0) {
+        $contradictionHotspots.Add("- Confirm dominant pattern claim by comparing [$(& $formatRouteSet $dominantRoutes 2)] against highest-risk outliers [$(& $formatRouteSet $worstRouteSet 2)].")
+    }
+    $contradictionHotspots.Add('- Routes classified weak may still show real user value; if screenshots contradict class labels, annotate exact mismatch and route.')
+
+    $focusOrder = @(
+        "1) Verify dominant pattern claim against route evidence: $dominantPatternLine.",
+        '2) Run screenshot comparisons in the planned order (highest-risk first, then suspicious HEALTHY).',
+        '3) Execute repo-vs-live prompts for the same priority routes before making fix recommendations.',
+        '4) Resolve contradiction hotspots where deterministic labels and visuals diverge.',
+        '5) Decide first-fix order by impact: repeated pattern cluster before isolated route issues.'
+    )
+
     $watchlist = New-Object System.Collections.Generic.List[string]
     if ($pageQualityStatus -eq 'NOT_EVALUATED') {
         $watchlist.Add('- Route-level summary may be weaker than available screenshots because page-quality rollup is NOT_EVALUATED.')
@@ -1125,6 +1249,15 @@ function Build-MetaAuditBriefLines {
         'SUSPICIOUS ROUTES TO REVIEW'
     ) + @($suspiciousRouteLines) + @(
         '',
+        'SCREENSHOT COMPARISON PLAN'
+    ) + @($screenshotPlan) + @(
+        '',
+        'ROUTE COMPARISON GROUPS'
+    ) + @($comparisonGroups) + @(
+        '',
+        'REPO-vs-LIVE CHECK PROMPTS'
+    ) + @($repoVsLivePrompts) + @(
+        '',
         'REQUIRED ANALYST CHECKS',
         '- Compare screenshots across suspicious routes from reports/visual_manifest.json.',
         '- Compare route verdict_class values in reports/audit_result.json with visible UI in screenshots.',
@@ -1133,8 +1266,14 @@ function Build-MetaAuditBriefLines {
         '- Inspect contamination-related routes and verify trust contamination is visibly present.',
         '- Verify whether summary-level wording contradicts screenshot-level evidence.',
         '',
+        'CONTRADICTION HOTSPOTS'
+    ) + @($contradictionHotspots) + @(
+        '',
         'CONTRADICTION WATCHLIST'
     ) + @($watchlist) + @(
+        '',
+        'ANALYST FOCUS ORDER'
+    ) + @($focusOrder) + @(
         '',
         'WHAT TO DECIDE FIRST',
         "- $decisionQ1",
