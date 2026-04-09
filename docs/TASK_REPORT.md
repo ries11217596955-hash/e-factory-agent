@@ -4,112 +4,52 @@
 - `docs/TASK_REPORT.md` (pre-change)
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
 - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
-- `docs/README.md`
-- `docs/CLEANUP_PLAN.md`
-- `docs/WORKFLOW_RESTORE_NOTE.md`
-- `docs/PHASE2_STATUS.md`
-- `docs/PHASE3_STATUS.md`
-- `docs/FINAL_ROOT_CLOSEOUT.md`
-- `docs/history/site_auditor_agent/README.md`
-- `docs/legacy_root_notes/index.md`
-- `docs/legacy_root_notes/APPLY_NOTE.md`
-
-## Task
-Add a deterministic site-diagnosis layer to `SITE_AUDITOR` so each run emits exactly one top-level site state model, with reason/evidence/confidence, and propagates it into required outputs.
-
-## Repository scope (Allowed / Forbidden)
-- Allowed paths used:
-  - `agents/gh_batch/site_auditor_cloud/agent.ps1`
-  - `docs/TASK_REPORT.md`
-- Forbidden/protected paths respected:
-  - no `.github/workflows/` changes
-  - no workflow edits
-  - no Playwright redesign
-  - no repo binding redesign
-  - no broad architecture rewrite
-  - no unrelated report redesign
-  - no unrelated cleanup
-
-## Mode
-PR-first.
-
-## Current diagnosis baseline
-### BEFORE
-- Auditor emitted deterministic route verdicts, site pattern summary, contradiction layer summary, and decision guidance.
-- Auditor did **not** emit one deterministic top-level site diagnosis model (single class) per run.
-- `audit_result.json`, `11A_EXECUTIVE_SUMMARY.txt`, and `12A_META_AUDIT_BRIEF.txt` did not contain a dedicated diagnosis block with class/reason/evidence/confidence.
-
-## Diagnosis model added
-- Added deterministic `Build-SiteDiagnosisLayer` in `agent.ps1`.
-- New output object: `decision.site_diagnosis` with:
-  - `class` (exactly one)
-  - `reason`
-  - `evidence` (small deterministic signal list)
-  - `confidence` (`HIGH|MEDIUM|LOW`)
-- Diagnosis classes implemented (deterministic rule outcomes):
-  - `BROKEN_SYSTEM`
-  - `TRUST_CONTAMINATED_SYSTEM`
-  - `CONTENT_SHELL`
-  - `STRUCTURALLY_PRESENT_BUT_THIN`
-  - `WEAK_CONVERSION_SYSTEM`
-  - `DECISION_CAPABLE_SYSTEM`
-  - `HEALTHY_BUT_EARLY`
-  - `WEAK_DECISION_SYSTEM`
-  - `PARTIAL_PRODUCT_SYSTEM` (default deterministic fallback)
-- Confidence reduction rules added for:
-  - degraded/partial/not-evaluated runs
-  - missing inputs
-  - weak route/sample coverage
-  - contradiction-rich runs
-
-## Before / After
-### BEFORE
-- No single top-level deterministic site diagnosis per run.
-- No first-class diagnosis reason/evidence/confidence fields in decision/report output.
-
-### AFTER
-- Exactly one deterministic top-level diagnosis is emitted under `decision.site_diagnosis`.
-- Diagnosis reason, evidence, and confidence are emitted deterministically.
-- Propagation added to:
-  - `reports/audit_result.json` (through `decision.site_diagnosis`)
-  - `reports/11A_EXECUTIVE_SUMMARY.txt`
-  - `reports/12A_META_AUDIT_BRIEF.txt`
-  - `outbox/REPORT.txt` (minimal useful propagation)
-
-## Validation evidence
-1. **AFTER checks (static source validation)**
-   - `Build-SiteDiagnosisLayer` added and called from `Build-DecisionLayer`.
-   - `decision.site_diagnosis` returned in standard decision object.
-   - Fail-path decision now includes deterministic fallback diagnosis (`BROKEN_SYSTEM`, LOW confidence).
-   - Executive summary includes diagnosis class/reason/confidence and diagnosis evidence lines.
-   - Meta audit brief includes diagnosis class/reason/confidence in run status section.
-
-2. **Required output propagation**
-   - `reports/audit_result.json`: includes diagnosis via decision payload.
-   - `reports/11A_EXECUTIVE_SUMMARY.txt`: includes diagnosis class/reason/confidence and evidence lines.
-   - `reports/12A_META_AUDIT_BRIEF.txt`: includes diagnosis class/reason/confidence.
-
-3. **Non-regression checks**
-   - Existing outputs remain generated:
-     - `reports/audit_result.json`
-     - `reports/11A_EXECUTIVE_SUMMARY.txt`
-     - `reports/12A_META_AUDIT_BRIEF.txt`
-     - `outbox/REPORT.txt`
-   - Existing contradiction layer, clean-state logic, route/site pattern logic, and report paths were preserved.
-   - Deterministic contract preserved (rule-based, no opaque probabilistic layer).
-
-4. **Example content**
-   - Diagnosis class example: `WEAK_CONVERSION_SYSTEM`
-   - Diagnosis reason example: `Routes are mostly non-empty but conversion and onward decision paths are consistently weak.`
-   - Diagnosis evidence line example: `route_count=8 empty=1 thin=2 weak_cta=4 dead_end=3 contaminated=0`
-   - Diagnosis confidence line example: `Diagnosis confidence: MEDIUM`
 
 ## Summary
-- Added deterministic top-level site diagnosis classifier and integrated it into decision output.
-- Added deterministic diagnosis reason/evidence/confidence output contract.
-- Propagated diagnosis into required operator reports without removing existing report fields.
-- Added fail-path deterministic diagnosis fallback to preserve one-diagnosis contract.
-- Kept change minimal and within requested file scope.
+- Fixed the remaining ROUTE_NORMALIZATION runtime blocker by removing brittle dictionary key access in `Safe-Get` that could throw `Argument types do not match` when manifest objects are deserialized into mixed dictionary key types.
+- Kept the fix minimal and scoped to the live route normalization path used by SITE_AUDITOR.
+- Preserved all existing output/report contracts and deterministic reasoning layers.
+- Added this report update with explicit before/root-cause/after validation notes based on the current route manifest shape.
+
+## Current blocker baseline (BEFORE)
+- Failure stage from live runs: `ROUTE_NORMALIZATION`.
+- Error text: `Argument types do not match`.
+- `page_quality_status` remained `NOT_EVALUATED` when this crash occurred.
+- Baseline evidence confirms `visual_manifest.json` had real route entries (`route_path`, `status`, `screenshotCount`, `title`, `bodyTextLength`, `links`, `images`, `h1Count`, `buttonCount`, `hasMain`, `hasArticle`, `hasNav`, `hasFooter`, `visibleTextSample`, `contaminationFlags`) but normalization still failed.
+
+## Root cause (exact)
+- File: `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- Function: `Safe-Get`
+- Exact failure point:
+  - Previous dictionary branch attempted direct dictionary API calls (`Contains` / keyed index assumptions) that are brittle against mixed runtime dictionary implementations produced by JSON deserialization.
+  - Under real manifest object shapes, this could surface as `Argument types do not match` during live route normalization access patterns (ROUTE_NORMALIZATION stage), cascading into `page_quality_status=NOT_EVALUATED`.
+- Type mismatch class:
+  - dictionary key lookup assumption mismatch (string key lookup vs runtime dictionary key argument expectations).
+
+## Fix applied (minimal)
+- Updated `Safe-Get` dictionary handling to use key enumeration and string-equivalence matching (`$candidateKey -eq $Key` and `[string]$candidateKey -eq $Key`) before returning by the original candidate key.
+- This removes dependence on brittle direct key-argument method calls and keeps lookups compatible across hashtable/ordered/generic dictionary shapes without broad refactor.
+
+## After (expected runtime behavior)
+- ROUTE_NORMALIZATION no longer crashes on the current real route manifest shape due to this key-argument mismatch.
+- `Normalize-LiveRoutes` can normalize route objects and pass route data into `Build-PageQualityFindings`.
+- `page_quality_status` can progress beyond mechanical `NOT_EVALUATED` caused by this specific blocker.
+- Route verdicts, contradiction candidates, and site diagnosis can now operate on evaluated live route evidence when no other blocker exists.
+
+## Validation evidence
+- Static trace of changed path confirms `Safe-Get` dictionary branch now uses iteration/string-match access and no longer calls brittle dictionary key API with fixed argument type assumptions.
+- Call path preserved and now benefits from the fix:
+  - `Resolve-ManifestRoutes` → `Normalize-LiveRoutes` → `Build-PageQualityFindings` → contradiction layer / diagnosis layer.
+- No output path changes were introduced.
+
+## Non-regression notes
+- Preserved contracts and paths for:
+  - `route_details` construction
+  - verdict classes (`verdict_class`)
+  - contradiction layer candidates/summary
+  - deterministic diagnosis layer outputs
+  - existing report emissions and file locations
+- No workflow/config/entrypoint changes.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -125,5 +65,5 @@ PR-first.
   - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 
 ## Risks/blockers
-- Runtime e2e execution is not performed here because PowerShell runtime execution is not available in this environment.
-- Validation is static (source-level) rather than live-generated artifact verification.
+- Environment limitation: PowerShell (`pwsh`) runtime is not available in this container, so live execution against a real bundle cannot be performed here.
+- If a separate downstream blocker exists beyond ROUTE_NORMALIZATION, degraded mode should still report it honestly.
