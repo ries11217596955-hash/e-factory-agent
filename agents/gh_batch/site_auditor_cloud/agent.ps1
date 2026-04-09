@@ -925,6 +925,102 @@ function Build-ContradictionLayer {
     }
 }
 
+function Build-SiteDiagnosisLayer {
+    param(
+        [hashtable]$SourceLayer,
+        [hashtable]$LiveLayer,
+        [hashtable]$ContradictionSummary,
+        [string[]]$MissingInputs
+    )
+
+    $liveSummary = Safe-Get -Object $LiveLayer -Key 'summary' -Default @{}
+    $routeDetails = @(Safe-Get -Object $LiveLayer -Key 'route_details' -Default @())
+    $patternSummary = Safe-Get -Object $liveSummary -Key 'site_pattern_summary' -Default @{}
+    $dominantPattern = Safe-Get -Object $patternSummary -Key 'dominant_pattern' -Default $null
+    $dominantPatternLabel = [string](Safe-Get -Object $dominantPattern -Key 'label' -Default '')
+    $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
+
+    $totalRoutes = [int]@($routeDetails).Count
+    $emptyRoutes = [int](Safe-Get -Object $liveSummary -Key 'empty_routes' -Default 0)
+    $thinRoutes = [int](Safe-Get -Object $liveSummary -Key 'thin_routes' -Default 0)
+    $weakCtaRoutes = [int](Safe-Get -Object $liveSummary -Key 'weak_cta_routes' -Default 0)
+    $deadEndRoutes = [int](Safe-Get -Object $liveSummary -Key 'dead_end_routes' -Default 0)
+    $contaminatedRoutes = [int](Safe-Get -Object $liveSummary -Key 'contaminated_routes' -Default 0)
+    $repeatedPatternCount = [int](Safe-Get -Object $patternSummary -Key 'repeated_pattern_count' -Default 0)
+    $contradictionTotal = [int](Safe-Get -Object $ContradictionSummary -Key 'total_candidates' -Default 0)
+    $conversionWeakRoutes = [int]($weakCtaRoutes + $deadEndRoutes)
+    $thinOrEmptyRoutes = [int]($emptyRoutes + $thinRoutes)
+    $nonEmptyRoutes = if ($totalRoutes -gt $emptyRoutes) { [int]($totalRoutes - $emptyRoutes) } else { 0 }
+
+    $siteClass = 'PARTIAL_PRODUCT_SYSTEM'
+    $reason = 'Site has partially working evidence but quality is uneven across route signals.'
+    $evidence = New-Object System.Collections.Generic.List[string]
+
+    if (-not $LiveLayer.enabled -or -not $LiveLayer.ok -or $totalRoutes -eq 0 -or $pageQualityStatus -eq 'NOT_EVALUATED') {
+        $siteClass = 'BROKEN_SYSTEM'
+        $reason = 'Live system evidence is missing or degraded, so the audited site behavior is not reliably operational.'
+    }
+    elseif ($contaminatedRoutes -ge 2 -or ($totalRoutes -gt 0 -and ($contaminatedRoutes * 2) -ge $totalRoutes -and $contaminatedRoutes -ge 1)) {
+        $siteClass = 'TRUST_CONTAMINATED_SYSTEM'
+        $reason = 'Trust contamination repeats across meaningful routes, weakening core credibility signals.'
+    }
+    elseif ($totalRoutes -gt 0 -and $thinOrEmptyRoutes -ge [Math]::Ceiling($totalRoutes * 0.60) -and $conversionWeakRoutes -ge 1) {
+        $siteClass = 'CONTENT_SHELL'
+        $reason = 'Most sampled routes are empty/thin and conversion flow is weak, indicating shell-like site behavior.'
+    }
+    elseif ($totalRoutes -gt 0 -and $emptyRoutes -eq 0 -and $thinRoutes -ge [Math]::Ceiling($totalRoutes * 0.50)) {
+        $siteClass = 'STRUCTURALLY_PRESENT_BUT_THIN'
+        $reason = 'Routes are present but content depth is repeatedly thin across the sample.'
+    }
+    elseif ($nonEmptyRoutes -ge 2 -and $conversionWeakRoutes -ge [Math]::Max(2, [Math]::Ceiling($totalRoutes * 0.50))) {
+        $siteClass = 'WEAK_CONVERSION_SYSTEM'
+        $reason = 'Routes are mostly non-empty but conversion and onward decision paths are consistently weak.'
+    }
+    elseif ($pageQualityStatus -eq 'EVALUATED' -and $thinOrEmptyRoutes -eq 0 -and $conversionWeakRoutes -eq 0 -and $contaminatedRoutes -eq 0 -and $contradictionTotal -eq 0) {
+        $siteClass = 'DECISION_CAPABLE_SYSTEM'
+        $reason = 'Route quality and trust signals are consistently healthy with no deterministic contradiction alerts.'
+    }
+    elseif ($pageQualityStatus -eq 'EVALUATED' -and $emptyRoutes -eq 0 -and $contaminatedRoutes -eq 0 -and $conversionWeakRoutes -le 1 -and $thinRoutes -le 1) {
+        $siteClass = 'HEALTHY_BUT_EARLY'
+        $reason = 'Core signals are mostly healthy with only light early-stage quality gaps.'
+    }
+    elseif ($conversionWeakRoutes -ge 1 -and $thinOrEmptyRoutes -le [Math]::Max(1, [Math]::Floor($totalRoutes * 0.34))) {
+        $siteClass = 'WEAK_DECISION_SYSTEM'
+        $reason = 'Decision-path weakness is the dominant issue while baseline content structure is mostly present.'
+    }
+
+    $evidence.Add("route_count=$totalRoutes empty=$emptyRoutes thin=$thinRoutes weak_cta=$weakCtaRoutes dead_end=$deadEndRoutes contaminated=$contaminatedRoutes")
+    $evidence.Add("page_quality_status=$pageQualityStatus repeated_pattern_count=$repeatedPatternCount contradiction_candidates=$contradictionTotal")
+    if (-not [string]::IsNullOrWhiteSpace($dominantPatternLabel)) {
+        $evidence.Add("dominant_pattern=$dominantPatternLabel")
+    }
+    if (@($MissingInputs).Count -gt 0) {
+        $evidence.Add("missing_inputs=$(@($MissingInputs).Count)")
+    }
+
+    $confidence = 'HIGH'
+    $degradedRun = ($pageQualityStatus -in @('PARTIAL', 'NOT_EVALUATED')) -or @($MissingInputs).Count -gt 0 -or (-not $LiveLayer.ok)
+    if ($degradedRun -or $totalRoutes -lt 3) {
+        $confidence = 'MEDIUM'
+    }
+    if ($pageQualityStatus -eq 'NOT_EVALUATED' -or $totalRoutes -eq 0 -or @($MissingInputs).Count -gt 0 -or (-not $LiveLayer.ok)) {
+        $confidence = 'LOW'
+    }
+    elseif ($confidence -eq 'HIGH' -and $contradictionTotal -ge 3) {
+        $confidence = 'MEDIUM'
+    }
+    elseif ($confidence -eq 'MEDIUM' -and $contradictionTotal -ge 4) {
+        $confidence = 'LOW'
+    }
+
+    return @{
+        class = $siteClass
+        reason = $reason
+        evidence = @($evidence | Select-Object -First 4)
+        confidence = $confidence
+    }
+}
+
 function Build-DecisionLayer {
     param(
         [string]$ResolvedMode,
@@ -1045,6 +1141,7 @@ function Build-DecisionLayer {
 
     $contradictionSummary = Build-ContradictionLayer -SourceLayer $SourceLayer -LiveLayer $LiveLayer -MissingInputs @($MissingInputs)
     $contradictionTotal = [int](Safe-Get -Object $contradictionSummary -Key 'total_candidates' -Default 0)
+    $siteDiagnosis = Build-SiteDiagnosisLayer -SourceLayer $SourceLayer -LiveLayer $LiveLayer -ContradictionSummary $contradictionSummary -MissingInputs @($MissingInputs)
     if ($contradictionTotal -gt 0) {
         $classCounts = Safe-Get -Object $contradictionSummary -Key 'class_counts' -Default @{}
         $rankedClasses = @()
@@ -1123,6 +1220,7 @@ function Build-DecisionLayer {
         p1 = @($p1)
         p2 = @($p2)
         do_next = @($doNext | Select-Object -First 3)
+        site_diagnosis = $siteDiagnosis
         contradiction_summary = $contradictionSummary
         clean_state = $cleanStateLabel
     }
@@ -1143,6 +1241,7 @@ function Build-MetaAuditBriefLines {
     $routeDetails = @(Safe-Get -Object $liveLayer -Key 'route_details' -Default @())
     $patternSummary = Safe-Get -Object $liveSummary -Key 'site_pattern_summary' -Default @{}
     $contradictionSummary = Safe-Get -Object $liveSummary -Key 'contradiction_summary' -Default @{}
+    $siteDiagnosis = Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}
     $dominantPattern = Safe-Get -Object $patternSummary -Key 'dominant_pattern' -Default $null
     $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
     $failureStage = [string](Safe-Get -Object $liveSummary -Key 'failure_stage' -Default 'none')
@@ -1414,6 +1513,9 @@ function Build-MetaAuditBriefLines {
         'RUN STATUS / CONFIDENCE',
         "- Run state: $runState",
         "- Confidence limiters: $limiterText",
+        "- Site diagnosis: $([string](Safe-Get -Object $siteDiagnosis -Key 'class' -Default 'UNKNOWN'))",
+        "- Diagnosis reason: $([string](Safe-Get -Object $siteDiagnosis -Key 'reason' -Default 'none'))",
+        "- Diagnosis confidence: $([string](Safe-Get -Object $siteDiagnosis -Key 'confidence' -Default 'LOW'))",
         "- Contradiction candidates: $contradictionTotal ($contradictionClassLine)",
         "- Clean-state check: $([string](Safe-Get -Object $Decision -Key 'clean_state' -Default 'NOT_CLEAN'))",
         '',
@@ -1538,7 +1640,10 @@ function Write-OperatorOutputs {
         "Core problem: $($Decision.core_problem)",
         "Generated: $timestamp",
         'Primary evidence: reports/audit_result.json',
-        "Clean-state check: $([string](Safe-Get -Object $Decision -Key 'clean_state' -Default 'NOT_CLEAN'))"
+        "Clean-state check: $([string](Safe-Get -Object $Decision -Key 'clean_state' -Default 'NOT_CLEAN'))",
+        "Site diagnosis: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}) -Key 'class' -Default 'UNKNOWN'))",
+        "Diagnosis reason: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}) -Key 'reason' -Default 'none'))",
+        "Diagnosis confidence: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}) -Key 'confidence' -Default 'LOW'))"
     )
     $liveSummary = Safe-Get -Object $AuditResult.live -Key 'summary' -Default @{}
     if ([bool](Safe-Get -Object $AuditResult.live -Key 'enabled' -Default $false)) {
@@ -1579,6 +1684,13 @@ function Write-OperatorOutputs {
                     $summaryLines += '- warning: summary appears clean but contradiction layer flagged cross-layer mismatches.'
                 }
             }
+            $diagnosisEvidence = @(Safe-Get -Object (Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}) -Key 'evidence' -Default @())
+            if ($diagnosisEvidence.Count -gt 0) {
+                $summaryLines += '- diagnosis evidence:'
+                foreach ($line in @($diagnosisEvidence | Select-Object -First 3)) {
+                    $summaryLines += "- $line"
+                }
+            }
         }
     }
     $summaryPath = Join-Path $reportsDir '11A_EXECUTIVE_SUMMARY.txt'
@@ -1598,6 +1710,9 @@ function Write-OperatorOutputs {
         "OVERALL STATUS: $FinalStatus",
         "CORE PROBLEM: $($Decision.core_problem)",
         "CLEAN STATE: $([string](Safe-Get -Object $Decision -Key 'clean_state' -Default 'NOT_CLEAN'))",
+        "SITE DIAGNOSIS: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}) -Key 'class' -Default 'UNKNOWN'))",
+        "DIAGNOSIS REASON: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}) -Key 'reason' -Default 'none'))",
+        "DIAGNOSIS CONFIDENCE: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}) -Key 'confidence' -Default 'LOW'))",
         'P0:'
     )
     if ([bool](Safe-Get -Object $AuditResult.live -Key 'enabled' -Default $false)) {
@@ -1810,6 +1925,12 @@ catch {
         p1 = @($warnings)
         p2 = @()
         do_next = @('Resolve the failure reason and rerun SITE_AUDITOR.')
+        site_diagnosis = @{
+            class = 'BROKEN_SYSTEM'
+            reason = 'Run failed before reliable live evidence could be evaluated.'
+            evidence = @("failure_reason=$failureReason")
+            confidence = 'LOW'
+        }
         contradiction_summary = @{
             route_candidates = @()
             site_candidates = @()

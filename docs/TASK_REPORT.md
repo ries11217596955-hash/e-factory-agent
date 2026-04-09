@@ -15,7 +15,7 @@
 - `docs/legacy_root_notes/APPLY_NOTE.md`
 
 ## Task
-Add a deterministic contradiction-detection layer to `SITE_AUDITOR` so cross-layer mismatches are explicitly surfaced in route/site outputs and analyst-facing reports.
+Add a deterministic site-diagnosis layer to `SITE_AUDITOR` so each run emits exactly one top-level site state model, with reason/evidence/confidence, and propagates it into required outputs.
 
 ## Repository scope (Allowed / Forbidden)
 - Allowed paths used:
@@ -27,81 +27,89 @@ Add a deterministic contradiction-detection layer to `SITE_AUDITOR` so cross-lay
   - no Playwright redesign
   - no repo binding redesign
   - no broad architecture rewrite
-  - no unrelated cleanup/refactor
-  - no site/content changes
+  - no unrelated report redesign
+  - no unrelated cleanup
 
 ## Mode
 PR-first.
 
-## Current contradiction baseline
-- BEFORE: deterministic outputs already had route verdicts, page flags, site pattern summary, and contradiction-oriented analyst wording in `12A_META_AUDIT_BRIEF.txt` generation.
-- BEFORE: contradiction handling was mostly implicit (heuristics in brief/watchlist text) rather than a first-class deterministic data layer.
-- BEFORE: no dedicated contradiction object in `audit_result.json` and no explicit contradiction rollup in `11A_EXECUTIVE_SUMMARY.txt`/core decision output.
+## Current diagnosis baseline
+### BEFORE
+- Auditor emitted deterministic route verdicts, site pattern summary, contradiction layer summary, and decision guidance.
+- Auditor did **not** emit one deterministic top-level site diagnosis model (single class) per run.
+- `audit_result.json`, `11A_EXECUTIVE_SUMMARY.txt`, and `12A_META_AUDIT_BRIEF.txt` did not contain a dedicated diagnosis block with class/reason/evidence/confidence.
 
-## Contradiction model added
-- Added deterministic route-level contradiction candidates during page-quality evaluation:
-  - `HEALTHY_BUT_VISUALLY_WEAK`
-  - `NON_EMPTY_BUT_LOW_VALUE`
-- Added deterministic cross-layer contradiction aggregator (`Build-ContradictionLayer`) to produce:
-  - route-level candidates
-  - site-level candidates
-  - class counts and totals
-- Added site-level contradiction classes where data supports them:
-  - `SOURCE_EXPECTS_MORE_THAN_LIVE_DELIVERS`
-  - `SUMMARY_UNDERSTATES_PATTERN`
-  - `PARTIAL_BUT_EVIDENCE_RICH`
-- Wired contradiction summary into decision output (`decision.contradiction_summary`) and clean-state labeling (`CLEAN` / `SUSPICIOUSLY_CLEAN` / `NOT_CLEAN`).
+## Diagnosis model added
+- Added deterministic `Build-SiteDiagnosisLayer` in `agent.ps1`.
+- New output object: `decision.site_diagnosis` with:
+  - `class` (exactly one)
+  - `reason`
+  - `evidence` (small deterministic signal list)
+  - `confidence` (`HIGH|MEDIUM|LOW`)
+- Diagnosis classes implemented (deterministic rule outcomes):
+  - `BROKEN_SYSTEM`
+  - `TRUST_CONTAMINATED_SYSTEM`
+  - `CONTENT_SHELL`
+  - `STRUCTURALLY_PRESENT_BUT_THIN`
+  - `WEAK_CONVERSION_SYSTEM`
+  - `DECISION_CAPABLE_SYSTEM`
+  - `HEALTHY_BUT_EARLY`
+  - `WEAK_DECISION_SYSTEM`
+  - `PARTIAL_PRODUCT_SYSTEM` (default deterministic fallback)
+- Confidence reduction rules added for:
+  - degraded/partial/not-evaluated runs
+  - missing inputs
+  - weak route/sample coverage
+  - contradiction-rich runs
 
 ## Before / After
 ### BEFORE
-- Contradictions were mostly hinted in analyst instructions/hotspots text.
-- No normalized contradiction candidate structure was exported as primary deterministic evidence.
-- Executive summary top-line could be read as clean without an explicit “suspiciously clean” gate.
+- No single top-level deterministic site diagnosis per run.
+- No first-class diagnosis reason/evidence/confidence fields in decision/report output.
 
 ### AFTER
-- Deterministic contradiction candidates are generated and attached to route details plus site-level rollups.
-- Contradiction summary is propagated to:
-  - `reports/audit_result.json` (via `live.summary.contradiction_summary` and `decision.contradiction_summary`)
-  - `reports/11A_EXECUTIVE_SUMMARY.txt` (counts/classes + suspiciously-clean warning)
-  - `reports/12A_META_AUDIT_BRIEF.txt` (run-level contradiction counts/classes + stronger analyst check)
-- Clean-vs-suspiciously-clean distinction is now explicit via `decision.clean_state` and summary/report lines.
+- Exactly one deterministic top-level diagnosis is emitted under `decision.site_diagnosis`.
+- Diagnosis reason, evidence, and confidence are emitted deterministically.
+- Propagation added to:
+  - `reports/audit_result.json` (through `decision.site_diagnosis`)
+  - `reports/11A_EXECUTIVE_SUMMARY.txt`
+  - `reports/12A_META_AUDIT_BRIEF.txt`
+  - `outbox/REPORT.txt` (minimal useful propagation)
 
 ## Validation evidence
-1. **BEFORE validation**
-   - Verified pre-change logic had page quality, verdicts, and pattern summaries but lacked a dedicated contradiction layer object and contradiction rollups in executive summary output.
+1. **AFTER checks (static source validation)**
+   - `Build-SiteDiagnosisLayer` added and called from `Build-DecisionLayer`.
+   - `decision.site_diagnosis` returned in standard decision object.
+   - Fail-path decision now includes deterministic fallback diagnosis (`BROKEN_SYSTEM`, LOW confidence).
+   - Executive summary includes diagnosis class/reason/confidence and diagnosis evidence lines.
+   - Meta audit brief includes diagnosis class/reason/confidence in run status section.
 
-2. **AFTER validation**
-   - Contradiction candidates are explicitly generated (`route_details[*].contradiction_candidates` + `decision/live contradiction_summary`).
-   - Route-level contradiction path represented (`HEALTHY_BUT_VISUALLY_WEAK`, `NON_EMPTY_BUT_LOW_VALUE`).
-   - Site-level contradiction path represented (`SOURCE_EXPECTS_MORE_THAN_LIVE_DELIVERS`, `SUMMARY_UNDERSTATES_PATTERN`, `PARTIAL_BUT_EVIDENCE_RICH`).
-   - Analyst-facing outputs include contradiction totals/classes and extra deterministic review prompt.
-   - Clean-vs-suspiciously-clean state is explicitly labeled and propagated.
+2. **Required output propagation**
+   - `reports/audit_result.json`: includes diagnosis via decision payload.
+   - `reports/11A_EXECUTIVE_SUMMARY.txt`: includes diagnosis class/reason/confidence and evidence lines.
+   - `reports/12A_META_AUDIT_BRIEF.txt`: includes diagnosis class/reason/confidence.
 
-3. **NON-REGRESSION validation**
-   - Existing output files and generation flow remain intact:
+3. **Non-regression checks**
+   - Existing outputs remain generated:
      - `reports/audit_result.json`
      - `reports/11A_EXECUTIVE_SUMMARY.txt`
      - `reports/12A_META_AUDIT_BRIEF.txt`
-     - outbox `REPORT.txt`
-   - No report path/contract removal.
-   - Deterministic rule-based contract preserved (no probabilistic/LLM-only inference layer).
+     - `outbox/REPORT.txt`
+   - Existing contradiction layer, clean-state logic, route/site pattern logic, and report paths were preserved.
+   - Deterministic contract preserved (rule-based, no opaque probabilistic layer).
 
-4. **EXAMPLE CONTENT**
-   - Contradiction candidate line example:
-     - `Contradiction candidate [NON_EMPTY_BUT_LOW_VALUE]: bodyTextLength=... avoids EMPTY, but weak_cta=... dead_end=...`
-   - Route contradiction example:
-     - route with `verdict=HEALTHY` and weak/low evidence emits `HEALTHY_BUT_VISUALLY_WEAK` candidate.
-   - Site-level contradiction summary line example:
-     - `repeated_pattern_count=... with aggregate issue observations=... can make top-line summary sound milder...`
-   - Analyst-facing strengthened prompt example:
-     - `Prioritize contradiction classes from the deterministic layer before final interpretation.`
+4. **Example content**
+   - Diagnosis class example: `WEAK_CONVERSION_SYSTEM`
+   - Diagnosis reason example: `Routes are mostly non-empty but conversion and onward decision paths are consistently weak.`
+   - Diagnosis evidence line example: `route_count=8 empty=1 thin=2 weak_cta=4 dead_end=3 contaminated=0`
+   - Diagnosis confidence line example: `Diagnosis confidence: MEDIUM`
 
 ## Summary
-- Added deterministic contradiction candidate generation at route and site levels.
-- Introduced explicit contradiction rollups/class counts and propagated them into decision/live summary structures.
-- Strengthened executive summary and analyst brief with contradiction totals/classes and suspiciously-clean warnings.
-- Preserved existing report contract and existing file outputs.
-- Kept change minimal and scoped to allowed files only.
+- Added deterministic top-level site diagnosis classifier and integrated it into decision output.
+- Added deterministic diagnosis reason/evidence/confidence output contract.
+- Propagated diagnosis into required operator reports without removing existing report fields.
+- Added fail-path deterministic diagnosis fallback to preserve one-diagnosis contract.
+- Kept change minimal and within requested file scope.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -117,5 +125,5 @@ PR-first.
   - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 
 ## Risks/blockers
-- Runtime execution validation is limited here because `pwsh`/`powershell` is not available in this environment.
-- Validation was performed via static source inspection and deterministic logic tracing; not full live end-to-end report generation.
+- Runtime e2e execution is not performed here because PowerShell runtime execution is not available in this environment.
+- Validation is static (source-level) rather than live-generated artifact verification.
