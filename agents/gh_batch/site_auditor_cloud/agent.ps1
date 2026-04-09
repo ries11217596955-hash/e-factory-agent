@@ -543,6 +543,7 @@ function Invoke-LiveAudit {
         $routeDetailsAndRollups = Build-PageQualityFindings -Routes $routes
         $routeDetails = @($routeDetailsAndRollups.route_details)
         $rollups = $routeDetailsAndRollups.rollups
+        $patternSummary = Safe-Get -Object $routeDetailsAndRollups -Key 'pattern_summary' -Default @{}
 
         $findings = New-Object System.Collections.Generic.List[string]
         $warnings = New-Object System.Collections.Generic.List[string]
@@ -583,6 +584,7 @@ function Invoke-LiveAudit {
                 dead_end_routes = [int]$rollups.dead_end_routes
                 contaminated_routes = [int]$rollups.contaminated_routes
                 page_quality_status = $pageQualityStatus
+                site_pattern_summary = $patternSummary
                 raw_route_entries = [int](Safe-Get -Object $normalizedRoutesData -Key 'raw_count' -Default 0)
                 normalized_route_entries = @($routes).Count
                 dropped_route_entries = $droppedCount
@@ -615,6 +617,95 @@ function Invoke-LiveAudit {
     }
 }
 
+
+function Get-RoutePrimaryVerdict {
+    param(
+        [bool]$Empty,
+        [bool]$Thin,
+        [bool]$WeakCta,
+        [bool]$DeadEnd,
+        [bool]$UiContamination
+    )
+
+    if ($Empty) { return 'EMPTY' }
+    if ($UiContamination) { return 'TRUST_CONTAMINATED' }
+
+    $issueCount = 0
+    if ($Thin) { $issueCount++ }
+    if ($WeakCta) { $issueCount++ }
+    if ($DeadEnd) { $issueCount++ }
+
+    if ($issueCount -eq 0) { return 'HEALTHY' }
+    if ($WeakCta -and $DeadEnd) { return 'WEAK_DECISION' }
+    if ($issueCount -ge 2) { return 'MIXED' }
+    if ($WeakCta) { return 'WEAK_CONVERSION' }
+    if ($DeadEnd) { return 'DEAD_END' }
+    if ($Thin) { return 'THIN' }
+
+    return 'MIXED'
+}
+
+function Build-SitePatternSummary {
+    param(
+        [int]$TotalRoutes,
+        [hashtable]$Rollups
+    )
+
+    $repeatedPatterns = New-Object System.Collections.Generic.List[object]
+    $isolatedPatterns = New-Object System.Collections.Generic.List[object]
+
+    $definitions = @(
+        @{ key = 'empty_routes'; label = 'repeated empty-shell pattern'; issue_type = 'coverage/content blocker' },
+        @{ key = 'thin_routes'; label = 'repeated thin-content pattern'; issue_type = 'coverage/content blocker' },
+        @{ key = 'weak_cta_routes'; label = 'repeated weak-CTA pattern'; issue_type = 'conversion blocker' },
+        @{ key = 'dead_end_routes'; label = 'repeated dead-end pattern'; issue_type = 'conversion blocker' },
+        @{ key = 'contaminated_routes'; label = 'repeated contamination pattern'; issue_type = 'trust blocker' }
+    )
+
+    foreach ($definition in $definitions) {
+        $count = [int](Safe-Get -Object $Rollups -Key $definition.key -Default 0)
+        if ($count -le 0) { continue }
+
+        $ratio = 0.0
+        if ($TotalRoutes -gt 0) {
+            $ratio = [math]::Round(($count / [double]$TotalRoutes), 3)
+        }
+
+        $pattern = [ordered]@{
+            key = $definition.key
+            label = $definition.label
+            issue_type = $definition.issue_type
+            routes_affected = $count
+            total_routes = $TotalRoutes
+            route_share = $ratio
+            scope = if ($count -ge 2) { 'REPEATED' } else { 'ISOLATED' }
+        }
+
+        if ($count -ge 2) {
+            $repeatedPatterns.Add($pattern)
+        }
+        else {
+            $isolatedPatterns.Add($pattern)
+        }
+    }
+
+    $dominant = $null
+    foreach ($pattern in @($repeatedPatterns + $isolatedPatterns)) {
+        if ($null -eq $dominant -or [int]$pattern.routes_affected -gt [int]$dominant.routes_affected) {
+            $dominant = $pattern
+        }
+    }
+
+    return @{
+        repeated_patterns = @($repeatedPatterns)
+        isolated_patterns = @($isolatedPatterns)
+        repeated_pattern_count = [int]$repeatedPatterns.Count
+        isolated_pattern_count = [int]$isolatedPatterns.Count
+        systemic = ([int]$repeatedPatterns.Count -gt 0)
+        dominant_pattern = $dominant
+    }
+}
+
 function Build-PageQualityFindings {
     param([object[]]$Routes)
 
@@ -624,6 +715,7 @@ function Build-PageQualityFindings {
     $weakCtaRoutes = 0
     $deadEndRoutes = 0
     $contaminatedRoutes = 0
+    $verdictCounts = @{}
 
     foreach ($route in @($Routes)) {
         $status = Safe-Get -Object $route -Key 'status' -Default 'error'
@@ -641,12 +733,6 @@ function Build-PageQualityFindings {
         $contaminationFlags = Convert-ToStringArraySafe -Value (Safe-Get -Object $route -Key 'contaminationFlags' -Default @())
         $normalizedText = ($visibleTextSample + ' ' + $title).ToLowerInvariant()
 
-        # v1 deterministic thresholds:
-        # - empty: <= 120 visible chars or explicit error route.
-        # - thin: 121-420 chars and not empty.
-        # - weak_cta: no buttons and no action language.
-        # - dead_end: very low next-step affordances (links + buttons <= 2).
-        # - ui_contamination: explicit contamination flags from capture output.
         $statusCode = 0
         $statusParsed = [int]::TryParse([string]$status, [ref]$statusCode)
         $isErrorRoute = ($status -eq 'error') -or ($statusParsed -and $statusCode -ge 400)
@@ -656,6 +742,7 @@ function Build-PageQualityFindings {
         $weakCta = (-not $empty) -and $buttonCount -eq 0 -and (-not $hasActionLanguage)
         $deadEnd = (-not $empty) -and (($links + $buttonCount) -le 2) -and (-not $hasNav)
         $uiContamination = @($contaminationFlags).Count -gt 0
+        $primaryVerdict = Get-RoutePrimaryVerdict -Empty $empty -Thin $thin -WeakCta $weakCta -DeadEnd $deadEnd -UiContamination $uiContamination
 
         if ($empty) { $emptyRoutes++ }
         if ($thin) { $thinRoutes++ }
@@ -663,12 +750,18 @@ function Build-PageQualityFindings {
         if ($deadEnd) { $deadEndRoutes++ }
         if ($uiContamination) { $contaminatedRoutes++ }
 
+        if (-not $verdictCounts.ContainsKey($primaryVerdict)) {
+            $verdictCounts[$primaryVerdict] = 0
+        }
+        $verdictCounts[$primaryVerdict] = [int]$verdictCounts[$primaryVerdict] + 1
+
         $routeFindings = New-Object System.Collections.Generic.List[string]
         if ($empty) { $routeFindings.Add('Route has empty or near-empty visible content.') }
         if ($thin) { $routeFindings.Add('Route content is thin and likely underdeveloped.') }
         if ($weakCta) { $routeFindings.Add('Route lacks clear CTA affordances.') }
         if ($deadEnd) { $routeFindings.Add('Route appears to be a dead-end with limited onward navigation.') }
         if ($uiContamination) { $routeFindings.Add("UI contamination markers detected: $(@($contaminationFlags) -join ', ').") }
+        $routeFindings.Add("Primary verdict class: $primaryVerdict")
 
         $result.Add([ordered]@{
             route_path = Safe-Get -Object $route -Key 'route_path' -Default ''
@@ -678,6 +771,7 @@ function Build-PageQualityFindings {
             links = $links
             images = $images
             title = $title
+            verdict_class = $primaryVerdict
             page_flags = @{
                 empty = $empty
                 thin = $thin
@@ -697,15 +791,21 @@ function Build-PageQualityFindings {
         })
     }
 
+    $rollups = @{
+        empty_routes = [int]$emptyRoutes
+        thin_routes = [int]$thinRoutes
+        weak_cta_routes = [int]$weakCtaRoutes
+        dead_end_routes = [int]$deadEndRoutes
+        contaminated_routes = [int]$contaminatedRoutes
+        verdict_counts = $verdictCounts
+    }
+
+    $patternSummary = Build-SitePatternSummary -TotalRoutes @($Routes).Count -Rollups $rollups
+
     return @{
         route_details = @($result)
-        rollups = @{
-            empty_routes = [int]$emptyRoutes
-            thin_routes = [int]$thinRoutes
-            weak_cta_routes = [int]$weakCtaRoutes
-            dead_end_routes = [int]$deadEndRoutes
-            contaminated_routes = [int]$contaminatedRoutes
-        }
+        rollups = $rollups
+        pattern_summary = $patternSummary
     }
 }
 
@@ -749,25 +849,55 @@ function Build-DecisionLayer {
         $p2.Add('Live route capture completed with healthy status codes and screenshots.')
     }
 
+    $liveSummary = @{}
+    $patternSummary = @{}
+    $pageQualityStatus = 'NOT_EVALUATED'
+    $emptyRoutes = 0
+    $thinRoutes = 0
+    $weakCtaRoutes = 0
+    $deadEndRoutes = 0
+    $contaminatedRoutes = 0
+    $conversionRoutes = 0
+
     if ($LiveLayer.enabled) {
         $liveSummary = Safe-Get -Object $LiveLayer -Key 'summary' -Default @{}
+        $patternSummary = Safe-Get -Object $liveSummary -Key 'site_pattern_summary' -Default @{}
         $emptyRoutes = [int](Safe-Get -Object $liveSummary -Key 'empty_routes' -Default 0)
         $thinRoutes = [int](Safe-Get -Object $liveSummary -Key 'thin_routes' -Default 0)
         $weakCtaRoutes = [int](Safe-Get -Object $liveSummary -Key 'weak_cta_routes' -Default 0)
         $deadEndRoutes = [int](Safe-Get -Object $liveSummary -Key 'dead_end_routes' -Default 0)
         $contaminatedRoutes = [int](Safe-Get -Object $liveSummary -Key 'contaminated_routes' -Default 0)
+        $conversionRoutes = [int]($weakCtaRoutes + $deadEndRoutes)
+        $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
+
+        if ($contaminatedRoutes -ge 2) {
+            $p0.Add("Trust blocker: repeated contamination pattern across $contaminatedRoutes route(s).")
+        }
+        elseif ($contaminatedRoutes -eq 1) {
+            $p1.Add('Trust blocker: contamination markers detected on 1 route.')
+        }
 
         if ($emptyRoutes -ge 2) {
-            $p0.Add("$emptyRoutes empty routes detected across live pages.")
-        } elseif ($emptyRoutes -eq 1) {
-            $p1.Add('1 empty route detected in live pages.')
+            $p0.Add("Coverage/content blocker: $emptyRoutes empty routes require primary-content restoration.")
         }
-        if ($thinRoutes -gt 0) { $p1.Add("$thinRoutes thin route(s) need richer content coverage.") }
-        if ($weakCtaRoutes -gt 0) { $p1.Add("Weak CTA on $weakCtaRoutes route(s).") }
-        if ($deadEndRoutes -gt 0) { $p1.Add("$deadEndRoutes route(s) appear to be dead-ends for user flow.") }
-        if ($contaminatedRoutes -gt 0) { $p1.Add("UI contamination found on $contaminatedRoutes route(s).") }
+        elseif ($emptyRoutes -eq 1) {
+            $p1.Add('Coverage/content blocker: 1 empty route detected in live pages.')
+        }
 
-        $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
+        if ($thinRoutes -ge 2) {
+            $p1.Add("Coverage/content blocker: repeated thin-content pattern on $thinRoutes route(s).")
+        }
+        elseif ($thinRoutes -eq 1) {
+            $p2.Add('Secondary optimization issue: 1 thin route could be strengthened.')
+        }
+
+        if ($conversionRoutes -ge 3) {
+            $p1.Add("Conversion blocker: weak decision/conversion paths across $conversionRoutes route observations.")
+        }
+        elseif ($conversionRoutes -gt 0) {
+            $p2.Add("Secondary optimization issue: conversion friction present on $conversionRoutes route observation(s).")
+        }
+
         if ($pageQualityStatus -eq 'PARTIAL') {
             $p1.Add('Page-quality evaluation is PARTIAL due to route normalization or merge issues.')
         }
@@ -778,29 +908,58 @@ function Build-DecisionLayer {
         if ($emptyRoutes -eq 0 -and $thinRoutes -eq 0 -and $weakCtaRoutes -eq 0 -and $deadEndRoutes -eq 0 -and $contaminatedRoutes -eq 0 -and $LiveLayer.ok -and $pageQualityStatus -eq 'EVALUATED') {
             $p2.Add('No page-quality v1 concerns detected in sampled live routes.')
         }
+
+        $dominantPattern = Safe-Get -Object $patternSummary -Key 'dominant_pattern' -Default $null
+        if ($null -ne $dominantPattern) {
+            $scope = [string](Safe-Get -Object $dominantPattern -Key 'scope' -Default 'ISOLATED')
+            $label = [string](Safe-Get -Object $dominantPattern -Key 'label' -Default 'route-quality pattern')
+            $count = [int](Safe-Get -Object $dominantPattern -Key 'routes_affected' -Default 0)
+            $p1.Add("Dominant $scope pattern: $label ($count route(s)).")
+        }
     }
 
     if ($p0.Count -gt 0) {
         $core = $p0[0]
-        $doNext.Add('Resolve all P0 items before re-running SITE_AUDITOR.')
-    } elseif ($p1.Count -gt 0) {
+    }
+    elseif ($p1.Count -gt 0) {
         $core = $p1[0]
-        $doNext.Add('Address P1 warnings to move from partial to complete audit coverage.')
-    } else {
+    }
+    else {
         if ($ResolvedMode -in @('REPO', 'ZIP')) {
             $core = "Combined source + live audit succeeded for $ResolvedMode mode."
-        } else {
+        }
+        else {
             $core = 'Live URL audit succeeded for URL mode.'
         }
-        $doNext.Add('Proceed with normal remediation planning using low-priority findings.')
     }
 
-    if ($LiveLayer.enabled) {
-        $doNext.Add('Review reports/visual_manifest.json and screenshots for route-level detail.')
+    if ($p0.Count -gt 0) {
+        $doNext.Add('Fix P0 blockers first, then rerun SITE_AUDITOR in the same MODE.')
     }
-
-    if ($SourceLayer.enabled) {
+    if ($LiveLayer.enabled -and $pageQualityStatus -eq 'NOT_EVALUATED') {
+        $doNext.Add('Restore page-quality evidence generation first (route capture + normalization), then rerun.')
+    }
+    if ($emptyRoutes -gt 0 -and $doNext.Count -lt 3) {
+        $doNext.Add("Fix empty routes first ($emptyRoutes route(s)) to restore core page coverage.")
+    }
+    if ($conversionRoutes -gt 0 -and $doNext.Count -lt 3) {
+        $doNext.Add("Restore CTA path and onward navigation on weak-conversion routes ($conversionRoutes observations).")
+    }
+    if ($contaminatedRoutes -gt 0 -and $doNext.Count -lt 3) {
+        $doNext.Add("Remove contamination markers on $contaminatedRoutes route(s) to restore trust signals.")
+    }
+    if ($doNext.Count -lt 3) {
+        $dominantPattern = Safe-Get -Object $patternSummary -Key 'dominant_pattern' -Default $null
+        if ($null -ne $dominantPattern) {
+            $label = [string](Safe-Get -Object $dominantPattern -Key 'label' -Default 'dominant pattern')
+            $doNext.Add("Rerun after fixing the dominant pattern cluster: $label.")
+        }
+    }
+    if ($doNext.Count -lt 3 -and $SourceLayer.enabled) {
         $doNext.Add('Review source summary metrics and extension breakdown for cleanup opportunities.')
+    }
+    if ($doNext.Count -lt 3 -and $LiveLayer.enabled) {
+        $doNext.Add('Review reports/visual_manifest.json and screenshots for route-level detail.')
     }
 
     return @{
@@ -808,7 +967,7 @@ function Build-DecisionLayer {
         p0 = @($p0)
         p1 = @($p1)
         p2 = @($p2)
-        do_next = @($doNext)
+        do_next = @($doNext | Select-Object -First 3)
     }
 }
 
@@ -834,15 +993,21 @@ function Write-OperatorOutputs {
         $topIssues = @('No major issues detected from collected source/live evidence.')
     }
 
-    $priorityActions = @()
-    if ($FinalStatus -eq 'FAIL') {
-        $priorityActions += '1) Resolve P0 failures first and rerun the same MODE.'
-        $priorityActions += '2) Validate required inputs (TARGET_REPO_PATH, ZIP payload, BASE_URL) for the selected MODE.'
-        $priorityActions += '3) Confirm reports/audit_result.json and REPORT.txt reflect non-empty evidence.'
-    } else {
-        $priorityActions += '1) Execute do_next items to improve quality and reduce latent risk.'
-        $priorityActions += '2) Track P1/P2 findings in the remediation backlog.'
-        $priorityActions += '3) Re-run SITE_AUDITOR after major content or route changes.'
+    $priorityActions = New-Object System.Collections.Generic.List[string]
+    $doNextItems = @($Decision.do_next | Select-Object -First 3)
+    if ($doNextItems.Count -gt 0) {
+        for ($i = 0; $i -lt $doNextItems.Count; $i++) {
+            $priorityActions.Add("$($i + 1)) $($doNextItems[$i])")
+        }
+    }
+    elseif ($FinalStatus -eq 'FAIL') {
+        $priorityActions.Add('1) Resolve P0 failures first and rerun the same MODE.')
+        $priorityActions.Add('2) Validate required inputs (TARGET_REPO_PATH, ZIP payload, BASE_URL) for the selected MODE.')
+        $priorityActions.Add('3) Confirm reports/audit_result.json and REPORT.txt reflect non-empty evidence.')
+    }
+    else {
+        $priorityActions.Add('1) Track P1/P2 findings in the remediation backlog.')
+        $priorityActions.Add('2) Re-run SITE_AUDITOR after major content or route changes.')
     }
 
     $howToFix = @{
@@ -897,6 +1062,15 @@ function Write-OperatorOutputs {
             $summaryLines += "- weak CTA routes: $([int](Safe-Get -Object $liveSummary -Key 'weak_cta_routes' -Default 0))"
             $summaryLines += "- dead-end routes: $([int](Safe-Get -Object $liveSummary -Key 'dead_end_routes' -Default 0))"
             $summaryLines += "- contaminated routes: $([int](Safe-Get -Object $liveSummary -Key 'contaminated_routes' -Default 0))"
+            $patternSummary = Safe-Get -Object $liveSummary -Key 'site_pattern_summary' -Default @{}
+            $repeatedCount = [int](Safe-Get -Object $patternSummary -Key 'repeated_pattern_count' -Default 0)
+            $isolatedCount = [int](Safe-Get -Object $patternSummary -Key 'isolated_pattern_count' -Default 0)
+            $dominantPattern = Safe-Get -Object $patternSummary -Key 'dominant_pattern' -Default $null
+            $summaryLines += "- repeated site patterns: $repeatedCount"
+            $summaryLines += "- isolated issue patterns: $isolatedCount"
+            if ($null -ne $dominantPattern) {
+                $summaryLines += "- dominant pattern: $([string](Safe-Get -Object $dominantPattern -Key 'label' -Default 'unknown'))"
+            }
         }
     }
     $summaryPath = Join-Path $reportsDir '11A_EXECUTIVE_SUMMARY.txt'
@@ -925,6 +1099,15 @@ function Write-OperatorOutputs {
             $reportLines += "- weak CTA routes: $([int](Safe-Get -Object $liveSummary -Key 'weak_cta_routes' -Default 0))"
             $reportLines += "- dead-end routes: $([int](Safe-Get -Object $liveSummary -Key 'dead_end_routes' -Default 0))"
             $reportLines += "- contaminated routes: $([int](Safe-Get -Object $liveSummary -Key 'contaminated_routes' -Default 0))"
+            $patternSummary = Safe-Get -Object $liveSummary -Key 'site_pattern_summary' -Default @{}
+            $repeatedCount = [int](Safe-Get -Object $patternSummary -Key 'repeated_pattern_count' -Default 0)
+            $isolatedCount = [int](Safe-Get -Object $patternSummary -Key 'isolated_pattern_count' -Default 0)
+            $dominantPattern = Safe-Get -Object $patternSummary -Key 'dominant_pattern' -Default $null
+            $reportLines += "REPEATED SITE PATTERNS: $repeatedCount"
+            $reportLines += "ISOLATED ISSUE PATTERNS: $isolatedCount"
+            if ($null -ne $dominantPattern) {
+                $reportLines += "DOMINANT PATTERN: $([string](Safe-Get -Object $dominantPattern -Key 'label' -Default 'unknown'))"
+            }
         }
     }
     $reportLines += if ($Decision.p0.Count -gt 0) { $Decision.p0 | ForEach-Object { "- $_" } } else { '- none' }
