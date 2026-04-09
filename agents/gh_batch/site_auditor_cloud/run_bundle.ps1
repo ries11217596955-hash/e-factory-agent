@@ -459,12 +459,9 @@ function Normalize-Result {
     )
 
     if ($null -eq $r) {
-        if ($name -eq 'repo') {
-            Add-ExecutionLog 'REPO_RESULT_COERCED reason=NULL_RESULT'
-        }
         return @{
             status = 'FAIL'
-            reason = "${name}_INVALID_RESULT"
+            reason = "${name}_NULL_RESULT"
         }
     }
 
@@ -486,49 +483,33 @@ function Normalize-Result {
         return $null
     }
 
+    $artifactsPresentRaw = & $readProperty $r 'artifacts_present'
+    $reportsPathRaw = & $readProperty $r 'reports_path'
+    $outboxPathRaw = & $readProperty $r 'outbox_path'
     $statusRaw = & $readProperty $r 'status'
     $reasonRaw = & $readProperty $r 'reason'
-    $artifactsRaw = & $readProperty $r 'artifacts'
-    $reportsPathRaw = & $readProperty $r 'reports_path'
-    $artifactsPresentRaw = & $readProperty $r 'artifacts_present'
 
-    $hasStatus = -not [string]::IsNullOrWhiteSpace([string]$statusRaw)
-    $artifacts = @($artifactsRaw)
-    $hasArtifacts = ($artifacts.Count -gt 0)
-    if (-not $hasArtifacts -and $null -ne $artifactsPresentRaw) {
-        $hasArtifacts = [bool]$artifactsPresentRaw
-    }
-    $hasReportsPath = -not [string]::IsNullOrWhiteSpace([string]$reportsPathRaw)
-    $hasSignals = $hasStatus -or $hasArtifacts -or $hasReportsPath
-
-    $status = [string]($statusRaw ?? 'PARTIAL')
-    $reason = [string]($reasonRaw ?? '')
-
-    if (($hasArtifacts -or $hasReportsPath) -and $status -eq 'FAIL') {
-        $status = 'PARTIAL'
-        if ([string]::IsNullOrWhiteSpace($reason)) {
-            $reason = "${name}_RESULT_HAS_ARTIFACTS"
-        }
-    }
+    $hasData =
+        ($artifactsPresentRaw -eq $true) -or
+        ($reportsPathRaw) -or
+        ($outboxPathRaw)
 
     if ($name -eq 'repo') {
-        if ($hasSignals) {
-            if ($hasStatus) {
-                Add-ExecutionLog "REPO_RESULT_ACCEPTED status=$status"
-            }
-            else {
-                Add-ExecutionLog "REPO_RESULT_COERCED status=$status"
-            }
-        }
-        else {
-            Add-ExecutionLog 'REPO_RESULT_COERCED reason=MISSING_STATUS_AND_ARTIFACTS'
-        }
+        Write-Output "REPO_HAS_DATA=$hasData"
+        Write-Output ($r | ConvertTo-Json -Depth 5)
     }
 
-    if (-not $hasSignals) {
-        return @{
-            status = 'FAIL'
-            reason = "${name}_INVALID_RESULT"
+    $status = [string]($statusRaw ?? '')
+    $reason = [string]($reasonRaw ?? '')
+
+    if (-not $status) {
+        if ($hasData) {
+            $status = 'PARTIAL'
+            $reason = "${name}_COERCED_FROM_DATA"
+        }
+        else {
+            $status = 'FAIL'
+            $reason = "${name}_INVALID_RESULT"
         }
     }
 
