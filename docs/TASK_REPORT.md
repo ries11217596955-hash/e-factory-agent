@@ -1,9 +1,9 @@
 ## Summary
-- Fixed a manifest return-stage type mismatch in `agents/gh_batch/site_auditor_cloud/run_bundle.ps1` by introducing strict normalization for `repo`, `zip`, and `url` result blocks.
-- Added `Normalize-Result` to enforce deterministic `{ status, reason }` hashtable shape for each manifest component before manifest assembly.
-- Rebuilt final manifest using strict schema keys (`overall`, `repo`, `zip`, `url`) and explicit string casting.
-- Added a final JSON round-trip stabilization guard (`ConvertTo-Json | ConvertFrom-Json`) before return to avoid runtime type mismatch at return stage.
-- Added manifest success telemetry log `MANIFEST_NORMALIZED_OK` and switched final output to `return $manifest` while preserving `$LASTEXITCODE`.
+- Root cause: `run_bundle.ps1` returned a complex PowerShell object (`$manifest`) at script end, which can trigger pipeline/consumer type binding failures such as `Argument types do not match`.
+- Fix: replaced the object return path with a JSON output model (`$manifest_json = $manifest | ConvertTo-Json -Depth 5`) and removed object return semantics.
+- Added SSOT persistence for summary output by writing JSON text to `audit_bundle/master_summary.json` and also to `audit_bundle/audit_bundle_summary.json`.
+- Added explicit manifest success telemetry: `MANIFEST_OUTPUT_JSON_OK`.
+- Preserved exit-code contract by terminating with `exit $exitCode` (0 for OK/PARTIAL path, 1 only for runtime crash path via existing `Get-BundleExitCode` logic).
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
@@ -13,10 +13,12 @@
 - None.
 
 ## Current entrypoints/paths
-- Bundle runner entrypoint: `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
-- Fix location in file: finalization section after `Invoke-WritingStage` and before script termination/return.
-- Added normalization helper: `Normalize-Result` in `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`.
+- Entry script: `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`.
+- Final-output JSON files:
+  - `agents/gh_batch/site_auditor_cloud/audit_bundle/master_summary.json`
+  - `agents/gh_batch/site_auditor_cloud/audit_bundle/audit_bundle_summary.json`
+- Finalization behavior: emit JSON string to STDOUT and exit with script exit code.
 
 ## Risks/blockers
-- Final guard intentionally converts the hashtable manifest into a deserialized object (`PSCustomObject`) to stabilize return types; downstream callers that require literal hashtable semantics may need to consume properties rather than hashtable methods.
-- Existing behavior changed from `exit $exitCode` to returning manifest object with `$LASTEXITCODE` set; callers depending on direct process termination semantics should validate integration behavior.
+- `audit_bundle_summary.json` now mirrors `master_summary.json` (same manifest payload); if downstream expects a different schema in bundle summary, consumers should verify assumptions.
+- `Out-File -Encoding utf8` may include UTF-8 BOM depending on host PowerShell version; JSON parsers used in downstream CI should tolerate BOM or strip it.

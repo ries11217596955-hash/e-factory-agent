@@ -509,6 +509,9 @@ $manifest = @{
     url = $url
 }
 
-$manifest = $manifest | ConvertTo-Json -Depth 5 | ConvertFrom-Json
-Add-ExecutionLog 'MANIFEST_NORMALIZED_OK'
-return $manifest
+$manifest_json = $manifest | ConvertTo-Json -Depth 5
+Write-Output $manifest_json | Out-File -FilePath $summaryPath -Encoding utf8
+Write-Output $manifest_json | Out-File -FilePath $bundleStatusPath -Encoding utf8
+Add-ExecutionLog 'MANIFEST_OUTPUT_JSON_OK'
+Write-Output $manifest_json
+exit $exitCode
