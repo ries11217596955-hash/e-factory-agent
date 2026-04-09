@@ -188,8 +188,9 @@ function Invoke-ExecutionStage {
     $results.Add((New-ForcedSkippedModeResult -Mode 'ZIP'))
     $results.Add((New-ForcedSkippedModeResult -Mode 'URL'))
 
+    Add-ExecutionLog 'MODE_RESULTS_COUNT=$($results.Count)'
     Add-ExecutionLog 'STAGE 1 (EXECUTION) completed.'
-    return @($results)
+    return $results
 }
 
 function Get-BundleLogicalStatus {
@@ -248,6 +249,7 @@ function Get-RepoScreenshotManifest {
         }
     }
 
+    Add-ExecutionLog "SCREENSHOT_MANIFEST_COUNT=$($manifest.Count)"
     return $manifest
 }
 
@@ -279,7 +281,6 @@ function Invoke-AssemblyStage {
     $bundleLogicalStatus = Get-BundleLogicalStatus -ModeResults @($safeResults)
 
     $repoScreenshotManifest = Get-RepoScreenshotManifest
-    Write-Output "SCREENSHOT_MANIFEST_COUNT=$($repoScreenshotManifest.Count)"
     $repoArtifacts = @()
     foreach ($item in $repoScreenshotManifest) {
         $repoArtifacts += [string]$item.relative_path
@@ -381,7 +382,10 @@ function Invoke-WritingStage {
     if ($null -eq $Assembled.bundle_status.repo) {
         $Assembled.bundle_status.repo = [ordered]@{}
     }
-    $Assembled.bundle_status.repo.artifacts = @($repoScreenshotManifest | ForEach-Object { $_.relative_path })
+    $Assembled.bundle_status.repo.artifacts = @()
+    foreach ($item in $repoScreenshotManifest) {
+        $Assembled.bundle_status.repo.artifacts += [string]$item.relative_path
+    }
 
     try {
         $assembled.bundle_status | ConvertTo-Json -Depth 6 | Out-File -FilePath $bundleStatusPath -Encoding utf8
