@@ -1194,6 +1194,60 @@ function Build-MaturityReadinessLayer {
     }
 }
 
+function Build-AuditorBaselineCertification {
+    param(
+        [string]$FinalStatus,
+        [hashtable]$SourceLayer,
+        [hashtable]$LiveLayer,
+        [hashtable]$ContradictionSummary,
+        [hashtable]$SiteDiagnosis,
+        [hashtable]$MaturityReadiness
+    )
+
+    $liveSummary = Safe-Get -Object $LiveLayer -Key 'summary' -Default @{}
+    $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
+    $failureStage = [string](Safe-Get -Object $liveSummary -Key 'failure_stage' -Default 'none')
+    $evidenceCoverage = Safe-Get -Object $liveSummary -Key 'evidence_coverage' -Default @{}
+    $evidenceRichness = [string](Safe-Get -Object $evidenceCoverage -Key 'evidence_richness' -Default 'SPARSE')
+    $contradictionTotal = [int](Safe-Get -Object $ContradictionSummary -Key 'total_candidates' -Default 0)
+    $siteDiagnosisClass = [string](Safe-Get -Object $SiteDiagnosis -Key 'class' -Default 'UNKNOWN')
+    $maturityClass = [string](Safe-Get -Object $MaturityReadiness -Key 'class' -Default 'NOT_READY')
+
+    $checks = [ordered]@{
+        runtime_path_health = if ($FinalStatus -ne 'FAIL') { 'PASS' } else { 'FAIL' }
+        repo_binding_truth = if (-not $SourceLayer.required -or [bool]$SourceLayer.ok) { 'PASS' } else { 'FAIL' }
+        visual_evidence_truth = if ([bool]$LiveLayer.enabled -and [int](Safe-Get -Object $liveSummary -Key 'screenshot_count' -Default 0) -gt 0) { 'PASS' } else { 'FAIL' }
+        page_quality_evaluation_truth = if ($pageQualityStatus -in @('EVALUATED', 'PARTIAL')) { 'PASS' } else { 'FAIL' }
+        contradiction_layer_truth = if ($null -ne $ContradictionSummary) { 'PASS' } else { 'FAIL' }
+        diagnosis_layer_truth = if ($siteDiagnosisClass -ne 'UNKNOWN') { 'PASS' } else { 'FAIL' }
+        maturity_layer_truth = if ($maturityClass -ne 'NOT_READY' -or $pageQualityStatus -ne 'NOT_EVALUATED') { 'PASS' } else { 'FAIL' }
+        operator_output_usefulness = if ($FinalStatus -ne 'FAIL' -or [bool]$LiveLayer.enabled) { 'PASS' } else { 'FAIL' }
+        analyst_brief_usefulness = if ($FinalStatus -ne 'FAIL' -or [bool]$LiveLayer.enabled) { 'PASS' } else { 'FAIL' }
+        bundle_report_consistency = if ($FinalStatus -in @('PASS', 'PARTIAL', 'FAIL')) { 'PASS' } else { 'FAIL' }
+    }
+
+    $failedChecks = @($checks.Keys | Where-Object { [string]$checks[$_] -eq 'FAIL' })
+    $classification = 'BASELINE_READY'
+    if ($failedChecks.Count -gt 0) {
+        $classification = "BLOCKED_BY_$($failedChecks[0].ToUpperInvariant())"
+    }
+
+    $evidence = @(
+        "final_status=$FinalStatus page_quality_status=$pageQualityStatus failure_stage=$failureStage",
+        "source_ok=$([bool]$SourceLayer.ok) live_enabled=$([bool]$LiveLayer.enabled) live_ok=$([bool]$LiveLayer.ok)",
+        "evidence_richness=$evidenceRichness contradiction_candidates=$contradictionTotal",
+        "site_diagnosis=$siteDiagnosisClass maturity=$maturityClass"
+    )
+
+    return @{
+        class = $classification
+        reason = if ($classification -eq 'BASELINE_READY') { 'All baseline gate checks passed for deterministic runtime and reporting layers.' } else { "Baseline gate blocked by $($failedChecks[0])." }
+        confidence = if ($FinalStatus -eq 'PASS') { 'HIGH' } elseif ($FinalStatus -eq 'PARTIAL') { 'MEDIUM' } else { 'LOW' }
+        checks = $checks
+        evidence = @($evidence)
+    }
+}
+
 function Build-DecisionLayer {
     param(
         [string]$ResolvedMode,
@@ -1329,6 +1383,14 @@ function Build-DecisionLayer {
     }
 
     $maturityReadiness = Build-MaturityReadinessLayer -SourceLayer $SourceLayer -LiveLayer $LiveLayer -SiteDiagnosis $siteDiagnosis -ContradictionSummary $contradictionSummary -MissingInputs @($MissingInputs)
+    $candidateFinalStatus = 'PASS'
+    if (@($MissingInputs).Count -gt 0 -or ($SourceLayer.required -and (-not $SourceLayer.enabled -or -not $SourceLayer.ok)) -or ($LiveLayer.required -and (-not $LiveLayer.enabled -or -not $LiveLayer.ok))) {
+        $candidateFinalStatus = 'FAIL'
+    }
+    elseif ($pageQualityStatus -eq 'PARTIAL') {
+        $candidateFinalStatus = 'PARTIAL'
+    }
+    $auditorBaseline = Build-AuditorBaselineCertification -FinalStatus $candidateFinalStatus -SourceLayer $SourceLayer -LiveLayer $LiveLayer -ContradictionSummary $contradictionSummary -SiteDiagnosis $siteDiagnosis -MaturityReadiness $maturityReadiness
 
     if ($p0.Count -gt 0) {
         $core = $p0[0]
@@ -1397,6 +1459,7 @@ function Build-DecisionLayer {
         do_next = @($doNext | Select-Object -First 3)
         site_diagnosis = $siteDiagnosis
         maturity_readiness = $maturityReadiness
+        auditor_baseline = $auditorBaseline
         contradiction_summary = $contradictionSummary
         clean_state = $cleanStateLabel
     }
@@ -1419,6 +1482,7 @@ function Build-MetaAuditBriefLines {
     $contradictionSummary = Safe-Get -Object $liveSummary -Key 'contradiction_summary' -Default @{}
     $siteDiagnosis = Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}
     $maturityReadiness = Safe-Get -Object $Decision -Key 'maturity_readiness' -Default @{}
+    $auditorBaseline = Safe-Get -Object $Decision -Key 'auditor_baseline' -Default @{}
     $dominantPattern = Safe-Get -Object $patternSummary -Key 'dominant_pattern' -Default $null
     $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
     $failureStage = [string](Safe-Get -Object $liveSummary -Key 'failure_stage' -Default 'none')
@@ -1696,6 +1760,9 @@ function Build-MetaAuditBriefLines {
         "- Maturity/readiness: $([string](Safe-Get -Object $maturityReadiness -Key 'class' -Default 'NOT_READY'))",
         "- Maturity reason: $([string](Safe-Get -Object $maturityReadiness -Key 'reason' -Default 'none'))",
         "- Maturity confidence: $([string](Safe-Get -Object $maturityReadiness -Key 'confidence' -Default 'LOW'))",
+        "- Auditor baseline: $([string](Safe-Get -Object $auditorBaseline -Key 'class' -Default 'BLOCKED_BY_UNKNOWN'))",
+        "- Baseline reason: $([string](Safe-Get -Object $auditorBaseline -Key 'reason' -Default 'none'))",
+        "- Baseline confidence: $([string](Safe-Get -Object $auditorBaseline -Key 'confidence' -Default 'LOW'))",
         "- Contradiction candidates: $contradictionTotal ($contradictionClassLine)",
         "- Clean-state check: $([string](Safe-Get -Object $Decision -Key 'clean_state' -Default 'NOT_CLEAN'))",
         '',
@@ -1826,7 +1893,10 @@ function Write-OperatorOutputs {
         "Diagnosis confidence: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}) -Key 'confidence' -Default 'LOW'))",
         "Maturity/readiness: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'maturity_readiness' -Default @{}) -Key 'class' -Default 'NOT_READY'))",
         "Maturity reason: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'maturity_readiness' -Default @{}) -Key 'reason' -Default 'none'))",
-        "Maturity confidence: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'maturity_readiness' -Default @{}) -Key 'confidence' -Default 'LOW'))"
+        "Maturity confidence: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'maturity_readiness' -Default @{}) -Key 'confidence' -Default 'LOW'))",
+        "Auditor baseline: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'auditor_baseline' -Default @{}) -Key 'class' -Default 'BLOCKED_BY_UNKNOWN'))",
+        "Baseline reason: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'auditor_baseline' -Default @{}) -Key 'reason' -Default 'none'))",
+        "Baseline confidence: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'auditor_baseline' -Default @{}) -Key 'confidence' -Default 'LOW'))"
     )
     $liveSummary = Safe-Get -Object $AuditResult.live -Key 'summary' -Default @{}
     if ([bool](Safe-Get -Object $AuditResult.live -Key 'enabled' -Default $false)) {
@@ -1906,6 +1976,9 @@ function Write-OperatorOutputs {
         "MATURITY/READINESS: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'maturity_readiness' -Default @{}) -Key 'class' -Default 'NOT_READY'))",
         "MATURITY REASON: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'maturity_readiness' -Default @{}) -Key 'reason' -Default 'none'))",
         "MATURITY CONFIDENCE: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'maturity_readiness' -Default @{}) -Key 'confidence' -Default 'LOW'))",
+        "AUDITOR BASELINE: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'auditor_baseline' -Default @{}) -Key 'class' -Default 'BLOCKED_BY_UNKNOWN'))",
+        "BASELINE REASON: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'auditor_baseline' -Default @{}) -Key 'reason' -Default 'none'))",
+        "BASELINE CONFIDENCE: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'auditor_baseline' -Default @{}) -Key 'confidence' -Default 'LOW'))",
         'P0:'
     )
     if ([bool](Safe-Get -Object $AuditResult.live -Key 'enabled' -Default $false)) {
