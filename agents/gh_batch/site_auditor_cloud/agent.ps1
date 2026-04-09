@@ -23,7 +23,100 @@ $timestamp = (Get-Date).ToString('o')
 $status = 'FAIL'
 $failureReason = $null
 $global:AuditError = $null
+$global:RouteNormalizationForensics = $null
 $reportFiles = New-Object System.Collections.Generic.List[string]
+
+function Get-DebugValueSample {
+    param(
+        [object]$Value,
+        [int]$MaxLength = 180
+    )
+
+    if ($null -eq $Value) { return '<null>' }
+
+    $text = ''
+    if ($Value -is [string]) {
+        $text = $Value
+    }
+    elseif ($Value -is [System.Collections.IDictionary] -or $Value -is [PSCustomObject]) {
+        try {
+            $text = $Value | ConvertTo-Json -Depth 4 -Compress
+        }
+        catch {
+            $text = [string]$Value
+        }
+    }
+    elseif ($Value -is [System.Collections.IEnumerable] -and -not ($Value -is [string])) {
+        try {
+            $text = @($Value | Select-Object -First 5 | ForEach-Object { [string]$_ }) -join ', '
+        }
+        catch {
+            $text = [string]$Value
+        }
+    }
+    else {
+        $text = [string]$Value
+    }
+
+    if ([string]::IsNullOrWhiteSpace($text)) { return '<empty>' }
+    if ($text.Length -le $MaxLength) { return $text }
+    return "$($text.Substring(0, $MaxLength))..."
+}
+
+function Get-ObjectShapeSummary {
+    param([object]$Value)
+
+    if ($null -eq $Value) {
+        return [ordered]@{
+            type = '<null>'
+            keys = @()
+            property_names = @()
+            count = 0
+        }
+    }
+
+    $keys = @()
+    if ($Value -is [System.Collections.IDictionary]) {
+        $keys = @($Value.Keys | ForEach-Object { [string]$_ } | Select-Object -First 20)
+    }
+
+    $propertyNames = @($Value.PSObject.Properties.Name | Select-Object -First 20)
+    $count = 0
+    if ($Value -is [System.Collections.ICollection]) {
+        $count = [int]$Value.Count
+    }
+
+    return [ordered]@{
+        type = $Value.GetType().FullName
+        keys = @($keys)
+        property_names = @($propertyNames)
+        count = $count
+    }
+}
+
+function Set-RouteNormalizationForensics {
+    param(
+        [string]$FunctionName,
+        [string]$Expression,
+        [object]$LeftOperand,
+        [object]$RightOperand,
+        [object]$RouteContext = $null,
+        [object]$AdditionalContext = $null
+    )
+
+    $global:RouteNormalizationForensics = [ordered]@{
+        failure_function = $FunctionName
+        failure_expression = $Expression
+        left_type = if ($null -eq $LeftOperand) { '<null>' } else { $LeftOperand.GetType().FullName }
+        right_type = if ($null -eq $RightOperand) { '<null>' } else { $RightOperand.GetType().FullName }
+        value_samples = [ordered]@{
+            left = Get-DebugValueSample -Value $LeftOperand
+            right = Get-DebugValueSample -Value $RightOperand
+        }
+        route_context_shape = Get-ObjectShapeSummary -Value $RouteContext
+        additional_context = if ($null -eq $AdditionalContext) { @{} } else { $AdditionalContext }
+    }
+}
 
 function Ensure-Dir([string]$Path) {
     New-Item -ItemType Directory -Force -Path $Path | Out-Null
@@ -110,12 +203,34 @@ function Safe-Get {
         foreach ($entry in @($Object.GetEnumerator())) {
             $candidateKey = Safe-Get -Object $entry -Key 'Key' -Default $null
             if ($null -eq $candidateKey) { continue }
-            if ($candidateKey -eq $Key) {
-                return (Safe-Get -Object $entry -Key 'Value' -Default $Default)
+
+            $candidateKeyText = $null
+            $keyText = [string]$Key
+            try {
+                $candidateKeyText = [string]$candidateKey
             }
-            if ([string]$candidateKey -eq $Key) {
-                return (Safe-Get -Object $entry -Key 'Value' -Default $Default)
+            catch {
+                Set-RouteNormalizationForensics -FunctionName 'Safe-Get' -Expression '[string]$candidateKey' -LeftOperand $candidateKey -RightOperand $Key -RouteContext $Object -AdditionalContext @{
+                    operation = 'dictionary_key_string_cast'
+                    entry_shape = Get-ObjectShapeSummary -Value $entry
+                }
+                throw
             }
+
+            try {
+                if ($candidateKeyText -eq $keyText) {
+                    return (Safe-Get -Object $entry -Key 'Value' -Default $Default)
+                }
+            }
+            catch {
+                Set-RouteNormalizationForensics -FunctionName 'Safe-Get' -Expression '$candidateKeyText -eq $keyText' -LeftOperand $candidateKeyText -RightOperand $keyText -RouteContext $Object -AdditionalContext @{
+                    operation = 'dictionary_key_compare'
+                    original_left_type = $candidateKey.GetType().FullName
+                    entry_shape = Get-ObjectShapeSummary -Value $entry
+                }
+                throw
+            }
+
         }
         return $Default
     }
@@ -391,6 +506,7 @@ function Build-EvidenceCoverageSummary {
 function Normalize-LiveRoutes {
     param([object]$ManifestData)
 
+    $global:RouteNormalizationForensics = $null
     $rawRoutes = @(Resolve-ManifestRoutes -ManifestData $ManifestData)
 
     $normalized = New-Object System.Collections.Generic.List[object]
@@ -719,6 +835,16 @@ function Invoke-LiveAudit {
     catch {
         $failure = $_.Exception.Message
         if ([string]::IsNullOrWhiteSpace($failure)) { $failure = 'Unknown live audit failure.' }
+        $routeNormalizationDebug = $null
+        if ($liveStage -eq 'ROUTE_NORMALIZATION' -and $null -ne $global:RouteNormalizationForensics) {
+            $routeNormalizationDebug = $global:RouteNormalizationForensics
+            try {
+                Write-JsonFile -Path (Join-Path $reportsDir 'route_normalization_debug.json') -Data $routeNormalizationDebug
+                $reportFiles.Add('reports/route_normalization_debug.json')
+            }
+            catch {
+            }
+        }
         return (New-LiveLayer -Overrides @{
             enabled = $true
             required = $false
@@ -729,6 +855,7 @@ function Invoke-LiveAudit {
                 failure_stage = $liveStage
                 evaluation_error = $failure
                 total_routes = [int]$fallbackRouteCount
+                route_normalization_debug = if ($null -eq $routeNormalizationDebug) { @{} } else { $routeNormalizationDebug }
             }
             findings = @("Live audit failed at stage ${liveStage}: $failure")
             warnings = @("Live audit encountered an execution error at stage ${liveStage}: $failure")
