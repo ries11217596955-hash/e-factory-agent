@@ -206,6 +206,24 @@ function Convert-ToStringArraySafe {
     return @($normalized)
 }
 
+function Convert-ToStringKeyDictionarySafe {
+    param(
+        [object]$Value
+    )
+
+    if ($null -eq $Value) { return @{} }
+    if (-not ($Value -is [System.Collections.IDictionary])) { return $Value }
+
+    $normalized = [ordered]@{}
+    foreach ($entry in @($Value.GetEnumerator())) {
+        $keyText = [string](Safe-Get -Object $entry -Key 'Key' -Default '')
+        if ([string]::IsNullOrWhiteSpace($keyText)) { continue }
+        $normalized[$keyText] = Safe-Get -Object $entry -Key 'Value' -Default $null
+    }
+
+    return $normalized
+}
+
 function Resolve-ManifestRoutes {
     param([object]$ManifestData)
 
@@ -214,6 +232,7 @@ function Resolve-ManifestRoutes {
     if ($ManifestData -is [System.Collections.IDictionary] -or $ManifestData -is [PSCustomObject]) {
         $explicitRoutes = Safe-Get -Object $ManifestData -Key 'routes' -Default $null
         if ($null -ne $explicitRoutes) {
+            $explicitRoutes = Convert-ToStringKeyDictionarySafe -Value $explicitRoutes
             if ($explicitRoutes -is [System.Collections.IDictionary]) {
                 $mappedRoutes = New-Object System.Collections.Generic.List[object]
                 foreach ($entry in @($explicitRoutes.GetEnumerator())) {
@@ -383,6 +402,8 @@ function Normalize-LiveRoutes {
             $shapeWarnings.Add("ROUTE_NORMALIZATION: dropped null route entry at index $index.")
             continue
         }
+
+        $route = Convert-ToStringKeyDictionarySafe -Value $route
 
         if (-not ($route -is [System.Collections.IDictionary] -or $route -is [PSCustomObject])) {
             $shapeWarnings.Add("ROUTE_NORMALIZATION: dropped non-object route entry at index $index of type $($route.GetType().FullName).")
