@@ -1,9 +1,9 @@
 ## Summary
-- Investigated REPO result contract handling in `Normalize-Result` and identified strict type gating as the downgrade source: any non-hashtable or partial object was forced to `*_INVALID_RESULT`.
-- Added explicit raw REPO object logging (`Write-Output ($repo | ConvertTo-Json -Depth 5)`) before normalization so runtime shape is visible in logs/output.
-- Reworked normalization to accept partial objects when any of these are present: `status`, `artifacts`, or `reports_path`.
-- Implemented safe coercion defaults (`status` => `PARTIAL`, `reason` => empty string) and artifact/report-aware success preservation.
-- Added REPO-specific acceptance/coercion logs (`REPO_RESULT_ACCEPTED` / `REPO_RESULT_COERCED`) to show normalization path taken.
+- Root cause: `Normalize-Result` used strict validation behavior that produced `*_INVALID_RESULT` failure outcomes even when REPO payloads still carried useful output data.
+- Before behavior: a missing/empty `status` on non-null REPO results could still end in failure, masking valid artifact-backed runs.
+- After behavior: validation is now data-aware (`artifacts_present`, `reports_path`, `outbox_path`) and coerces missing-status results with data to `PARTIAL` using `${name}_COERCED_FROM_DATA`.
+- Added mandatory REPO debug output to prove data detection at runtime: `REPO_HAS_DATA=<bool>` and serialized REPO payload JSON.
+- Kept scope minimal to requested validator logic and report update only.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
@@ -13,30 +13,11 @@
 - None.
 
 ## Current entrypoints/paths
-- Entrypoint: `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`.
-- Normalization function: `Normalize-Result` in the same script.
-- Bundle status outputs: `agents/gh_batch/site_auditor_cloud/audit_bundle/master_summary.json` and `agents/gh_batch/site_auditor_cloud/audit_bundle/audit_bundle_summary.json`.
+- Entrypoint script remains: `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`.
+- Updated function remains: `Normalize-Result` in the same script.
+- No workflow, execution stage, Playwright stage, or bundle structure changes were made.
 
 ## Risks/blockers
 - No blockers.
-- Minor behavioral risk: malformed non-null objects that previously hard-failed by type now attempt coercion; this is intentional for contract compatibility but may surface as `PARTIAL` rather than `FAIL` when artifact/report signals are present.
-
-### actual repo object
-- Runtime now emits full serialized REPO object via:
-  - `Write-Output ($repo | ConvertTo-Json -Depth 5)`
-- This is recorded at execution time (not hardcoded in report) to reflect real shape from current run.
-
-### mismatch reason
-- Previous validator required exact hashtable contract (`$r -is [hashtable]`) and effectively treated partial/object-like inputs as invalid.
-- This caused false `repo_INVALID_RESULT` even when useful data existed (e.g., artifacts/reports).
-
-### fix applied
-- Replaced strict null+type rejection with null-only rejection.
-- Added property-safe extraction for hashtable and object inputs.
-- Added validity rule: accept when `status` OR `artifacts` OR `reports_path` exists.
-- Added force-upgrade rule: if artifacts/reports exist and status is `FAIL`, normalize to `PARTIAL`.
-- Added REPO normalization path logging (`REPO_RESULT_ACCEPTED` / `REPO_RESULT_COERCED`).
-
-### before/after status
-- Before: partial/non-hashtable REPO payloads could normalize to `FAIL` with `repo_INVALID_RESULT`.
-- After: non-null partial payloads with status/artifacts/reports signal are accepted/coerced; artifact/report-backed failures become `PARTIAL` to reflect real output presence.
+- Intentional behavior shift: when `status` is missing but REPO data exists, status becomes `PARTIAL` instead of `FAIL` to reflect real output state.
+- Proof condition addressed: payloads with data markers (`artifacts_present=$true` and/or non-empty `reports_path`/`outbox_path`) are no longer marked `FAIL` solely due to missing status.
