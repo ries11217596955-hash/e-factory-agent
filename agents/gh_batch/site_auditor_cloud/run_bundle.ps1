@@ -458,7 +458,74 @@ function Normalize-Result {
         [string]$name
     )
 
-    if ($null -eq $r -or $r -isnot [hashtable]) {
+    if ($null -eq $r) {
+        if ($name -eq 'repo') {
+            Add-ExecutionLog 'REPO_RESULT_COERCED reason=NULL_RESULT'
+        }
+        return @{
+            status = 'FAIL'
+            reason = "${name}_INVALID_RESULT"
+        }
+    }
+
+    $readProperty = {
+        param($obj, [string]$propName)
+
+        if ($obj -is [hashtable]) {
+            if ($obj.Contains($propName)) {
+                return $obj[$propName]
+            }
+
+            return $null
+        }
+
+        if ($null -ne $obj.PSObject -and $null -ne $obj.PSObject.Properties[$propName]) {
+            return $obj.PSObject.Properties[$propName].Value
+        }
+
+        return $null
+    }
+
+    $statusRaw = & $readProperty $r 'status'
+    $reasonRaw = & $readProperty $r 'reason'
+    $artifactsRaw = & $readProperty $r 'artifacts'
+    $reportsPathRaw = & $readProperty $r 'reports_path'
+    $artifactsPresentRaw = & $readProperty $r 'artifacts_present'
+
+    $hasStatus = -not [string]::IsNullOrWhiteSpace([string]$statusRaw)
+    $artifacts = @($artifactsRaw)
+    $hasArtifacts = ($artifacts.Count -gt 0)
+    if (-not $hasArtifacts -and $null -ne $artifactsPresentRaw) {
+        $hasArtifacts = [bool]$artifactsPresentRaw
+    }
+    $hasReportsPath = -not [string]::IsNullOrWhiteSpace([string]$reportsPathRaw)
+    $hasSignals = $hasStatus -or $hasArtifacts -or $hasReportsPath
+
+    $status = [string]($statusRaw ?? 'PARTIAL')
+    $reason = [string]($reasonRaw ?? '')
+
+    if (($hasArtifacts -or $hasReportsPath) -and $status -eq 'FAIL') {
+        $status = 'PARTIAL'
+        if ([string]::IsNullOrWhiteSpace($reason)) {
+            $reason = "${name}_RESULT_HAS_ARTIFACTS"
+        }
+    }
+
+    if ($name -eq 'repo') {
+        if ($hasSignals) {
+            if ($hasStatus) {
+                Add-ExecutionLog "REPO_RESULT_ACCEPTED status=$status"
+            }
+            else {
+                Add-ExecutionLog "REPO_RESULT_COERCED status=$status"
+            }
+        }
+        else {
+            Add-ExecutionLog 'REPO_RESULT_COERCED reason=MISSING_STATUS_AND_ARTIFACTS'
+        }
+    }
+
+    if (-not $hasSignals) {
         return @{
             status = 'FAIL'
             reason = "${name}_INVALID_RESULT"
@@ -466,8 +533,8 @@ function Normalize-Result {
     }
 
     return @{
-        status = [string]$r.status
-        reason = [string]$r.reason
+        status = $status
+        reason = $reason
     }
 }
 
@@ -505,6 +572,8 @@ else {
 $repo = if ($null -ne $assembled -and $null -ne $assembled.bundle_status) { $assembled.bundle_status.repo } else { $null }
 $zip = if ($null -ne $assembled -and $null -ne $assembled.bundle_status) { $assembled.bundle_status.zip } else { $null }
 $url = if ($null -ne $assembled -and $null -ne $assembled.bundle_status) { $assembled.bundle_status.url } else { $null }
+
+Write-Output ($repo | ConvertTo-Json -Depth 5)
 
 $repo = Normalize-Result $repo 'repo'
 $zip = Normalize-Result $zip 'zip'
