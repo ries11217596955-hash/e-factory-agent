@@ -513,7 +513,7 @@ function New-OperatorReportData {
             $normalizedRoutes = [int](if ($null -ne $liveSummary.PSObject.Properties['normalized_route_entries']) { $liveSummary.normalized_route_entries } else { 0 })
 
             if ($pageQualityStatus -eq 'NOT_EVALUATED') {
-                $detail = if (-not [string]::IsNullOrWhiteSpace($evaluationError)) { "$failureStage: $evaluationError" } else { $failureStage }
+                $detail = if (-not [string]::IsNullOrWhiteSpace($evaluationError)) { "${failureStage}: $evaluationError" } else { $failureStage }
                 if ($totalRoutes -gt 0 -or $rawRoutes -gt 0 -or $normalizedRoutes -gt 0) {
                     Add-UniqueLimitedItems -Target $p1 -Seen $seen -Candidates @("Page quality rollup is NOT_EVALUATED but route evidence exists ($detail).")
                 }
