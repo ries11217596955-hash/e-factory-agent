@@ -107,13 +107,14 @@ function Safe-Get {
     }
 
     if ($Object -is [System.Collections.IDictionary]) {
-        foreach ($candidateKey in @($Object.Keys)) {
+        foreach ($entry in @($Object.GetEnumerator())) {
+            $candidateKey = Safe-Get -Object $entry -Key 'Key' -Default $null
             if ($null -eq $candidateKey) { continue }
             if ($candidateKey -eq $Key) {
-                return $Object[$candidateKey]
+                return (Safe-Get -Object $entry -Key 'Value' -Default $Default)
             }
             if ([string]$candidateKey -eq $Key) {
-                return $Object[$candidateKey]
+                return (Safe-Get -Object $entry -Key 'Value' -Default $Default)
             }
         }
         return $Default

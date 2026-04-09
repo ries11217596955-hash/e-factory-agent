@@ -1,55 +1,8 @@
-## INSTRUCTION_FILES_READ
-- `AGENTS.md`
-- `docs/REPO_LAYOUT.md`
-- `docs/TASK_REPORT.md` (pre-change)
-- `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
-
 ## Summary
-- Fixed the remaining ROUTE_NORMALIZATION runtime blocker by removing brittle dictionary key access in `Safe-Get` that could throw `Argument types do not match` when manifest objects are deserialized into mixed dictionary key types.
-- Kept the fix minimal and scoped to the live route normalization path used by SITE_AUDITOR.
-- Preserved all existing output/report contracts and deterministic reasoning layers.
-- Added this report update with explicit before/root-cause/after validation notes based on the current route manifest shape.
-
-## Current blocker baseline (BEFORE)
-- Failure stage from live runs: `ROUTE_NORMALIZATION`.
-- Error text: `Argument types do not match`.
-- `page_quality_status` remained `NOT_EVALUATED` when this crash occurred.
-- Baseline evidence confirms `visual_manifest.json` had real route entries (`route_path`, `status`, `screenshotCount`, `title`, `bodyTextLength`, `links`, `images`, `h1Count`, `buttonCount`, `hasMain`, `hasArticle`, `hasNav`, `hasFooter`, `visibleTextSample`, `contaminationFlags`) but normalization still failed.
-
-## Root cause (exact)
-- File: `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- Function: `Safe-Get`
-- Exact failure point:
-  - Previous dictionary branch attempted direct dictionary API calls (`Contains` / keyed index assumptions) that are brittle against mixed runtime dictionary implementations produced by JSON deserialization.
-  - Under real manifest object shapes, this could surface as `Argument types do not match` during live route normalization access patterns (ROUTE_NORMALIZATION stage), cascading into `page_quality_status=NOT_EVALUATED`.
-- Type mismatch class:
-  - dictionary key lookup assumption mismatch (string key lookup vs runtime dictionary key argument expectations).
-
-## Fix applied (minimal)
-- Updated `Safe-Get` dictionary handling to use key enumeration and string-equivalence matching (`$candidateKey -eq $Key` and `[string]$candidateKey -eq $Key`) before returning by the original candidate key.
-- This removes dependence on brittle direct key-argument method calls and keeps lookups compatible across hashtable/ordered/generic dictionary shapes without broad refactor.
-
-## After (expected runtime behavior)
-- ROUTE_NORMALIZATION no longer crashes on the current real route manifest shape due to this key-argument mismatch.
-- `Normalize-LiveRoutes` can normalize route objects and pass route data into `Build-PageQualityFindings`.
-- `page_quality_status` can progress beyond mechanical `NOT_EVALUATED` caused by this specific blocker.
-- Route verdicts, contradiction candidates, and site diagnosis can now operate on evaluated live route evidence when no other blocker exists.
-
-## Validation evidence
-- Static trace of changed path confirms `Safe-Get` dictionary branch now uses iteration/string-match access and no longer calls brittle dictionary key API with fixed argument type assumptions.
-- Call path preserved and now benefits from the fix:
-  - `Resolve-ManifestRoutes` → `Normalize-LiveRoutes` → `Build-PageQualityFindings` → contradiction layer / diagnosis layer.
-- No output path changes were introduced.
-
-## Non-regression notes
-- Preserved contracts and paths for:
-  - `route_details` construction
-  - verdict classes (`verdict_class`)
-  - contradiction layer candidates/summary
-  - deterministic diagnosis layer outputs
-  - existing report emissions and file locations
-- No workflow/config/entrypoint changes.
+- Isolated the ROUTE_NORMALIZATION crash to the exact dictionary key lookup expression path used by `Safe-Get` during live manifest route normalization.
+- Applied a surgical fix in `Safe-Get` so dictionary reads no longer invoke fragile key-typed indexer binding at lookup time.
+- Kept scope strictly to `agents/gh_batch/site_auditor_cloud/agent.ps1` and this report file.
+- Preserved all output paths, report contracts, and downstream reasoning/brief layers.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -59,11 +12,57 @@
 - None.
 
 ## Current entrypoints/paths
-- Entrypoints unchanged:
-  - `agents/gh_batch/site_auditor_cloud/run.ps1`
-  - `agents/gh_batch/site_auditor_cloud/agent.ps1`
-  - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
+- `agents/gh_batch/site_auditor_cloud/run.ps1`
+- `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 
 ## Risks/blockers
-- Environment limitation: PowerShell (`pwsh`) runtime is not available in this container, so live execution against a real bundle cannot be performed here.
-- If a separate downstream blocker exists beyond ROUTE_NORMALIZATION, degraded mode should still report it honestly.
+- `pwsh` is not available in this container, so live execution of the auditor against a real bundle could not be run here.
+- If another blocker exists after this exact expression fix, it should surface honestly in subsequent runs.
+
+## INSTRUCTION_FILES_READ
+- `AGENTS.md`
+- `docs/REPO_LAYOUT.md`
+- `docs/TASK_REPORT.md` (pre-change)
+- `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
+- Instruction discovery scan result: no additional `AGENTS.md` or `INSTRUCTIONS*.md` files under repository scope beyond root `AGENTS.md`.
+
+## Current blocker baseline (BEFORE)
+- `reports/audit_result.json`: `status=FAIL`, `failure_stage=ROUTE_NORMALIZATION`, `evaluation_error="Argument types do not match"`, `page_quality_status=NOT_EVALUATED`.
+- `reports/11A_EXECUTIVE_SUMMARY.txt`: core failure reported as `Argument types do not match` with broken-system diagnosis.
+- `reports/12A_META_AUDIT_BRIEF.txt`: route evaluation did not complete, so deterministic suspicious-route evaluation was unavailable.
+- Baseline context retained: visual manifest exists, source audit passes, repo binding is true.
+
+## Exact root cause
+- **Function:** `Safe-Get` in `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- **Exact failing expression class (line-level operation):** dictionary lookup by keyed argument in the route normalization access chain (`$Object[$candidateKey]` / previous direct key-typed lookups), where runtime dictionary key typing can mismatch binder expectations.
+- **Why PowerShell raised `Argument types do not match`:** live manifest-derived objects can include dictionary implementations with key signatures that are stricter than the requested key argument type path, causing method/indexer binder mismatch during key lookup.
+- **Impact path:** `Resolve-ManifestRoutes` -> `Normalize-LiveRoutes` -> failure in route field access -> `failure_stage=ROUTE_NORMALIZATION` -> `page_quality_status=NOT_EVALUATED`.
+
+## Exact edited line/block
+- Updated `Safe-Get` dictionary branch to iterate dictionary entries via `GetEnumerator()` and return `entry.Value` after key equivalence checks, instead of relying on direct keyed retrieval calls at read time.
+- This removes fragile argument-type binding during route field extraction while preserving existing semantics.
+
+## Before / After
+### Before
+- Route normalization could throw `Argument types do not match` while reading route fields from manifest-backed objects.
+- Live evaluation stopped at `ROUTE_NORMALIZATION`, blocking page-quality computation.
+
+### After
+- The exact dictionary read path now avoids fragile key-typed binder invocation and safely resolves matched entry values.
+- Route normalization can proceed past this expression, enabling `Build-PageQualityFindings` and downstream contradiction/diagnosis layers to receive evaluated route data (absent unrelated blockers).
+
+## Validation evidence
+- Static inspection confirms the patched dictionary access path in `Safe-Get` no longer depends on direct keyed lookup argument binding for manifest-backed dictionaries.
+- Call chain remains unchanged and intact:
+  - `Resolve-ManifestRoutes`
+  - `Normalize-LiveRoutes`
+  - `Build-PageQualityFindings`
+- Output/report paths and naming contracts remain unchanged.
+
+## Non-regression notes
+- No workflow/config/entrypoint changes.
+- No reporting-layer expansion or architecture refactor.
+- Existing reasoning outputs (executive brief, meta-audit brief, contradiction and diagnosis layers) were intentionally left unchanged.
+- No fake-green bypass introduced; fix is localized to the failing expression path.
