@@ -317,6 +317,245 @@ function Invoke-AssemblyStage {
     return $assembled
 }
 
+function Get-FileLinesIfPresent {
+    param([string]$Path)
+
+    if (Test-Path -Path $Path -PathType Leaf) {
+        return @(Get-Content -Path $Path -ErrorAction SilentlyContinue)
+    }
+
+    return @()
+}
+
+function Get-ListItemsFromLines {
+    param([string[]]$Lines)
+
+    $items = New-Object System.Collections.Generic.List[string]
+    foreach ($lineRaw in @($Lines)) {
+        $line = [string]$lineRaw
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+
+        $clean = $line.Trim()
+        if ($clean -match '^\-\s+(.+)$') {
+            $clean = $matches[1].Trim()
+        }
+        elseif ($clean -match '^\d+\)\s+(.+)$') {
+            $clean = $matches[1].Trim()
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($clean) -and $clean -ne 'none') {
+            $items.Add($clean)
+        }
+    }
+
+    return @($items)
+}
+
+function Get-SectionItems {
+    param(
+        [string[]]$Lines,
+        [string]$Section,
+        [string[]]$StopSections
+    )
+
+    $capture = $false
+    $captured = New-Object System.Collections.Generic.List[string]
+    foreach ($lineRaw in @($Lines)) {
+        $line = ([string]$lineRaw).Trim()
+        if (-not $capture) {
+            if ($line -ieq $Section) {
+                $capture = $true
+            }
+            continue
+        }
+
+        if ($StopSections -icontains $line) {
+            break
+        }
+
+        if ($line -match '^\-\s+(.+)$') {
+            $captured.Add($matches[1].Trim())
+        }
+    }
+
+    return @($captured)
+}
+
+function Add-UniqueLimitedItems {
+    param(
+        [System.Collections.Generic.List[string]]$Target,
+        [hashtable]$Seen,
+        [string[]]$Candidates,
+        [int]$MaxItems = 5
+    )
+
+    foreach ($candidateRaw in @($Candidates)) {
+        if ($Target.Count -ge $MaxItems) {
+            break
+        }
+
+        $candidate = [string]$candidateRaw
+        if ([string]::IsNullOrWhiteSpace($candidate)) {
+            continue
+        }
+
+        $key = $candidate.Trim().ToLowerInvariant()
+        if (-not $Seen.ContainsKey($key)) {
+            $Seen[$key] = $true
+            $Target.Add($candidate.Trim())
+        }
+    }
+}
+
+function New-OperatorReportData {
+    param($Assembled)
+
+    $repoRoot = Join-Path $bundleRoot 'repo'
+    $reportsDir = Join-Path $repoRoot 'reports'
+    $outboxDir = Join-Path $repoRoot 'outbox'
+
+    $reportLines = Get-FileLinesIfPresent -Path (Join-Path $outboxDir 'REPORT.txt')
+    $priorityLines = Get-ListItemsFromLines -Lines (Get-FileLinesIfPresent -Path (Join-Path $reportsDir '00_PRIORITY_ACTIONS.txt'))
+    $topIssueLines = Get-ListItemsFromLines -Lines (Get-FileLinesIfPresent -Path (Join-Path $reportsDir '01_TOP_ISSUES.txt'))
+
+    $p0 = New-Object System.Collections.Generic.List[string]
+    $p1 = New-Object System.Collections.Generic.List[string]
+    $p2 = New-Object System.Collections.Generic.List[string]
+    $seen = @{}
+
+    Add-UniqueLimitedItems -Target $p0 -Seen $seen -Candidates (Get-SectionItems -Lines $reportLines -Section 'P0:' -StopSections @('P1:', 'P2:', 'DO NEXT:'))
+    Add-UniqueLimitedItems -Target $p1 -Seen $seen -Candidates (Get-SectionItems -Lines $reportLines -Section 'P1:' -StopSections @('P2:', 'DO NEXT:'))
+    Add-UniqueLimitedItems -Target $p2 -Seen $seen -Candidates (Get-SectionItems -Lines $reportLines -Section 'P2:' -StopSections @('DO NEXT:'))
+
+    if ($p0.Count -eq 0 -and $p1.Count -eq 0 -and $p2.Count -eq 0 -and $topIssueLines.Count -gt 0) {
+        if ($Assembled.overall_status -eq 'FAIL') {
+            Add-UniqueLimitedItems -Target $p0 -Seen $seen -Candidates $topIssueLines
+        }
+        elseif ($Assembled.overall_status -eq 'PARTIAL') {
+            Add-UniqueLimitedItems -Target $p1 -Seen $seen -Candidates $topIssueLines
+        }
+        else {
+            Add-UniqueLimitedItems -Target $p2 -Seen $seen -Candidates $topIssueLines
+        }
+    }
+
+    $doNext = New-Object System.Collections.Generic.List[string]
+    $doNextFromReport = Get-SectionItems -Lines $reportLines -Section 'DO NEXT:' -StopSections @()
+    Add-UniqueLimitedItems -Target $doNext -Seen @{} -Candidates $doNextFromReport -MaxItems 3
+    if ($doNext.Count -eq 0) {
+        Add-UniqueLimitedItems -Target $doNext -Seen @{} -Candidates $priorityLines -MaxItems 3
+    }
+
+    if ($doNext.Count -eq 0) {
+        if ($p0.Count -gt 0) {
+            $doNext.Add('Fix P0 items and rerun SITE_AUDITOR in REPO mode.')
+            $doNext.Add('Validate TARGET_REPO_PATH and confirm reports are regenerated.')
+        }
+        elseif ($Assembled.overall_status -eq 'PARTIAL') {
+            $doNext.Add('Resolve the blocking warnings causing PARTIAL status.')
+            $doNext.Add('Rerun SITE_AUDITOR to complete missing coverage.')
+        }
+        else {
+            $doNext.Add('Track remaining findings in remediation backlog.')
+            $doNext.Add('Rerun SITE_AUDITOR after major site changes.')
+        }
+    }
+
+    $coreProblem = 'No critical problem was found in the collected audit evidence.'
+    if ($p0.Count -gt 0) {
+        $coreProblem = $p0[0]
+    }
+    elseif ($Assembled.overall_status -eq 'FAIL') {
+        $repoReason = [string]$Assembled.bundle_status.repo.reason
+        if ([string]::IsNullOrWhiteSpace($repoReason)) {
+            $repoReason = 'audit execution failed before useful evidence was produced'
+        }
+        $coreProblem = "Critical audit failure: $repoReason."
+    }
+    elseif ($p1.Count -gt 0) {
+        $coreProblem = $p1[0]
+    }
+    elseif ($Assembled.overall_status -eq 'PARTIAL') {
+        $coreProblem = 'Partial run produced actionable findings, but full coverage is incomplete.'
+    }
+
+    return @{
+        core_problem = $coreProblem
+        p0 = @($p0)
+        p1 = @($p1)
+        p2 = @($p2)
+        do_next = @($doNext | Select-Object -First 3)
+        reports_dir = $reportsDir
+        outbox_dir = $outboxDir
+    }
+}
+
+function Write-OperatorBundleFiles {
+    param(
+        $Assembled,
+        [hashtable]$OperatorData
+    )
+
+    $confidence = if ($Assembled.overall_status -eq 'PARTIAL') {
+        'Confidence: Limited - PARTIAL run; findings reflect available evidence only.'
+    }
+    elseif ($Assembled.overall_status -eq 'FAIL') {
+        'Confidence: Limited - execution failed or incomplete; review execution log and retained evidence.'
+    }
+    else {
+        'Confidence: High - full enabled checks completed.'
+    }
+
+    $groupLines = @(
+        'P0:'
+    )
+    $groupLines += if ($OperatorData.p0.Count -gt 0) { $OperatorData.p0 | ForEach-Object { "- $_" } } else { '- none' }
+    $groupLines += 'P1:'
+    $groupLines += if ($OperatorData.p1.Count -gt 0) { $OperatorData.p1 | ForEach-Object { "- $_" } } else { '- none' }
+    $groupLines += 'P2:'
+    $groupLines += if ($OperatorData.p2.Count -gt 0) { $OperatorData.p2 | ForEach-Object { "- $_" } } else { '- none' }
+
+    $priorityActionsLines = @(
+        'SITE_AUDITOR PRIORITY ACTIONS',
+        "OVERALL: $($Assembled.overall_status)",
+        "CORE_PROBLEM: $($OperatorData.core_problem)",
+        $confidence,
+        '',
+        'PRIORITY_GROUPS'
+    ) + $groupLines + @(
+        '',
+        'DO_NEXT'
+    ) + ($OperatorData.do_next | ForEach-Object { "- $_" })
+
+    $topIssuesLines = @(
+        'SITE_AUDITOR TOP ISSUES',
+        "CORE_PROBLEM: $($OperatorData.core_problem)",
+        ''
+    ) + $groupLines
+
+    $summaryLines = @(
+        'SITE_AUDITOR EXECUTIVE SUMMARY',
+        "GENERATED: $($Assembled.generated_at)",
+        "OVERALL_STATUS: $($Assembled.overall_status)",
+        "CORE_PROBLEM: $($OperatorData.core_problem)",
+        $confidence,
+        '',
+        'DO_NEXT (max 3)'
+    ) + ($OperatorData.do_next | ForEach-Object { "- $_" }) + @(
+        '',
+        "DETAILS: $($OperatorData.outbox_dir)/REPORT.txt",
+        "SOURCE_REPORTS: $($OperatorData.reports_dir)"
+    )
+
+    $priorityActionsLines | Out-File -FilePath (Join-Path $bundleRoot '00_PRIORITY_ACTIONS.txt') -Encoding utf8
+    $topIssuesLines | Out-File -FilePath (Join-Path $bundleRoot '01_TOP_ISSUES.txt') -Encoding utf8
+    $summaryLines | Out-File -FilePath (Join-Path $bundleRoot '11A_EXECUTIVE_SUMMARY.txt') -Encoding utf8
+
+    Add-ExecutionLog 'OPERATOR_FILES_WRITTEN=00_PRIORITY_ACTIONS.txt,01_TOP_ISSUES.txt,11A_EXECUTIVE_SUMMARY.txt'
+}
+
 function New-ReportLines {
     param($Assembled)
 
@@ -341,6 +580,9 @@ function New-ReportLines {
     $lines.Add('EXECUTION LOG: audit_bundle/EXECUTION_LOG.txt')
     $lines.Add('MASTER SUMMARY: audit_bundle/master_summary.json')
     $lines.Add('BUNDLE STATUS: audit_bundle/audit_bundle_summary.json')
+    $lines.Add('OPERATOR PRIORITY ACTIONS: audit_bundle/00_PRIORITY_ACTIONS.txt')
+    $lines.Add('OPERATOR TOP ISSUES: audit_bundle/01_TOP_ISSUES.txt')
+    $lines.Add('OPERATOR EXECUTIVE SUMMARY: audit_bundle/11A_EXECUTIVE_SUMMARY.txt')
     $lines.Add('')
     $lines.Add('SCREENSHOTS')
     $lines.Add('-----------')
@@ -390,6 +632,8 @@ function Invoke-WritingStage {
     try {
         $assembled.bundle_status | ConvertTo-Json -Depth 6 | Out-File -FilePath $bundleStatusPath -Encoding utf8
         $assembled | ConvertTo-Json -Depth 8 | Out-File -FilePath $summaryPath -Encoding utf8
+        $operatorData = New-OperatorReportData -Assembled $Assembled
+        Write-OperatorBundleFiles -Assembled $Assembled -OperatorData $operatorData
         (New-ReportLines -Assembled $Assembled) | Out-File -FilePath $reportPath -Encoding utf8
         $script:ExecutionLog | Out-File -FilePath $executionLogPath -Encoding utf8
     }
