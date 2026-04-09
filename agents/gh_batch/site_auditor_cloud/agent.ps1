@@ -99,6 +99,9 @@ function Get-ObjectShapeSummary {
 function Set-RouteNormalizationForensics {
     param(
         [string]$FunctionName,
+        [string]$ActivePhase = '',
+        [string]$ActiveOperationLabel = '',
+        [string]$ActiveExpression = '',
         [string]$OperationLabel = '',
         [string]$Expression,
         [object]$LeftOperand,
@@ -137,6 +140,9 @@ function Set-RouteNormalizationForensics {
     $global:RouteNormalizationForensics = [ordered]@{
         failure_stage = 'ROUTE_NORMALIZATION'
         function_name = $FunctionName
+        activePhase = if ([string]::IsNullOrWhiteSpace($ActivePhase)) { '' } else { $ActivePhase }
+        activeOperationLabel = if ([string]::IsNullOrWhiteSpace($ActiveOperationLabel)) { $OperationLabel } else { $ActiveOperationLabel }
+        activeExpression = if ([string]::IsNullOrWhiteSpace($ActiveExpression)) { $Expression } else { $ActiveExpression }
         operation_label = $OperationLabel
         expression = $Expression
         variable_names = @($VariableNames)
@@ -754,6 +760,7 @@ function Normalize-LiveRoutes {
             if ([string]::IsNullOrWhiteSpace($routeError)) { $routeError = 'Unknown route normalization error.' }
             Add-RouteNormalizationTracePhase -PhaseName $activePhase -RouteIndex $index -RoutePathIfAvailable $routePath -PhaseObject $route -Status 'failed' -OperationLabel $activeOperationLabel -Expression $activeExpression -ErrorRecord $_ -LeftOperand $route -RightOperand $null
             Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -OperationLabel $activeOperationLabel -Expression $activeExpression -LeftOperand $route -RightOperand $null -VariableNames @('route') -AdditionalContext @{
+                activePhase = $activePhase
                 route_index = $index
                 phase_name = $activePhase
                 route_error = $routeError
@@ -764,14 +771,25 @@ function Normalize-LiveRoutes {
         }
     }
 
+    $aggregateComputedCounts = [ordered]@{
+        raw_route_count = $null
+        normalized_count = $null
+        dropped_delta = $null
+        dropped_count = $null
+    }
+
     $rawRouteCount = $null
     try {
-        $rawRouteCount = @($rawRoutes).Count
-        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_raw_route_count' -OperationLabel 'OP1_raw_route_count' -Expression '@($rawRoutes).Count' -LeftOperand $rawRoutes -RightOperand $rawRouteCount -Status 'ok'
+        $rawRouteCountRead = @($rawRoutes).Count
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_raw_route_count_read' -OperationLabel 'OP1A_raw_route_count_read' -Expression '@($rawRoutes).Count' -LeftOperand $rawRoutes -RightOperand $rawRouteCountRead -Status 'ok'
+        $rawRouteCount = Convert-ToIntSafe -Value $rawRouteCountRead -Default 0
+        $aggregateComputedCounts.raw_route_count = $rawRouteCount
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_raw_route_count_coerce' -OperationLabel 'OP1B_raw_route_count_to_int' -Expression 'Convert-ToIntSafe -Value $rawRouteCountRead -Default 0' -LeftOperand $rawRouteCountRead -RightOperand $rawRouteCount -Status 'ok'
     }
     catch {
-        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_raw_route_count' -OperationLabel 'OP1_raw_route_count' -Expression '@($rawRoutes).Count' -LeftOperand $rawRoutes -RightOperand $null -Status 'failed' -ErrorRecord $_
-        Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -OperationLabel 'OP1_raw_route_count' -Expression '@($rawRoutes).Count' -LeftOperand $rawRoutes -RightOperand $null -VariableNames @('rawRoutes') -AdditionalContext @{
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_raw_route_count' -OperationLabel 'OP1_raw_route_count' -Expression '@($rawRoutes).Count -> Convert-ToIntSafe' -LeftOperand $rawRoutes -RightOperand $rawRouteCount -Status 'failed' -ErrorRecord $_
+        Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -ActivePhase 'aggregate_raw_route_count' -ActiveOperationLabel 'OP1_raw_route_count' -ActiveExpression '@($rawRoutes).Count -> Convert-ToIntSafe' -OperationLabel 'OP1_raw_route_count' -Expression '@($rawRoutes).Count -> Convert-ToIntSafe' -LeftOperand $rawRoutes -RightOperand $rawRouteCount -VariableNames @('rawRoutes', 'rawRouteCountRead', 'rawRouteCount') -AdditionalContext @{
+            counts_computed_before_failure = $aggregateComputedCounts
             stack_hint = $_.ScriptStackTrace
         }
         throw
@@ -779,12 +797,16 @@ function Normalize-LiveRoutes {
 
     $normalizedCount = $null
     try {
-        $normalizedCount = $normalized.Count
-        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_normalized_count' -OperationLabel 'OP2_normalized_count' -Expression '$normalized.Count' -LeftOperand $normalized -RightOperand $normalizedCount -Status 'ok'
+        $normalizedCountRead = $normalized.Count
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_normalized_count_read' -OperationLabel 'OP2A_normalized_count_read' -Expression '$normalized.Count' -LeftOperand $normalized -RightOperand $normalizedCountRead -Status 'ok'
+        $normalizedCount = Convert-ToIntSafe -Value $normalizedCountRead -Default 0
+        $aggregateComputedCounts.normalized_count = $normalizedCount
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_normalized_count_coerce' -OperationLabel 'OP2B_normalized_count_to_int' -Expression 'Convert-ToIntSafe -Value $normalizedCountRead -Default 0' -LeftOperand $normalizedCountRead -RightOperand $normalizedCount -Status 'ok'
     }
     catch {
-        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_normalized_count' -OperationLabel 'OP2_normalized_count' -Expression '$normalized.Count' -LeftOperand $normalized -RightOperand $null -Status 'failed' -ErrorRecord $_
-        Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -OperationLabel 'OP2_normalized_count' -Expression '$normalized.Count' -LeftOperand $normalized -RightOperand $null -VariableNames @('normalized') -AdditionalContext @{
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_normalized_count' -OperationLabel 'OP2_normalized_count' -Expression '$normalized.Count -> Convert-ToIntSafe' -LeftOperand $normalized -RightOperand $normalizedCount -Status 'failed' -ErrorRecord $_
+        Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -ActivePhase 'aggregate_normalized_count' -ActiveOperationLabel 'OP2_normalized_count' -ActiveExpression '$normalized.Count -> Convert-ToIntSafe' -OperationLabel 'OP2_normalized_count' -Expression '$normalized.Count -> Convert-ToIntSafe' -LeftOperand $normalized -RightOperand $normalizedCount -VariableNames @('normalized', 'normalizedCountRead', 'normalizedCount') -AdditionalContext @{
+            counts_computed_before_failure = $aggregateComputedCounts
             stack_hint = $_.ScriptStackTrace
         }
         throw
@@ -792,12 +814,17 @@ function Normalize-LiveRoutes {
 
     $droppedDelta = $null
     try {
-        $droppedDelta = ([int]$rawRouteCount) - ([int]$normalizedCount)
-        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_count_subtraction' -OperationLabel 'OP3_count_subtraction' -Expression '([int]$rawRouteCount) - ([int]$normalizedCount)' -LeftOperand $rawRouteCount -RightOperand $normalizedCount -Status 'ok'
+        $rawRouteCountInt = Convert-ToIntSafe -Value $rawRouteCount -Default 0
+        $normalizedCountInt = Convert-ToIntSafe -Value $normalizedCount -Default 0
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_count_subtraction_input_coerce' -OperationLabel 'OP3A_subtraction_input_to_int' -Expression 'Convert-ToIntSafe(rawRouteCount/normalizedCount)' -LeftOperand $rawRouteCountInt -RightOperand $normalizedCountInt -Status 'ok'
+        $droppedDelta = [int]($rawRouteCountInt - $normalizedCountInt)
+        $aggregateComputedCounts.dropped_delta = $droppedDelta
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_count_subtraction' -OperationLabel 'OP3B_count_subtraction' -Expression '[int]($rawRouteCountInt - $normalizedCountInt)' -LeftOperand $rawRouteCountInt -RightOperand $normalizedCountInt -Status 'ok'
     }
     catch {
-        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_count_subtraction' -OperationLabel 'OP3_count_subtraction' -Expression '([int]$rawRouteCount) - ([int]$normalizedCount)' -LeftOperand $rawRouteCount -RightOperand $normalizedCount -Status 'failed' -ErrorRecord $_
-        Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -OperationLabel 'OP3_count_subtraction' -Expression '([int]$rawRouteCount) - ([int]$normalizedCount)' -LeftOperand $rawRouteCount -RightOperand $normalizedCount -VariableNames @('rawRouteCount', 'normalizedCount') -AdditionalContext @{
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_count_subtraction' -OperationLabel 'OP3_count_subtraction' -Expression 'Convert-ToIntSafe(rawRouteCount/normalizedCount) -> subtraction' -LeftOperand $rawRouteCount -RightOperand $normalizedCount -Status 'failed' -ErrorRecord $_
+        Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -ActivePhase 'aggregate_count_subtraction' -ActiveOperationLabel 'OP3_count_subtraction' -ActiveExpression 'Convert-ToIntSafe(rawRouteCount/normalizedCount) -> subtraction' -OperationLabel 'OP3_count_subtraction' -Expression 'Convert-ToIntSafe(rawRouteCount/normalizedCount) -> subtraction' -LeftOperand $rawRouteCount -RightOperand $normalizedCount -VariableNames @('rawRouteCount', 'normalizedCount', 'rawRouteCountInt', 'normalizedCountInt', 'droppedDelta') -AdditionalContext @{
+            counts_computed_before_failure = $aggregateComputedCounts
             stack_hint = $_.ScriptStackTrace
             route_path = ''
         }
@@ -806,12 +833,17 @@ function Normalize-LiveRoutes {
 
     $droppedCount = $null
     try {
-        $droppedCount = [int]([Math]::Max(0, ([int]$droppedDelta)))
-        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_drop_count_math' -OperationLabel 'OP4_math_max_dropped_count' -Expression '[int]([Math]::Max(0, ([int]$droppedDelta)))' -LeftOperand 0 -RightOperand $droppedDelta -Status 'ok'
+        $zeroBoundary = 0
+        $droppedDeltaInt = Convert-ToIntSafe -Value $droppedDelta -Default 0
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_drop_count_coerce' -OperationLabel 'OP4A_dropped_delta_to_int' -Expression 'Convert-ToIntSafe -Value $droppedDelta -Default 0' -LeftOperand $droppedDelta -RightOperand $droppedDeltaInt -Status 'ok'
+        $droppedCount = [int]([Math]::Max([int]$zeroBoundary, [int]$droppedDeltaInt))
+        $aggregateComputedCounts.dropped_count = $droppedCount
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_drop_count_math' -OperationLabel 'OP4B_math_max_dropped_count' -Expression '[Math]::Max([int]$zeroBoundary, [int]$droppedDeltaInt)' -LeftOperand $zeroBoundary -RightOperand $droppedDeltaInt -Status 'ok'
     }
     catch {
-        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_drop_count_math' -OperationLabel 'OP4_math_max_dropped_count' -Expression '[int]([Math]::Max(0, ([int]$droppedDelta)))' -LeftOperand 0 -RightOperand $droppedDelta -Status 'failed' -ErrorRecord $_
-        Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -OperationLabel 'OP4_math_max_dropped_count' -Expression '[int]([Math]::Max(0, ([int]$droppedDelta)))' -LeftOperand 0 -RightOperand $droppedDelta -VariableNames @('0', 'droppedDelta') -AdditionalContext @{
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_drop_count_math' -OperationLabel 'OP4_math_max_dropped_count' -Expression 'Convert-ToIntSafe($droppedDelta) -> [Math]::Max' -LeftOperand 0 -RightOperand $droppedDelta -Status 'failed' -ErrorRecord $_
+        Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -ActivePhase 'aggregate_drop_count_math' -ActiveOperationLabel 'OP4_math_max_dropped_count' -ActiveExpression 'Convert-ToIntSafe($droppedDelta) -> [Math]::Max' -OperationLabel 'OP4_math_max_dropped_count' -Expression 'Convert-ToIntSafe($droppedDelta) -> [Math]::Max' -LeftOperand 0 -RightOperand $droppedDelta -VariableNames @('zeroBoundary', 'droppedDelta', 'droppedDeltaInt', 'droppedCount') -AdditionalContext @{
+            counts_computed_before_failure = $aggregateComputedCounts
             raw_route_count = $rawRouteCount
             normalized_count = $normalizedCount
             stack_hint = $_.ScriptStackTrace
@@ -1136,6 +1168,9 @@ function Invoke-LiveAudit {
                 $routeNormalizationDebug = [ordered]@{
                     failure_stage = 'ROUTE_NORMALIZATION'
                     function_name = 'unknown'
+                    activePhase = 'unknown'
+                    activeOperationLabel = 'unknown'
+                    activeExpression = 'unknown'
                     expression = 'unknown'
                     left_type = '<unknown>'
                     right_type = '<unknown>'
