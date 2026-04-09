@@ -9,116 +9,84 @@
 - `docs/PHASE3_STATUS.md`
 - `docs/FINAL_ROOT_CLOSEOUT.md`
 - `docs/history/site_auditor_agent/README.md`
-- `docs/history/site_auditor_agent/V3_5_REPAIR_INTELLIGENCE.txt`
-- `docs/history/site_auditor_agent/V3_4_0_REPORT_OUTPUT_FIX.txt`
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
 - `agents/gh_batch/site_auditor_cloud/run.ps1`
 - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 
 ## Task
-Upgrade SITE_AUDITOR from a flag-based checker to a decision-grade page-quality auditor while preserving deterministic behavior and existing output contract.
+Add a deterministic meta-analysis handoff layer to SITE_AUDITOR by generating `reports/12A_META_AUDIT_BRIEF.txt` from existing evidence.
 
 ## Repository scope (Allowed / Forbidden)
 - Allowed paths used:
   - `agents/gh_batch/site_auditor_cloud/agent.ps1`
+  - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
   - `docs/TASK_REPORT.md`
 - Forbidden/protected paths respected:
   - no `.github/workflows/` changes
-  - no entrypoint/routing/runtime-flow redesign
+  - no entrypoint or runtime-flow redesign
   - no Playwright redesign
-  - no broad architecture refactor
-  - no unrelated cleanup
+  - no broad refactor or unrelated cleanup
 
 ## Mode
 PR-first.
 
-## Requirements
-Implemented deterministic reasoning upgrades for:
-- route verdict classification
-- site-wide repeated pattern detection
-- smarter priority grouping (trust/conversion/coverage/secondary)
-- concrete do_next action shaping (max 3)
-- preserved existing report/bundle file contract
+## Current baseline
+- Operator outputs existed (`00_PRIORITY_ACTIONS`, `01_TOP_ISSUES`, `11A_EXECUTIVE_SUMMARY`, `REPORT.txt`, JSON truth files), but there was no dedicated analyst handoff layer.
+- Analysts had to manually infer comparison targets from mixed operator/technical artifacts.
 
-## Current baseline (BEFORE)
-- Existing route-level low-level flags existed (`empty`, `thin`, `weak_cta`, `dead_end`, `ui_contamination`).
-- Existing decision layer mostly mapped flag counts to P0/P1/P2 mechanically.
-- Existing `do_next` text was generic and not tied to dominant evidence clusters.
+## Why analyst handoff layer is needed
+- Deterministic outputs already capture strong route-level and site-pattern evidence, but there was no explicit bridge telling the next analyst what to compare, distrust, and decide first.
+- A structured handoff reduces interpretation drift and makes degraded/PARTIAL honesty explicit.
 
-## Upgrade design (AFTER)
-1. **Route verdict classification (deterministic):**
-   - Added `Get-RoutePrimaryVerdict` and emitted one `verdict_class` per route in `route_details`.
-   - Verdict classes now include: `EMPTY`, `THIN`, `WEAK_DECISION`, `WEAK_CONVERSION`, `DEAD_END`, `TRUST_CONTAMINATED`, `HEALTHY`, `MIXED`.
+## Before / After
+### BEFORE
+- No `reports/12A_META_AUDIT_BRIEF.txt` file generation.
+- No deterministic watchlist-oriented analyst brief section in reporting phase.
 
-2. **Site-wide pattern detection:**
-   - Added `Build-SitePatternSummary` to detect repeated (>=2 routes) vs isolated (=1 route) pattern clusters.
-   - Added `site_pattern_summary` into `live.summary` for downstream reporting.
-
-3. **Priority reasoning improvements:**
-   - `Build-DecisionLayer` now emits priority text grouped by impact type:
-     - trust blocker
-     - conversion blocker
-     - coverage/content blocker
-     - secondary optimization issue
-   - Preserved `p0`, `p1`, `p2` output contract.
-
-4. **Operator action shaping:**
-   - `do_next` is now evidence-shaped and capped to 3 items.
-   - Actions prioritize empty-route restoration, CTA-path restoration, contamination cleanup, and rerun after dominant pattern cluster fixes.
-
-5. **Operator/report propagation:**
-   - `00_PRIORITY_ACTIONS.txt` now mirrors `do_next` (numbered) when present.
-   - `11A_EXECUTIVE_SUMMARY.txt` and `REPORT.txt` now include repeated/isolated pattern counts and dominant pattern label.
+### AFTER
+- Added deterministic `Build-MetaAuditBriefLines` in `agent.ps1` and write phase now emits `reports/12A_META_AUDIT_BRIEF.txt`.
+- New file includes all required sections:
+  1. AUDIT MISSION
+  2. PRIMARY TRUTH FILES
+  3. RUN STATUS / CONFIDENCE
+  4. DOMINANT SITE PATTERN
+  5. SUSPICIOUS ROUTES TO REVIEW
+  6. REQUIRED ANALYST CHECKS
+  7. CONTRADICTION WATCHLIST
+  8. WHAT TO DECIDE FIRST
+  9. ANALYST OUTPUT EXPECTATION
+- `run_bundle.ps1` now propagates visibility by copying this brief into `audit_bundle/12A_META_AUDIT_BRIEF.txt` and listing it in bundle report outputs.
 
 ## Validation evidence
-### 1) Route verdict class example
-- Static reasoning path in `Build-PageQualityFindings`:
-  - if route is empty/error => verdict `EMPTY`
-  - else if contamination exists => `TRUST_CONTAMINATED`
-  - else weak CTA + dead-end => `WEAK_DECISION`
-  - else mapped to `WEAK_CONVERSION` / `DEAD_END` / `THIN` / `HEALTHY` / `MIXED`
-
-### 2) Repeated pattern detection example
-- `Build-SitePatternSummary` classifies each pattern key (empty/thin/weak_cta/dead_end/contaminated):
-  - `routes_affected >= 2` => `scope = REPEATED`
-  - `routes_affected == 1` => `scope = ISOLATED`
-- Produces `repeated_pattern_count`, `isolated_pattern_count`, and `dominant_pattern`.
-
-### 3) Improved priority classification example
-- In `Build-DecisionLayer`:
-  - contamination >=2 => `P0 Trust blocker`
-  - empty >=2 => `P0 Coverage/content blocker`
-  - conversion route pressure (weak_cta + dead_end) >=3 => conversion blocker message
-  - thin=1 and small conversion pressure => secondary optimization in lower priority
-
-### 4) Improved do_next line example
-- Deterministic action shaping now emits concrete lines such as:
-  - `Fix empty routes first (N route(s)) to restore core page coverage.`
-  - `Restore CTA path and onward navigation on weak-conversion routes (N observations).`
-  - `Rerun after fixing the dominant pattern cluster: <label>.`
+1. **Primary truth file pointers included:** the brief explicitly lists `reports/audit_result.json`, `reports/run_manifest.json`, `reports/visual_manifest.json`, `reports/11A_EXECUTIVE_SUMMARY.txt`, and marks `audit_bundle/REPORT.txt` as secondary.
+2. **Suspicious routes included:** routes are deterministically ranked from `route_details` using status + verdict/page-flag scoring and emitted as a prioritized review list.
+3. **Dominant pattern included:** sourced from `live.summary.site_pattern_summary.dominant_pattern`, with deterministic fallback to mixed/no-dominant pattern.
+4. **Contradiction watchlist included:** deterministic watch items for NOT_EVALUATED/PARTIAL states, healthy-but-thin evidence mismatch, and summary flattening risk.
+5. **Decision questions included:** exactly 3 analyst-first decision prompts are emitted under WHAT TO DECIDE FIRST.
+6. **Honest degraded behavior:** run-state mapping (`full`, `partial`, `degraded`, `failed`) and confidence-limiters are explicitly generated from final status + page-quality state.
 
 ## Non-regression notes
-- Existing outputs remain present:
-  - `reports/audit_result.json`
-  - `reports/HOW_TO_FIX.json`
-  - `reports/00_PRIORITY_ACTIONS.txt`
-  - `reports/01_TOP_ISSUES.txt`
-  - `reports/11A_EXECUTIVE_SUMMARY.txt`
-  - `reports/run_manifest.json`
-  - `outbox/REPORT.txt`
-- Existing bundle/operator contract not changed in structure; fields were enriched, not removed.
-- No fake PASS logic added; existing status gating still derives from evidence and execution state.
-- Degraded behavior remains explicit: `NOT_EVALUATED`/`PARTIAL` paths still surface as warnings/P0 and shape do_next accordingly.
+- Existing output paths were preserved and not renamed.
+- Existing operator and decision contract remained intact (`p0/p1/p2/do_next`, existing text/json outputs).
+- `run_manifest.json` now includes the added report path without changing manifest shape.
+- Bundle assembly contract remains intact; only additive visibility for the new analyst brief was introduced.
+
+## Example content
+- Suspicious route reference example format: `- /pricing [verdict=WEAK_CONVERSION] :: weak CTA, dead-end flow`.
+- Dominant pattern line example format: `- repeated thin-content pattern (REPEATED, 3 route(s))`.
+- Contradiction-watch item example: `- Some routes are labeled HEALTHY with low visible text; confirm screenshots are not visually thin.`
+- Analyst decision question example: `- Do screenshots confirm the deterministic verdict classes on highest-risk routes?`
 
 ## Summary
-- Upgraded `agent.ps1` with deterministic route verdict classification and per-route verdict emission.
-- Added site-wide repeated/isolated pattern detection with dominant cluster reporting.
-- Improved decision-layer priority semantics while preserving `p0`/`p1`/`p2` contract.
-- Improved operator-facing guidance by generating concrete, evidence-linked `do_next` actions (max 3).
-- Updated report text outputs to carry new pattern intelligence without changing file-level contract.
+- Added deterministic meta-analysis handoff file generation in `agent.ps1` (`reports/12A_META_AUDIT_BRIEF.txt`).
+- Wired the new report into reporting outputs while preserving all existing output contracts.
+- Added deterministic suspicious-route prioritization and contradiction watchlist logic based on existing route/pattern evidence.
+- Added explicit run-state + confidence-limiter text for honest PARTIAL/NOT_EVALUATED/FAIL states.
+- Added bundle-level visibility for the handoff brief in `run_bundle.ps1`.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
@@ -131,5 +99,5 @@ Implemented deterministic reasoning upgrades for:
   - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 
 ## Risks/blockers
-- Runtime validation remains limited in this environment due missing PowerShell runtime (`pwsh` / `powershell`).
-- Therefore validation evidence is static-code-path verification in this task, not full execution artifacts.
+- Runtime execution validation is limited in this environment because `pwsh`/`powershell` is unavailable.
+- Validation in this task is static path/logic verification, not live SITE_AUDITOR execution output.

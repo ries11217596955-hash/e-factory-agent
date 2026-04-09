@@ -971,6 +971,183 @@ function Build-DecisionLayer {
     }
 }
 
+function Build-MetaAuditBriefLines {
+    param(
+        [hashtable]$AuditResult,
+        [hashtable]$Decision,
+        [string]$FinalStatus
+    )
+
+    $AuditResult = Normalize-AuditResult -AuditResult $AuditResult
+
+    $liveLayer = Safe-Get -Object $AuditResult -Key 'live' -Default @{}
+    $liveEnabled = [bool](Safe-Get -Object $liveLayer -Key 'enabled' -Default $false)
+    $liveSummary = Safe-Get -Object $liveLayer -Key 'summary' -Default @{}
+    $routeDetails = @(Safe-Get -Object $liveLayer -Key 'route_details' -Default @())
+    $patternSummary = Safe-Get -Object $liveSummary -Key 'site_pattern_summary' -Default @{}
+    $dominantPattern = Safe-Get -Object $patternSummary -Key 'dominant_pattern' -Default $null
+    $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
+    $failureStage = [string](Safe-Get -Object $liveSummary -Key 'failure_stage' -Default 'none')
+    $evaluationError = [string](Safe-Get -Object $liveSummary -Key 'evaluation_error' -Default '')
+
+    $runState = 'full'
+    if ($FinalStatus -eq 'FAIL') {
+        $runState = 'failed'
+    }
+    elseif ($FinalStatus -eq 'PARTIAL' -or $pageQualityStatus -eq 'PARTIAL') {
+        $runState = 'partial'
+    }
+    elseif ($pageQualityStatus -eq 'NOT_EVALUATED') {
+        $runState = 'degraded'
+    }
+
+    $confidenceLimiters = New-Object System.Collections.Generic.List[string]
+    if (-not $liveEnabled) {
+        $confidenceLimiters.Add('live layer disabled: screenshot/route evidence is unavailable.')
+    }
+    if ($pageQualityStatus -eq 'NOT_EVALUATED') {
+        $detail = if (-not [string]::IsNullOrWhiteSpace($evaluationError)) { "$failureStage ($evaluationError)" } else { $failureStage }
+        $confidenceLimiters.Add("page-quality status is NOT_EVALUATED at stage: $detail")
+    }
+    elseif ($pageQualityStatus -eq 'PARTIAL') {
+        $confidenceLimiters.Add('page-quality status is PARTIAL; some route evidence may be missing or dropped.')
+    }
+    if ($FinalStatus -eq 'PARTIAL') {
+        $confidenceLimiters.Add('overall run status is PARTIAL.')
+    }
+    if ($FinalStatus -eq 'FAIL') {
+        $confidenceLimiters.Add('overall run status is FAIL.')
+    }
+    $limiterText = if ($confidenceLimiters.Count -gt 0) { $confidenceLimiters -join ' ' } else { 'none; enabled deterministic checks completed.' }
+
+    $dominantPatternLine = 'mixed pattern / no dominant pattern'
+    if ($null -ne $dominantPattern) {
+        $label = [string](Safe-Get -Object $dominantPattern -Key 'label' -Default 'unknown')
+        $scope = [string](Safe-Get -Object $dominantPattern -Key 'scope' -Default 'ISOLATED')
+        $count = [int](Safe-Get -Object $dominantPattern -Key 'routes_affected' -Default 0)
+        $dominantPatternLine = "$label ($scope, $count route(s))"
+    }
+
+    $scoredRoutes = New-Object System.Collections.Generic.List[object]
+    foreach ($route in @($routeDetails)) {
+        $routePath = [string](Safe-Get -Object $route -Key 'route_path' -Default '')
+        if ([string]::IsNullOrWhiteSpace($routePath)) { continue }
+
+        $pageFlags = Safe-Get -Object $route -Key 'page_flags' -Default @{}
+        $empty = [bool](Safe-Get -Object $pageFlags -Key 'empty' -Default $false)
+        $thin = [bool](Safe-Get -Object $pageFlags -Key 'thin' -Default $false)
+        $weakCta = [bool](Safe-Get -Object $pageFlags -Key 'weak_cta' -Default $false)
+        $deadEnd = [bool](Safe-Get -Object $pageFlags -Key 'dead_end' -Default $false)
+        $contaminated = [bool](Safe-Get -Object $pageFlags -Key 'ui_contamination' -Default $false)
+        $verdict = [string](Safe-Get -Object $route -Key 'verdict_class' -Default 'UNKNOWN')
+        $status = [int](Safe-Get -Object $route -Key 'status' -Default 0)
+        $bodyTextLength = [int](Safe-Get -Object $route -Key 'bodyTextLength' -Default 0)
+
+        $score = 0
+        if ($empty) { $score += 9 }
+        if ($contaminated) { $score += 7 }
+        if ($weakCta) { $score += 4 }
+        if ($deadEnd) { $score += 4 }
+        if ($thin) { $score += 3 }
+        if ($status -ge 400 -or $status -eq 0) { $score += 4 }
+        if ($verdict -eq 'MIXED') { $score += 2 }
+        if ($verdict -eq 'HEALTHY' -and ($bodyTextLength -lt 250 -or $status -ge 400 -or $status -eq 0)) { $score += 2 }
+
+        if ($score -gt 0) {
+            $reasons = New-Object System.Collections.Generic.List[string]
+            if ($empty) { $reasons.Add('empty') }
+            if ($contaminated) { $reasons.Add('trust contamination') }
+            if ($thin) { $reasons.Add('thin content') }
+            if ($weakCta) { $reasons.Add('weak CTA') }
+            if ($deadEnd) { $reasons.Add('dead-end flow') }
+            if ($status -ge 400 -or $status -eq 0) { $reasons.Add("status $status") }
+            if ($verdict -eq 'HEALTHY' -and ($bodyTextLength -lt 250 -or $status -ge 400 -or $status -eq 0)) { $reasons.Add('healthy verdict but weak evidence signals') }
+            $scoredRoutes.Add([ordered]@{
+                route_path = $routePath
+                score = $score
+                verdict = $verdict
+                reasons = @($reasons)
+            })
+        }
+    }
+
+    $suspiciousRouteLines = New-Object System.Collections.Generic.List[string]
+    if ($scoredRoutes.Count -gt 0) {
+        foreach ($item in @($scoredRoutes | Sort-Object -Property @{Expression = 'score'; Descending = $true }, @{Expression = 'route_path'; Descending = $false } | Select-Object -First 6)) {
+            $reasonText = if ($item.reasons.Count -gt 0) { $item.reasons -join ', ' } else { 'review required' }
+            $suspiciousRouteLines.Add("- $($item.route_path) [verdict=$($item.verdict)] :: $reasonText")
+        }
+    }
+    else {
+        $suspiciousRouteLines.Add('- none detected from deterministic route scoring; verify a representative screenshot sample anyway.')
+    }
+
+    $watchlist = New-Object System.Collections.Generic.List[string]
+    if ($pageQualityStatus -eq 'NOT_EVALUATED') {
+        $watchlist.Add('- Route-level summary may be weaker than available screenshots because page-quality rollup is NOT_EVALUATED.')
+    }
+    if ($pageQualityStatus -eq 'PARTIAL') {
+        $watchlist.Add('- PARTIAL route evaluation may hide repeated patterns if unsupported entries were dropped.')
+    }
+    if (@($routeDetails | Where-Object { [string](Safe-Get -Object $_ -Key 'verdict_class' -Default '') -eq 'HEALTHY' -and ([int](Safe-Get -Object $_ -Key 'bodyTextLength' -Default 0) -lt 250) }).Count -gt 0) {
+        $watchlist.Add('- Some routes are labeled HEALTHY with low visible text; confirm screenshots are not visually thin.')
+    }
+    if ([int](Safe-Get -Object $patternSummary -Key 'repeated_pattern_count' -Default 0) -gt 0) {
+        $watchlist.Add('- Executive wording can flatten repeated pattern severity; cross-check per-route evidence before trusting aggregate summary.')
+    }
+    $watchlist.Add('- audit_bundle/REPORT.txt is secondary when underlying reports are present; prefer primary truth files first.')
+
+    $decisionQ1 = if ($null -ne $dominantPattern) {
+        "Is the dominant problem truly '$([string](Safe-Get -Object $dominantPattern -Key 'label' -Default 'unknown'))', or is another route cluster more severe on screenshots?"
+    }
+    else {
+        'Is the dominant problem content weakness, conversion weakness, trust contamination, or route breakage?'
+    }
+
+    return @(
+        'AUDIT MISSION',
+        'Determine the true dominant site problem from deterministic evidence, then verify visually whether route-level verdicts are credible and prioritized correctly.',
+        '',
+        'PRIMARY TRUTH FILES',
+        '1) reports/audit_result.json',
+        '2) reports/run_manifest.json',
+        '3) reports/visual_manifest.json',
+        '4) reports/11A_EXECUTIVE_SUMMARY.txt',
+        'Note: audit_bundle/REPORT.txt is secondary if underlying reports exist.',
+        '',
+        'RUN STATUS / CONFIDENCE',
+        "- Run state: $runState",
+        "- Confidence limiters: $limiterText",
+        '',
+        'DOMINANT SITE PATTERN',
+        "- $dominantPatternLine",
+        '',
+        'SUSPICIOUS ROUTES TO REVIEW'
+    ) + @($suspiciousRouteLines) + @(
+        '',
+        'REQUIRED ANALYST CHECKS',
+        '- Compare screenshots across suspicious routes from reports/visual_manifest.json.',
+        '- Compare route verdict_class values in reports/audit_result.json with visible UI in screenshots.',
+        '- Compare source/repo claims vs live-page output and ensure both support the same conclusions.',
+        '- Check whether a healthy-looking executive summary hides weak visual reality on route-level pages.',
+        '- Inspect contamination-related routes and verify trust contamination is visibly present.',
+        '- Verify whether summary-level wording contradicts screenshot-level evidence.',
+        '',
+        'CONTRADICTION WATCHLIST'
+    ) + @($watchlist) + @(
+        '',
+        'WHAT TO DECIDE FIRST',
+        "- $decisionQ1",
+        '- Do screenshots confirm the deterministic verdict classes on highest-risk routes?',
+        '- Does repo/source structure support the live-page claims before prioritizing fixes?',
+        '',
+        'ANALYST OUTPUT EXPECTATION',
+        '- Provide one dominant conclusion.',
+        '- Provide one prioritized fix order.',
+        '- Provide one confidence note tied to run status and evidence completeness.'
+    )
+}
+
 function Write-OperatorOutputs {
     param(
         [string]$ResolvedMode,
@@ -1076,6 +1253,11 @@ function Write-OperatorOutputs {
     $summaryPath = Join-Path $reportsDir '11A_EXECUTIVE_SUMMARY.txt'
     Write-TextFile -Path $summaryPath -Lines $summaryLines
     $reportFiles.Add('reports/11A_EXECUTIVE_SUMMARY.txt')
+
+    $metaBriefPath = Join-Path $reportsDir '12A_META_AUDIT_BRIEF.txt'
+    $metaBriefLines = Build-MetaAuditBriefLines -AuditResult $AuditResult -Decision $Decision -FinalStatus $FinalStatus
+    Write-TextFile -Path $metaBriefPath -Lines $metaBriefLines
+    $reportFiles.Add('reports/12A_META_AUDIT_BRIEF.txt')
 
     $reportLines = @(
         "MODE: $ResolvedMode",

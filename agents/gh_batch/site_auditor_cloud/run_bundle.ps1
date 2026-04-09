@@ -634,14 +634,16 @@ function Write-OperatorBundleFiles {
     ) + ($OperatorData.do_next | ForEach-Object { "- $_" }) + @(
         '',
         "DETAILS: $($OperatorData.outbox_dir)/REPORT.txt",
-        "SOURCE_REPORTS: $($OperatorData.reports_dir)"
+        "SOURCE_REPORTS: $($OperatorData.reports_dir)",
+        "ANALYST_HANDOFF: $($OperatorData.reports_dir)/12A_META_AUDIT_BRIEF.txt"
     )
 
     $priorityActionsLines | Out-File -FilePath (Join-Path $bundleRoot '00_PRIORITY_ACTIONS.txt') -Encoding utf8
     $topIssuesLines | Out-File -FilePath (Join-Path $bundleRoot '01_TOP_ISSUES.txt') -Encoding utf8
     $summaryLines | Out-File -FilePath (Join-Path $bundleRoot '11A_EXECUTIVE_SUMMARY.txt') -Encoding utf8
+    Copy-Item -Path (Join-Path $OperatorData.reports_dir '12A_META_AUDIT_BRIEF.txt') -Destination (Join-Path $bundleRoot '12A_META_AUDIT_BRIEF.txt') -Force -ErrorAction SilentlyContinue
 
-    Add-ExecutionLog 'OPERATOR_FILES_WRITTEN=00_PRIORITY_ACTIONS.txt,01_TOP_ISSUES.txt,11A_EXECUTIVE_SUMMARY.txt'
+    Add-ExecutionLog 'OPERATOR_FILES_WRITTEN=00_PRIORITY_ACTIONS.txt,01_TOP_ISSUES.txt,11A_EXECUTIVE_SUMMARY.txt,12A_META_AUDIT_BRIEF.txt'
 }
 
 function New-ReportLines {
@@ -671,6 +673,7 @@ function New-ReportLines {
     $lines.Add('OPERATOR PRIORITY ACTIONS: audit_bundle/00_PRIORITY_ACTIONS.txt')
     $lines.Add('OPERATOR TOP ISSUES: audit_bundle/01_TOP_ISSUES.txt')
     $lines.Add('OPERATOR EXECUTIVE SUMMARY: audit_bundle/11A_EXECUTIVE_SUMMARY.txt')
+    $lines.Add('ANALYST HANDOFF BRIEF: audit_bundle/12A_META_AUDIT_BRIEF.txt')
     $lines.Add('')
     $lines.Add('SCREENSHOTS')
     $lines.Add('-----------')
