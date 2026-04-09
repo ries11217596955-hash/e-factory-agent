@@ -272,10 +272,26 @@ function Invoke-AssemblyStage {
 
     Add-ExecutionLog 'ASSEMBLY_INPUT_OK'
     $repoResult = @($safeResults) | Where-Object { $_.mode -eq 'REPO' } | Select-Object -First 1
+    $repoEvidence = Get-RepoEvidence
     if ($null -eq $repoResult) {
-        $repoResult = New-ModeResult -Mode 'REPO' -Status 'FAIL' -Reason 'REPO subrun was not captured' -ExitCode 1 -Executed $false -RepoRoot $null -TargetRepoBound $false -ArtifactsPresent $false -OutboxPath $null -ReportsPath $null
+        if ($repoEvidence.has_outbox -or $repoEvidence.has_reports) {
+            $repoResult = New-ModeResult -Mode 'REPO' -Status 'PARTIAL' -Reason 'REPO mode result object missing, but REPO artifacts/reports were captured' -ExitCode 1 -Executed $true -RepoRoot $repoEvidence.repo_root -TargetRepoBound $false -ArtifactsPresent $true -OutboxPath (if ($repoEvidence.has_outbox) { $repoEvidence.outbox_dir } else { $null }) -ReportsPath (if ($repoEvidence.has_reports) { $repoEvidence.reports_dir } else { $null })
+            Add-ExecutionLog 'REPO result missing but artifacts exist; synthesized PARTIAL result from evidence.'
+        }
+        else {
+            $repoResult = New-ModeResult -Mode 'REPO' -Status 'FAIL' -Reason 'REPO subrun was not captured' -ExitCode 1 -Executed $false -RepoRoot $null -TargetRepoBound $false -ArtifactsPresent $false -OutboxPath $null -ReportsPath $null
+            Add-ExecutionLog 'REPO result was missing and no repo artifacts were found; injected deterministic FAIL result.'
+        }
         $safeResults.Insert(0, $repoResult)
-        Add-ExecutionLog 'REPO result was missing; injected deterministic FAIL result.'
+    }
+    elseif ($repoResult.status -eq 'FAIL' -and $repoResult.reason -in @('MALFORMED_SUBRUN_RESULT', 'REPO subrun was not captured') -and ($repoEvidence.has_outbox -or $repoEvidence.has_reports)) {
+        $repoResult.status = 'PARTIAL'
+        $repoResult.reason = "REPO result was $($repoResult.reason), but repo evidence exists and was preserved"
+        $repoResult.executed = $true
+        $repoResult.artifacts_present = $true
+        if ([string]::IsNullOrWhiteSpace([string]$repoResult.outbox_path) -and $repoEvidence.has_outbox) { $repoResult.outbox_path = $repoEvidence.outbox_dir }
+        if ([string]::IsNullOrWhiteSpace([string]$repoResult.reports_path) -and $repoEvidence.has_reports) { $repoResult.reports_path = $repoEvidence.reports_dir }
+        Add-ExecutionLog 'REPO malformed/missing result was reconciled to PARTIAL because artifacts/reports exist.'
     }
 
     $bundleLogicalStatus = Get-BundleLogicalStatus -ModeResults @($safeResults)
@@ -325,6 +341,49 @@ function Get-FileLinesIfPresent {
     }
 
     return @()
+}
+
+function Get-JsonIfPresent {
+    param([string]$Path)
+
+    if (-not (Test-Path -Path $Path -PathType Leaf)) {
+        return $null
+    }
+
+    try {
+        return (Get-Content -Path $Path -Raw -ErrorAction Stop | ConvertFrom-Json)
+    }
+    catch {
+        Add-ExecutionLog "JSON_READ_FAIL path=$Path reason=$($_.Exception.Message)"
+        return $null
+    }
+}
+
+function Get-RepoEvidence {
+    $repoRoot = Join-Path $bundleRoot 'repo'
+    $reportsDir = Join-Path $repoRoot 'reports'
+    $outboxDir = Join-Path $repoRoot 'outbox'
+
+    $auditResultPath = Join-Path $reportsDir 'audit_result.json'
+    $runManifestPath = Join-Path $reportsDir 'run_manifest.json'
+    $visualManifestPath = Join-Path $reportsDir 'visual_manifest.json'
+    $repoReportPath = Join-Path $outboxDir 'REPORT.txt'
+
+    return [ordered]@{
+        repo_root = $repoRoot
+        reports_dir = $reportsDir
+        outbox_dir = $outboxDir
+        has_outbox = (Test-Path -Path $outboxDir -PathType Container)
+        has_reports = (Test-Path -Path $reportsDir -PathType Container)
+        has_audit_result = (Test-Path -Path $auditResultPath -PathType Leaf)
+        has_run_manifest = (Test-Path -Path $runManifestPath -PathType Leaf)
+        has_visual_manifest = (Test-Path -Path $visualManifestPath -PathType Leaf)
+        has_repo_report = (Test-Path -Path $repoReportPath -PathType Leaf)
+        audit_result_path = $auditResultPath
+        run_manifest_path = $runManifestPath
+        visual_manifest_path = $visualManifestPath
+        repo_report_path = $repoReportPath
+    }
 }
 
 function Get-ListItemsFromLines {
@@ -419,6 +478,7 @@ function New-OperatorReportData {
     $reportLines = Get-FileLinesIfPresent -Path (Join-Path $outboxDir 'REPORT.txt')
     $priorityLines = Get-ListItemsFromLines -Lines (Get-FileLinesIfPresent -Path (Join-Path $reportsDir '00_PRIORITY_ACTIONS.txt'))
     $topIssueLines = Get-ListItemsFromLines -Lines (Get-FileLinesIfPresent -Path (Join-Path $reportsDir '01_TOP_ISSUES.txt'))
+    $auditResult = Get-JsonIfPresent -Path (Join-Path $reportsDir 'audit_result.json')
 
     $p0 = New-Object System.Collections.Generic.List[string]
     $p1 = New-Object System.Collections.Generic.List[string]
@@ -438,6 +498,32 @@ function New-OperatorReportData {
         }
         else {
             Add-UniqueLimitedItems -Target $p2 -Seen $seen -Candidates $topIssueLines
+        }
+    }
+
+    if ($null -ne $auditResult) {
+        $liveLayer = if ($null -ne $auditResult.PSObject.Properties['live']) { $auditResult.live } else { $null }
+        $liveSummary = if ($null -ne $liveLayer -and $null -ne $liveLayer.PSObject.Properties['summary']) { $liveLayer.summary } else { $null }
+        if ($null -ne $liveSummary) {
+            $pageQualityStatus = [string](if ($null -ne $liveSummary.PSObject.Properties['page_quality_status']) { $liveSummary.page_quality_status } else { '' })
+            $failureStage = [string](if ($null -ne $liveSummary.PSObject.Properties['failure_stage']) { $liveSummary.failure_stage } else { 'unknown' })
+            $evaluationError = [string](if ($null -ne $liveSummary.PSObject.Properties['evaluation_error']) { $liveSummary.evaluation_error } else { '' })
+            $totalRoutes = [int](if ($null -ne $liveSummary.PSObject.Properties['total_routes']) { $liveSummary.total_routes } else { 0 })
+            $rawRoutes = [int](if ($null -ne $liveSummary.PSObject.Properties['raw_route_entries']) { $liveSummary.raw_route_entries } else { 0 })
+            $normalizedRoutes = [int](if ($null -ne $liveSummary.PSObject.Properties['normalized_route_entries']) { $liveSummary.normalized_route_entries } else { 0 })
+
+            if ($pageQualityStatus -eq 'NOT_EVALUATED') {
+                $detail = if (-not [string]::IsNullOrWhiteSpace($evaluationError)) { "$failureStage: $evaluationError" } else { $failureStage }
+                if ($totalRoutes -gt 0 -or $rawRoutes -gt 0 -or $normalizedRoutes -gt 0) {
+                    Add-UniqueLimitedItems -Target $p1 -Seen $seen -Candidates @("Page quality rollup is NOT_EVALUATED but route evidence exists ($detail).")
+                }
+                else {
+                    Add-UniqueLimitedItems -Target $p2 -Seen $seen -Candidates @("Page quality rollup is NOT_EVALUATED ($detail).")
+                }
+            }
+            elseif ($pageQualityStatus -eq 'PARTIAL') {
+                Add-UniqueLimitedItems -Target $p1 -Seen $seen -Candidates @('Page quality rollup is PARTIAL; review dropped/unsupported route entries.')
+            }
         }
     }
 
