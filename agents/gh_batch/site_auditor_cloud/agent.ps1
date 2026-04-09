@@ -24,6 +24,7 @@ $status = 'FAIL'
 $failureReason = $null
 $global:AuditError = $null
 $global:RouteNormalizationForensics = $null
+$global:RouteNormalizationTrace = @()
 $reportFiles = New-Object System.Collections.Generic.List[string]
 
 function Get-DebugValueSample {
@@ -155,6 +156,52 @@ function Set-RouteNormalizationForensics {
         route_context_shape = Get-ObjectShapeSummary -Value $RouteContext
         additional_context = if ($null -eq $AdditionalContext) { @{} } else { $AdditionalContext }
     }
+}
+
+function Add-RouteNormalizationTracePhase {
+    param(
+        [string]$PhaseName,
+        [int]$RouteIndex,
+        [string]$RoutePathIfAvailable = '',
+        [object]$PhaseObject = $null,
+        [string]$Status = 'ok',
+        [string]$OperationLabel = '',
+        [System.Management.Automation.ErrorRecord]$ErrorRecord = $null,
+        [object]$LeftOperand = $null,
+        [object]$RightOperand = $null
+    )
+
+    if ($null -eq $global:RouteNormalizationTrace) {
+        $global:RouteNormalizationTrace = @()
+    }
+
+    $shape = Get-ObjectShapeSummary -Value $PhaseObject
+    $entry = [ordered]@{
+        phase_name = $PhaseName
+        route_index = [int]$RouteIndex
+        route_path_if_available = if ([string]::IsNullOrWhiteSpace($RoutePathIfAvailable)) { '' } else { [string]$RoutePathIfAvailable }
+        object_type = [string](Safe-Get -Object $shape -Key 'type' -Default '<null>')
+        keys = @((Safe-Get -Object $shape -Key 'keys' -Default @()))
+        short_value_sample = Get-DebugValueSample -Value $PhaseObject
+        status = $Status
+    }
+
+    if ($Status -eq 'failed') {
+        $leftType = if ($null -eq $LeftOperand) { '<null>' } else { $LeftOperand.GetType().FullName }
+        $rightType = if ($null -eq $RightOperand) { '<null>' } else { $RightOperand.GetType().FullName }
+        $entry.failure = [ordered]@{
+            phase_name = $PhaseName
+            operation_label = $OperationLabel
+            left_type = $leftType
+            right_type = $rightType
+            left_value_sample = Get-DebugValueSample -Value $LeftOperand
+            right_value_sample = Get-DebugValueSample -Value $RightOperand
+            error_message = if ($null -eq $ErrorRecord -or $null -eq $ErrorRecord.Exception) { '' } else { [string]$ErrorRecord.Exception.Message }
+            stack_hint = if ($null -eq $ErrorRecord) { '' } else { [string]$ErrorRecord.ScriptStackTrace }
+        }
+    }
+
+    $global:RouteNormalizationTrace += $entry
 }
 
 function Ensure-Dir([string]$Path) {
@@ -548,25 +595,38 @@ function Normalize-LiveRoutes {
     param([object]$ManifestData)
 
     $global:RouteNormalizationForensics = $null
+    $global:RouteNormalizationTrace = @()
     $rawRoutes = @(Resolve-ManifestRoutes -ManifestData $ManifestData)
 
     $normalized = New-Object System.Collections.Generic.List[object]
     $shapeWarnings = New-Object System.Collections.Generic.List[string]
+    $routePathByIndex = @{}
 
     for ($index = 0; $index -lt @($rawRoutes).Count; $index++) {
         $route = $rawRoutes[$index]
+        Add-RouteNormalizationTracePhase -PhaseName 'raw_route_entry' -RouteIndex $index -PhaseObject $route -Status 'ok'
+
         if ($null -eq $route) {
+            Add-RouteNormalizationTracePhase -PhaseName 'route_after_string_key_normalization' -RouteIndex $index -PhaseObject $null -Status 'skipped'
+            Add-RouteNormalizationTracePhase -PhaseName 'route_path_extraction' -RouteIndex $index -PhaseObject $null -Status 'skipped'
+            Add-RouteNormalizationTracePhase -PhaseName 'route_signal_fields' -RouteIndex $index -PhaseObject $null -Status 'skipped'
+            Add-RouteNormalizationTracePhase -PhaseName 'normalized_route_output' -RouteIndex $index -PhaseObject $null -Status 'skipped'
             $shapeWarnings.Add("ROUTE_NORMALIZATION: dropped null route entry at index $index.")
             continue
         }
 
         $route = Convert-ToStringKeyDictionarySafe -Value $route
+        Add-RouteNormalizationTracePhase -PhaseName 'route_after_string_key_normalization' -RouteIndex $index -PhaseObject $route -Status 'ok'
 
         if (-not ($route -is [System.Collections.IDictionary] -or $route -is [PSCustomObject])) {
+            Add-RouteNormalizationTracePhase -PhaseName 'route_path_extraction' -RouteIndex $index -PhaseObject $route -Status 'skipped'
+            Add-RouteNormalizationTracePhase -PhaseName 'route_signal_fields' -RouteIndex $index -PhaseObject $route -Status 'skipped'
+            Add-RouteNormalizationTracePhase -PhaseName 'normalized_route_output' -RouteIndex $index -PhaseObject $route -Status 'skipped'
             $shapeWarnings.Add("ROUTE_NORMALIZATION: dropped non-object route entry at index $index of type $($route.GetType().FullName).")
             continue
         }
 
+        $routePath = ''
         try {
             $routePathRaw = Safe-Get -Object $route -Key 'route_path' -Default (Safe-Get -Object $route -Key 'routePath' -Default '')
             if ([string]::IsNullOrWhiteSpace([string]$routePathRaw)) {
@@ -577,6 +637,11 @@ function Normalize-LiveRoutes {
                 $routePath = "/unnamed-route-$index"
                 $shapeWarnings.Add("ROUTE_NORMALIZATION: route index $index had no route_path/url; generated synthetic path $routePath.")
             }
+            $routePathByIndex[[string]$index] = $routePath
+            Add-RouteNormalizationTracePhase -PhaseName 'route_path_extraction' -RouteIndex $index -RoutePathIfAvailable $routePath -PhaseObject ([ordered]@{
+                    route_path_raw = $routePathRaw
+                    route_path = $routePath
+                }) -Status 'ok'
 
             $statusValue = Safe-Get -Object $route -Key 'status' -Default 'error'
             $statusCode = Convert-ToIntSafe -Value $statusValue -Default -1
@@ -589,8 +654,16 @@ function Normalize-LiveRoutes {
             }
             $captureProfile = [string](Safe-Get -Object $route -Key 'captureProfile' -Default (Safe-Get -Object $route -Key 'capture_profile' -Default 'TRIPLE_SCROLL'))
             if ([string]::IsNullOrWhiteSpace($captureProfile)) { $captureProfile = 'TRIPLE_SCROLL' }
+            Add-RouteNormalizationTracePhase -PhaseName 'route_signal_fields' -RouteIndex $index -RoutePathIfAvailable $routePath -PhaseObject ([ordered]@{
+                    status_value = $statusValue
+                    status_code = $statusCode
+                    normalized_status = $normalizedStatus
+                    route_category = $routeCategory
+                    capture_profile = $captureProfile
+                    contamination_flags = @($flags)
+                }) -Status 'ok'
 
-            $normalized.Add([ordered]@{
+            $normalizedRoute = [ordered]@{
                     route_path = $routePath
                     route_category = $routeCategory
                     status = $normalizedStatus
@@ -608,13 +681,17 @@ function Normalize-LiveRoutes {
                     visibleTextSample = [string](Safe-Get -Object $route -Key 'visibleTextSample' -Default '')
                     contaminationFlags = @($flags)
                     capture_profile = $captureProfile
-                })
+                }
+            $normalized.Add($normalizedRoute)
+            Add-RouteNormalizationTracePhase -PhaseName 'normalized_route_output' -RouteIndex $index -RoutePathIfAvailable $routePath -PhaseObject $normalizedRoute -Status 'ok'
         }
         catch {
             $routeError = $_.Exception.Message
             if ([string]::IsNullOrWhiteSpace($routeError)) { $routeError = 'Unknown route normalization error.' }
+            Add-RouteNormalizationTracePhase -PhaseName 'normalized_route_output' -RouteIndex $index -RoutePathIfAvailable $routePath -PhaseObject $route -Status 'failed' -OperationLabel 'OP_ROUTE_ENTRY_NORMALIZE' -ErrorRecord $_ -LeftOperand $route -RightOperand $null
             Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -OperationLabel 'OP_ROUTE_ENTRY_NORMALIZE' -Expression 'per-route normalization block' -LeftOperand $route -RightOperand $null -VariableNames @('route') -AdditionalContext @{
                 route_index = $index
+                phase_name = 'normalized_route_output'
                 route_error = $routeError
                 stack_hint = $_.ScriptStackTrace
             }
@@ -668,6 +745,16 @@ function Normalize-LiveRoutes {
             stack_hint = $_.ScriptStackTrace
         }
         throw
+    }
+
+    for ($index = 0; $index -lt @($rawRoutes).Count; $index++) {
+        $routePathForIndex = [string](Safe-Get -Object $routePathByIndex -Key ([string]$index) -Default '')
+        Add-RouteNormalizationTracePhase -PhaseName 'drop_count_computation' -RouteIndex $index -RoutePathIfAvailable $routePathForIndex -PhaseObject ([ordered]@{
+                raw_route_count = $rawRouteCount
+                normalized_count = $normalizedCount
+                dropped_delta = $droppedDelta
+                dropped_count = $droppedCount
+            }) -Status 'ok'
     }
 
     return @{
@@ -846,6 +933,14 @@ function Invoke-LiveAudit {
 
         $liveStage = 'ROUTE_NORMALIZATION'
         $normalizedRoutesData = Normalize-LiveRoutes -ManifestData $manifestData
+        if ($null -eq $global:RouteNormalizationTrace) {
+            $global:RouteNormalizationTrace = @()
+        }
+        Write-JsonFile -Path (Join-Path $reportsDir 'route_normalization_trace.json') -Data ([ordered]@{
+                failure_stage = ''
+                trace_phases = @($global:RouteNormalizationTrace)
+            })
+        $reportFiles.Add('reports/route_normalization_trace.json')
         $routes = @($normalizedRoutesData.routes)
         $fallbackRouteDetails = @($routes)
         $fallbackRouteCount = @($routes).Count
@@ -930,6 +1025,18 @@ function Invoke-LiveAudit {
         if ([string]::IsNullOrWhiteSpace($failure)) { $failure = 'Unknown live audit failure.' }
         $routeNormalizationDebug = $null
         if ($liveStage -eq 'ROUTE_NORMALIZATION') {
+            try {
+                if ($null -eq $global:RouteNormalizationTrace) {
+                    $global:RouteNormalizationTrace = @()
+                }
+                Write-JsonFile -Path (Join-Path $reportsDir 'route_normalization_trace.json') -Data ([ordered]@{
+                        failure_stage = 'ROUTE_NORMALIZATION'
+                        trace_phases = @($global:RouteNormalizationTrace)
+                    })
+                $reportFiles.Add('reports/route_normalization_trace.json')
+            }
+            catch {
+            }
             if ($null -ne $global:RouteNormalizationForensics) {
                 $routeNormalizationDebug = $global:RouteNormalizationForensics
             }
