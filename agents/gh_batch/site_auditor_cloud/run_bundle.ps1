@@ -275,7 +275,9 @@ function Invoke-AssemblyStage {
     $repoEvidence = Get-RepoEvidence
     if ($null -eq $repoResult) {
         if ($repoEvidence.has_outbox -or $repoEvidence.has_reports) {
-            $repoResult = New-ModeResult -Mode 'REPO' -Status 'PARTIAL' -Reason 'REPO mode result object missing, but REPO artifacts/reports were captured' -ExitCode 1 -Executed $true -RepoRoot $repoEvidence.repo_root -TargetRepoBound $false -ArtifactsPresent $true -OutboxPath (if ($repoEvidence.has_outbox) { $repoEvidence.outbox_dir } else { $null }) -ReportsPath (if ($repoEvidence.has_reports) { $repoEvidence.reports_dir } else { $null })
+            $repoOutboxPath = if ($repoEvidence.has_outbox) { $repoEvidence.outbox_dir } else { $null }
+            $repoReportsPath = if ($repoEvidence.has_reports) { $repoEvidence.reports_dir } else { $null }
+            $repoResult = New-ModeResult -Mode 'REPO' -Status 'PARTIAL' -Reason 'REPO mode result object missing, but REPO artifacts/reports were captured' -ExitCode 1 -Executed $true -RepoRoot $repoEvidence.repo_root -TargetRepoBound $false -ArtifactsPresent $true -OutboxPath $repoOutboxPath -ReportsPath $repoReportsPath
             Add-ExecutionLog 'REPO result missing but artifacts exist; synthesized PARTIAL result from evidence.'
         }
         else {
@@ -837,8 +839,8 @@ function Normalize-Result {
         Write-Output ("ORIGINAL_OBJECT=" + ($r | ConvertTo-Json -Depth 5 -Compress))
     }
 
-    $status = [string]($statusRaw ?? '')
-    $reason = [string]($reasonRaw ?? '')
+    $status = if ($null -ne $statusRaw) { [string]$statusRaw } else { '' }
+    $reason = if ($null -ne $reasonRaw) { [string]$reasonRaw } else { '' }
 
     if (-not $status) {
         if ($hasData) {

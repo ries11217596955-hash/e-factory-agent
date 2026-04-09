@@ -4,15 +4,19 @@
 - `docs/TASK_REPORT.md` (pre-change)
 
 ## Summary
-- Applied a syntax-only hotfix in `agents/gh_batch/site_auditor_cloud/run_bundle.ps1` for PowerShell string interpolation in the operator-report block.
-- Root cause: the interpolation form `"$failureStage: $evaluationError"` caused a parse error because `:` immediately after a variable reference is invalid in this context.
-- Replaced with the PowerShell-safe braced variable form: `"${failureStage}: $evaluationError"`.
-- Confirmed no logic expansion and no changes outside the allowed scope.
+- Applied a PowerShell 5.1 compatibility hotfix in `agents/gh_batch/site_auditor_cloud/run_bundle.ps1` with no logic expansion.
+- Removed invalid inline `if (...) { ... } else { ... }` expressions from `New-ModeResult` argument positions in the synthesized REPO PARTIAL path by precomputing values first.
+- Replaced null-coalescing operator usage (`??`) in `Normalize-Result` with explicit null checks compatible with Windows PowerShell 5.1.
+- Kept behavior identical: same status/reason coercion and same outbox/reports path decisions.
 
 ## Root cause
-- Offending expression used unbraced interpolation with a trailing colon:
-  - `"$failureStage: $evaluationError"`
-- PowerShell treated `:` as part of an invalid variable reference, producing parse failure.
+- The REPO PARTIAL synthesis used inline `if` script blocks directly in command argument positions:
+  - `-OutboxPath (if (...) { ... } else { ... })`
+  - `-ReportsPath (if (...) { ... } else { ... })`
+  This can fail at runtime with `The term 'if' is not recognized...` in this invocation style.
+- `Normalize-Result` used PowerShell null-coalescing operator `??`, which is not available in Windows PowerShell 5.1:
+  - `$status = [string]($statusRaw ?? '')`
+  - `$reason = [string]($reasonRaw ?? '')`
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
@@ -23,38 +27,52 @@
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`.
-- No workflow, runtime-flow, or bundle-contract redesign changes.
+- No changes to workflows, runtime flow architecture, Playwright behavior, `agent.ps1`, or report design.
 
-## Exact edited line
-- File: `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
-- Before:
-  - `$detail = if (-not [string]::IsNullOrWhiteSpace($evaluationError)) { "$failureStage: $evaluationError" } else { $failureStage }`
-- After:
-  - `$detail = if (-not [string]::IsNullOrWhiteSpace($evaluationError)) { "${failureStage}: $evaluationError" } else { $failureStage }`
+## Exact edited blocks
+- `Invoke-AssemblyStage` synthesized REPO PARTIAL block:
+  - Added precomputed locals:
+    - `$repoOutboxPath = if ($repoEvidence.has_outbox) { $repoEvidence.outbox_dir } else { $null }`
+    - `$repoReportsPath = if ($repoEvidence.has_reports) { $repoEvidence.reports_dir } else { $null }`
+  - Updated `New-ModeResult` call to pass:
+    - `-OutboxPath $repoOutboxPath`
+    - `-ReportsPath $repoReportsPath`
+- `Normalize-Result` null-safe coercion:
+  - Replaced `??` expressions with explicit null checks:
+    - `$status = if ($null -ne $statusRaw) { [string]$statusRaw } else { '' }`
+    - `$reason = if ($null -ne $reasonRaw) { [string]$reasonRaw } else { '' }`
 
-## Before / After snippet
-- Before:
+## Before / After snippets
+- Before (REPO PARTIAL synthesis):
 ```powershell
-if ($pageQualityStatus -eq 'NOT_EVALUATED') {
-    $detail = if (-not [string]::IsNullOrWhiteSpace($evaluationError)) { "$failureStage: $evaluationError" } else { $failureStage }
-    ...
-}
+$repoResult = New-ModeResult ... -OutboxPath (if ($repoEvidence.has_outbox) { $repoEvidence.outbox_dir } else { $null }) -ReportsPath (if ($repoEvidence.has_reports) { $repoEvidence.reports_dir } else { $null })
 ```
 - After:
 ```powershell
-if ($pageQualityStatus -eq 'NOT_EVALUATED') {
-    $detail = if (-not [string]::IsNullOrWhiteSpace($evaluationError)) { "${failureStage}: $evaluationError" } else { $failureStage }
-    ...
-}
+$repoOutboxPath = if ($repoEvidence.has_outbox) { $repoEvidence.outbox_dir } else { $null }
+$repoReportsPath = if ($repoEvidence.has_reports) { $repoEvidence.reports_dir } else { $null }
+$repoResult = New-ModeResult ... -OutboxPath $repoOutboxPath -ReportsPath $repoReportsPath
 ```
 
-## Validation method used
-- Verified replacement with targeted search:
-  - `rg -n "\$failureStage: \$evaluationError|\$\{failureStage\}: \$evaluationError|failureStage" agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
-- Checked immediately adjacent block for same `"$var: ..."` interpolation risk pattern.
-- Performed static parse validation with PowerShell parser:
-  - `pwsh -NoLogo -NoProfile -Command '$tokens=$null;$errors=$null;[System.Management.Automation.Language.Parser]::ParseFile("agents/gh_batch/site_auditor_cloud/run_bundle.ps1",[ref]$tokens,[ref]$errors) | Out-Null; if($errors.Count -eq 0){"PARSE_OK"} else {$errors | ForEach-Object { $_.Message }; exit 1 }'`
+- Before (Normalize-Result):
+```powershell
+$status = [string]($statusRaw ?? '')
+$reason = [string]($reasonRaw ?? '')
+```
+- After:
+```powershell
+$status = if ($null -ne $statusRaw) { [string]$statusRaw } else { '' }
+$reason = if ($null -ne $reasonRaw) { [string]$reasonRaw } else { '' }
+```
+
+## Validation method
+- Verified targeted block update and removal of inline argument-position `if` use in the REPO PARTIAL `New-ModeResult` call.
+- Verified `??` removal from the file using search.
+- Attempted static parse validation via `pwsh`, but `pwsh` is not installed in this environment.
+- Used best-available static checks in this environment: targeted pattern searches and diff inspection only.
+- Did not claim full runtime success (no GitHub Actions execution asserted here).
 
 ## Risks/blockers
-- This is a syntax hotfix only; runtime behavior beyond parse restoration was not expanded or newly claimed.
-- No blockers encountered in applying or statically validating this change.
+- Compatibility hotfix only; no behavioral redesign was introduced.
+- Runtime execution across all environments is not claimed in this report; PowerShell parser validation is blocked locally because PowerShell is unavailable in this environment.
+- No blockers encountered.
