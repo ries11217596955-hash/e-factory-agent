@@ -104,14 +104,49 @@ function Set-RouteNormalizationForensics {
         [object]$AdditionalContext = $null
     )
 
+    $contextKeys = @()
+    if ($RouteContext -is [System.Collections.IDictionary]) {
+        $contextKeys = @($RouteContext.Keys | ForEach-Object { [string]$_ } | Select-Object -First 30)
+    }
+    elseif ($null -ne $RouteContext) {
+        $contextKeys = @($RouteContext.PSObject.Properties.Name | Select-Object -First 30)
+    }
+
+    $routePath = $null
+    if ($null -ne $RouteContext) {
+        $routePath = Safe-Get -Object $RouteContext -Key 'route_path' -Default (Safe-Get -Object $RouteContext -Key 'url' -Default $null)
+    }
+    if ($null -eq $routePath -and $null -ne $AdditionalContext) {
+        $routePath = Safe-Get -Object $AdditionalContext -Key 'route_path' -Default $null
+    }
+
+    $stackHint = $null
+    if ($null -ne $AdditionalContext) {
+        $stackHint = Safe-Get -Object $AdditionalContext -Key 'stack_hint' -Default $null
+    }
+
+    $leftType = if ($null -eq $LeftOperand) { '<null>' } else { $LeftOperand.GetType().FullName }
+    $rightType = if ($null -eq $RightOperand) { '<null>' } else { $RightOperand.GetType().FullName }
+    $leftSample = Get-DebugValueSample -Value $LeftOperand
+    $rightSample = Get-DebugValueSample -Value $RightOperand
+
     $global:RouteNormalizationForensics = [ordered]@{
+        failure_stage = 'ROUTE_NORMALIZATION'
+        function_name = $FunctionName
+        expression = $Expression
+        left_type = $leftType
+        right_type = $rightType
+        left_value_sample = $leftSample
+        right_value_sample = $rightSample
+        context_keys = @($contextKeys)
+        route_path_if_available = if ($null -eq $routePath) { '' } else { [string]$routePath }
+        stack_hint_if_available = if ($null -eq $stackHint) { '' } else { [string]$stackHint }
+
         failure_function = $FunctionName
         failure_expression = $Expression
-        left_type = if ($null -eq $LeftOperand) { '<null>' } else { $LeftOperand.GetType().FullName }
-        right_type = if ($null -eq $RightOperand) { '<null>' } else { $RightOperand.GetType().FullName }
         value_samples = [ordered]@{
-            left = Get-DebugValueSample -Value $LeftOperand
-            right = Get-DebugValueSample -Value $RightOperand
+            left = $leftSample
+            right = $rightSample
         }
         route_context_shape = Get-ObjectShapeSummary -Value $RouteContext
         additional_context = if ($null -eq $AdditionalContext) { @{} } else { $AdditionalContext }
@@ -213,6 +248,7 @@ function Safe-Get {
                 Set-RouteNormalizationForensics -FunctionName 'Safe-Get' -Expression '[string]$candidateKey' -LeftOperand $candidateKey -RightOperand $Key -RouteContext $Object -AdditionalContext @{
                     operation = 'dictionary_key_string_cast'
                     entry_shape = Get-ObjectShapeSummary -Value $entry
+                    stack_hint = $_.ScriptStackTrace
                 }
                 throw
             }
@@ -227,6 +263,7 @@ function Safe-Get {
                     operation = 'dictionary_key_compare'
                     original_left_type = $candidateKey.GetType().FullName
                     entry_shape = Get-ObjectShapeSummary -Value $entry
+                    stack_hint = $_.ScriptStackTrace
                 }
                 throw
             }
@@ -836,8 +873,24 @@ function Invoke-LiveAudit {
         $failure = $_.Exception.Message
         if ([string]::IsNullOrWhiteSpace($failure)) { $failure = 'Unknown live audit failure.' }
         $routeNormalizationDebug = $null
-        if ($liveStage -eq 'ROUTE_NORMALIZATION' -and $null -ne $global:RouteNormalizationForensics) {
-            $routeNormalizationDebug = $global:RouteNormalizationForensics
+        if ($liveStage -eq 'ROUTE_NORMALIZATION') {
+            if ($null -ne $global:RouteNormalizationForensics) {
+                $routeNormalizationDebug = $global:RouteNormalizationForensics
+            }
+            else {
+                $routeNormalizationDebug = [ordered]@{
+                    failure_stage = 'ROUTE_NORMALIZATION'
+                    function_name = 'unknown'
+                    expression = 'unknown'
+                    left_type = '<unknown>'
+                    right_type = '<unknown>'
+                    left_value_sample = '<unknown>'
+                    right_value_sample = '<unknown>'
+                    context_keys = @()
+                    route_path_if_available = ''
+                    stack_hint_if_available = if ([string]::IsNullOrWhiteSpace($_.ScriptStackTrace)) { '' } else { [string]$_.ScriptStackTrace }
+                }
+            }
             try {
                 Write-JsonFile -Path (Join-Path $reportsDir 'route_normalization_debug.json') -Data $routeNormalizationDebug
                 $reportFiles.Add('reports/route_normalization_debug.json')
