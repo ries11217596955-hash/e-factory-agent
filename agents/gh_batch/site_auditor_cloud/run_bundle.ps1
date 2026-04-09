@@ -483,20 +483,28 @@ function Normalize-Result {
         return $null
     }
 
-    $artifactsPresentRaw = & $readProperty $r 'artifacts_present'
+    $screenshotsCountRaw = & $readProperty $r 'screenshots_count'
     $reportsPathRaw = & $readProperty $r 'reports_path'
     $outboxPathRaw = & $readProperty $r 'outbox_path'
     $statusRaw = & $readProperty $r 'status'
     $reasonRaw = & $readProperty $r 'reason'
 
+    $screenshotsCount = 0
+    if ($null -ne $screenshotsCountRaw) {
+        [void][int]::TryParse([string]$screenshotsCountRaw, [ref]$screenshotsCount)
+    }
+
+    $hasReportsPath = -not [string]::IsNullOrWhiteSpace([string]$reportsPathRaw)
+    $hasOutboxPath = -not [string]::IsNullOrWhiteSpace([string]$outboxPathRaw)
+
     $hasData =
-        ($artifactsPresentRaw -eq $true) -or
-        ($reportsPathRaw) -or
-        ($outboxPathRaw)
+        ($screenshotsCount -gt 0) -or
+        $hasReportsPath -or
+        $hasOutboxPath
 
     if ($name -eq 'repo') {
         Write-Output "REPO_HAS_DATA=$hasData"
-        Write-Output ($r | ConvertTo-Json -Depth 5)
+        Write-Output ("ORIGINAL_OBJECT=" + ($r | ConvertTo-Json -Depth 5 -Compress))
     }
 
     $status = [string]($statusRaw ?? '')
@@ -511,6 +519,10 @@ function Normalize-Result {
             $status = 'FAIL'
             $reason = "${name}_INVALID_RESULT"
         }
+    }
+
+    if ($name -eq 'repo') {
+        Write-Output "NORMALIZED_STATUS=$status"
     }
 
     return @{
