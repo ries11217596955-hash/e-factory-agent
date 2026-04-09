@@ -1,4 +1,5 @@
 {
   "failure_stage": "",
-  "trace_phases": []
+  "trace_phases": [],
+  "aggregate_trace": []
 }

@@ -1,11 +1,13 @@
 # TASK_REPORT
 
 ## Summary
-- Task: `SITE_AUDITOR — TRACE ONLY FOR NORMALIZE-LIVEROUTES (NO FIX MODE)`.
-- Mode: `TRACE ONLY` (no bug fix attempted).
-- Scope kept to `agents/gh_batch/site_auditor_cloud/agent.ps1`, `reports/route_normalization_trace.json`, and this report.
-- Added phase-accurate route normalization tracing metadata for failure visibility at the exact failing phase.
-- Final state: `TRACE_ADDED_NEEDS_RUNTIME_RUN`.
+- Task: `SITE_AUDITOR — POST-LOOP AGGREGATE TRACE FOR ROUTE_NORMALIZATION`.
+- Repository scope:
+  - Allowed: `agents/gh_batch/site_auditor_cloud/agent.ps1`, `reports/route_normalization_trace.json`, `docs/TASK_REPORT.md`.
+  - Forbidden respected: no changes to diagnosis/contradiction/maturity/operator outputs/remediation/screenshots/broader architecture.
+- Mode: `TRACE EXTENSION` (no broad tracing, no speculative fix).
+- Added aggregate-boundary instrumentation after the per-route loop in `Normalize-LiveRoutes`.
+- Final state: `TRACE_EXTENDED_NEEDS_NEXT_RUN`.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -17,47 +19,49 @@
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Function targeted: `Normalize-LiveRoutes`.
-- Mandatory artifact path created: `reports/route_normalization_trace.json`.
+- Target function unchanged: `Normalize-LiveRoutes`.
+- Trace artifact path unchanged: `reports/route_normalization_trace.json`.
 
 ## Risks/blockers
-- Runtime execution is still required to populate route-level trace entries from live manifest data.
-- Container does not provide `pwsh`, so full runtime validation could not be executed here.
-- No remediation/fix has been applied, by design.
+- Runtime proof is not available in this container because `pwsh` execution/runtime capture was not run against a live manifest.
+- First failing point cannot be proven without a new runtime execution that produces failure data.
 
 ## INSTRUCTION_FILES_READ
 - `AGENTS.md`
 - `docs/README.md`
 - `docs/REPO_LAYOUT.md`
 
-## TRACE_ONLY_MODE
-- `ENFORCED`
+## CURRENT_FAILURE_MODEL
+- Existing model indicates failure stage can still be `ROUTE_NORMALIZATION`, but first failing boundary (per-route vs post-loop aggregate) required explicit aggregate-phase visibility.
 
-## PHASES_ADDED
-- `raw_route_entry`
-- `route_after_string_key_normalization`
-- `route_path_extraction`
-- `route_signal_fields`
-- `drop_count_computation`
-- `normalized_route_output`
+## ROUTE_PHASE_TRACE_PRESENT = YES
+- Existing per-route `trace_phases` remains present and unchanged in intent.
 
-## FAILURE_VISIBILITY_BEFORE
-- Failures in the per-route block were always recorded as `normalized_route_output`, even when the throw originated earlier.
-- Failure payload did not include the exact `failing_phase`/`expression` fields requested.
-
-## FAILURE_VISIBILITY_AFTER
-- Per-route failures are now recorded against the active phase (`route_after_string_key_normalization`, `route_path_extraction`, `route_signal_fields`, or `normalized_route_output`).
-- Failure payload now includes:
-  - `failing_phase`
-  - `operation_label`
+## AGGREGATE_TRACE_ADDED = YES
+- Added `aggregate_trace` to `reports/route_normalization_trace.json` output.
+- Added aggregate phase entries emitted by `Normalize-LiveRoutes`:
+  - `aggregate_raw_route_count`
+  - `aggregate_normalized_count`
+  - `aggregate_count_subtraction`
+  - `aggregate_drop_count_math`
+- Each aggregate entry now includes:
+  - `phase_name`
+  - `object_type` and operand types (`left_type`, `right_type`)
+  - `left_value_sample`
+  - `right_value_sample`
+  - `status`
   - `expression`
-  - `left_type` / `right_type`
-  - `left_value_sample` / `right_value_sample`
   - `stack_hint_if_available`
 
+## FIRST_FAILING_POINT = UNKNOWN
+- No new runtime execution proof in this task context.
+
 ## FIX_APPLIED = NONE
-- Confirmed. This change set is observability-only instrumentation.
+- Optional fix rule not triggered because first failing aggregate expression is not runtime-proven.
 
 ## VALIDATION_RESULT
-- Static checks only: script parses and git diff reviewed.
-- Runtime trace population pending next live run.
+- Static validation completed via syntax parse command and git diff review.
+- Runtime validation remains pending next execution.
+
+## NEXT_BLOCKER_IF_ANY
+- Need one runtime run that reproduces `ROUTE_NORMALIZATION` and emits updated `route_normalization_trace.json` with both `trace_phases` and `aggregate_trace` to isolate the first failing point.
