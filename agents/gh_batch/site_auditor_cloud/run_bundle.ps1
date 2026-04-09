@@ -248,7 +248,7 @@ function Get-RepoScreenshotManifest {
         }
     }
 
-    return @($manifest)
+    return $manifest
 }
 
 function Invoke-AssemblyStage {
@@ -279,7 +279,11 @@ function Invoke-AssemblyStage {
     $bundleLogicalStatus = Get-BundleLogicalStatus -ModeResults @($safeResults)
 
     $repoScreenshotManifest = Get-RepoScreenshotManifest
-    $repoArtifacts = @($repoScreenshotManifest | ForEach-Object { $_.relative_path })
+    Write-Output "SCREENSHOT_MANIFEST_COUNT=$($repoScreenshotManifest.Count)"
+    $repoArtifacts = @()
+    foreach ($item in $repoScreenshotManifest) {
+        $repoArtifacts += [string]$item.relative_path
+    }
 
     $bundleStatus = [ordered]@{
         repo = [ordered]@{
