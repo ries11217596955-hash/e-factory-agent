@@ -166,6 +166,7 @@ function Add-RouteNormalizationTracePhase {
         [object]$PhaseObject = $null,
         [string]$Status = 'ok',
         [string]$OperationLabel = '',
+        [string]$Expression = '',
         [System.Management.Automation.ErrorRecord]$ErrorRecord = $null,
         [object]$LeftOperand = $null,
         [object]$RightOperand = $null
@@ -190,14 +191,15 @@ function Add-RouteNormalizationTracePhase {
         $leftType = if ($null -eq $LeftOperand) { '<null>' } else { $LeftOperand.GetType().FullName }
         $rightType = if ($null -eq $RightOperand) { '<null>' } else { $RightOperand.GetType().FullName }
         $entry.failure = [ordered]@{
-            phase_name = $PhaseName
+            failing_phase = $PhaseName
             operation_label = $OperationLabel
+            expression = if ([string]::IsNullOrWhiteSpace($Expression)) { '' } else { $Expression }
             left_type = $leftType
             right_type = $rightType
             left_value_sample = Get-DebugValueSample -Value $LeftOperand
             right_value_sample = Get-DebugValueSample -Value $RightOperand
             error_message = if ($null -eq $ErrorRecord -or $null -eq $ErrorRecord.Exception) { '' } else { [string]$ErrorRecord.Exception.Message }
-            stack_hint = if ($null -eq $ErrorRecord) { '' } else { [string]$ErrorRecord.ScriptStackTrace }
+            stack_hint_if_available = if ($null -eq $ErrorRecord) { '' } else { [string]$ErrorRecord.ScriptStackTrace }
         }
     }
 
@@ -615,8 +617,14 @@ function Normalize-LiveRoutes {
             continue
         }
 
-        $route = Convert-ToStringKeyDictionarySafe -Value $route
-        Add-RouteNormalizationTracePhase -PhaseName 'route_after_string_key_normalization' -RouteIndex $index -PhaseObject $route -Status 'ok'
+        try {
+            $route = Convert-ToStringKeyDictionarySafe -Value $route
+            Add-RouteNormalizationTracePhase -PhaseName 'route_after_string_key_normalization' -RouteIndex $index -PhaseObject $route -Status 'ok'
+        }
+        catch {
+            Add-RouteNormalizationTracePhase -PhaseName 'route_after_string_key_normalization' -RouteIndex $index -PhaseObject $route -Status 'failed' -OperationLabel 'OP_ROUTE_STRING_KEY_NORMALIZE' -Expression 'Convert-ToStringKeyDictionarySafe -Value $route' -ErrorRecord $_ -LeftOperand $route -RightOperand $null
+            throw
+        }
 
         if (-not ($route -is [System.Collections.IDictionary] -or $route -is [PSCustomObject])) {
             Add-RouteNormalizationTracePhase -PhaseName 'route_path_extraction' -RouteIndex $index -PhaseObject $route -Status 'skipped'
@@ -627,6 +635,9 @@ function Normalize-LiveRoutes {
         }
 
         $routePath = ''
+        $activePhase = 'route_path_extraction'
+        $activeOperationLabel = 'OP_ROUTE_PATH_EXTRACT'
+        $activeExpression = '$routePathRaw/$routePath extraction from route_path/routePath/url'
         try {
             $routePathRaw = Safe-Get -Object $route -Key 'route_path' -Default (Safe-Get -Object $route -Key 'routePath' -Default '')
             if ([string]::IsNullOrWhiteSpace([string]$routePathRaw)) {
@@ -643,6 +654,9 @@ function Normalize-LiveRoutes {
                     route_path = $routePath
                 }) -Status 'ok'
 
+            $activePhase = 'route_signal_fields'
+            $activeOperationLabel = 'OP_ROUTE_SIGNAL_FIELDS'
+            $activeExpression = 'status/category/capture_profile/flags extraction'
             $statusValue = Safe-Get -Object $route -Key 'status' -Default 'error'
             $statusCode = Convert-ToIntSafe -Value $statusValue -Default -1
             $normalizedStatus = if ($statusCode -ge 0) { $statusCode } else { [string]$statusValue }
@@ -663,6 +677,9 @@ function Normalize-LiveRoutes {
                     contamination_flags = @($flags)
                 }) -Status 'ok'
 
+            $activePhase = 'normalized_route_output'
+            $activeOperationLabel = 'OP_ROUTE_ENTRY_NORMALIZE'
+            $activeExpression = 'normalized route object assembly'
             $normalizedRoute = [ordered]@{
                     route_path = $routePath
                     route_category = $routeCategory
@@ -688,10 +705,10 @@ function Normalize-LiveRoutes {
         catch {
             $routeError = $_.Exception.Message
             if ([string]::IsNullOrWhiteSpace($routeError)) { $routeError = 'Unknown route normalization error.' }
-            Add-RouteNormalizationTracePhase -PhaseName 'normalized_route_output' -RouteIndex $index -RoutePathIfAvailable $routePath -PhaseObject $route -Status 'failed' -OperationLabel 'OP_ROUTE_ENTRY_NORMALIZE' -ErrorRecord $_ -LeftOperand $route -RightOperand $null
-            Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -OperationLabel 'OP_ROUTE_ENTRY_NORMALIZE' -Expression 'per-route normalization block' -LeftOperand $route -RightOperand $null -VariableNames @('route') -AdditionalContext @{
+            Add-RouteNormalizationTracePhase -PhaseName $activePhase -RouteIndex $index -RoutePathIfAvailable $routePath -PhaseObject $route -Status 'failed' -OperationLabel $activeOperationLabel -Expression $activeExpression -ErrorRecord $_ -LeftOperand $route -RightOperand $null
+            Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -OperationLabel $activeOperationLabel -Expression $activeExpression -LeftOperand $route -RightOperand $null -VariableNames @('route') -AdditionalContext @{
                 route_index = $index
-                phase_name = 'normalized_route_output'
+                phase_name = $activePhase
                 route_error = $routeError
                 stack_hint = $_.ScriptStackTrace
             }
