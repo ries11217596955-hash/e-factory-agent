@@ -1,0 +1,19 @@
+{
+  "failure_stage": "ROUTE_NORMALIZATION",
+  "function_name": "Normalize-LiveRoutes",
+  "failure_line_region": "agents/gh_batch/site_auditor_cloud/agent.ps1:643-660",
+  "operation_label": "OP4_math_max_dropped_count",
+  "expression": "[int]([Math]::Max(0, $droppedDelta))",
+  "left_type": "System.Int32",
+  "right_type": "System.String (inferred from historical error signature)",
+  "left_value_sample": 0,
+  "right_value_sample": "<non-numeric droppedDelta sample unavailable in current container run>",
+  "route_path_if_available": "",
+  "context_keys": [
+    "raw_route_count",
+    "normalized_count",
+    "stack_hint"
+  ],
+  "evidence_mode": "inferred_without_runtime_powershell",
+  "evaluation_error": "Argument types do not match"
+}

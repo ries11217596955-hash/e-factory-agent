@@ -654,10 +654,10 @@ function Normalize-LiveRoutes {
 
     $droppedCount = $null
     try {
-        $droppedCount = [int]([Math]::Max(0, $droppedDelta))
+        $droppedCount = [int]([Math]::Max(0, ([int]$droppedDelta)))
     }
     catch {
-        Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -OperationLabel 'OP4_math_max_dropped_count' -Expression '[int]([Math]::Max(0, $droppedDelta))' -LeftOperand 0 -RightOperand $droppedDelta -VariableNames @('0', 'droppedDelta') -AdditionalContext @{
+        Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -OperationLabel 'OP4_math_max_dropped_count' -Expression '[int]([Math]::Max(0, ([int]$droppedDelta)))' -LeftOperand 0 -RightOperand $droppedDelta -VariableNames @('0', 'droppedDelta') -AdditionalContext @{
             raw_route_count = $rawRouteCount
             normalized_count = $normalizedCount
             stack_hint = $_.ScriptStackTrace
