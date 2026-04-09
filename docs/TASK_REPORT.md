@@ -1,5 +1,50 @@
+## INSTRUCTION_FILES_READ
+- AGENTS.md (repo root)
+- docs/README.md
+- docs/REPO_LAYOUT.md
+- User task specification: SITE_AUDITOR — ROUTE_NORMALIZATION FORENSIC FIX (P0, LOCKED)
+
+## ROOT_CAUSE
+ROUTE_NORMALIZATION consumed manifest route dictionaries whose keys were compared with mixed runtime types inside `Safe-Get`. The key-compare boundary used direct comparison semantics before strict key normalization, which can surface `Argument types do not match` when non-string key objects are involved.
+
+## EXACT_EXPRESSION
+- Function: `Safe-Get`
+- Failing boundary expression identified and instrumented: `$candidateKeyText -eq $keyText`
+- Upstream conversion boundary instrumented: `[string]$candidateKey`
+
+## TYPES_CAPTURED
+Instrumentation now captures, on failure:
+- `failure_function`
+- `failure_expression`
+- `left_type`
+- `right_type`
+- `value_samples.left`
+- `value_samples.right`
+- `route_context_shape`
+- `additional_context`
+
+These are written into:
+- `live.summary.route_normalization_debug` in `reports/audit_result.json`
+- `reports/route_normalization_debug.json` (when ROUTE_NORMALIZATION fails)
+
+## FIX_APPLIED
+- Added ROUTE_NORMALIZATION forensic helpers (`Get-DebugValueSample`, `Get-ObjectShapeSummary`, `Set-RouteNormalizationForensics`).
+- Tightened `Safe-Get` dictionary key comparison to a string-normalized boundary:
+  - normalize both sides to string before compare
+  - capture full forensic payload if cast/compare throws
+- Reset forensic state at ROUTE_NORMALIZATION start (`Normalize-LiveRoutes`).
+- Extended live-audit failure payload at ROUTE_NORMALIZATION to persist forensic evidence in runtime outputs.
+
+## VALIDATION_RESULT
+- Static validation completed via diff/review of changed logic and failure output path wiring.
+- Runtime validation is blocked in this container because PowerShell (`pwsh`/`powershell`) is unavailable, so an end-to-end bundle rerun could not be executed here.
+
+## NEXT_BLOCKER_IF_ANY
+- Environment blocker: cannot execute SITE_AUDITOR runtime locally without PowerShell.
+- No new downstream runtime blocker could be observed in-container due to that limitation.
+
 ## Summary
-Implemented the SITE_AUDITOR operator decision-system final push with a strict linear operator flow in outputs only (no normalization/evaluation/screenshot changes). REPORT.txt now forces one dominant direction using PRIMARY PROBLEM + ordered CRITICAL BLOCKERS, includes a single 3-step OPERATOR PATH, and adds binary SUCCESS SIGNAL checks. REMEDIATION_PACKAGE.json now declares linear execution mode and expected impact.
+Implemented a constrained ROUTE_NORMALIZATION forensic fix only, without touching diagnosis/contradiction/maturity/executive/screenshot/product-closeout layers. Added mandatory forensic capture fields to runtime outputs and applied a minimal key-type normalization boundary fix in `Safe-Get`.
 
 ## Changed files
 - agents/gh_batch/site_auditor_cloud/agent.ps1
@@ -14,34 +59,5 @@ Implemented the SITE_AUDITOR operator decision-system final push with a strict l
 - agents/gh_batch/site_auditor_cloud/run_bundle.ps1
 
 ## Risks/blockers
-- Runtime validation is environment-limited in this container if PowerShell (`pwsh`) is unavailable.
-- SUCCESS SIGNAL checks are intentionally binary and deterministic, but final truth still depends on rerun evidence generation.
-
-## CHANGES
-- Replaced flat/equal-priority report structure with forced-priority sections in REPORT.txt generation:
-  - `SECTION: PRIMARY PROBLEM` (single dominant issue)
-  - `SECTION: CRITICAL BLOCKERS` (max 3, explicitly ordered)
-- Removed the equal-weight `P1 HIGH IMPACT` section from REPORT.txt output path.
-- Replaced generic "DO NEXT" list with `SECTION: OPERATOR PATH` using strict sequential format:
-  - `STEP 1 -> ...`
-  - `STEP 2 -> ...`
-  - `STEP 3 -> ...`
-- Added `SECTION: SUCCESS SIGNAL` with observable yes/no checks.
-- Updated `reports/REMEDIATION_PACKAGE.json` payload to include:
-  - `execution_mode: "linear"`
-  - `expected_impact: "..."`
-
-## WHY BETTER FOR OPERATOR
-- Forces one primary direction instead of parallel interpretation.
-- Reduces cognitive load by limiting blockers to top 3 in explicit order.
-- Prevents branching by giving exactly one executable path (max 3 steps).
-- Makes completion unambiguous with binary success signals.
-- Aligns remediation metadata to a linear execution contract.
-
-## BEFORE vs AFTER
-- Before: Operator saw multiple weighted lists (P0/P1) and could treat many items as equally urgent.
-- After: Operator sees one PRIMARY PROBLEM and an ordered CRITICAL BLOCKERS set.
-- Before: Action guidance was "DO NEXT" and could be interpreted as optional/mixed strategy.
-- After: Action guidance is strict `OPERATOR PATH` (`STEP 1 -> STEP 3`) with no branching.
-- Before: Completion criteria were less explicit.
-- After: `SUCCESS SIGNAL` provides observable yes/no confirmation points.
+- E2E execution proof pending due to missing PowerShell runtime in this environment.
+- If future manifests carry pathological key objects, failure is now diagnosable via explicit forensic payload.
