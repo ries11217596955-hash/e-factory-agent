@@ -743,6 +743,24 @@ function Build-PageQualityFindings {
         $deadEnd = (-not $empty) -and (($links + $buttonCount) -le 2) -and (-not $hasNav)
         $uiContamination = @($contaminationFlags).Count -gt 0
         $primaryVerdict = Get-RoutePrimaryVerdict -Empty $empty -Thin $thin -WeakCta $weakCta -DeadEnd $deadEnd -UiContamination $uiContamination
+        $routeContradictions = New-Object System.Collections.Generic.List[object]
+
+        if ($primaryVerdict -eq 'HEALTHY' -and ($thin -or $weakCta -or $deadEnd -or $bodyTextLength -lt 250 -or $statusCode -ge 400 -or [int](Safe-Get -Object $route -Key 'screenshotCount' -Default 0) -eq 0)) {
+            $routeContradictions.Add([ordered]@{
+                    class = 'HEALTHY_BUT_VISUALLY_WEAK'
+                    scope = 'ROUTE'
+                    severity = 'REVIEW'
+                    evidence = "verdict=HEALTHY while thin=$thin weak_cta=$weakCta dead_end=$deadEnd bodyTextLength=$bodyTextLength status=$statusCode screenshotCount=$([int](Safe-Get -Object $route -Key 'screenshotCount' -Default 0))"
+                })
+        }
+        if ((-not $empty) -and $bodyTextLength -gt 120 -and ($weakCta -or $deadEnd)) {
+            $routeContradictions.Add([ordered]@{
+                    class = 'NON_EMPTY_BUT_LOW_VALUE'
+                    scope = 'ROUTE'
+                    severity = 'REVIEW'
+                    evidence = "bodyTextLength=$bodyTextLength avoids EMPTY, but weak_cta=$weakCta dead_end=$deadEnd links=$links buttonCount=$buttonCount hasNav=$hasNav"
+                })
+        }
 
         if ($empty) { $emptyRoutes++ }
         if ($thin) { $thinRoutes++ }
@@ -761,6 +779,9 @@ function Build-PageQualityFindings {
         if ($weakCta) { $routeFindings.Add('Route lacks clear CTA affordances.') }
         if ($deadEnd) { $routeFindings.Add('Route appears to be a dead-end with limited onward navigation.') }
         if ($uiContamination) { $routeFindings.Add("UI contamination markers detected: $(@($contaminationFlags) -join ', ').") }
+        foreach ($candidate in @($routeContradictions)) {
+            $routeFindings.Add("Contradiction candidate [$([string](Safe-Get -Object $candidate -Key 'class' -Default 'UNKNOWN'))]: $([string](Safe-Get -Object $candidate -Key 'evidence' -Default ''))")
+        }
         $routeFindings.Add("Primary verdict class: $primaryVerdict")
 
         $result.Add([ordered]@{
@@ -788,6 +809,7 @@ function Build-PageQualityFindings {
             hasFooter = $hasFooter
             visibleTextSample = $visibleTextSample
             contaminationFlags = @($contaminationFlags)
+            contradiction_candidates = @($routeContradictions)
         })
     }
 
@@ -806,6 +828,100 @@ function Build-PageQualityFindings {
         route_details = @($result)
         rollups = $rollups
         pattern_summary = $patternSummary
+    }
+}
+
+function Build-ContradictionLayer {
+    param(
+        [hashtable]$SourceLayer,
+        [hashtable]$LiveLayer,
+        [string[]]$MissingInputs
+    )
+
+    $routes = @(Safe-Get -Object $LiveLayer -Key 'route_details' -Default @())
+    $liveSummary = Safe-Get -Object $LiveLayer -Key 'summary' -Default @{}
+    $patternSummary = Safe-Get -Object $liveSummary -Key 'site_pattern_summary' -Default @{}
+    $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
+    $repeatedPatternCount = [int](Safe-Get -Object $patternSummary -Key 'repeated_pattern_count' -Default 0)
+    $issueRollupTotal =
+        [int](Safe-Get -Object $liveSummary -Key 'empty_routes' -Default 0) +
+        [int](Safe-Get -Object $liveSummary -Key 'thin_routes' -Default 0) +
+        [int](Safe-Get -Object $liveSummary -Key 'weak_cta_routes' -Default 0) +
+        [int](Safe-Get -Object $liveSummary -Key 'dead_end_routes' -Default 0) +
+        [int](Safe-Get -Object $liveSummary -Key 'contaminated_routes' -Default 0)
+
+    $routeCandidates = New-Object System.Collections.Generic.List[object]
+    foreach ($route in @($routes)) {
+        $routePath = [string](Safe-Get -Object $route -Key 'route_path' -Default '')
+        foreach ($candidate in @(Safe-Get -Object $route -Key 'contradiction_candidates' -Default @())) {
+            $routeCandidates.Add([ordered]@{
+                    class = [string](Safe-Get -Object $candidate -Key 'class' -Default 'UNKNOWN')
+                    scope = 'ROUTE'
+                    route_path = $routePath
+                    severity = [string](Safe-Get -Object $candidate -Key 'severity' -Default 'REVIEW')
+                    evidence = [string](Safe-Get -Object $candidate -Key 'evidence' -Default '')
+                })
+        }
+    }
+
+    $siteCandidates = New-Object System.Collections.Generic.List[object]
+
+    $sourceEnabled = [bool](Safe-Get -Object $SourceLayer -Key 'enabled' -Default $false)
+    $sourceFileCount = [int](Safe-Get -Object (Safe-Get -Object $SourceLayer -Key 'summary' -Default @{}) -Key 'file_count' -Default 0)
+    $sourceTopDirs = @(Safe-Get -Object (Safe-Get -Object $SourceLayer -Key 'summary' -Default @{}) -Key 'top_level_directories' -Default @())
+    $thinOrLowValueRoutes = @($routes | Where-Object {
+            $pageFlags = Safe-Get -Object $_ -Key 'page_flags' -Default @{}
+            [bool](Safe-Get -Object $pageFlags -Key 'thin' -Default $false) -or
+            [bool](Safe-Get -Object $pageFlags -Key 'weak_cta' -Default $false) -or
+            [bool](Safe-Get -Object $pageFlags -Key 'dead_end' -Default $false)
+        })
+    if ($sourceEnabled -and $sourceFileCount -ge 25 -and @($sourceTopDirs).Count -ge 2 -and $thinOrLowValueRoutes.Count -gt 0) {
+        $siteCandidates.Add([ordered]@{
+                class = 'SOURCE_EXPECTS_MORE_THAN_LIVE_DELIVERS'
+                scope = 'SITE'
+                severity = 'REVIEW'
+                evidence = "source inventory suggests non-trivial implementation (file_count=$sourceFileCount, top_dirs=$(@($sourceTopDirs).Count)) while low-value live routes exist ($($thinOrLowValueRoutes.Count))."
+            })
+    }
+
+    if ($repeatedPatternCount -gt 0 -and $issueRollupTotal -ge 2) {
+        $siteCandidates.Add([ordered]@{
+                class = 'SUMMARY_UNDERSTATES_PATTERN'
+                scope = 'SITE'
+                severity = 'REVIEW'
+                evidence = "repeated_pattern_count=$repeatedPatternCount with aggregate issue observations=$issueRollupTotal can make top-line summary sound milder than route-level evidence."
+            })
+    }
+
+    $degradedState = ($pageQualityStatus -in @('PARTIAL', 'NOT_EVALUATED')) -or @($MissingInputs).Count -gt 0
+    $evidenceRich = (@($routes).Count -ge 3) -and ($routeCandidates.Count -ge 2)
+    if ($degradedState -and $evidenceRich) {
+        $siteCandidates.Add([ordered]@{
+                class = 'PARTIAL_BUT_EVIDENCE_RICH'
+                scope = 'SITE'
+                severity = 'REVIEW'
+                evidence = "run degradation detected (page_quality_status=$pageQualityStatus, missing_inputs=$(@($MissingInputs).Count)) but route-level contradiction evidence is still meaningful (routes=$(@($routes).Count), route_candidates=$($routeCandidates.Count))."
+            })
+    }
+
+    $allCandidates = @($routeCandidates + $siteCandidates)
+    $classCounts = @{}
+    foreach ($candidate in @($allCandidates)) {
+        $className = [string](Safe-Get -Object $candidate -Key 'class' -Default 'UNKNOWN')
+        if (-not $classCounts.ContainsKey($className)) {
+            $classCounts[$className] = 0
+        }
+        $classCounts[$className] = [int]$classCounts[$className] + 1
+    }
+
+    return @{
+        route_candidates = @($routeCandidates)
+        site_candidates = @($siteCandidates)
+        candidates = @($allCandidates)
+        class_counts = $classCounts
+        total_candidates = [int]$allCandidates.Count
+        route_candidate_count = [int]$routeCandidates.Count
+        site_candidate_count = [int]$siteCandidates.Count
     }
 }
 
@@ -858,6 +974,15 @@ function Build-DecisionLayer {
     $deadEndRoutes = 0
     $contaminatedRoutes = 0
     $conversionRoutes = 0
+    $contradictionSummary = @{
+        route_candidates = @()
+        site_candidates = @()
+        candidates = @()
+        class_counts = @{}
+        total_candidates = 0
+        route_candidate_count = 0
+        site_candidate_count = 0
+    }
 
     if ($LiveLayer.enabled) {
         $liveSummary = Safe-Get -Object $LiveLayer -Key 'summary' -Default @{}
@@ -918,6 +1043,21 @@ function Build-DecisionLayer {
         }
     }
 
+    $contradictionSummary = Build-ContradictionLayer -SourceLayer $SourceLayer -LiveLayer $LiveLayer -MissingInputs @($MissingInputs)
+    $contradictionTotal = [int](Safe-Get -Object $contradictionSummary -Key 'total_candidates' -Default 0)
+    if ($contradictionTotal -gt 0) {
+        $classCounts = Safe-Get -Object $contradictionSummary -Key 'class_counts' -Default @{}
+        $rankedClasses = @()
+        foreach ($className in @($classCounts.Keys)) {
+            $rankedClasses += [ordered]@{
+                class = [string]$className
+                count = [int]$classCounts[$className]
+            }
+        }
+        $topClassText = @($rankedClasses | Sort-Object -Property @{Expression = 'count'; Descending = $true }, @{Expression = 'class'; Descending = $false } | Select-Object -First 3 | ForEach-Object { "$($_.class)=$($_.count)" }) -join ', '
+        $p1.Add("Cross-layer contradiction candidates detected: $contradictionTotal total ($topClassText).")
+    }
+
     if ($p0.Count -gt 0) {
         $core = $p0[0]
     }
@@ -961,6 +1101,21 @@ function Build-DecisionLayer {
     if ($doNext.Count -lt 3 -and $LiveLayer.enabled) {
         $doNext.Add('Review reports/visual_manifest.json and screenshots for route-level detail.')
     }
+    if ($doNext.Count -lt 3 -and $contradictionTotal -gt 0) {
+        $doNext.Add('Prioritize contradiction candidates where verdicts, route flags, and screenshots diverge.')
+    }
+
+    $looksClean =
+        ($emptyRoutes -eq 0) -and
+        ($thinRoutes -eq 0) -and
+        ($weakCtaRoutes -eq 0) -and
+        ($deadEndRoutes -eq 0) -and
+        ($contaminatedRoutes -eq 0) -and
+        $LiveLayer.enabled -and
+        $LiveLayer.ok -and
+        ($pageQualityStatus -eq 'EVALUATED')
+    $suspiciouslyClean = $looksClean -and ($contradictionTotal -gt 0)
+    $cleanStateLabel = if ($suspiciouslyClean) { 'SUSPICIOUSLY_CLEAN' } elseif ($looksClean) { 'CLEAN' } else { 'NOT_CLEAN' }
 
     return @{
         core_problem = $core
@@ -968,6 +1123,8 @@ function Build-DecisionLayer {
         p1 = @($p1)
         p2 = @($p2)
         do_next = @($doNext | Select-Object -First 3)
+        contradiction_summary = $contradictionSummary
+        clean_state = $cleanStateLabel
     }
 }
 
@@ -985,6 +1142,7 @@ function Build-MetaAuditBriefLines {
     $liveSummary = Safe-Get -Object $liveLayer -Key 'summary' -Default @{}
     $routeDetails = @(Safe-Get -Object $liveLayer -Key 'route_details' -Default @())
     $patternSummary = Safe-Get -Object $liveSummary -Key 'site_pattern_summary' -Default @{}
+    $contradictionSummary = Safe-Get -Object $liveSummary -Key 'contradiction_summary' -Default @{}
     $dominantPattern = Safe-Get -Object $patternSummary -Key 'dominant_pattern' -Default $null
     $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
     $failureStage = [string](Safe-Get -Object $liveSummary -Key 'failure_stage' -Default 'none')
@@ -1019,6 +1177,17 @@ function Build-MetaAuditBriefLines {
         $confidenceLimiters.Add('overall run status is FAIL.')
     }
     $limiterText = if ($confidenceLimiters.Count -gt 0) { $confidenceLimiters -join ' ' } else { 'none; enabled deterministic checks completed.' }
+    $contradictionTotal = [int](Safe-Get -Object $contradictionSummary -Key 'total_candidates' -Default 0)
+    $contradictionClassCounts = Safe-Get -Object $contradictionSummary -Key 'class_counts' -Default @{}
+    $contradictionClassLine = 'none'
+    if ($contradictionTotal -gt 0) {
+        $contradictionClassLine = @(
+            @($contradictionClassCounts.Keys | Sort-Object | ForEach-Object { [ordered]@{ class = [string]$_; count = [int]$contradictionClassCounts[$_] } }) |
+                Sort-Object -Property @{Expression = 'count'; Descending = $true }, @{Expression = 'class'; Descending = $false } |
+                Select-Object -First 4 |
+                ForEach-Object { "$($_.class)=$($_.count)" }
+        ) -join ', '
+    }
 
     $dominantPatternLine = 'mixed pattern / no dominant pattern'
     if ($null -ne $dominantPattern) {
@@ -1197,6 +1366,9 @@ function Build-MetaAuditBriefLines {
         $contradictionHotspots.Add("- Confirm dominant pattern claim by comparing [$(& $formatRouteSet $dominantRoutes 2)] against highest-risk outliers [$(& $formatRouteSet $worstRouteSet 2)].")
     }
     $contradictionHotspots.Add('- Routes classified weak may still show real user value; if screenshots contradict class labels, annotate exact mismatch and route.')
+    if ($contradictionTotal -gt 0) {
+        $contradictionHotspots.Add("- Deterministic contradiction layer flagged $contradictionTotal candidate(s): $contradictionClassLine.")
+    }
 
     $focusOrder = @(
         "1) Verify dominant pattern claim against route evidence: $dominantPatternLine.",
@@ -1242,6 +1414,8 @@ function Build-MetaAuditBriefLines {
         'RUN STATUS / CONFIDENCE',
         "- Run state: $runState",
         "- Confidence limiters: $limiterText",
+        "- Contradiction candidates: $contradictionTotal ($contradictionClassLine)",
+        "- Clean-state check: $([string](Safe-Get -Object $Decision -Key 'clean_state' -Default 'NOT_CLEAN'))",
         '',
         'DOMINANT SITE PATTERN',
         "- $dominantPatternLine",
@@ -1265,6 +1439,7 @@ function Build-MetaAuditBriefLines {
         '- Check whether a healthy-looking executive summary hides weak visual reality on route-level pages.',
         '- Inspect contamination-related routes and verify trust contamination is visibly present.',
         '- Verify whether summary-level wording contradicts screenshot-level evidence.',
+        '- Prioritize contradiction classes from the deterministic layer before final interpretation.',
         '',
         'CONTRADICTION HOTSPOTS'
     ) + @($contradictionHotspots) + @(
@@ -1362,7 +1537,8 @@ function Write-OperatorOutputs {
         "Live audit: $liveStatus",
         "Core problem: $($Decision.core_problem)",
         "Generated: $timestamp",
-        'Primary evidence: reports/audit_result.json'
+        'Primary evidence: reports/audit_result.json',
+        "Clean-state check: $([string](Safe-Get -Object $Decision -Key 'clean_state' -Default 'NOT_CLEAN'))"
     )
     $liveSummary = Safe-Get -Object $AuditResult.live -Key 'summary' -Default @{}
     if ([bool](Safe-Get -Object $AuditResult.live -Key 'enabled' -Default $false)) {
@@ -1387,6 +1563,22 @@ function Write-OperatorOutputs {
             if ($null -ne $dominantPattern) {
                 $summaryLines += "- dominant pattern: $([string](Safe-Get -Object $dominantPattern -Key 'label' -Default 'unknown'))"
             }
+            $contradictionSummary = Safe-Get -Object $liveSummary -Key 'contradiction_summary' -Default @{}
+            $contradictionTotal = [int](Safe-Get -Object $contradictionSummary -Key 'total_candidates' -Default 0)
+            $summaryLines += "- contradiction candidates: $contradictionTotal"
+            if ($contradictionTotal -gt 0) {
+                $classCounts = Safe-Get -Object $contradictionSummary -Key 'class_counts' -Default @{}
+                $topClasses = @(
+                    @($classCounts.Keys | Sort-Object | ForEach-Object { [ordered]@{ class = [string]$_; count = [int]$classCounts[$_] } }) |
+                        Sort-Object -Property @{Expression = 'count'; Descending = $true }, @{Expression = 'class'; Descending = $false } |
+                        Select-Object -First 3 |
+                        ForEach-Object { "$($_.class)=$($_.count)" }
+                ) -join ', '
+                $summaryLines += "- contradiction classes: $topClasses"
+                if ([string](Safe-Get -Object $Decision -Key 'clean_state' -Default 'NOT_CLEAN') -eq 'SUSPICIOUSLY_CLEAN') {
+                    $summaryLines += '- warning: summary appears clean but contradiction layer flagged cross-layer mismatches.'
+                }
+            }
         }
     }
     $summaryPath = Join-Path $reportsDir '11A_EXECUTIVE_SUMMARY.txt'
@@ -1405,6 +1597,7 @@ function Write-OperatorOutputs {
         "LIVE AUDIT: $liveStatus",
         "OVERALL STATUS: $FinalStatus",
         "CORE PROBLEM: $($Decision.core_problem)",
+        "CLEAN STATE: $([string](Safe-Get -Object $Decision -Key 'clean_state' -Default 'NOT_CLEAN'))",
         'P0:'
     )
     if ([bool](Safe-Get -Object $AuditResult.live -Key 'enabled' -Default $false)) {
@@ -1429,6 +1622,8 @@ function Write-OperatorOutputs {
             if ($null -ne $dominantPattern) {
                 $reportLines += "DOMINANT PATTERN: $([string](Safe-Get -Object $dominantPattern -Key 'label' -Default 'unknown'))"
             }
+            $contradictionSummary = Safe-Get -Object $liveSummary -Key 'contradiction_summary' -Default @{}
+            $reportLines += "CONTRADICTION CANDIDATES: $([int](Safe-Get -Object $contradictionSummary -Key 'total_candidates' -Default 0))"
         }
     }
     $reportLines += if ($Decision.p0.Count -gt 0) { $Decision.p0 | ForEach-Object { "- $_" } } else { '- none' }
@@ -1559,6 +1754,9 @@ try {
     foreach ($lw in @($liveLayer.warnings)) { $warnings.Add($lw) }
 
     $decision = Build-DecisionLayer -ResolvedMode $resolvedMode -SourceLayer $sourceLayer -LiveLayer $liveLayer -MissingInputs @($missingInputs) -Warnings $warnings
+    if ($liveLayer.enabled -and ($liveLayer.summary -is [System.Collections.IDictionary])) {
+        $liveLayer.summary.contradiction_summary = Safe-Get -Object $decision -Key 'contradiction_summary' -Default @{}
+    }
 
     $status = 'PASS'
     if ($missingInputs.Count -gt 0) { $status = 'FAIL' }
@@ -1612,6 +1810,16 @@ catch {
         p1 = @($warnings)
         p2 = @()
         do_next = @('Resolve the failure reason and rerun SITE_AUDITOR.')
+        contradiction_summary = @{
+            route_candidates = @()
+            site_candidates = @()
+            candidates = @()
+            class_counts = @{}
+            total_candidates = 0
+            route_candidate_count = 0
+            site_candidate_count = 0
+        }
+        clean_state = 'NOT_CLEAN'
     }
 
     $auditResult = @{
