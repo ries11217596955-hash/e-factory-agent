@@ -865,7 +865,18 @@ function Normalize-LiveRoutes {
             else {
                 $normalizedCountReadScalar = $normalizedCountRead
             }
-            $normalizedCountReadShape = Get-ObjectShapeSummary -Value $normalizedCountReadScalar
+            try {
+                $normalizedCountReadShape = Get-ObjectShapeSummary -Value $normalizedCountReadScalar
+            }
+            catch {
+                $normalizedCountReadShape = [ordered]@{
+                    type = '<shape_capture_failed>'
+                    keys = @()
+                    property_names = @()
+                    count = 0
+                    error_message = if ($null -eq $_ -or $null -eq $_.Exception) { '' } else { [string]$_.Exception.Message }
+                }
+            }
             Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_normalized_count_read' -OperationLabel 'OP2C_normalized_count_read' -Expression '$normalizedCountSource.Count -> scalarized' -LeftOperand $normalizedCountSource -RightOperand $normalizedCountReadScalar -Status 'ok'
         }
         catch {
