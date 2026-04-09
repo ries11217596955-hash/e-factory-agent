@@ -2063,9 +2063,11 @@ function Write-OperatorOutputs {
     $remediationPayload = @{
         package_name = $packageName
         goal = $packageGoal
+        execution_mode = 'linear'
         primary_targets = @($packageTargets | Select-Object -First 5)
         why_first = [string](Safe-Get -Object $remediationPackage -Key 'why_first' -Default 'Prioritize the highest-impact repeated blocker first.')
         steps = @($packageSteps)
+        expected_impact = [string](Safe-Get -Object $remediationPackage -Key 'expected_impact' -Default 'Single-path remediation should reduce primary blocker recurrence and improve route conversion readiness.')
         success_check = [string](Safe-Get -Object $remediationPackage -Key 'success_check' -Default 'Rerun SITE_AUDITOR and verify blocker counts decrease on targeted routes.')
     }
     $remediationPath = Join-Path $reportsDir 'REMEDIATION_PACKAGE.json'
@@ -2229,12 +2231,20 @@ function Write-OperatorOutputs {
     elseif ($maturityClass -eq 'READY_BASELINE') { $siteStage = 3 }
     elseif ($maturityClass -in @('PARTIAL_READY', 'NEEDS_FOUNDATION')) { $siteStage = 2 }
 
-    $p0Items = @($Decision.p0 | Select-Object -First 5)
-    if ($p0Items.Count -eq 0) { $p0Items = @('No P0 blockers were detected in this run; verify P1 list for high-impact work.') }
-    $p1Items = @($Decision.p1 | Select-Object -First 5)
-    if ($p1Items.Count -eq 0) { $p1Items = @('No P1 high-impact findings were detected after deterministic checks.') }
+    $primaryProblem = [string](Safe-Get -Object $Decision -Key 'core_problem' -Default 'Core problem was not generated; use remediation package as the immediate operator path.')
+    if ([string]::IsNullOrWhiteSpace($primaryProblem)) {
+        $primaryProblem = 'Core problem was not generated; use remediation package as the immediate operator path.'
+    }
+    $criticalBlockers = @($Decision.p0 | Select-Object -First 3)
+    if ($criticalBlockers.Count -eq 0) { $criticalBlockers = @('No critical blockers were detected; execute operator path to validate baseline stability.') }
     $doNextItems = @($Decision.do_next | Select-Object -First 3)
     if ($doNextItems.Count -eq 0) { $doNextItems = @('Execute remediation package steps from reports/REMEDIATION_PACKAGE.json and rerun SITE_AUDITOR.') }
+    $successSignalItems = @(
+        'Primary target page is updated in source/live evidence. (YES/NO)',
+        'A clear CTA exists on each primary target route. (YES/NO)',
+        'Primary target content is expanded beyond thin-state threshold. (YES/NO)',
+        'Internal supporting links exist on each primary target route. (YES/NO)'
+    )
 
     $reportLines = @(
         "MODE: $ResolvedMode",
@@ -2242,27 +2252,27 @@ function Write-OperatorOutputs {
         "SOURCE AUDIT: $sourceStatus",
         "LIVE AUDIT: $liveStatus",
         "REQUIRED INPUTS: $requiredInputsLine",
-        "SECTION: CORE PROBLEM",
-        "$($Decision.core_problem)",
+        'SECTION: PRIMARY PROBLEM',
+        $primaryProblem,
         '',
-        'SECTION: P0 BLOCKERS'
+        'SECTION: CRITICAL BLOCKERS'
     )
-    foreach ($item in $p0Items) {
+    for ($i = 0; $i -lt $criticalBlockers.Count; $i++) {
+        $item = $criticalBlockers[$i]
         $reportLines += "- WHAT: $item"
+        $reportLines += "- ORDER: $($i + 1)"
         $reportLines += "- WHY: This condition blocks reliable operator execution or baseline quality."
         $reportLines += "- IMPACT: Shipping without this fix risks false confidence and repeat audit failures."
     }
     $reportLines += ''
-    $reportLines += 'SECTION: P1 HIGH IMPACT'
-    foreach ($item in $p1Items) {
-        $reportLines += "- WHAT: $item"
-        $reportLines += '- WHY: This is a repeated or high-surface issue that degrades outcomes.'
-        $reportLines += '- IMPACT: Leaving this unresolved reduces conversion, clarity, or trust on key routes.'
+    $reportLines += 'SECTION: OPERATOR PATH'
+    for ($i = 0; $i -lt $doNextItems.Count; $i++) {
+        $reportLines += "STEP $($i + 1) -> $($doNextItems[$i])"
     }
     $reportLines += ''
-    $reportLines += 'SECTION: DO NEXT'
-    for ($i = 0; $i -lt $doNextItems.Count; $i++) {
-        $reportLines += "$($i + 1)) $($doNextItems[$i])"
+    $reportLines += 'SECTION: SUCCESS SIGNAL'
+    foreach ($signal in $successSignalItems) {
+        $reportLines += "- $signal"
     }
     $reportLines += ''
     $reportLines += 'SECTION: SITE STAGE'

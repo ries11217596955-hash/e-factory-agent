@@ -1,45 +1,47 @@
 ## Summary
-- Hardened `REPORT.txt` output format to use explicit operator sections: CORE PROBLEM, P0 BLOCKERS (WHAT/WHY/IMPACT), P1 HIGH IMPACT, DO NEXT (max 3), and SITE STAGE (1-4).
-- Added generation of `reports/REMEDIATION_PACKAGE.json` with exactly one executable package payload derived from live findings.
-- Added `product_status` to `reports/audit_result.json` with strict BLOCKED-vs-READY classification and confidence.
-- Kept runtime core, route normalization behavior, and screenshot layer untouched.
+Implemented the SITE_AUDITOR operator decision-system final push with a strict linear operator flow in outputs only (no normalization/evaluation/screenshot changes). REPORT.txt now forces one dominant direction using PRIMARY PROBLEM + ordered CRITICAL BLOCKERS, includes a single 3-step OPERATOR PATH, and adds binary SUCCESS SIGNAL checks. REMEDIATION_PACKAGE.json now declares linear execution mode and expected impact.
 
 ## Changed files
-- `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- `docs/TASK_REPORT.md`
+- agents/gh_batch/site_auditor_cloud/agent.ps1
+- docs/TASK_REPORT.md
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- `agents/gh_batch/site_auditor_cloud/run.ps1`
-- `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
+- agents/gh_batch/site_auditor_cloud/run.ps1
+- agents/gh_batch/site_auditor_cloud/agent.ps1
+- agents/gh_batch/site_auditor_cloud/run_bundle.ps1
 
 ## Risks/blockers
-- Validation is static/code-level only in this container because `pwsh` is unavailable, so end-to-end artifact regeneration could not be executed locally.
+- Runtime validation is environment-limited in this container if PowerShell (`pwsh`) is unavailable.
+- SUCCESS SIGNAL checks are intentionally binary and deterministic, but final truth still depends on rerun evidence generation.
 
-## INSTRUCTION_FILES_READ
-- `AGENTS.md`
-- `docs/README.md`
-- `docs/REPO_LAYOUT.md`
-- `docs/TASK_REPORT.md` (pre-update)
-- `docs/CLEANUP_PLAN.md`
-- `docs/PHASE2_STATUS.md`
-- `docs/PHASE3_STATUS.md`
-- `docs/FINAL_ROOT_CLOSEOUT.md`
-- `docs/WORKFLOW_RESTORE_NOTE.md`
+## CHANGES
+- Replaced flat/equal-priority report structure with forced-priority sections in REPORT.txt generation:
+  - `SECTION: PRIMARY PROBLEM` (single dominant issue)
+  - `SECTION: CRITICAL BLOCKERS` (max 3, explicitly ordered)
+- Removed the equal-weight `P1 HIGH IMPACT` section from REPORT.txt output path.
+- Replaced generic "DO NEXT" list with `SECTION: OPERATOR PATH` using strict sequential format:
+  - `STEP 1 -> ...`
+  - `STEP 2 -> ...`
+  - `STEP 3 -> ...`
+- Added `SECTION: SUCCESS SIGNAL` with observable yes/no checks.
+- Updated `reports/REMEDIATION_PACKAGE.json` payload to include:
+  - `execution_mode: "linear"`
+  - `expected_impact: "..."`
 
-## CHANGES_MADE
-- Updated operator report composition logic so `REPORT.txt` is actionable and sectioned for operators.
-- Added one-file remediation package export (`reports/REMEDIATION_PACKAGE.json`) using real audit findings and bounded steps.
-- Augmented audit result serialization with `product_status` (`PRODUCT_READY_BASELINE` or `BLOCKED_BY_*`) and confidence.
+## WHY BETTER FOR OPERATOR
+- Forces one primary direction instead of parallel interpretation.
+- Reduces cognitive load by limiting blockers to top 3 in explicit order.
+- Prevents branching by giving exactly one executable path (max 3 steps).
+- Makes completion unambiguous with binary success signals.
+- Aligns remediation metadata to a linear execution contract.
 
-## WHY_SAFE
-- Scope limited to output/remediation/product-closeout behavior in `agent.ps1`.
-- No edits made to route normalization, core evaluation logic, screenshot capture implementation, workflows, config, or entrypoints.
-- No architectural refactor and no file moves/deletes.
-
-## VALIDATION_RESULT
-- `python -m py_compile` not applicable (PowerShell codebase).
-- `pwsh` runtime check failed in this container (`pwsh: command not found`), so runtime execution validation is environment-blocked.
+## BEFORE vs AFTER
+- Before: Operator saw multiple weighted lists (P0/P1) and could treat many items as equally urgent.
+- After: Operator sees one PRIMARY PROBLEM and an ordered CRITICAL BLOCKERS set.
+- Before: Action guidance was "DO NEXT" and could be interpreted as optional/mixed strategy.
+- After: Action guidance is strict `OPERATOR PATH` (`STEP 1 -> STEP 3`) with no branching.
+- Before: Completion criteria were less explicit.
+- After: `SUCCESS SIGNAL` provides observable yes/no confirmation points.
