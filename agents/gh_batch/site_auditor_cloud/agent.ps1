@@ -107,8 +107,20 @@ function Safe-Get {
     }
 
     if ($Object -is [System.Collections.IDictionary]) {
-        if ($Object.Contains($Key)) {
-            return $Object[$Key]
+        try {
+            if ($Object.Contains($Key)) {
+                return $Object[$Key]
+            }
+        }
+        catch {
+            try {
+                if ($Object.Keys -contains $Key) {
+                    return $Object[$Key]
+                }
+            }
+            catch {
+                return $Default
+            }
         }
         return $Default
     }
@@ -207,6 +219,45 @@ function Resolve-ManifestRoutes {
     if ($ManifestData -is [System.Collections.IDictionary] -or $ManifestData -is [PSCustomObject]) {
         $explicitRoutes = Safe-Get -Object $ManifestData -Key 'routes' -Default $null
         if ($null -ne $explicitRoutes) {
+            if ($explicitRoutes -is [System.Collections.IDictionary]) {
+                $mappedRoutes = New-Object System.Collections.Generic.List[object]
+                foreach ($entryKey in @($explicitRoutes.Keys)) {
+                    $entryValue = $explicitRoutes[$entryKey]
+                    if ($null -eq $entryValue) { continue }
+                    if ($entryValue -is [System.Collections.IDictionary] -or $entryValue -is [PSCustomObject]) {
+                        $hasPath =
+                            ($null -ne (Safe-Get -Object $entryValue -Key 'route_path' -Default $null)) -or
+                            ($null -ne (Safe-Get -Object $entryValue -Key 'url' -Default $null))
+                        if ($hasPath) {
+                            $mappedRoutes.Add($entryValue)
+                        }
+                        else {
+                            $mappedRoutes.Add([ordered]@{
+                                    route_path = [string]$entryKey
+                                    status = (Safe-Get -Object $entryValue -Key 'status' -Default 'unknown')
+                                    screenshotCount = (Safe-Get -Object $entryValue -Key 'screenshotCount' -Default 0)
+                                    bodyTextLength = (Safe-Get -Object $entryValue -Key 'bodyTextLength' -Default 0)
+                                    links = (Safe-Get -Object $entryValue -Key 'links' -Default 0)
+                                    images = (Safe-Get -Object $entryValue -Key 'images' -Default 0)
+                                    title = (Safe-Get -Object $entryValue -Key 'title' -Default '')
+                                    h1Count = (Safe-Get -Object $entryValue -Key 'h1Count' -Default 0)
+                                    buttonCount = (Safe-Get -Object $entryValue -Key 'buttonCount' -Default 0)
+                                    hasMain = (Safe-Get -Object $entryValue -Key 'hasMain' -Default $false)
+                                    hasArticle = (Safe-Get -Object $entryValue -Key 'hasArticle' -Default $false)
+                                    hasNav = (Safe-Get -Object $entryValue -Key 'hasNav' -Default $false)
+                                    hasFooter = (Safe-Get -Object $entryValue -Key 'hasFooter' -Default $false)
+                                    visibleTextSample = (Safe-Get -Object $entryValue -Key 'visibleTextSample' -Default '')
+                                    contaminationFlags = (Safe-Get -Object $entryValue -Key 'contaminationFlags' -Default @())
+                                })
+                        }
+                    }
+                }
+
+                if ($mappedRoutes.Count -gt 0) {
+                    return @($mappedRoutes)
+                }
+            }
+
             return @(Convert-ToObjectArraySafe -Value $explicitRoutes)
         }
 
