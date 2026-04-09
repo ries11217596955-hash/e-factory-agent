@@ -1,9 +1,8 @@
 ## Summary
-- Applied a surgical ROUTE_NORMALIZATION boundary fix in `agents/gh_batch/site_auditor_cloud/agent.ps1` only.
-- Added safe key normalization for dictionary-shaped route payloads before route field access.
-- Updated route extraction to normalize dictionary keys to strings at the `routes` boundary.
-- Kept diagnosis/contradiction/maturity/output layers unchanged.
-- Validation run is blocked in this container because `pwsh` is unavailable.
+- Hardened `REPORT.txt` output format to use explicit operator sections: CORE PROBLEM, P0 BLOCKERS (WHAT/WHY/IMPACT), P1 HIGH IMPACT, DO NEXT (max 3), and SITE STAGE (1-4).
+- Added generation of `reports/REMEDIATION_PACKAGE.json` with exactly one executable package payload derived from live findings.
+- Added `product_status` to `reports/audit_result.json` with strict BLOCKED-vs-READY classification and confidence.
+- Kept runtime core, route normalization behavior, and screenshot layer untouched.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -18,34 +17,29 @@
 - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 
 ## Risks/blockers
-- Environment blocker: PowerShell runtime (`pwsh`) is not installed in this container, so the required live validation run could not be executed here.
-- Root-cause type evidence is derived from deterministic code-path inspection of ROUTE_NORMALIZATION helpers.
+- Validation is static/code-level only in this container because `pwsh` is unavailable, so end-to-end artifact regeneration could not be executed locally.
 
 ## INSTRUCTION_FILES_READ
 - `AGENTS.md`
 - `docs/README.md`
 - `docs/REPO_LAYOUT.md`
 - `docs/TASK_REPORT.md` (pre-update)
+- `docs/CLEANUP_PLAN.md`
+- `docs/PHASE2_STATUS.md`
+- `docs/PHASE3_STATUS.md`
+- `docs/FINAL_ROOT_CLOSEOUT.md`
+- `docs/WORKFLOW_RESTORE_NOTE.md`
 
-## ROOT_CAUSE
-- **Function name:** `Safe-Get` (invoked from `Normalize-LiveRoutes` / `Resolve-ManifestRoutes` during ROUTE_NORMALIZATION).
-- **Exact expression/operation:** key comparison at dictionary-access boundary: `if ($candidateKey -eq $Key)`.
-- **Left operand type:** non-string dictionary key from manifest route object (e.g., nested/object key in `System.Collections.Hashtable` / `OrderedDictionary`).
-- **Right operand type:** `[string]` key requested by accessor (e.g., `'route_path'`, `'status'`, `'url'`).
-- **Sample values (short):** left=`@{path='/'; status=200}` (object key), right=`'route_path'`.
-- **Why mismatch happens:** ROUTE_NORMALIZATION accepted heterogeneous dictionary payloads and attempted implicit typed comparison before key normalization, which can throw `Argument types do not match` for incompatible key/value shapes.
+## CHANGES_MADE
+- Updated operator report composition logic so `REPORT.txt` is actionable and sectioned for operators.
+- Added one-file remediation package export (`reports/REMEDIATION_PACKAGE.json`) using real audit findings and bounded steps.
+- Augmented audit result serialization with `product_status` (`PRODUCT_READY_BASELINE` or `BLOCKED_BY_*`) and confidence.
 
-## FIX_APPLIED
-- Added `Convert-ToStringKeyDictionarySafe` and invoked it at ROUTE_NORMALIZATION boundaries only:
-  - on `explicitRoutes` in `Resolve-ManifestRoutes`
-  - on each `$route` item in `Normalize-LiveRoutes`
-- The helper performs safe normalization of dictionary keys to strings and preserves values.
-- This is minimal because it changes only the failing boundary behavior (key-type normalization) and does not alter downstream audit layers or contracts.
+## WHY_SAFE
+- Scope limited to output/remediation/product-closeout behavior in `agent.ps1`.
+- No edits made to route normalization, core evaluation logic, screenshot capture implementation, workflows, config, or entrypoints.
+- No architectural refactor and no file moves/deletes.
 
-## VALIDATION
-- **Before (known state):** live evaluation fails at `failure_stage=ROUTE_NORMALIZATION` with `Argument types do not match`; page quality remains `NOT_EVALUATED`.
-- **After (code-path expectation):** mixed/non-string dictionary keys are normalized to string-key dictionaries before field access, preventing the ROUTE_NORMALIZATION key comparison mismatch.
-- **Execution evidence in this container:** full run not possible due to missing `pwsh`; therefore `REPORT.txt`/`audit_result.json` regeneration could not be confirmed locally.
-
-## NEXT_BLOCKER_IF_ANY
-- `NONE` identified from static inspection; runtime confirmation is blocked by missing PowerShell runtime in this environment.
+## VALIDATION_RESULT
+- `python -m py_compile` not applicable (PowerShell codebase).
+- `pwsh` runtime check failed in this container (`pwsh: command not found`), so runtime execution validation is environment-blocked.

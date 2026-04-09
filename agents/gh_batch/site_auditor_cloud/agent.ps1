@@ -1429,15 +1429,51 @@ function Build-ProductCloseoutClassification {
         $classification = "BLOCKED_BY_$($failureMap[$failedKey[0]])"
     }
 
+    $confidence = 'medium'
+    if ($classification -eq 'PRODUCT_READY_BASELINE' -and $FinalStatus -eq 'PASS' -and $pageQualityStatus -eq 'EVALUATED') {
+        $confidence = 'high'
+    }
+    elseif ($FinalStatus -eq 'FAIL' -or $pageQualityStatus -in @('NOT_EVALUATED', 'PARTIAL') -or $diagnosisClass -eq 'UNKNOWN') {
+        $confidence = 'low'
+    }
+
     return @{
         class = $classification
-        reason = if ($failedKey.Count -eq 0) { 'All product closeout checks passed with deterministic operator-ready outputs.' } else { "Product closeout blocked by $($failedKey[0])." }
+        reason = if ($failedKey.Count -eq 0) { 'Deterministic closeout checks passed for baseline operator use.' } else { "Product closeout blocked by $($failedKey[0])." }
+        confidence = $confidence
         checks = $checks
         evidence = @(
             "final_status=$FinalStatus failure_stage=$failureStage page_quality_status=$pageQualityStatus",
             "route_count=$routeCount screenshot_count=$screenshotCount package_name=$packageName package_targets=$($packageTargets.Count)",
             "site_diagnosis=$diagnosisClass maturity=$maturityClass contradiction_shape=$contradictionHasCoreShape"
         )
+    }
+}
+
+function Convert-ToProductStatus {
+    param(
+        [hashtable]$Decision,
+        [string]$FinalStatus
+    )
+
+    $productCloseout = Safe-Get -Object $Decision -Key 'product_closeout' -Default @{}
+    $classification = [string](Safe-Get -Object $productCloseout -Key 'class' -Default 'BLOCKED_BY_UNKNOWN')
+    $reason = [string](Safe-Get -Object $productCloseout -Key 'reason' -Default 'Product closeout classification was not generated.')
+    $confidence = [string](Safe-Get -Object $productCloseout -Key 'confidence' -Default 'low')
+    if ($FinalStatus -ne 'PASS' -and $classification -eq 'PRODUCT_READY_BASELINE') {
+        $classification = "BLOCKED_BY_RUN_STATUS_$FinalStatus"
+        $reason = "Run status is $FinalStatus; baseline is blocked until a full PASS run is produced."
+        $confidence = 'low'
+    }
+
+    if ($classification -notlike 'BLOCKED_BY_*' -and $classification -ne 'PRODUCT_READY_BASELINE') {
+        $classification = "BLOCKED_BY_$classification"
+    }
+
+    return @{
+        status = $classification
+        reason = $reason
+        confidence = if ($confidence -in @('high', 'medium', 'low')) { $confidence } else { 'low' }
     }
 }
 
@@ -2008,15 +2044,33 @@ function Write-OperatorOutputs {
 
     $AuditResult = Normalize-AuditResult -AuditResult $AuditResult
 
+    $remediationPackage = Safe-Get -Object $Decision -Key 'remediation_package' -Default @{}
+    $productCloseout = Safe-Get -Object $Decision -Key 'product_closeout' -Default @{}
+    $productStatus = Convert-ToProductStatus -Decision $Decision -FinalStatus $FinalStatus
+    $AuditResult.product_status = $productStatus
+    if ($AuditResult.decision -is [System.Collections.IDictionary]) {
+        $AuditResult.decision.product_closeout = $productCloseout
+    }
+
     $auditResultPath = Join-Path $reportsDir 'audit_result.json'
     Write-JsonFile -Path $auditResultPath -Data $AuditResult
     $reportFiles.Add('reports/audit_result.json')
 
-    $remediationPackage = Safe-Get -Object $Decision -Key 'remediation_package' -Default @{}
-    $productCloseout = Safe-Get -Object $Decision -Key 'product_closeout' -Default @{}
     $packageName = [string](Safe-Get -Object $remediationPackage -Key 'package_name' -Default 'MIXED_RECOVERY_PACKAGE')
     $packageGoal = [string](Safe-Get -Object $remediationPackage -Key 'package_goal' -Default 'Stabilize highest-impact route-quality cluster first.')
     $packageTargets = @(Safe-Get -Object $remediationPackage -Key 'primary_targets' -Default @())
+    $packageSteps = @($Decision.do_next | Select-Object -First 5)
+    $remediationPayload = @{
+        package_name = $packageName
+        goal = $packageGoal
+        primary_targets = @($packageTargets | Select-Object -First 5)
+        why_first = [string](Safe-Get -Object $remediationPackage -Key 'why_first' -Default 'Prioritize the highest-impact repeated blocker first.')
+        steps = @($packageSteps)
+        success_check = [string](Safe-Get -Object $remediationPackage -Key 'success_check' -Default 'Rerun SITE_AUDITOR and verify blocker counts decrease on targeted routes.')
+    }
+    $remediationPath = Join-Path $reportsDir 'REMEDIATION_PACKAGE.json'
+    Write-JsonFile -Path $remediationPath -Data $remediationPayload
+    $reportFiles.Add('reports/REMEDIATION_PACKAGE.json')
 
     $topIssues = @($Decision.p0 + $Decision.p1)
     if (-not [string]::IsNullOrWhiteSpace($packageGoal)) {
@@ -2069,7 +2123,7 @@ function Write-OperatorOutputs {
     $sourceStatus = if (-not (Safe-Get -Object $AuditResult.source -Key 'enabled' -Default $false)) { 'OFF' } elseif (Safe-Get -Object $AuditResult.source -Key 'ok' -Default $false) { 'PASS' } else { 'FAIL' }
     $liveStatus = if (-not (Safe-Get -Object $AuditResult.live -Key 'enabled' -Default $false)) { 'OFF' } elseif (Safe-Get -Object $AuditResult.live -Key 'ok' -Default $false) { 'PASS' } else { 'FAIL' }
     $requiredInputs = @(Safe-Get -Object $AuditResult -Key 'required_inputs' -Default @())
-    $requiredInputsLine = if ($requiredInputs.Count -gt 0) { $requiredInputs -join ', ' } else { 'none' }
+    $requiredInputsLine = if ($requiredInputs.Count -gt 0) { $requiredInputs -join ', ' } else { 'Not required for this mode.' }
     $repoRoot = Safe-Get -Object $AuditResult.source -Key 'root' -Default $null
     $sourceEnabled = [bool](Safe-Get -Object $AuditResult.source -Key 'enabled' -Default $false)
 
@@ -2167,69 +2221,58 @@ function Write-OperatorOutputs {
     Write-TextFile -Path $metaBriefPath -Lines $metaBriefLines
     $reportFiles.Add('reports/12A_META_AUDIT_BRIEF.txt')
 
+    $siteDiagnosis = Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}
+    $maturity = Safe-Get -Object $Decision -Key 'maturity_readiness' -Default @{}
+    $maturityClass = [string](Safe-Get -Object $maturity -Key 'class' -Default 'NOT_READY')
+    $siteStage = 1
+    if ($maturityClass -in @('READY_SCALE', 'READY_GROWTH')) { $siteStage = 4 }
+    elseif ($maturityClass -eq 'READY_BASELINE') { $siteStage = 3 }
+    elseif ($maturityClass -in @('PARTIAL_READY', 'NEEDS_FOUNDATION')) { $siteStage = 2 }
+
+    $p0Items = @($Decision.p0 | Select-Object -First 5)
+    if ($p0Items.Count -eq 0) { $p0Items = @('No P0 blockers were detected in this run; verify P1 list for high-impact work.') }
+    $p1Items = @($Decision.p1 | Select-Object -First 5)
+    if ($p1Items.Count -eq 0) { $p1Items = @('No P1 high-impact findings were detected after deterministic checks.') }
+    $doNextItems = @($Decision.do_next | Select-Object -First 3)
+    if ($doNextItems.Count -eq 0) { $doNextItems = @('Execute remediation package steps from reports/REMEDIATION_PACKAGE.json and rerun SITE_AUDITOR.') }
+
     $reportLines = @(
         "MODE: $ResolvedMode",
-        "REQUIRED INPUTS: $requiredInputsLine",
+        "OVERALL STATUS: $FinalStatus",
         "SOURCE AUDIT: $sourceStatus",
         "LIVE AUDIT: $liveStatus",
-        "OVERALL STATUS: $FinalStatus",
-        "CORE PROBLEM: $($Decision.core_problem)",
-        "CLEAN STATE: $([string](Safe-Get -Object $Decision -Key 'clean_state' -Default 'NOT_CLEAN'))",
-        "SITE DIAGNOSIS: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}) -Key 'class' -Default 'UNKNOWN'))",
-        "DIAGNOSIS REASON: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}) -Key 'reason' -Default 'none'))",
-        "DIAGNOSIS CONFIDENCE: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}) -Key 'confidence' -Default 'LOW'))",
-        "MATURITY/READINESS: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'maturity_readiness' -Default @{}) -Key 'class' -Default 'NOT_READY'))",
-        "MATURITY REASON: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'maturity_readiness' -Default @{}) -Key 'reason' -Default 'none'))",
-        "MATURITY CONFIDENCE: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'maturity_readiness' -Default @{}) -Key 'confidence' -Default 'LOW'))",
-        "AUDITOR BASELINE: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'auditor_baseline' -Default @{}) -Key 'class' -Default 'BLOCKED_BY_UNKNOWN'))",
-        "BASELINE REASON: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'auditor_baseline' -Default @{}) -Key 'reason' -Default 'none'))",
-        "BASELINE CONFIDENCE: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'auditor_baseline' -Default @{}) -Key 'confidence' -Default 'LOW'))",
-        "PRODUCT CLOSEOUT: $([string](Safe-Get -Object $productCloseout -Key 'class' -Default 'BLOCKED_BY_UNKNOWN'))",
-        "PRODUCT CLOSEOUT REASON: $([string](Safe-Get -Object $productCloseout -Key 'reason' -Default 'none'))",
-        "PRIMARY REMEDIATION PACKAGE: $packageName",
-        "PACKAGE GOAL: $packageGoal",
-        'P0:'
+        "REQUIRED INPUTS: $requiredInputsLine",
+        "SECTION: CORE PROBLEM",
+        "$($Decision.core_problem)",
+        '',
+        'SECTION: P0 BLOCKERS'
     )
-    if ($packageTargets.Count -gt 0) {
-        $reportLines += "PACKAGE TARGETS: $((@($packageTargets | Select-Object -First 5)) -join ', ')"
+    foreach ($item in $p0Items) {
+        $reportLines += "- WHAT: $item"
+        $reportLines += "- WHY: This condition blocks reliable operator execution or baseline quality."
+        $reportLines += "- IMPACT: Shipping without this fix risks false confidence and repeat audit failures."
     }
-    $reportLines += "PACKAGE WHY FIRST: $([string](Safe-Get -Object $remediationPackage -Key 'why_first' -Default 'none'))"
-    $reportLines += "PACKAGE SUCCESS CHECK: $([string](Safe-Get -Object $remediationPackage -Key 'success_check' -Default 'none'))"
-    if ([bool](Safe-Get -Object $AuditResult.live -Key 'enabled' -Default $false)) {
-        $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
-        $reportLines += "PAGE QUALITY STATUS: $pageQualityStatus"
-        if ($pageQualityStatus -eq 'NOT_EVALUATED') {
-            $reportLines += "PAGE QUALITY ROLLUP: unavailable (stage: $([string](Safe-Get -Object $liveSummary -Key 'failure_stage' -Default 'unknown')))"
-        }
-        else {
-            $reportLines += 'PAGE QUALITY ROLLUP:'
-            $reportLines += "- empty routes: $([int](Safe-Get -Object $liveSummary -Key 'empty_routes' -Default 0))"
-            $reportLines += "- thin routes: $([int](Safe-Get -Object $liveSummary -Key 'thin_routes' -Default 0))"
-            $reportLines += "- weak CTA routes: $([int](Safe-Get -Object $liveSummary -Key 'weak_cta_routes' -Default 0))"
-            $reportLines += "- dead-end routes: $([int](Safe-Get -Object $liveSummary -Key 'dead_end_routes' -Default 0))"
-            $reportLines += "- contaminated routes: $([int](Safe-Get -Object $liveSummary -Key 'contaminated_routes' -Default 0))"
-            $patternSummary = Safe-Get -Object $liveSummary -Key 'site_pattern_summary' -Default @{}
-            $repeatedCount = [int](Safe-Get -Object $patternSummary -Key 'repeated_pattern_count' -Default 0)
-            $isolatedCount = [int](Safe-Get -Object $patternSummary -Key 'isolated_pattern_count' -Default 0)
-            $dominantPattern = Safe-Get -Object $patternSummary -Key 'dominant_pattern' -Default $null
-            $reportLines += "REPEATED SITE PATTERNS: $repeatedCount"
-            $reportLines += "ISOLATED ISSUE PATTERNS: $isolatedCount"
-            if ($null -ne $dominantPattern) {
-                $reportLines += "DOMINANT PATTERN: $([string](Safe-Get -Object $dominantPattern -Key 'label' -Default 'unknown'))"
-            }
-            $contradictionSummary = Safe-Get -Object $liveSummary -Key 'contradiction_summary' -Default @{}
-            $reportLines += "CONTRADICTION CANDIDATES: $([int](Safe-Get -Object $contradictionSummary -Key 'total_candidates' -Default 0))"
-            $evidenceCoverage = Safe-Get -Object $liveSummary -Key 'evidence_coverage' -Default @{}
-            $reportLines += "EVIDENCE RICHNESS: $([string](Safe-Get -Object $evidenceCoverage -Key 'evidence_richness' -Default 'SPARSE'))"
-        }
+    $reportLines += ''
+    $reportLines += 'SECTION: P1 HIGH IMPACT'
+    foreach ($item in $p1Items) {
+        $reportLines += "- WHAT: $item"
+        $reportLines += '- WHY: This is a repeated or high-surface issue that degrades outcomes.'
+        $reportLines += '- IMPACT: Leaving this unresolved reduces conversion, clarity, or trust on key routes.'
     }
-    $reportLines += if ($Decision.p0.Count -gt 0) { $Decision.p0 | ForEach-Object { "- $_" } } else { '- none' }
-    $reportLines += 'P1:'
-    $reportLines += if ($Decision.p1.Count -gt 0) { $Decision.p1 | ForEach-Object { "- $_" } } else { '- none' }
-    $reportLines += 'P2:'
-    $reportLines += if ($Decision.p2.Count -gt 0) { $Decision.p2 | ForEach-Object { "- $_" } } else { '- none' }
-    $reportLines += 'DO NEXT:'
-    $reportLines += if ($Decision.do_next.Count -gt 0) { $Decision.do_next | ForEach-Object { "- $_" } } else { '- none' }
+    $reportLines += ''
+    $reportLines += 'SECTION: DO NEXT'
+    for ($i = 0; $i -lt $doNextItems.Count; $i++) {
+        $reportLines += "$($i + 1)) $($doNextItems[$i])"
+    }
+    $reportLines += ''
+    $reportLines += 'SECTION: SITE STAGE'
+    $reportLines += "STAGE $siteStage"
+    $reportLines += "DIAGNOSIS: $([string](Safe-Get -Object $siteDiagnosis -Key 'class' -Default 'INCONCLUSIVE_DIAGNOSIS'))"
+    $reportLines += "MATURITY: $maturityClass"
+    $reportLines += "PRODUCT STATUS: $([string](Safe-Get -Object $productStatus -Key 'status' -Default 'BLOCKED_BY_UNCLEAR_CLOSEOUT'))"
+    $reportLines += "PRODUCT REASON: $([string](Safe-Get -Object $productStatus -Key 'reason' -Default 'Closeout reason unavailable; review reports/audit_result.json.'))"
+    $reportLines += "PRODUCT CONFIDENCE: $([string](Safe-Get -Object $productStatus -Key 'confidence' -Default 'low'))"
+    $reportLines += "PRIMARY REMEDIATION PACKAGE: $packageName"
 
     $manifest = @{
         mode = $ResolvedMode
@@ -2267,6 +2310,11 @@ function Ensure-OutputContract {
             timestamp = (Get-Date).ToString('o')
             mode = $ResolvedMode
             error = if ([string]::IsNullOrWhiteSpace($FailureReason)) { 'FAILED: no report generated' } else { $FailureReason }
+            product_status = @{
+                status = "BLOCKED_BY_RUN_STATUS_$FinalStatus"
+                reason = 'Fallback audit result generated without full decision context.'
+                confidence = 'low'
+            }
         }
         Write-JsonFile -Path $auditResultPath -Data $fallbackAuditResult
     }
