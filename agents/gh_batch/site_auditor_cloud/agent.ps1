@@ -216,8 +216,9 @@ function Resolve-ManifestRoutes {
         if ($null -ne $explicitRoutes) {
             if ($explicitRoutes -is [System.Collections.IDictionary]) {
                 $mappedRoutes = New-Object System.Collections.Generic.List[object]
-                foreach ($entryKey in @($explicitRoutes.Keys)) {
-                    $entryValue = $explicitRoutes[$entryKey]
+                foreach ($entry in @($explicitRoutes.GetEnumerator())) {
+                    $entryKey = Safe-Get -Object $entry -Key 'Key' -Default ''
+                    $entryValue = Safe-Get -Object $entry -Key 'Value' -Default $null
                     if ($null -eq $entryValue) { continue }
                     if ($entryValue -is [System.Collections.IDictionary] -or $entryValue -is [PSCustomObject]) {
                         $hasPath =
@@ -275,6 +276,99 @@ function Resolve-ManifestRoutes {
     return @(Convert-ToObjectArraySafe -Value $ManifestData)
 }
 
+function Get-RouteCoverageCategory {
+    param([string]$RoutePath)
+
+    if ([string]::IsNullOrWhiteSpace($RoutePath)) { return 'OTHER' }
+    $normalized = $RoutePath.Trim().ToLowerInvariant()
+    if ($normalized -eq '/') { return 'ROOT' }
+    if ($normalized.StartsWith('/hubs')) { return 'HUB' }
+    if ($normalized.StartsWith('/tools')) { return 'TOOL' }
+    if ($normalized.StartsWith('/search')) { return 'SEARCH' }
+    if ($normalized.StartsWith('/start-here')) { return 'START' }
+    return 'CONTENT'
+}
+
+function Build-EvidenceCoverageSummary {
+    param([object[]]$Routes)
+
+    $routes = @($Routes)
+    $categoryCounts = [ordered]@{
+        ROOT = 0
+        HUB = 0
+        TOOL = 0
+        SEARCH = 0
+        START = 0
+        CONTENT = 0
+        OTHER = 0
+    }
+    $screenshotCoverage = [ordered]@{
+        full = 0
+        partial = 0
+        none = 0
+    }
+    $captureProfiles = @{}
+    $expectedScreenshots = 3
+    $totalShots = 0
+
+    foreach ($route in $routes) {
+        $routePath = [string](Safe-Get -Object $route -Key 'route_path' -Default '')
+        $category = [string](Safe-Get -Object $route -Key 'route_category' -Default '')
+        if ([string]::IsNullOrWhiteSpace($category)) {
+            $category = Get-RouteCoverageCategory -RoutePath $routePath
+        }
+        if (-not $categoryCounts.Contains($category)) {
+            $categoryCounts[$category] = 0
+        }
+        $categoryCounts[$category] = [int]$categoryCounts[$category] + 1
+
+        $shots = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'screenshotCount' -Default 0) -Default 0
+        $totalShots += $shots
+        if ($shots -ge $expectedScreenshots) {
+            $screenshotCoverage.full++
+        }
+        elseif ($shots -gt 0) {
+            $screenshotCoverage.partial++
+        }
+        else {
+            $screenshotCoverage.none++
+        }
+
+        $profile = [string](Safe-Get -Object $route -Key 'capture_profile' -Default 'UNKNOWN')
+        if ([string]::IsNullOrWhiteSpace($profile)) { $profile = 'UNKNOWN' }
+        if (-not $captureProfiles.ContainsKey($profile)) {
+            $captureProfiles[$profile] = 0
+        }
+        $captureProfiles[$profile] = [int]$captureProfiles[$profile] + 1
+    }
+
+    $distinctCategories = @($categoryCounts.Keys | Where-Object { [int]$categoryCounts[$_] -gt 0 })
+    $richness = 'SPARSE'
+    if ($routes.Count -ge 5 -and $distinctCategories.Count -ge 4 -and [int]$screenshotCoverage.full -ge [math]::Ceiling($routes.Count * 0.60)) {
+        $richness = 'RICH'
+    }
+    elseif ($routes.Count -ge 3 -and $distinctCategories.Count -ge 2 -and [int]$screenshotCoverage.partial -le 1 -and [int]$screenshotCoverage.none -eq 0) {
+        $richness = 'MODERATE'
+    }
+
+    return @{
+        route_coverage = @{
+            category_counts = $categoryCounts
+            distinct_category_count = [int]$distinctCategories.Count
+            sampled_routes = [int]$routes.Count
+        }
+        screenshot_coverage = @{
+            expected_per_route = $expectedScreenshots
+            total_captured = [int]$totalShots
+            full_routes = [int]$screenshotCoverage.full
+            partial_routes = [int]$screenshotCoverage.partial
+            no_screenshot_routes = [int]$screenshotCoverage.none
+        }
+        capture_profiles = $captureProfiles
+        evidence_richness = $richness
+    }
+}
+
 function Normalize-LiveRoutes {
     param([object]$ManifestData)
 
@@ -311,9 +405,16 @@ function Normalize-LiveRoutes {
             $normalizedStatus = if ($statusCode -ge 0) { $statusCode } else { [string]$statusValue }
 
             $flags = Convert-ToStringArraySafe -Value (Safe-Get -Object $route -Key 'contaminationFlags' -Default @())
+            $routeCategory = [string](Safe-Get -Object $route -Key 'routeCategory' -Default (Safe-Get -Object $route -Key 'route_category' -Default ''))
+            if ([string]::IsNullOrWhiteSpace($routeCategory)) {
+                $routeCategory = Get-RouteCoverageCategory -RoutePath $routePath
+            }
+            $captureProfile = [string](Safe-Get -Object $route -Key 'captureProfile' -Default (Safe-Get -Object $route -Key 'capture_profile' -Default 'TRIPLE_SCROLL'))
+            if ([string]::IsNullOrWhiteSpace($captureProfile)) { $captureProfile = 'TRIPLE_SCROLL' }
 
             $normalized.Add([ordered]@{
                     route_path = $routePath
+                    route_category = $routeCategory
                     status = $normalizedStatus
                     screenshotCount = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'screenshotCount' -Default 0) -Default 0
                     bodyTextLength = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'bodyTextLength' -Default 0) -Default 0
@@ -328,6 +429,7 @@ function Normalize-LiveRoutes {
                     hasFooter = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasFooter' -Default $false) -Default $false
                     visibleTextSample = [string](Safe-Get -Object $route -Key 'visibleTextSample' -Default '')
                     contaminationFlags = @($flags)
+                    capture_profile = $captureProfile
                 })
         }
         catch {
@@ -539,6 +641,7 @@ function Invoke-LiveAudit {
         $routeDetails = @($routeDetailsAndRollups.route_details)
         $rollups = $routeDetailsAndRollups.rollups
         $patternSummary = Safe-Get -Object $routeDetailsAndRollups -Key 'pattern_summary' -Default @{}
+        $coverageSummary = Build-EvidenceCoverageSummary -Routes $routes
 
         $findings = New-Object System.Collections.Generic.List[string]
         $warnings = New-Object System.Collections.Generic.List[string]
@@ -562,6 +665,7 @@ function Invoke-LiveAudit {
         if ($rollups.weak_cta_routes -gt 0) { $findings.Add("Weak CTA on $($rollups.weak_cta_routes) route(s).") }
         if ($rollups.dead_end_routes -gt 0) { $findings.Add("$($rollups.dead_end_routes) dead-end route(s) detected.") }
         if ($rollups.contaminated_routes -gt 0) { $findings.Add("UI contamination found on $($rollups.contaminated_routes) route(s).") }
+        $findings.Add("Evidence richness: $([string](Safe-Get -Object $coverageSummary -Key 'evidence_richness' -Default 'SPARSE')).")
 
         return (New-LiveLayer -Overrides @{
             enabled = $true
@@ -580,6 +684,7 @@ function Invoke-LiveAudit {
                 contaminated_routes = [int]$rollups.contaminated_routes
                 page_quality_status = $pageQualityStatus
                 site_pattern_summary = $patternSummary
+                evidence_coverage = $coverageSummary
                 raw_route_entries = [int](Safe-Get -Object $normalizedRoutesData -Key 'raw_count' -Default 0)
                 normalized_route_entries = @($routes).Count
                 dropped_route_entries = $droppedCount
@@ -1016,6 +1121,79 @@ function Build-SiteDiagnosisLayer {
     }
 }
 
+function Build-MaturityReadinessLayer {
+    param(
+        [hashtable]$SourceLayer,
+        [hashtable]$LiveLayer,
+        [hashtable]$SiteDiagnosis,
+        [hashtable]$ContradictionSummary,
+        [string[]]$MissingInputs
+    )
+
+    $liveSummary = Safe-Get -Object $LiveLayer -Key 'summary' -Default @{}
+    $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
+    $totalRoutes = [int](Safe-Get -Object $liveSummary -Key 'total_routes' -Default 0)
+    $emptyRoutes = [int](Safe-Get -Object $liveSummary -Key 'empty_routes' -Default 0)
+    $thinRoutes = [int](Safe-Get -Object $liveSummary -Key 'thin_routes' -Default 0)
+    $conversionWeak = [int](Safe-Get -Object $liveSummary -Key 'weak_cta_routes' -Default 0) + [int](Safe-Get -Object $liveSummary -Key 'dead_end_routes' -Default 0)
+    $contaminatedRoutes = [int](Safe-Get -Object $liveSummary -Key 'contaminated_routes' -Default 0)
+    $contradictionTotal = [int](Safe-Get -Object $ContradictionSummary -Key 'total_candidates' -Default 0)
+    $diagnosisClass = [string](Safe-Get -Object $SiteDiagnosis -Key 'class' -Default 'UNKNOWN')
+    $evidenceCoverage = Safe-Get -Object $liveSummary -Key 'evidence_coverage' -Default @{}
+    $evidenceRichness = [string](Safe-Get -Object $evidenceCoverage -Key 'evidence_richness' -Default 'SPARSE')
+    $missingCount = @($MissingInputs).Count
+
+    $class = 'NOT_READY'
+    $reason = 'Run or route-quality evidence is insufficient for release review.'
+
+    if ($missingCount -gt 0 -or -not $LiveLayer.enabled -or $pageQualityStatus -eq 'NOT_EVALUATED' -or $totalRoutes -eq 0) {
+        $class = 'NOT_READY'
+        $reason = 'Critical runtime evidence is missing or page-quality evaluation did not complete.'
+    }
+    elseif ($diagnosisClass -in @('BROKEN_SYSTEM', 'CONTENT_SHELL', 'TRUST_CONTAMINATED_SYSTEM')) {
+        $class = 'EARLY_STRUCTURE_ONLY'
+        $reason = 'System structure is present but deterministic quality/trust blockers dominate.'
+    }
+    elseif ($emptyRoutes -gt 0 -or $contaminatedRoutes -gt 0) {
+        $class = 'PARTIALLY_USABLE'
+        $reason = 'Some routes are usable, but empty or trust-contaminated routes block broad reliability.'
+    }
+    elseif ($thinRoutes -ge 1 -or $conversionWeak -ge 2 -or $evidenceRichness -eq 'SPARSE') {
+        $class = 'USABLE_BUT_WEAK'
+        $reason = 'Core routes are functioning, but quality depth/conversion coverage remains weak.'
+    }
+    elseif ($contradictionTotal -ge 3) {
+        $class = 'ANALYST_REVIEW_REQUIRED'
+        $reason = 'Contradiction density is high enough that analyst verification is required before release review.'
+    }
+    else {
+        $class = 'RELEASE_REVIEW_READY'
+        $reason = 'Deterministic route-quality, contradiction, and evidence-coverage checks are consistently healthy.'
+    }
+
+    $confidence = 'HIGH'
+    if ($evidenceRichness -eq 'SPARSE' -or $totalRoutes -lt 3 -or $pageQualityStatus -eq 'PARTIAL') {
+        $confidence = 'MEDIUM'
+    }
+    if ($pageQualityStatus -eq 'NOT_EVALUATED' -or $missingCount -gt 0 -or -not $LiveLayer.ok) {
+        $confidence = 'LOW'
+    }
+
+    $evidence = @(
+        "page_quality_status=$pageQualityStatus total_routes=$totalRoutes evidence_richness=$evidenceRichness",
+        "empty_routes=$emptyRoutes thin_routes=$thinRoutes conversion_weak_routes=$conversionWeak contaminated_routes=$contaminatedRoutes",
+        "site_diagnosis=$diagnosisClass contradiction_candidates=$contradictionTotal",
+        "missing_inputs=$missingCount"
+    )
+
+    return @{
+        class = $class
+        reason = $reason
+        evidence = @($evidence)
+        confidence = $confidence
+    }
+}
+
 function Build-DecisionLayer {
     param(
         [string]$ResolvedMode,
@@ -1150,6 +1328,8 @@ function Build-DecisionLayer {
         $p1.Add("Cross-layer contradiction candidates detected: $contradictionTotal total ($topClassText).")
     }
 
+    $maturityReadiness = Build-MaturityReadinessLayer -SourceLayer $SourceLayer -LiveLayer $LiveLayer -SiteDiagnosis $siteDiagnosis -ContradictionSummary $contradictionSummary -MissingInputs @($MissingInputs)
+
     if ($p0.Count -gt 0) {
         $core = $p0[0]
     }
@@ -1216,6 +1396,7 @@ function Build-DecisionLayer {
         p2 = @($p2)
         do_next = @($doNext | Select-Object -First 3)
         site_diagnosis = $siteDiagnosis
+        maturity_readiness = $maturityReadiness
         contradiction_summary = $contradictionSummary
         clean_state = $cleanStateLabel
     }
@@ -1237,6 +1418,7 @@ function Build-MetaAuditBriefLines {
     $patternSummary = Safe-Get -Object $liveSummary -Key 'site_pattern_summary' -Default @{}
     $contradictionSummary = Safe-Get -Object $liveSummary -Key 'contradiction_summary' -Default @{}
     $siteDiagnosis = Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}
+    $maturityReadiness = Safe-Get -Object $Decision -Key 'maturity_readiness' -Default @{}
     $dominantPattern = Safe-Get -Object $patternSummary -Key 'dominant_pattern' -Default $null
     $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
     $failureStage = [string](Safe-Get -Object $liveSummary -Key 'failure_stage' -Default 'none')
@@ -1511,6 +1693,9 @@ function Build-MetaAuditBriefLines {
         "- Site diagnosis: $([string](Safe-Get -Object $siteDiagnosis -Key 'class' -Default 'UNKNOWN'))",
         "- Diagnosis reason: $([string](Safe-Get -Object $siteDiagnosis -Key 'reason' -Default 'none'))",
         "- Diagnosis confidence: $([string](Safe-Get -Object $siteDiagnosis -Key 'confidence' -Default 'LOW'))",
+        "- Maturity/readiness: $([string](Safe-Get -Object $maturityReadiness -Key 'class' -Default 'NOT_READY'))",
+        "- Maturity reason: $([string](Safe-Get -Object $maturityReadiness -Key 'reason' -Default 'none'))",
+        "- Maturity confidence: $([string](Safe-Get -Object $maturityReadiness -Key 'confidence' -Default 'LOW'))",
         "- Contradiction candidates: $contradictionTotal ($contradictionClassLine)",
         "- Clean-state check: $([string](Safe-Get -Object $Decision -Key 'clean_state' -Default 'NOT_CLEAN'))",
         '',
@@ -1638,7 +1823,10 @@ function Write-OperatorOutputs {
         "Clean-state check: $([string](Safe-Get -Object $Decision -Key 'clean_state' -Default 'NOT_CLEAN'))",
         "Site diagnosis: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}) -Key 'class' -Default 'UNKNOWN'))",
         "Diagnosis reason: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}) -Key 'reason' -Default 'none'))",
-        "Diagnosis confidence: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}) -Key 'confidence' -Default 'LOW'))"
+        "Diagnosis confidence: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}) -Key 'confidence' -Default 'LOW'))",
+        "Maturity/readiness: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'maturity_readiness' -Default @{}) -Key 'class' -Default 'NOT_READY'))",
+        "Maturity reason: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'maturity_readiness' -Default @{}) -Key 'reason' -Default 'none'))",
+        "Maturity confidence: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'maturity_readiness' -Default @{}) -Key 'confidence' -Default 'LOW'))"
     )
     $liveSummary = Safe-Get -Object $AuditResult.live -Key 'summary' -Default @{}
     if ([bool](Safe-Get -Object $AuditResult.live -Key 'enabled' -Default $false)) {
@@ -1666,6 +1854,13 @@ function Write-OperatorOutputs {
             $contradictionSummary = Safe-Get -Object $liveSummary -Key 'contradiction_summary' -Default @{}
             $contradictionTotal = [int](Safe-Get -Object $contradictionSummary -Key 'total_candidates' -Default 0)
             $summaryLines += "- contradiction candidates: $contradictionTotal"
+            $evidenceCoverage = Safe-Get -Object $liveSummary -Key 'evidence_coverage' -Default @{}
+            $evidenceRichness = [string](Safe-Get -Object $evidenceCoverage -Key 'evidence_richness' -Default 'SPARSE')
+            $summaryLines += "- evidence richness: $evidenceRichness"
+            $routeCoverage = Safe-Get -Object $evidenceCoverage -Key 'route_coverage' -Default @{}
+            $summaryLines += "- route category coverage: $([int](Safe-Get -Object $routeCoverage -Key 'distinct_category_count' -Default 0))"
+            $screenshotCoverage = Safe-Get -Object $evidenceCoverage -Key 'screenshot_coverage' -Default @{}
+            $summaryLines += "- screenshot coverage full/partial/none: $([int](Safe-Get -Object $screenshotCoverage -Key 'full_routes' -Default 0))/$([int](Safe-Get -Object $screenshotCoverage -Key 'partial_routes' -Default 0))/$([int](Safe-Get -Object $screenshotCoverage -Key 'no_screenshot_routes' -Default 0))"
             if ($contradictionTotal -gt 0) {
                 $classCounts = Safe-Get -Object $contradictionSummary -Key 'class_counts' -Default @{}
                 $topClasses = @(
@@ -1708,6 +1903,9 @@ function Write-OperatorOutputs {
         "SITE DIAGNOSIS: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}) -Key 'class' -Default 'UNKNOWN'))",
         "DIAGNOSIS REASON: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}) -Key 'reason' -Default 'none'))",
         "DIAGNOSIS CONFIDENCE: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}) -Key 'confidence' -Default 'LOW'))",
+        "MATURITY/READINESS: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'maturity_readiness' -Default @{}) -Key 'class' -Default 'NOT_READY'))",
+        "MATURITY REASON: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'maturity_readiness' -Default @{}) -Key 'reason' -Default 'none'))",
+        "MATURITY CONFIDENCE: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'maturity_readiness' -Default @{}) -Key 'confidence' -Default 'LOW'))",
         'P0:'
     )
     if ([bool](Safe-Get -Object $AuditResult.live -Key 'enabled' -Default $false)) {
@@ -1734,6 +1932,8 @@ function Write-OperatorOutputs {
             }
             $contradictionSummary = Safe-Get -Object $liveSummary -Key 'contradiction_summary' -Default @{}
             $reportLines += "CONTRADICTION CANDIDATES: $([int](Safe-Get -Object $contradictionSummary -Key 'total_candidates' -Default 0))"
+            $evidenceCoverage = Safe-Get -Object $liveSummary -Key 'evidence_coverage' -Default @{}
+            $reportLines += "EVIDENCE RICHNESS: $([string](Safe-Get -Object $evidenceCoverage -Key 'evidence_richness' -Default 'SPARSE'))"
         }
     }
     $reportLines += if ($Decision.p0.Count -gt 0) { $Decision.p0 | ForEach-Object { "- $_" } } else { '- none' }
@@ -1923,6 +2123,12 @@ catch {
         site_diagnosis = @{
             class = 'BROKEN_SYSTEM'
             reason = 'Run failed before reliable live evidence could be evaluated.'
+            evidence = @("failure_reason=$failureReason")
+            confidence = 'LOW'
+        }
+        maturity_readiness = @{
+            class = 'NOT_READY'
+            reason = 'Auditor run failed before deterministic readiness evidence could be completed.'
             evidence = @("failure_reason=$failureReason")
             confidence = 'LOW'
         }

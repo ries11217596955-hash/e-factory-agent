@@ -20,6 +20,16 @@ function slug(route) {
   return route.replace(/\//g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
 }
 
+function categorizeRoute(route) {
+  const normalized = (route || '').toLowerCase();
+  if (normalized === '/') return 'ROOT';
+  if (normalized.startsWith('/hubs')) return 'HUB';
+  if (normalized.startsWith('/tools')) return 'TOOL';
+  if (normalized.startsWith('/search')) return 'SEARCH';
+  if (normalized.startsWith('/start-here')) return 'START';
+  return 'CONTENT';
+}
+
 async function scrollStep(page, position) {
   await page.evaluate((pos) => {
     const h = Math.max(document.body?.scrollHeight || 0, document.documentElement?.scrollHeight || 0, 1);
@@ -95,19 +105,23 @@ async function processRoute(browser, route) {
     return {
       url,
       route_path: route,
+      routeCategory: categorizeRoute(route),
       status: response ? response.status() : 0,
       screenshotCount: shots.length,
       screenshots: shots,
+      captureProfile: 'TRIPLE_SCROLL',
       ...metrics,
     };
   } catch (err) {
     return {
       url,
       route_path: route,
+      routeCategory: categorizeRoute(route),
       status: 'error',
       error: String(err?.message || err),
       screenshotCount: shots.length,
       screenshots: shots,
+      captureProfile: 'TRIPLE_SCROLL',
       title: '',
       bodyTextLength: 0,
       links: 0,
