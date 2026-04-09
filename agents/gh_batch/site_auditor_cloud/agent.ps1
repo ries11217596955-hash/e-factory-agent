@@ -1248,6 +1248,178 @@ function Build-AuditorBaselineCertification {
     }
 }
 
+function Build-PrimaryRemediationPackage {
+    param(
+        [hashtable]$LiveLayer,
+        [hashtable]$SiteDiagnosis,
+        [hashtable]$ContradictionSummary
+    )
+
+    $liveSummary = Safe-Get -Object $LiveLayer -Key 'summary' -Default @{}
+    $routeDetails = @(Safe-Get -Object $LiveLayer -Key 'route_details' -Default @())
+    $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
+    $emptyRoutes = [int](Safe-Get -Object $liveSummary -Key 'empty_routes' -Default 0)
+    $thinRoutes = [int](Safe-Get -Object $liveSummary -Key 'thin_routes' -Default 0)
+    $weakCtaRoutes = [int](Safe-Get -Object $liveSummary -Key 'weak_cta_routes' -Default 0)
+    $deadEndRoutes = [int](Safe-Get -Object $liveSummary -Key 'dead_end_routes' -Default 0)
+    $contaminatedRoutes = [int](Safe-Get -Object $liveSummary -Key 'contaminated_routes' -Default 0)
+    $conversionWeakRoutes = [int]($weakCtaRoutes + $deadEndRoutes)
+    $contradictionTotal = [int](Safe-Get -Object $ContradictionSummary -Key 'total_candidates' -Default 0)
+    $diagnosisClass = [string](Safe-Get -Object $SiteDiagnosis -Key 'class' -Default 'UNKNOWN')
+
+    $packageName = 'MIXED_RECOVERY_PACKAGE'
+    $packageGoal = 'Stabilize route quality and eliminate the highest repeated blocker cluster first.'
+    $whyFirst = 'No single blocker dominates; start with the largest repeated quality cluster to reduce multi-route risk quickly.'
+    $successCheck = 'Re-run SITE_AUDITOR and confirm lower empty/thin/contamination counts plus PAGE QUALITY STATUS=EVALUATED.'
+    $targetSelector = { param([object]$route) $true }
+
+    if ($pageQualityStatus -eq 'NOT_EVALUATED') {
+        $packageName = 'CORE_ROUTE_RECOVERY_PACKAGE'
+        $packageGoal = 'Restore complete route evidence generation so page-quality evaluation can run deterministically.'
+        $whyFirst = 'Without evaluated route quality, downstream diagnosis and remediation prioritization remain unreliable.'
+        $successCheck = 'PAGE QUALITY STATUS becomes EVALUATED and no route normalization/output-writing failure stage remains.'
+        $targetSelector = {
+            param([object]$route)
+            $status = [int](Safe-Get -Object $route -Key 'status' -Default 0)
+            ($status -eq 0 -or $status -ge 400)
+        }
+    }
+    elseif ($contaminatedRoutes -ge [Math]::Max(2, [Math]::Max($conversionWeakRoutes, ($emptyRoutes + $thinRoutes)))) {
+        $packageName = 'TRUST_CLEANUP_PACKAGE'
+        $packageGoal = 'Remove repeated trust-contamination markers before conversion or optimization work.'
+        $whyFirst = 'Trust contamination undermines every route narrative and can invalidate otherwise acceptable conversion signals.'
+        $successCheck = 'contaminated_routes drops to 0 and contradiction classes tied to contamination are reduced.'
+        $targetSelector = {
+            param([object]$route)
+            $pageFlags = Safe-Get -Object $route -Key 'page_flags' -Default @{}
+            [bool](Safe-Get -Object $pageFlags -Key 'ui_contamination' -Default $false)
+        }
+    }
+    elseif (($emptyRoutes + $thinRoutes) -ge [Math]::Max(2, $conversionWeakRoutes)) {
+        $packageName = 'CORE_ROUTE_RECOVERY_PACKAGE'
+        $packageGoal = 'Recover empty/thin core routes before tuning secondary conversion details.'
+        $whyFirst = 'Route quality recovery restores baseline utility and prevents optimization work on non-viable pages.'
+        $successCheck = 'empty_routes=0 and thin_routes reduced to <=1 on the next run.'
+        $targetSelector = {
+            param([object]$route)
+            $pageFlags = Safe-Get -Object $route -Key 'page_flags' -Default @{}
+            [bool](Safe-Get -Object $pageFlags -Key 'empty' -Default $false) -or
+            [bool](Safe-Get -Object $pageFlags -Key 'thin' -Default $false)
+        }
+    }
+    elseif ($conversionWeakRoutes -ge 2 -or $diagnosisClass -in @('WEAK_DECISION_SYSTEM', 'WEAK_CONVERSION_SYSTEM')) {
+        $packageName = 'CONVERSION_RECOVERY_PACKAGE'
+        $packageGoal = 'Repair weak CTA and dead-end navigation paths on high-intent routes.'
+        $whyFirst = 'Conversion-path failure blocks practical outcomes even when pages appear content-complete.'
+        $successCheck = 'weak_cta_routes + dead_end_routes drops below 2 with no repeated conversion weak pattern.'
+        $targetSelector = {
+            param([object]$route)
+            $pageFlags = Safe-Get -Object $route -Key 'page_flags' -Default @{}
+            [bool](Safe-Get -Object $pageFlags -Key 'weak_cta' -Default $false) -or
+            [bool](Safe-Get -Object $pageFlags -Key 'dead_end' -Default $false)
+        }
+    }
+
+    $targets = New-Object System.Collections.Generic.List[string]
+    foreach ($route in @($routeDetails)) {
+        $path = [string](Safe-Get -Object $route -Key 'route_path' -Default '')
+        if ([string]::IsNullOrWhiteSpace($path)) { continue }
+        if (& $targetSelector $route) {
+            $targets.Add($path)
+        }
+    }
+    if ($targets.Count -eq 0) {
+        foreach ($route in @($routeDetails | Select-Object -First 3)) {
+            $path = [string](Safe-Get -Object $route -Key 'route_path' -Default '')
+            if (-not [string]::IsNullOrWhiteSpace($path)) {
+                $targets.Add($path)
+            }
+        }
+    }
+
+    $reasonEvidence = @(
+        "page_quality_status=$pageQualityStatus empty=$emptyRoutes thin=$thinRoutes weak_cta=$weakCtaRoutes dead_end=$deadEndRoutes contaminated=$contaminatedRoutes contradiction_candidates=$contradictionTotal",
+        "site_diagnosis=$diagnosisClass"
+    )
+
+    return @{
+        package_name = $packageName
+        package_goal = $packageGoal
+        primary_targets = @($targets | Select-Object -Unique | Select-Object -First 5)
+        why_first = $whyFirst
+        success_check = $successCheck
+        evidence = @($reasonEvidence)
+    }
+}
+
+function Build-ProductCloseoutClassification {
+    param(
+        [string]$FinalStatus,
+        [hashtable]$SourceLayer,
+        [hashtable]$LiveLayer,
+        [hashtable]$ContradictionSummary,
+        [hashtable]$SiteDiagnosis,
+        [hashtable]$MaturityReadiness,
+        [hashtable]$RemediationPackage
+    )
+
+    $liveSummary = Safe-Get -Object $LiveLayer -Key 'summary' -Default @{}
+    $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
+    $failureStage = [string](Safe-Get -Object $liveSummary -Key 'failure_stage' -Default 'none')
+    $routeCount = [int](Safe-Get -Object $liveSummary -Key 'total_routes' -Default 0)
+    $screenshotCount = [int](Safe-Get -Object $liveSummary -Key 'screenshot_count' -Default 0)
+    $diagnosisClass = [string](Safe-Get -Object $SiteDiagnosis -Key 'class' -Default 'UNKNOWN')
+    $maturityClass = [string](Safe-Get -Object $MaturityReadiness -Key 'class' -Default 'NOT_READY')
+    $contradictionHasCoreShape =
+        ($null -ne $ContradictionSummary) -and
+        ($null -ne (Safe-Get -Object $ContradictionSummary -Key 'class_counts' -Default $null)) -and
+        ($null -ne (Safe-Get -Object $ContradictionSummary -Key 'total_candidates' -Default $null))
+    $packageName = [string](Safe-Get -Object $RemediationPackage -Key 'package_name' -Default '')
+    $packageTargets = @(Safe-Get -Object $RemediationPackage -Key 'primary_targets' -Default @())
+
+    $checks = [ordered]@{
+        runtime_stability = if ($FinalStatus -ne 'FAIL' -and $failureStage -in @('none', '')) { 'PASS' } else { 'FAIL' }
+        source_live_evidence_integrity = if ([bool]$LiveLayer.enabled -and [bool]$LiveLayer.ok -and $routeCount -gt 0 -and $screenshotCount -gt 0 -and (-not $SourceLayer.required -or [bool]$SourceLayer.ok)) { 'PASS' } else { 'FAIL' }
+        page_quality_usefulness = if ($pageQualityStatus -eq 'EVALUATED') { 'PASS' } else { 'FAIL' }
+        contradiction_usefulness = if ($contradictionHasCoreShape) { 'PASS' } else { 'FAIL' }
+        diagnosis_usefulness = if ($diagnosisClass -ne 'UNKNOWN') { 'PASS' } else { 'FAIL' }
+        maturity_usefulness = if ($maturityClass -ne 'NOT_READY') { 'PASS' } else { 'FAIL' }
+        operator_output_usefulness = if ([string](Safe-Get -Object $RemediationPackage -Key 'why_first' -Default '') -ne '') { 'PASS' } else { 'FAIL' }
+        remediation_package_usefulness = if (-not [string]::IsNullOrWhiteSpace($packageName) -and $packageTargets.Count -gt 0) { 'PASS' } else { 'FAIL' }
+        analyst_brief_usefulness = if ($pageQualityStatus -in @('EVALUATED', 'PARTIAL') -and $routeCount -gt 0) { 'PASS' } else { 'FAIL' }
+        report_bundle_consistency = if ($FinalStatus -in @('PASS', 'PARTIAL', 'FAIL')) { 'PASS' } else { 'FAIL' }
+    }
+
+    $failureMap = [ordered]@{
+        runtime_stability = 'RUNTIME_STABILITY'
+        source_live_evidence_integrity = 'SOURCE_LIVE_EVIDENCE_INTEGRITY'
+        page_quality_usefulness = 'PAGE_QUALITY_USEFULNESS'
+        contradiction_usefulness = 'CONTRADICTION_USEFULNESS'
+        diagnosis_usefulness = 'DIAGNOSIS_USEFULNESS'
+        maturity_usefulness = 'MATURITY_USEFULNESS'
+        operator_output_usefulness = 'OPERATOR_OUTPUT_USEFULNESS'
+        remediation_package_usefulness = 'REMEDIATION_PACKAGE_USEFULNESS'
+        analyst_brief_usefulness = 'ANALYST_BRIEF_USEFULNESS'
+        report_bundle_consistency = 'REPORT_BUNDLE_CONSISTENCY'
+    }
+    $failedKey = @($checks.Keys | Where-Object { [string]$checks[$_] -eq 'FAIL' } | Select-Object -First 1)
+    $classification = 'PRODUCT_READY_BASELINE'
+    if ($failedKey.Count -gt 0) {
+        $classification = "BLOCKED_BY_$($failureMap[$failedKey[0]])"
+    }
+
+    return @{
+        class = $classification
+        reason = if ($failedKey.Count -eq 0) { 'All product closeout checks passed with deterministic operator-ready outputs.' } else { "Product closeout blocked by $($failedKey[0])." }
+        checks = $checks
+        evidence = @(
+            "final_status=$FinalStatus failure_stage=$failureStage page_quality_status=$pageQualityStatus",
+            "route_count=$routeCount screenshot_count=$screenshotCount package_name=$packageName package_targets=$($packageTargets.Count)",
+            "site_diagnosis=$diagnosisClass maturity=$maturityClass contradiction_shape=$contradictionHasCoreShape"
+        )
+    }
+}
+
 function Build-DecisionLayer {
     param(
         [string]$ResolvedMode,
@@ -1391,6 +1563,8 @@ function Build-DecisionLayer {
         $candidateFinalStatus = 'PARTIAL'
     }
     $auditorBaseline = Build-AuditorBaselineCertification -FinalStatus $candidateFinalStatus -SourceLayer $SourceLayer -LiveLayer $LiveLayer -ContradictionSummary $contradictionSummary -SiteDiagnosis $siteDiagnosis -MaturityReadiness $maturityReadiness
+    $remediationPackage = Build-PrimaryRemediationPackage -LiveLayer $LiveLayer -SiteDiagnosis $siteDiagnosis -ContradictionSummary $contradictionSummary
+    $productCloseout = Build-ProductCloseoutClassification -FinalStatus $candidateFinalStatus -SourceLayer $SourceLayer -LiveLayer $LiveLayer -ContradictionSummary $contradictionSummary -SiteDiagnosis $siteDiagnosis -MaturityReadiness $maturityReadiness -RemediationPackage $remediationPackage
 
     if ($p0.Count -gt 0) {
         $core = $p0[0]
@@ -1407,37 +1581,16 @@ function Build-DecisionLayer {
         }
     }
 
-    if ($p0.Count -gt 0) {
-        $doNext.Add('Fix P0 blockers first, then rerun SITE_AUDITOR in the same MODE.')
+    $packageTargets = @(Safe-Get -Object $remediationPackage -Key 'primary_targets' -Default @())
+    if ($packageTargets.Count -gt 0) {
+        $targetPreview = (@($packageTargets | Select-Object -First 3)) -join ', '
+        $doNext.Add("Execute $([string](Safe-Get -Object $remediationPackage -Key 'package_name' -Default 'MIXED_RECOVERY_PACKAGE')) first on routes: $targetPreview.")
     }
-    if ($LiveLayer.enabled -and $pageQualityStatus -eq 'NOT_EVALUATED') {
-        $doNext.Add('Restore page-quality evidence generation first (route capture + normalization), then rerun.')
+    else {
+        $doNext.Add("Execute $([string](Safe-Get -Object $remediationPackage -Key 'package_name' -Default 'MIXED_RECOVERY_PACKAGE')) first.")
     }
-    if ($emptyRoutes -gt 0 -and $doNext.Count -lt 3) {
-        $doNext.Add("Fix empty routes first ($emptyRoutes route(s)) to restore core page coverage.")
-    }
-    if ($conversionRoutes -gt 0 -and $doNext.Count -lt 3) {
-        $doNext.Add("Restore CTA path and onward navigation on weak-conversion routes ($conversionRoutes observations).")
-    }
-    if ($contaminatedRoutes -gt 0 -and $doNext.Count -lt 3) {
-        $doNext.Add("Remove contamination markers on $contaminatedRoutes route(s) to restore trust signals.")
-    }
-    if ($doNext.Count -lt 3) {
-        $dominantPattern = Safe-Get -Object $patternSummary -Key 'dominant_pattern' -Default $null
-        if ($null -ne $dominantPattern) {
-            $label = [string](Safe-Get -Object $dominantPattern -Key 'label' -Default 'dominant pattern')
-            $doNext.Add("Rerun after fixing the dominant pattern cluster: $label.")
-        }
-    }
-    if ($doNext.Count -lt 3 -and $SourceLayer.enabled) {
-        $doNext.Add('Review source summary metrics and extension breakdown for cleanup opportunities.')
-    }
-    if ($doNext.Count -lt 3 -and $LiveLayer.enabled) {
-        $doNext.Add('Review reports/visual_manifest.json and screenshots for route-level detail.')
-    }
-    if ($doNext.Count -lt 3 -and $contradictionTotal -gt 0) {
-        $doNext.Add('Prioritize contradiction candidates where verdicts, route flags, and screenshots diverge.')
-    }
+    $doNext.Add([string](Safe-Get -Object $remediationPackage -Key 'why_first' -Default 'Fix the highest repeated blocker cluster before secondary optimization.'))
+    $doNext.Add("Success check: $([string](Safe-Get -Object $remediationPackage -Key 'success_check' -Default 'Rerun SITE_AUDITOR and verify quality blocker counts are reduced.'))")
 
     $looksClean =
         ($emptyRoutes -eq 0) -and
@@ -1460,6 +1613,8 @@ function Build-DecisionLayer {
         site_diagnosis = $siteDiagnosis
         maturity_readiness = $maturityReadiness
         auditor_baseline = $auditorBaseline
+        remediation_package = $remediationPackage
+        product_closeout = $productCloseout
         contradiction_summary = $contradictionSummary
         clean_state = $cleanStateLabel
     }
@@ -1483,6 +1638,8 @@ function Build-MetaAuditBriefLines {
     $siteDiagnosis = Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}
     $maturityReadiness = Safe-Get -Object $Decision -Key 'maturity_readiness' -Default @{}
     $auditorBaseline = Safe-Get -Object $Decision -Key 'auditor_baseline' -Default @{}
+    $remediationPackage = Safe-Get -Object $Decision -Key 'remediation_package' -Default @{}
+    $productCloseout = Safe-Get -Object $Decision -Key 'product_closeout' -Default @{}
     $dominantPattern = Safe-Get -Object $patternSummary -Key 'dominant_pattern' -Default $null
     $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
     $failureStage = [string](Safe-Get -Object $liveSummary -Key 'failure_stage' -Default 'none')
@@ -1763,8 +1920,17 @@ function Build-MetaAuditBriefLines {
         "- Auditor baseline: $([string](Safe-Get -Object $auditorBaseline -Key 'class' -Default 'BLOCKED_BY_UNKNOWN'))",
         "- Baseline reason: $([string](Safe-Get -Object $auditorBaseline -Key 'reason' -Default 'none'))",
         "- Baseline confidence: $([string](Safe-Get -Object $auditorBaseline -Key 'confidence' -Default 'LOW'))",
+        "- Product closeout: $([string](Safe-Get -Object $productCloseout -Key 'class' -Default 'BLOCKED_BY_UNKNOWN'))",
+        "- Product closeout reason: $([string](Safe-Get -Object $productCloseout -Key 'reason' -Default 'none'))",
         "- Contradiction candidates: $contradictionTotal ($contradictionClassLine)",
         "- Clean-state check: $([string](Safe-Get -Object $Decision -Key 'clean_state' -Default 'NOT_CLEAN'))",
+        '',
+        'PRIMARY REMEDIATION PACKAGE',
+        "- PACKAGE_NAME: $([string](Safe-Get -Object $remediationPackage -Key 'package_name' -Default 'MIXED_RECOVERY_PACKAGE'))",
+        "- PACKAGE_GOAL: $([string](Safe-Get -Object $remediationPackage -Key 'package_goal' -Default 'none'))",
+        "- PRIMARY_TARGETS: $((@(Safe-Get -Object $remediationPackage -Key 'primary_targets' -Default @()) | Select-Object -First 5) -join ', ')",
+        "- WHY_FIRST: $([string](Safe-Get -Object $remediationPackage -Key 'why_first' -Default 'none'))",
+        "- SUCCESS_CHECK: $([string](Safe-Get -Object $remediationPackage -Key 'success_check' -Default 'none'))",
         '',
         'DOMINANT SITE PATTERN',
         "- $dominantPatternLine",
@@ -1825,7 +1991,16 @@ function Write-OperatorOutputs {
     Write-JsonFile -Path $auditResultPath -Data $AuditResult
     $reportFiles.Add('reports/audit_result.json')
 
+    $remediationPackage = Safe-Get -Object $Decision -Key 'remediation_package' -Default @{}
+    $productCloseout = Safe-Get -Object $Decision -Key 'product_closeout' -Default @{}
+    $packageName = [string](Safe-Get -Object $remediationPackage -Key 'package_name' -Default 'MIXED_RECOVERY_PACKAGE')
+    $packageGoal = [string](Safe-Get -Object $remediationPackage -Key 'package_goal' -Default 'Stabilize highest-impact route-quality cluster first.')
+    $packageTargets = @(Safe-Get -Object $remediationPackage -Key 'primary_targets' -Default @())
+
     $topIssues = @($Decision.p0 + $Decision.p1)
+    if (-not [string]::IsNullOrWhiteSpace($packageGoal)) {
+        $topIssues = @("Primary remediation package: $packageName — $packageGoal") + @($topIssues)
+    }
     if ($topIssues.Count -eq 0) {
         $topIssues = @($Decision.p2)
     }
@@ -1896,8 +2071,17 @@ function Write-OperatorOutputs {
         "Maturity confidence: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'maturity_readiness' -Default @{}) -Key 'confidence' -Default 'LOW'))",
         "Auditor baseline: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'auditor_baseline' -Default @{}) -Key 'class' -Default 'BLOCKED_BY_UNKNOWN'))",
         "Baseline reason: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'auditor_baseline' -Default @{}) -Key 'reason' -Default 'none'))",
-        "Baseline confidence: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'auditor_baseline' -Default @{}) -Key 'confidence' -Default 'LOW'))"
+        "Baseline confidence: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'auditor_baseline' -Default @{}) -Key 'confidence' -Default 'LOW'))",
+        "Product closeout: $([string](Safe-Get -Object $productCloseout -Key 'class' -Default 'BLOCKED_BY_UNKNOWN'))",
+        "Product closeout reason: $([string](Safe-Get -Object $productCloseout -Key 'reason' -Default 'none'))",
+        "Primary remediation package: $packageName",
+        "Package goal: $packageGoal"
     )
+    if ($packageTargets.Count -gt 0) {
+        $summaryLines += "Primary targets: $((@($packageTargets | Select-Object -First 5)) -join ', ')"
+    }
+    $summaryLines += "Why first: $([string](Safe-Get -Object $remediationPackage -Key 'why_first' -Default 'none'))"
+    $summaryLines += "Success check: $([string](Safe-Get -Object $remediationPackage -Key 'success_check' -Default 'none'))"
     $liveSummary = Safe-Get -Object $AuditResult.live -Key 'summary' -Default @{}
     if ([bool](Safe-Get -Object $AuditResult.live -Key 'enabled' -Default $false)) {
         $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
@@ -1979,8 +2163,17 @@ function Write-OperatorOutputs {
         "AUDITOR BASELINE: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'auditor_baseline' -Default @{}) -Key 'class' -Default 'BLOCKED_BY_UNKNOWN'))",
         "BASELINE REASON: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'auditor_baseline' -Default @{}) -Key 'reason' -Default 'none'))",
         "BASELINE CONFIDENCE: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'auditor_baseline' -Default @{}) -Key 'confidence' -Default 'LOW'))",
+        "PRODUCT CLOSEOUT: $([string](Safe-Get -Object $productCloseout -Key 'class' -Default 'BLOCKED_BY_UNKNOWN'))",
+        "PRODUCT CLOSEOUT REASON: $([string](Safe-Get -Object $productCloseout -Key 'reason' -Default 'none'))",
+        "PRIMARY REMEDIATION PACKAGE: $packageName",
+        "PACKAGE GOAL: $packageGoal",
         'P0:'
     )
+    if ($packageTargets.Count -gt 0) {
+        $reportLines += "PACKAGE TARGETS: $((@($packageTargets | Select-Object -First 5)) -join ', ')"
+    }
+    $reportLines += "PACKAGE WHY FIRST: $([string](Safe-Get -Object $remediationPackage -Key 'why_first' -Default 'none'))"
+    $reportLines += "PACKAGE SUCCESS CHECK: $([string](Safe-Get -Object $remediationPackage -Key 'success_check' -Default 'none'))"
     if ([bool](Safe-Get -Object $AuditResult.live -Key 'enabled' -Default $false)) {
         $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
         $reportLines += "PAGE QUALITY STATUS: $pageQualityStatus"
