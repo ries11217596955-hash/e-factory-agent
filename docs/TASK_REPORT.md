@@ -1,13 +1,11 @@
 # TASK_REPORT
 
 ## Summary
-- Task: `SITE_AUDITOR — POST-LOOP AGGREGATE TRACE FOR ROUTE_NORMALIZATION`.
-- Repository scope:
-  - Allowed: `agents/gh_batch/site_auditor_cloud/agent.ps1`, `reports/route_normalization_trace.json`, `docs/TASK_REPORT.md`.
-  - Forbidden respected: no changes to diagnosis/contradiction/maturity/operator outputs/remediation/screenshots/broader architecture.
-- Mode: `TRACE EXTENSION` (no broad tracing, no speculative fix).
-- Added aggregate-boundary instrumentation after the per-route loop in `Normalize-LiveRoutes`.
-- Final state: `TRACE_EXTENDED_NEEDS_NEXT_RUN`.
+- Task: `SITE_AUDITOR — ISOLATE POST-LOOP AGGREGATE FAILURE IN NORMALIZE-LIVEROUTES`.
+- Scope honored: changes limited to `Normalize-LiveRoutes` aggregate tracing helper/output and local trace artifacts.
+- Added dedicated aggregate section output in `reports/route_normalization_trace.json` and enriched aggregate op entries with `operation_label`.
+- No broad route-phase tracing added and no protected areas changed.
+- Final state: `TRACE_EXTENDED_NEEDS_RUNTIME_RUN`.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -23,8 +21,8 @@
 - Trace artifact path unchanged: `reports/route_normalization_trace.json`.
 
 ## Risks/blockers
-- Runtime proof is not available in this container because `pwsh` execution/runtime capture was not run against a live manifest.
-- First failing point cannot be proven without a new runtime execution that produces failure data.
+- First failing aggregate operation cannot be proven in this task run because no live runtime bundle execution was performed.
+- Truth rule not met yet (no proof that failure stage changed and no proof about `evaluation_error` from new runtime output).
 
 ## INSTRUCTION_FILES_READ
 - `AGENTS.md`
@@ -32,36 +30,35 @@
 - `docs/REPO_LAYOUT.md`
 
 ## CURRENT_FAILURE_MODEL
-- Existing model indicates failure stage can still be `ROUTE_NORMALIZATION`, but first failing boundary (per-route vs post-loop aggregate) required explicit aggregate-phase visibility.
+- Failure may occur at post-loop aggregate boundary after per-route normalization.
+- Required isolation target is the first failing aggregate op among OP1..OP4.
 
-## ROUTE_PHASE_TRACE_PRESENT = YES
-- Existing per-route `trace_phases` remains present and unchanged in intent.
-
-## AGGREGATE_TRACE_ADDED = YES
-- Added `aggregate_trace` to `reports/route_normalization_trace.json` output.
-- Added aggregate phase entries emitted by `Normalize-LiveRoutes`:
-  - `aggregate_raw_route_count`
-  - `aggregate_normalized_count`
-  - `aggregate_count_subtraction`
-  - `aggregate_drop_count_math`
-- Each aggregate entry now includes:
+## AGGREGATE_TRACE_ADDED
+- Added a dedicated `aggregate` section to `route_normalization_trace.json` with:
+  - `first_failing_operation_label`
+  - `first_failing_phase_name`
+  - `operations`
+- Aggregate operations OP1..OP4 now emit trace entries including:
   - `phase_name`
-  - `object_type` and operand types (`left_type`, `right_type`)
+  - `operation_label`
+  - `expression`
+  - `left_type`
+  - `right_type`
   - `left_value_sample`
   - `right_value_sample`
   - `status`
-  - `expression`
   - `stack_hint_if_available`
 
-## FIRST_FAILING_POINT = UNKNOWN
-- No new runtime execution proof in this task context.
+## FIRST_FAILING_AGGREGATE_OP
+- NONE (runtime evidence not collected in this task run).
 
-## FIX_APPLIED = NONE
-- Optional fix rule not triggered because first failing aggregate expression is not runtime-proven.
+## FIX_APPLIED
+- NONE (optional fix rule not triggered; first failing aggregate op not proven).
 
 ## VALIDATION_RESULT
-- Static validation completed via syntax parse command and git diff review.
-- Runtime validation remains pending next execution.
+- Static syntax parse succeeded for updated PowerShell script.
+- Aggregate trace schema update applied in report template.
+- Runtime validation pending.
 
-## NEXT_BLOCKER_IF_ANY
-- Need one runtime run that reproduces `ROUTE_NORMALIZATION` and emits updated `route_normalization_trace.json` with both `trace_phases` and `aggregate_trace` to isolate the first failing point.
+## FINAL_STATE
+- TRACE_EXTENDED_NEEDS_RUNTIME_RUN

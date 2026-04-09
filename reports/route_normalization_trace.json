@@ -1,5 +1,10 @@
 {
   "failure_stage": "",
   "trace_phases": [],
-  "aggregate_trace": []
+  "aggregate_trace": [],
+  "aggregate": {
+    "first_failing_operation_label": "",
+    "first_failing_phase_name": "",
+    "operations": []
+  }
 }

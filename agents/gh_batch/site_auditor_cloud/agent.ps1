@@ -210,6 +210,7 @@ function Add-RouteNormalizationTracePhase {
 function Add-RouteNormalizationAggregateTrace {
     param(
         [string]$PhaseName,
+        [string]$OperationLabel = '',
         [string]$Expression,
         [object]$LeftOperand = $null,
         [object]$RightOperand = $null,
@@ -226,6 +227,7 @@ function Add-RouteNormalizationAggregateTrace {
 
     $global:RouteNormalizationAggregateTrace += [ordered]@{
         phase_name = $PhaseName
+        operation_label = if ([string]::IsNullOrWhiteSpace($OperationLabel)) { '' } else { $OperationLabel }
         object_type = "$leftType|$rightType"
         left_type = $leftType
         right_type = $rightType
@@ -235,6 +237,19 @@ function Add-RouteNormalizationAggregateTrace {
         expression = if ([string]::IsNullOrWhiteSpace($Expression)) { '' } else { $Expression }
         stack_hint_if_available = if ($null -eq $ErrorRecord) { '' } else { [string]$ErrorRecord.ScriptStackTrace }
     }
+}
+
+function Get-FirstFailingAggregateTraceEntry {
+    if ($null -eq $global:RouteNormalizationAggregateTrace) {
+        return $null
+    }
+    foreach ($entry in @($global:RouteNormalizationAggregateTrace)) {
+        $status = [string](Safe-Get -Object $entry -Key 'status' -Default '')
+        if ($status -eq 'failed') {
+            return $entry
+        }
+    }
+    return $null
 }
 
 function Ensure-Dir([string]$Path) {
@@ -752,10 +767,10 @@ function Normalize-LiveRoutes {
     $rawRouteCount = $null
     try {
         $rawRouteCount = @($rawRoutes).Count
-        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_raw_route_count' -Expression '@($rawRoutes).Count' -LeftOperand $rawRoutes -RightOperand $rawRouteCount -Status 'ok'
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_raw_route_count' -OperationLabel 'OP1_raw_route_count' -Expression '@($rawRoutes).Count' -LeftOperand $rawRoutes -RightOperand $rawRouteCount -Status 'ok'
     }
     catch {
-        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_raw_route_count' -Expression '@($rawRoutes).Count' -LeftOperand $rawRoutes -RightOperand $null -Status 'failed' -ErrorRecord $_
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_raw_route_count' -OperationLabel 'OP1_raw_route_count' -Expression '@($rawRoutes).Count' -LeftOperand $rawRoutes -RightOperand $null -Status 'failed' -ErrorRecord $_
         Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -OperationLabel 'OP1_raw_route_count' -Expression '@($rawRoutes).Count' -LeftOperand $rawRoutes -RightOperand $null -VariableNames @('rawRoutes') -AdditionalContext @{
             stack_hint = $_.ScriptStackTrace
         }
@@ -765,10 +780,10 @@ function Normalize-LiveRoutes {
     $normalizedCount = $null
     try {
         $normalizedCount = $normalized.Count
-        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_normalized_count' -Expression '$normalized.Count' -LeftOperand $normalized -RightOperand $normalizedCount -Status 'ok'
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_normalized_count' -OperationLabel 'OP2_normalized_count' -Expression '$normalized.Count' -LeftOperand $normalized -RightOperand $normalizedCount -Status 'ok'
     }
     catch {
-        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_normalized_count' -Expression '$normalized.Count' -LeftOperand $normalized -RightOperand $null -Status 'failed' -ErrorRecord $_
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_normalized_count' -OperationLabel 'OP2_normalized_count' -Expression '$normalized.Count' -LeftOperand $normalized -RightOperand $null -Status 'failed' -ErrorRecord $_
         Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -OperationLabel 'OP2_normalized_count' -Expression '$normalized.Count' -LeftOperand $normalized -RightOperand $null -VariableNames @('normalized') -AdditionalContext @{
             stack_hint = $_.ScriptStackTrace
         }
@@ -778,10 +793,10 @@ function Normalize-LiveRoutes {
     $droppedDelta = $null
     try {
         $droppedDelta = ([int]$rawRouteCount) - ([int]$normalizedCount)
-        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_count_subtraction' -Expression '([int]$rawRouteCount) - ([int]$normalizedCount)' -LeftOperand $rawRouteCount -RightOperand $normalizedCount -Status 'ok'
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_count_subtraction' -OperationLabel 'OP3_count_subtraction' -Expression '([int]$rawRouteCount) - ([int]$normalizedCount)' -LeftOperand $rawRouteCount -RightOperand $normalizedCount -Status 'ok'
     }
     catch {
-        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_count_subtraction' -Expression '([int]$rawRouteCount) - ([int]$normalizedCount)' -LeftOperand $rawRouteCount -RightOperand $normalizedCount -Status 'failed' -ErrorRecord $_
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_count_subtraction' -OperationLabel 'OP3_count_subtraction' -Expression '([int]$rawRouteCount) - ([int]$normalizedCount)' -LeftOperand $rawRouteCount -RightOperand $normalizedCount -Status 'failed' -ErrorRecord $_
         Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -OperationLabel 'OP3_count_subtraction' -Expression '([int]$rawRouteCount) - ([int]$normalizedCount)' -LeftOperand $rawRouteCount -RightOperand $normalizedCount -VariableNames @('rawRouteCount', 'normalizedCount') -AdditionalContext @{
             stack_hint = $_.ScriptStackTrace
             route_path = ''
@@ -792,10 +807,10 @@ function Normalize-LiveRoutes {
     $droppedCount = $null
     try {
         $droppedCount = [int]([Math]::Max(0, ([int]$droppedDelta)))
-        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_drop_count_math' -Expression '[int]([Math]::Max(0, ([int]$droppedDelta)))' -LeftOperand 0 -RightOperand $droppedDelta -Status 'ok'
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_drop_count_math' -OperationLabel 'OP4_math_max_dropped_count' -Expression '[int]([Math]::Max(0, ([int]$droppedDelta)))' -LeftOperand 0 -RightOperand $droppedDelta -Status 'ok'
     }
     catch {
-        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_drop_count_math' -Expression '[int]([Math]::Max(0, ([int]$droppedDelta)))' -LeftOperand 0 -RightOperand $droppedDelta -Status 'failed' -ErrorRecord $_
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_drop_count_math' -OperationLabel 'OP4_math_max_dropped_count' -Expression '[int]([Math]::Max(0, ([int]$droppedDelta)))' -LeftOperand 0 -RightOperand $droppedDelta -Status 'failed' -ErrorRecord $_
         Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -OperationLabel 'OP4_math_max_dropped_count' -Expression '[int]([Math]::Max(0, ([int]$droppedDelta)))' -LeftOperand 0 -RightOperand $droppedDelta -VariableNames @('0', 'droppedDelta') -AdditionalContext @{
             raw_route_count = $rawRouteCount
             normalized_count = $normalizedCount
@@ -996,10 +1011,16 @@ function Invoke-LiveAudit {
         if ($null -eq $global:RouteNormalizationAggregateTrace) {
             $global:RouteNormalizationAggregateTrace = @()
         }
+        $firstFailingAggregateEntry = Get-FirstFailingAggregateTraceEntry
         Write-JsonFile -Path (Join-Path $reportsDir 'route_normalization_trace.json') -Data ([ordered]@{
                 failure_stage = ''
                 trace_phases = @($global:RouteNormalizationTrace)
                 aggregate_trace = @($global:RouteNormalizationAggregateTrace)
+                aggregate = [ordered]@{
+                    first_failing_operation_label = [string](Safe-Get -Object $firstFailingAggregateEntry -Key 'operation_label' -Default '')
+                    first_failing_phase_name = [string](Safe-Get -Object $firstFailingAggregateEntry -Key 'phase_name' -Default '')
+                    operations = @($global:RouteNormalizationAggregateTrace)
+                }
             })
         $reportFiles.Add('reports/route_normalization_trace.json')
         $routes = @($normalizedRoutesData.routes)
@@ -1093,10 +1114,16 @@ function Invoke-LiveAudit {
                 if ($null -eq $global:RouteNormalizationAggregateTrace) {
                     $global:RouteNormalizationAggregateTrace = @()
                 }
+                $firstFailingAggregateEntry = Get-FirstFailingAggregateTraceEntry
                 Write-JsonFile -Path (Join-Path $reportsDir 'route_normalization_trace.json') -Data ([ordered]@{
                         failure_stage = 'ROUTE_NORMALIZATION'
                         trace_phases = @($global:RouteNormalizationTrace)
                         aggregate_trace = @($global:RouteNormalizationAggregateTrace)
+                        aggregate = [ordered]@{
+                            first_failing_operation_label = [string](Safe-Get -Object $firstFailingAggregateEntry -Key 'operation_label' -Default '')
+                            first_failing_phase_name = [string](Safe-Get -Object $firstFailingAggregateEntry -Key 'phase_name' -Default '')
+                            operations = @($global:RouteNormalizationAggregateTrace)
+                        }
                     })
                 $reportFiles.Add('reports/route_normalization_trace.json')
             }
