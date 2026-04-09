@@ -613,6 +613,11 @@ function Normalize-LiveRoutes {
         catch {
             $routeError = $_.Exception.Message
             if ([string]::IsNullOrWhiteSpace($routeError)) { $routeError = 'Unknown route normalization error.' }
+            Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -OperationLabel 'OP_ROUTE_ENTRY_NORMALIZE' -Expression 'per-route normalization block' -LeftOperand $route -RightOperand $null -VariableNames @('route') -AdditionalContext @{
+                route_index = $index
+                route_error = $routeError
+                stack_hint = $_.ScriptStackTrace
+            }
             $shapeWarnings.Add("ROUTE_NORMALIZATION: dropped route index $index due to normalization error: $routeError")
             continue
         }
@@ -642,10 +647,10 @@ function Normalize-LiveRoutes {
 
     $droppedDelta = $null
     try {
-        $droppedDelta = $rawRouteCount - $normalizedCount
+        $droppedDelta = ([int]$rawRouteCount) - ([int]$normalizedCount)
     }
     catch {
-        Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -OperationLabel 'OP3_count_subtraction' -Expression '$rawRouteCount - $normalizedCount' -LeftOperand $rawRouteCount -RightOperand $normalizedCount -VariableNames @('rawRouteCount', 'normalizedCount') -AdditionalContext @{
+        Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -OperationLabel 'OP3_count_subtraction' -Expression '([int]$rawRouteCount) - ([int]$normalizedCount)' -LeftOperand $rawRouteCount -RightOperand $normalizedCount -VariableNames @('rawRouteCount', 'normalizedCount') -AdditionalContext @{
             stack_hint = $_.ScriptStackTrace
             route_path = ''
         }

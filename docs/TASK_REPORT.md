@@ -1,27 +1,26 @@
 # TASK_REPORT
 
 ## Summary
-- Task: SITE_AUDITOR — BOUNDED FIX LOOP FOR ROUTE_NORMALIZATION (Normalize-LiveRoutes line-617 cluster).
-- Scope honored: changed only `Normalize-LiveRoutes` local operation and required reporting artifacts.
-- Loop mode executed with 1 bounded iteration (runtime reproduction unavailable because PowerShell is not installed in this container).
-- Final state: LOOP_EXHAUSTED_WITH_EVIDENCE.
-- INSTRUCTION_FILES_READ: `AGENTS.md`, `docs/README.md`, `docs/REPO_LAYOUT.md`.
+- Task: `SITE_AUDITOR — PROOF-GATED PATCH LOOP (ROUTE_NORMALIZATION ONLY)`.
+- Scope honored: changed only `Normalize-LiveRoutes` in `agents/gh_batch/site_auditor_cloud/agent.ps1` plus this required task report.
+- Iterations used: 1 of maximum 2.
+- Runtime proof availability: unavailable (`pwsh` not installed in this container).
+- Final evidence state: `UNVERIFIED_PATCH`.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- `reports/route_normalization_debug.json`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- Reports path used for this task: `reports/route_normalization_debug.json`
+- Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- Targeted stage/function: `Normalize-LiveRoutes` (ROUTE_NORMALIZATION).
 
 ## Risks/blockers
-- Blocker: `pwsh` is not available in the execution environment, so live reproduction/rerun of the ROUTE_NORMALIZATION stage could not be completed.
-- Risk: type evidence in `reports/route_normalization_debug.json` is partly inferred from the known error signature (`Argument types do not match`) until a PowerShell-capable run confirms exact runtime operand samples.
+- Blocker: runtime validation cannot be executed in current environment because `pwsh` is unavailable.
+- Risk: patch correctness is constrained to static analysis and operation-level hardening; no fresh runtime bundle was produced.
 
 ## INSTRUCTION_FILES_READ
 - `AGENTS.md`
@@ -29,11 +28,17 @@
 - `docs/REPO_LAYOUT.md`
 
 ## ITERATION_1
-- failure classification: `SAME_BLOCKER_SAME_STAGE`
-- operation label: `OP4_math_max_dropped_count`
-- exact expression: before fix `[int]([Math]::Max(0, $droppedDelta))`; after fix `[int]([Math]::Max(0, ([int]$droppedDelta)))`
-- types captured: left `System.Int32`; right `System.String (inferred)`
-- fix applied: cast `$droppedDelta` to `[int]` at the `Math.Max` call site to force numeric overload resolution for the proven operation label.
-- validation result:
-  - reproduction attempt command failed in environment: `/bin/bash: line 1: pwsh: command not found`
-  - static validation confirms targeted single-operation code edit and artifact update completed.
+- operation label: `OP3_count_subtraction`
+- exact expression:
+  - before: `$rawRouteCount - $normalizedCount`
+  - after: `([int]$rawRouteCount) - ([int]$normalizedCount)`
+- patch applied:
+  - Added explicit integer casts at subtraction boundary to force numeric operator resolution and avoid mixed-type subtraction ambiguity.
+  - Added route-level forensics in the `Normalize-LiveRoutes` per-route `catch` block with `OP_ROUTE_ENTRY_NORMALIZE` to preserve operand/stack details when failures are swallowed at line-617 cluster.
+- why this patch is minimal:
+  - Touches only the immediate failing operation region in `Normalize-LiveRoutes`.
+  - No changes to diagnosis, contradiction, readiness/maturity, summaries, remediation packaging, screenshots, or architecture.
+- whether runtime proof was available:
+  - No. `pwsh --version` failed with `/bin/bash: line 1: pwsh: command not found`.
+- final evidence state:
+  - `UNVERIFIED_PATCH`
