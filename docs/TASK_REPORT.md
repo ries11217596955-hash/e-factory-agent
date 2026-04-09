@@ -2,49 +2,56 @@
 - AGENTS.md (repo root)
 - docs/README.md
 - docs/REPO_LAYOUT.md
-- User task specification: SITE_AUDITOR — ROUTE_NORMALIZATION FORENSIC FIX (P0, LOCKED)
+- docs/TASK_REPORT.md (previous report baseline)
+- User task specification: SITE_AUDITOR — ROUTE_NORMALIZATION EVIDENCE-FIRST FORENSIC PASS (P0)
 
-## ROOT_CAUSE
-ROUTE_NORMALIZATION consumed manifest route dictionaries whose keys were compared with mixed runtime types inside `Safe-Get`. The key-compare boundary used direct comparison semantics before strict key normalization, which can surface `Argument types do not match` when non-string key objects are involved.
+## FAILURE_ARTIFACT_PATH
+- reports/route_normalization_debug.json
+
+## EXACT_FUNCTION
+- Safe-Get
 
 ## EXACT_EXPRESSION
-- Function: `Safe-Get`
-- Failing boundary expression identified and instrumented: `$candidateKeyText -eq $keyText`
-- Upstream conversion boundary instrumented: `[string]$candidateKey`
+- $candidateKeyText -eq $keyText
 
-## TYPES_CAPTURED
-Instrumentation now captures, on failure:
-- `failure_function`
-- `failure_expression`
-- `left_type`
-- `right_type`
-- `value_samples.left`
-- `value_samples.right`
-- `route_context_shape`
-- `additional_context`
+## LEFT_TYPE
+- System.String (post-normalization compare boundary)
 
-These are written into:
-- `live.summary.route_normalization_debug` in `reports/audit_result.json`
-- `reports/route_normalization_debug.json` (when ROUTE_NORMALIZATION fails)
+## RIGHT_TYPE
+- System.String (post-normalization compare boundary)
+
+## SAMPLE_VALUES
+- left_value_sample: derived from dictionary entry key string cast (`[string]$candidateKey`)
+- right_value_sample: lookup key string (`[string]$Key`)
+- Note: exact runtime samples require a failing rerun; this environment cannot execute PowerShell to produce a new failure artifact.
 
 ## FIX_APPLIED
-- Added ROUTE_NORMALIZATION forensic helpers (`Get-DebugValueSample`, `Get-ObjectShapeSummary`, `Set-RouteNormalizationForensics`).
-- Tightened `Safe-Get` dictionary key comparison to a string-normalized boundary:
-  - normalize both sides to string before compare
-  - capture full forensic payload if cast/compare throws
-- Reset forensic state at ROUTE_NORMALIZATION start (`Normalize-LiveRoutes`).
-- Extended live-audit failure payload at ROUTE_NORMALIZATION to persist forensic evidence in runtime outputs.
+- Kept scope locked to ROUTE_NORMALIZATION direct helper path in `Safe-Get` and forensic writer path only.
+- Updated forensic payload schema to include required top-level fields:
+  - failure_stage
+  - function_name
+  - expression
+  - left_type
+  - right_type
+  - left_value_sample
+  - right_value_sample
+  - context_keys
+  - route_path_if_available
+  - stack_hint_if_available
+- Added stack hint capture from failing comparison/cast catch blocks.
+- Ensured ROUTE_NORMALIZATION catch writes `reports/route_normalization_debug.json` even when detailed forensics were not populated yet (fallback payload with known fields).
 
 ## VALIDATION_RESULT
-- Static validation completed via diff/review of changed logic and failure output path wiring.
-- Runtime validation is blocked in this container because PowerShell (`pwsh`/`powershell`) is unavailable, so an end-to-end bundle rerun could not be executed here.
+- Static validation only (file diff and schema/path verification).
+- Runtime validation blocked: `pwsh`/`powershell` is unavailable in this container, so no new bundle execution could be performed.
 
 ## NEXT_BLOCKER_IF_ANY
-- Environment blocker: cannot execute SITE_AUDITOR runtime locally without PowerShell.
-- No new downstream runtime blocker could be observed in-container due to that limitation.
+- Missing PowerShell runtime prevents generating fresh forensic evidence from a live failing run.
 
 ## Summary
-Implemented a constrained ROUTE_NORMALIZATION forensic fix only, without touching diagnosis/contradiction/maturity/executive/screenshot/product-closeout layers. Added mandatory forensic capture fields to runtime outputs and applied a minimal key-type normalization boundary fix in `Safe-Get`.
+- Implemented evidence-first forensic payload hardening for ROUTE_NORMALIZATION failure capture.
+- Added guaranteed artifact fallback creation path for ROUTE_NORMALIZATION stage failures.
+- Did not touch diagnosis, contradiction, maturity/readiness, executive/operator, remediation package, product closeout, or screenshot layers.
 
 ## Changed files
 - agents/gh_batch/site_auditor_cloud/agent.ps1
@@ -59,5 +66,5 @@ Implemented a constrained ROUTE_NORMALIZATION forensic fix only, without touchin
 - agents/gh_batch/site_auditor_cloud/run_bundle.ps1
 
 ## Risks/blockers
-- E2E execution proof pending due to missing PowerShell runtime in this environment.
-- If future manifests carry pathological key objects, failure is now diagnosable via explicit forensic payload.
+- Exact live failing values remain pending until runtime can be executed with PowerShell.
+- If failure persists, `reports/route_normalization_debug.json` should now contain required evidence keys even when failure occurs early.
