@@ -107,19 +107,13 @@ function Safe-Get {
     }
 
     if ($Object -is [System.Collections.IDictionary]) {
-        try {
-            if ($Object.Contains($Key)) {
-                return $Object[$Key]
+        foreach ($candidateKey in @($Object.Keys)) {
+            if ($null -eq $candidateKey) { continue }
+            if ($candidateKey -eq $Key) {
+                return $Object[$candidateKey]
             }
-        }
-        catch {
-            try {
-                if ($Object.Keys -contains $Key) {
-                    return $Object[$Key]
-                }
-            }
-            catch {
-                return $Default
+            if ([string]$candidateKey -eq $Key) {
+                return $Object[$candidateKey]
             }
         }
         return $Default
