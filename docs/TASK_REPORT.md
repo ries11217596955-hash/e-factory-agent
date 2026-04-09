@@ -1,70 +1,31 @@
-## INSTRUCTION_FILES_READ
-- AGENTS.md (repo root)
-- docs/README.md
-- docs/REPO_LAYOUT.md
-- docs/TASK_REPORT.md (previous report baseline)
-- User task specification: SITE_AUDITOR — ROUTE_NORMALIZATION EVIDENCE-FIRST FORENSIC PASS (P0)
-
-## FAILURE_ARTIFACT_PATH
-- reports/route_normalization_debug.json
-
-## EXACT_FUNCTION
-- Safe-Get
-
-## EXACT_EXPRESSION
-- $candidateKeyText -eq $keyText
-
-## LEFT_TYPE
-- System.String (post-normalization compare boundary)
-
-## RIGHT_TYPE
-- System.String (post-normalization compare boundary)
-
-## SAMPLE_VALUES
-- left_value_sample: derived from dictionary entry key string cast (`[string]$candidateKey`)
-- right_value_sample: lookup key string (`[string]$Key`)
-- Note: exact runtime samples require a failing rerun; this environment cannot execute PowerShell to produce a new failure artifact.
-
-## FIX_APPLIED
-- Kept scope locked to ROUTE_NORMALIZATION direct helper path in `Safe-Get` and forensic writer path only.
-- Updated forensic payload schema to include required top-level fields:
-  - failure_stage
-  - function_name
-  - expression
-  - left_type
-  - right_type
-  - left_value_sample
-  - right_value_sample
-  - context_keys
-  - route_path_if_available
-  - stack_hint_if_available
-- Added stack hint capture from failing comparison/cast catch blocks.
-- Ensured ROUTE_NORMALIZATION catch writes `reports/route_normalization_debug.json` even when detailed forensics were not populated yet (fallback payload with known fields).
-
-## VALIDATION_RESULT
-- Static validation only (file diff and schema/path verification).
-- Runtime validation blocked: `pwsh`/`powershell` is unavailable in this container, so no new bundle execution could be performed.
-
-## NEXT_BLOCKER_IF_ANY
-- Missing PowerShell runtime prevents generating fresh forensic evidence from a live failing run.
+# TASK_REPORT
 
 ## Summary
-- Implemented evidence-first forensic payload hardening for ROUTE_NORMALIZATION failure capture.
-- Added guaranteed artifact fallback creation path for ROUTE_NORMALIZATION stage failures.
-- Did not touch diagnosis, contradiction, maturity/readiness, executive/operator, remediation package, product closeout, or screenshot layers.
+- Task: SITE_AUDITOR — NORMALIZE-LIVEROUTES LINE-617 SURGICAL FORENSICS.
+- INSTRUCTION_FILES_READ: `AGENTS.md`, `docs/README.md`, `docs/REPO_LAYOUT.md`.
+- FAILURE_FUNCTION: `Normalize-LiveRoutes`.
+- FAILURE_LINE_REGION: `agents/gh_batch/site_auditor_cloud/agent.ps1` line region 621-673 (post-loop return/dropped-count computation near reported line 617).
+- OPERATION_LABEL: Instrumented as `OP1_raw_route_count`, `OP2_normalized_count`, `OP3_count_subtraction`, `OP4_math_max_dropped_count`.
+- EXACT_EXPRESSION: Captured per operation as `@($rawRoutes).Count`, `$normalized.Count`, `$rawRouteCount - $normalizedCount`, and `[int]([Math]::Max(0, $droppedDelta))`.
+- LEFT_TYPE: Runtime-captured via `Set-RouteNormalizationForensics.left_type` (no placeholders in instrumentation path).
+- RIGHT_TYPE: Runtime-captured via `Set-RouteNormalizationForensics.right_type` (no placeholders in instrumentation path).
+- SAMPLE_VALUES: Runtime-captured via `left_value_sample`, `right_value_sample`, `variable_names`, `context_keys`, and `route_path_if_available`.
+- FIX_APPLIED: Added operation-level micro-instrumentation around each suspicious return-region operation, and extended forensic payload to include `operation_label` + `variable_names` for exact fault localization.
+- VALIDATION_RESULT: Static change validation completed; runtime validation blocked because PowerShell runtime (`pwsh`/`powershell`) is unavailable in this container.
+- NEXT_BLOCKER_IF_ANY: Cannot execute `agent.ps1` locally to produce fresh `reports/route_normalization_debug.json` evidence without PowerShell.
 
 ## Changed files
-- agents/gh_batch/site_auditor_cloud/agent.ps1
-- docs/TASK_REPORT.md
+- `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- agents/gh_batch/site_auditor_cloud/run.ps1
-- agents/gh_batch/site_auditor_cloud/agent.ps1
-- agents/gh_batch/site_auditor_cloud/run_bundle.ps1
+- Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- Invocation wrapper unchanged: `agents/gh_batch/site_auditor_cloud/run.ps1`
+- Debug artifact target unchanged: `agents/gh_batch/site_auditor_cloud/reports/route_normalization_debug.json`
 
 ## Risks/blockers
-- Exact live failing values remain pending until runtime can be executed with PowerShell.
-- If failure persists, `reports/route_normalization_debug.json` should now contain required evidence keys even when failure occurs early.
+- Blocker: PowerShell is not installed in this execution environment, so exact failing operation could not be empirically confirmed against a fresh bundle in-container.
+- Risk: Until a PowerShell-capable run is executed, root-cause confirmation remains pending despite full operation-level capture instrumentation.

@@ -97,9 +97,11 @@ function Get-ObjectShapeSummary {
 function Set-RouteNormalizationForensics {
     param(
         [string]$FunctionName,
+        [string]$OperationLabel = '',
         [string]$Expression,
         [object]$LeftOperand,
         [object]$RightOperand,
+        [string[]]$VariableNames = @(),
         [object]$RouteContext = $null,
         [object]$AdditionalContext = $null
     )
@@ -133,7 +135,9 @@ function Set-RouteNormalizationForensics {
     $global:RouteNormalizationForensics = [ordered]@{
         failure_stage = 'ROUTE_NORMALIZATION'
         function_name = $FunctionName
+        operation_label = $OperationLabel
         expression = $Expression
+        variable_names = @($VariableNames)
         left_type = $leftType
         right_type = $rightType
         left_value_sample = $leftSample
@@ -614,10 +618,57 @@ function Normalize-LiveRoutes {
         }
     }
 
+    $rawRouteCount = $null
+    try {
+        $rawRouteCount = @($rawRoutes).Count
+    }
+    catch {
+        Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -OperationLabel 'OP1_raw_route_count' -Expression '@($rawRoutes).Count' -LeftOperand $rawRoutes -RightOperand $null -VariableNames @('rawRoutes') -AdditionalContext @{
+            stack_hint = $_.ScriptStackTrace
+        }
+        throw
+    }
+
+    $normalizedCount = $null
+    try {
+        $normalizedCount = $normalized.Count
+    }
+    catch {
+        Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -OperationLabel 'OP2_normalized_count' -Expression '$normalized.Count' -LeftOperand $normalized -RightOperand $null -VariableNames @('normalized') -AdditionalContext @{
+            stack_hint = $_.ScriptStackTrace
+        }
+        throw
+    }
+
+    $droppedDelta = $null
+    try {
+        $droppedDelta = $rawRouteCount - $normalizedCount
+    }
+    catch {
+        Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -OperationLabel 'OP3_count_subtraction' -Expression '$rawRouteCount - $normalizedCount' -LeftOperand $rawRouteCount -RightOperand $normalizedCount -VariableNames @('rawRouteCount', 'normalizedCount') -AdditionalContext @{
+            stack_hint = $_.ScriptStackTrace
+            route_path = ''
+        }
+        throw
+    }
+
+    $droppedCount = $null
+    try {
+        $droppedCount = [int]([Math]::Max(0, $droppedDelta))
+    }
+    catch {
+        Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -OperationLabel 'OP4_math_max_dropped_count' -Expression '[int]([Math]::Max(0, $droppedDelta))' -LeftOperand 0 -RightOperand $droppedDelta -VariableNames @('0', 'droppedDelta') -AdditionalContext @{
+            raw_route_count = $rawRouteCount
+            normalized_count = $normalizedCount
+            stack_hint = $_.ScriptStackTrace
+        }
+        throw
+    }
+
     return @{
         routes = @($normalized)
-        raw_count = @($rawRoutes).Count
-        dropped_count = [int]([Math]::Max(0, @($rawRoutes).Count - $normalized.Count))
+        raw_count = $rawRouteCount
+        dropped_count = $droppedCount
         warnings = @($shapeWarnings)
     }
 }
