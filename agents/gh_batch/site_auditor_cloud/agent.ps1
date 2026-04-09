@@ -796,19 +796,67 @@ function Normalize-LiveRoutes {
     }
 
     $normalizedCount = $null
+    $normalizedCountRead = $null
+    $normalizedMaterialized = $null
+    $normalizedShape = $null
     try {
-        $normalizedCountRead = $normalized.Count
-        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_normalized_count_read' -OperationLabel 'OP2A_normalized_count_read' -Expression '$normalized.Count' -LeftOperand $normalized -RightOperand $normalizedCountRead -Status 'ok'
-        $normalizedCount = Convert-ToIntSafe -Value $normalizedCountRead -Default 0
-        $aggregateComputedCounts.normalized_count = $normalizedCount
-        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_normalized_count_coerce' -OperationLabel 'OP2B_normalized_count_to_int' -Expression 'Convert-ToIntSafe -Value $normalizedCountRead -Default 0' -LeftOperand $normalizedCountRead -RightOperand $normalizedCount -Status 'ok'
+        try {
+            $normalizedShape = Get-ObjectShapeSummary -Value $normalized
+            Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_normalized_shape_capture' -OperationLabel 'OP2A_normalized_shape_capture' -Expression 'Get-ObjectShapeSummary -Value $normalized' -LeftOperand $normalized -RightOperand $normalizedShape -Status 'ok'
+        }
+        catch {
+            Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_normalized_shape_capture' -OperationLabel 'OP2A_normalized_shape_capture' -Expression 'Get-ObjectShapeSummary -Value $normalized' -LeftOperand $normalized -RightOperand $normalizedShape -Status 'failed' -ErrorRecord $_
+            Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -ActivePhase 'aggregate_normalized_shape_capture' -ActiveOperationLabel 'OP2A_normalized_shape_capture' -ActiveExpression 'Get-ObjectShapeSummary -Value $normalized' -OperationLabel 'OP2A_normalized_shape_capture' -Expression 'Get-ObjectShapeSummary -Value $normalized' -LeftOperand $normalized -RightOperand $normalizedShape -VariableNames @('normalized', 'normalizedShape') -AdditionalContext @{
+                counts_computed_before_failure = $aggregateComputedCounts
+                stack_hint = $_.ScriptStackTrace
+            }
+            throw
+        }
+
+        try {
+            $normalizedMaterialized = @($normalized)
+            Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_normalized_materialize' -OperationLabel 'OP2B_normalized_materialize' -Expression '@($normalized)' -LeftOperand $normalized -RightOperand $normalizedMaterialized -Status 'ok'
+        }
+        catch {
+            Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_normalized_materialize' -OperationLabel 'OP2B_normalized_materialize' -Expression '@($normalized)' -LeftOperand $normalized -RightOperand $normalizedMaterialized -Status 'failed' -ErrorRecord $_
+            Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -ActivePhase 'aggregate_normalized_materialize' -ActiveOperationLabel 'OP2B_normalized_materialize' -ActiveExpression '@($normalized)' -OperationLabel 'OP2B_normalized_materialize' -Expression '@($normalized)' -LeftOperand $normalized -RightOperand $normalizedMaterialized -VariableNames @('normalized', 'normalizedShape', 'normalizedMaterialized') -AdditionalContext @{
+                counts_computed_before_failure = $aggregateComputedCounts
+                normalized_shape = $normalizedShape
+                stack_hint = $_.ScriptStackTrace
+            }
+            throw
+        }
+
+        try {
+            $normalizedCountRead = @($normalizedMaterialized).Count
+            Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_normalized_count_read' -OperationLabel 'OP2C_normalized_count_read' -Expression '@($normalizedMaterialized).Count' -LeftOperand $normalizedMaterialized -RightOperand $normalizedCountRead -Status 'ok'
+        }
+        catch {
+            Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_normalized_count_read' -OperationLabel 'OP2C_normalized_count_read' -Expression '@($normalizedMaterialized).Count' -LeftOperand $normalizedMaterialized -RightOperand $normalizedCountRead -Status 'failed' -ErrorRecord $_
+            Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -ActivePhase 'aggregate_normalized_count_read' -ActiveOperationLabel 'OP2C_normalized_count_read' -ActiveExpression '@($normalizedMaterialized).Count' -OperationLabel 'OP2C_normalized_count_read' -Expression '@($normalizedMaterialized).Count' -LeftOperand $normalizedMaterialized -RightOperand $normalizedCountRead -VariableNames @('normalized', 'normalizedShape', 'normalizedMaterialized', 'normalizedCountRead') -AdditionalContext @{
+                counts_computed_before_failure = $aggregateComputedCounts
+                normalized_shape = $normalizedShape
+                stack_hint = $_.ScriptStackTrace
+            }
+            throw
+        }
+
+        try {
+            $normalizedCount = Convert-ToIntSafe -Value $normalizedCountRead -Default 0
+            $aggregateComputedCounts.normalized_count = $normalizedCount
+            Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_normalized_count_coerce' -OperationLabel 'OP2D_normalized_count_to_int' -Expression 'Convert-ToIntSafe -Value $normalizedCountRead -Default 0' -LeftOperand $normalizedCountRead -RightOperand $normalizedCount -Status 'ok'
+        }
+        catch {
+            Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_normalized_count_coerce' -OperationLabel 'OP2D_normalized_count_to_int' -Expression 'Convert-ToIntSafe -Value $normalizedCountRead -Default 0' -LeftOperand $normalizedCountRead -RightOperand $normalizedCount -Status 'failed' -ErrorRecord $_
+            Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -ActivePhase 'aggregate_normalized_count_coerce' -ActiveOperationLabel 'OP2D_normalized_count_to_int' -ActiveExpression 'Convert-ToIntSafe -Value $normalizedCountRead -Default 0' -OperationLabel 'OP2D_normalized_count_to_int' -Expression 'Convert-ToIntSafe -Value $normalizedCountRead -Default 0' -LeftOperand $normalizedCountRead -RightOperand $normalizedCount -VariableNames @('normalized', 'normalizedShape', 'normalizedMaterialized', 'normalizedCountRead', 'normalizedCount') -AdditionalContext @{
+                counts_computed_before_failure = $aggregateComputedCounts
+                normalized_shape = $normalizedShape
+                stack_hint = $_.ScriptStackTrace
+            }
+            throw
+        }
     }
     catch {
-        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_normalized_count' -OperationLabel 'OP2_normalized_count' -Expression '$normalized.Count -> Convert-ToIntSafe' -LeftOperand $normalized -RightOperand $normalizedCount -Status 'failed' -ErrorRecord $_
-        Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -ActivePhase 'aggregate_normalized_count' -ActiveOperationLabel 'OP2_normalized_count' -ActiveExpression '$normalized.Count -> Convert-ToIntSafe' -OperationLabel 'OP2_normalized_count' -Expression '$normalized.Count -> Convert-ToIntSafe' -LeftOperand $normalized -RightOperand $normalizedCount -VariableNames @('normalized', 'normalizedCountRead', 'normalizedCount') -AdditionalContext @{
-            counts_computed_before_failure = $aggregateComputedCounts
-            stack_hint = $_.ScriptStackTrace
-        }
         throw
     }
 
