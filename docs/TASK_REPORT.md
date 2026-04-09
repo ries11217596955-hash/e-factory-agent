@@ -2,77 +2,102 @@
 - `AGENTS.md`
 - `docs/REPO_LAYOUT.md`
 - `docs/TASK_REPORT.md` (pre-change)
+- `docs/README.md`
+- `docs/CLEANUP_PLAN.md`
+- `docs/WORKFLOW_RESTORE_NOTE.md`
+- `docs/PHASE2_STATUS.md`
+- `docs/PHASE3_STATUS.md`
+- `docs/FINAL_ROOT_CLOSEOUT.md`
+
+## Mission / scope
+- Task: verify SITE_AUDITOR truth pipeline after PR #44/#45/#46 and either certify baseline or isolate the final blocker.
+- Mode: PR-first verification/hardening.
+- Allowed scope used in this task:
+  - verification analysis of `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
+  - `docs/TASK_REPORT.md` update
+- Forbidden/protected scope respected:
+  - no workflow edits
+  - no entrypoint/routing/runtime flow changes
+  - no broad refactor
+
+## Verified baseline before task
+- Merged chain before this task (as referenced by mission context):
+  - PR #44: truthful route normalization + bundle aggregation
+  - PR #45: PowerShell interpolation parse fix
+  - PR #46: PowerShell 5.1 compatibility hotfix
+- Pre-task report (`docs/TASK_REPORT.md`) stated parser-compatibility fixes were applied but runtime verification was not completed in this environment due unavailable PowerShell runtime.
+
+## Verification checks
+1. Instruction and scope preflight completed.
+2. Runtime capability check:
+   - `command -v pwsh || command -v powershell` returned no runtime.
+3. Artifact availability check:
+   - searched repository for required truth artifacts (`reports/audit_result.json`, `reports/run_manifest.json`, `reports/visual_manifest.json`, `reports/11A_EXECUTIVE_SUMMARY.txt`, `audit_bundle/REPORT.txt`, and operator bundle files).
+   - no current run artifacts were present in repository workspace.
+4. Code-path verification (static inspection only):
+   - reviewed `run_bundle.ps1` execution, assembly, evidence reconciliation, and operator file emission paths.
+   - confirmed the PR #45/#46 syntax patterns previously addressed are absent in current file.
+5. Attempted runtime enablement:
+   - attempted `apt-get update` to install PowerShell runtime, blocked by environment repository/proxy 403 + unsigned repository errors.
+
+## Root cause (blocker)
+- Primary blocker: strict runtime verification cannot be executed in this environment because no PowerShell runtime is available and package installation is blocked.
+- Exact root cause:
+  - missing executable (`pwsh`/`powershell`) in environment
+  - package manager access blocked (`apt-get update` failed with 403/unsigned repository failures)
+  - no persisted run artifacts available in repo for post-run truth validation
+- Impact on mission:
+  - cannot produce strict evidence for runtime crash/no-crash, repo binding truth at execution time, report consistency, or operator output correctness from an actual run after PR #44/#45/#46.
 
 ## Summary
-- Applied a PowerShell 5.1 compatibility hotfix in `agents/gh_batch/site_auditor_cloud/run_bundle.ps1` with no logic expansion.
-- Removed invalid inline `if (...) { ... } else { ... }` expressions from `New-ModeResult` argument positions in the synthesized REPO PARTIAL path by precomputing values first.
-- Replaced null-coalescing operator usage (`??`) in `Normalize-Result` with explicit null checks compatible with Windows PowerShell 5.1.
-- Kept behavior identical: same status/reason coercion and same outbox/reports path decisions.
-
-## Root cause
-- The REPO PARTIAL synthesis used inline `if` script blocks directly in command argument positions:
-  - `-OutboxPath (if (...) { ... } else { ... })`
-  - `-ReportsPath (if (...) { ... } else { ... })`
-  This can fail at runtime with `The term 'if' is not recognized...` in this invocation style.
-- `Normalize-Result` used PowerShell null-coalescing operator `??`, which is not available in Windows PowerShell 5.1:
-  - `$status = [string]($statusRaw ?? '')`
-  - `$reason = [string]($reasonRaw ?? '')`
+- Completed full preflight/instruction review and scope validation.
+- Performed strict verification steps possible in current environment.
+- Confirmed static logic paths for truth-preserving behavior are present in `run_bundle.ps1`, but runtime truth could not be proven without execution evidence.
+- Isolated one final blocker: environment-level inability to execute PowerShell verification and absence of generated truth artifacts.
+- Classification set to blocked (not baseline-ready) to avoid false certification.
 
 ## Changed files
-- `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`.
-- No changes to workflows, runtime flow architecture, Playwright behavior, `agent.ps1`, or report design.
+- Entrypoints unchanged:
+  - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
+  - `agents/gh_batch/site_auditor_cloud/run.ps1`
+  - `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- No changes made to workflows, runtime logic, or deployment/configuration files.
 
-## Exact edited blocks
-- `Invoke-AssemblyStage` synthesized REPO PARTIAL block:
-  - Added precomputed locals:
-    - `$repoOutboxPath = if ($repoEvidence.has_outbox) { $repoEvidence.outbox_dir } else { $null }`
-    - `$repoReportsPath = if ($repoEvidence.has_reports) { $repoEvidence.reports_dir } else { $null }`
-  - Updated `New-ModeResult` call to pass:
-    - `-OutboxPath $repoOutboxPath`
-    - `-ReportsPath $repoReportsPath`
-- `Normalize-Result` null-safe coercion:
-  - Replaced `??` expressions with explicit null checks:
-    - `$status = if ($null -ne $statusRaw) { [string]$statusRaw } else { '' }`
-    - `$reason = if ($null -ne $reasonRaw) { [string]$reasonRaw } else { '' }`
-
-## Before / After snippets
-- Before (REPO PARTIAL synthesis):
-```powershell
-$repoResult = New-ModeResult ... -OutboxPath (if ($repoEvidence.has_outbox) { $repoEvidence.outbox_dir } else { $null }) -ReportsPath (if ($repoEvidence.has_reports) { $repoEvidence.reports_dir } else { $null })
-```
+## Before / After
+- Before:
+  - compatibility fixes from PR #44/#45/#46 existed, but strict runtime verification evidence was not present in this environment.
 - After:
-```powershell
-$repoOutboxPath = if ($repoEvidence.has_outbox) { $repoEvidence.outbox_dir } else { $null }
-$repoReportsPath = if ($repoEvidence.has_reports) { $repoEvidence.reports_dir } else { $null }
-$repoResult = New-ModeResult ... -OutboxPath $repoOutboxPath -ReportsPath $repoReportsPath
-```
+  - strict verification attempt completed with explicit blocker isolation.
+  - no code behavior changes applied due inability to run required runtime path.
 
-- Before (Normalize-Result):
-```powershell
-$status = [string]($statusRaw ?? '')
-$reason = [string]($reasonRaw ?? '')
-```
-- After:
-```powershell
-$status = if ($null -ne $statusRaw) { [string]$statusRaw } else { '' }
-$reason = if ($null -ne $reasonRaw) { [string]$reasonRaw } else { '' }
-```
+## Evidence table
+| Check | Result | Evidence |
+|---|---|---|
+| syntax/runtime crash | FAIL | Could not execute `run_bundle.ps1` because `pwsh`/`powershell` is unavailable in environment. |
+| repo binding truth | FAIL | No executable runtime and no generated `reports/run_manifest.json` artifact in workspace to confirm `target_repo_bound` behavior. |
+| audit_result.json verdict truth | FAIL | No generated `reports/audit_result.json` available for post-run validation. |
+| partial truth preservation | FAIL | Could only confirm static code paths; no runtime evidence artifacts to prove behavior under degraded conditions. |
+| REPORT.txt consistency | FAIL | No generated `audit_bundle/REPORT.txt` and underlying `reports/*` set available to reconcile. |
+| operator output usefulness | FAIL | No generated `audit_bundle/00_PRIORITY_ACTIONS.txt`, `01_TOP_ISSUES.txt`, `11A_EXECUTIVE_SUMMARY.txt` present in workspace. |
 
-## Validation method
-- Verified targeted block update and removal of inline argument-position `if` use in the REPO PARTIAL `New-ModeResult` call.
-- Verified `??` removal from the file using search.
-- Attempted static parse validation via `pwsh`, but `pwsh` is not installed in this environment.
-- Used best-available static checks in this environment: targeted pattern searches and diff inspection only.
-- Did not claim full runtime success (no GitHub Actions execution asserted here).
+## Final classification
+- BLOCKED_BY_MISSING_POWERSHELL_RUNTIME_AND_EXECUTION_ARTIFACTS
 
-## Risks/blockers
-- Compatibility hotfix only; no behavioral redesign was introduced.
-- Runtime execution across all environments is not claimed in this report; PowerShell parser validation is blocked locally because PowerShell is unavailable in this environment.
-- No blockers encountered.
+## Risks / blockers
+- Risk of false certification if baseline readiness is claimed without runtime artifacts.
+- Remaining blocker is environmental, not yet proven as code defect.
+- Minimal next action required for final certification:
+  1. execute `run_bundle.ps1` in an environment with PowerShell 5.1 or PowerShell 7+
+  2. collect and validate truth artifacts in priority order:
+     - `reports/audit_result.json`
+     - `reports/run_manifest.json`
+     - `reports/visual_manifest.json`
+     - `reports/11A_EXECUTIVE_SUMMARY.txt`
+     - `audit_bundle/REPORT.txt` (secondary)
+  3. confirm operator files are generated and aligned.
