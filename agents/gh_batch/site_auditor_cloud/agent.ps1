@@ -258,6 +258,126 @@ function Get-FirstFailingAggregateTraceEntry {
     return $null
 }
 
+function Get-LastAggregateTraceEntry {
+    if ($null -eq $global:RouteNormalizationAggregateTrace) {
+        return $null
+    }
+
+    $entries = @($global:RouteNormalizationAggregateTrace)
+    if ($entries.Count -le 0) {
+        return $null
+    }
+
+    return $entries[$entries.Count - 1]
+}
+
+function Get-LastRouteNormalizationTracePhaseEntry {
+    if ($null -eq $global:RouteNormalizationTrace) {
+        return $null
+    }
+
+    $entries = @($global:RouteNormalizationTrace)
+    if ($entries.Count -le 0) {
+        return $null
+    }
+
+    return $entries[$entries.Count - 1]
+}
+
+function New-RouteNormalizationFallbackDebug {
+    param(
+        [string]$StackHint = '',
+        [string]$FailureMessage = ''
+    )
+
+    $fallbackEntry = Get-FirstFailingAggregateTraceEntry
+    $fallbackSource = 'aggregate_first_failed'
+
+    if ($null -eq $fallbackEntry) {
+        $fallbackEntry = Get-LastAggregateTraceEntry
+        $fallbackSource = 'aggregate_last_known'
+    }
+
+    if ($null -eq $fallbackEntry) {
+        $fallbackEntry = Get-LastRouteNormalizationTracePhaseEntry
+        $fallbackSource = 'trace_last_known'
+    }
+
+    $fallbackOperationLabel = [string](Safe-Get -Object $fallbackEntry -Key 'operation_label' -Default '')
+    $fallbackPhaseName = [string](Safe-Get -Object $fallbackEntry -Key 'phase_name' -Default '')
+    $fallbackExpression = [string](Safe-Get -Object $fallbackEntry -Key 'expression' -Default '')
+    $fallbackLeftType = [string](Safe-Get -Object $fallbackEntry -Key 'left_type' -Default '<unknown>')
+    $fallbackRightType = [string](Safe-Get -Object $fallbackEntry -Key 'right_type' -Default '<unknown>')
+    $fallbackLeftSample = [string](Safe-Get -Object $fallbackEntry -Key 'left_value_sample' -Default '<unknown>')
+    $fallbackRightSample = [string](Safe-Get -Object $fallbackEntry -Key 'right_value_sample' -Default '<unknown>')
+
+    if ($fallbackSource -eq 'trace_last_known') {
+        if ([string]::IsNullOrWhiteSpace($fallbackLeftType)) {
+            $fallbackLeftType = [string](Safe-Get -Object $fallbackEntry -Key 'object_type' -Default '<unknown>')
+        }
+        if ([string]::IsNullOrWhiteSpace($fallbackLeftSample) -or $fallbackLeftSample -eq '<unknown>') {
+            $fallbackLeftSample = [string](Safe-Get -Object $fallbackEntry -Key 'short_value_sample' -Default '<unknown>')
+        }
+        if ([string]::IsNullOrWhiteSpace($fallbackPhaseName)) {
+            $fallbackPhaseName = [string](Safe-Get -Object $fallbackEntry -Key 'phase_name' -Default '')
+        }
+        if ([string]::IsNullOrWhiteSpace($fallbackOperationLabel)) {
+            $fallbackOperationLabel = 'TRACE_LAST_KNOWN'
+        }
+        if ([string]::IsNullOrWhiteSpace($fallbackExpression)) {
+            $fallbackExpression = '<derived_from_trace_phase>'
+        }
+    }
+
+    $resolvedFunctionName = if (
+        [string]::IsNullOrWhiteSpace($fallbackOperationLabel) -and
+        [string]::IsNullOrWhiteSpace($fallbackPhaseName) -and
+        [string]::IsNullOrWhiteSpace($fallbackExpression)
+    ) { 'unknown' } else { 'Normalize-LiveRoutes' }
+
+    $resolvedPhase = if ([string]::IsNullOrWhiteSpace($fallbackPhaseName)) { 'unknown' } else { $fallbackPhaseName }
+    $resolvedOperation = if ([string]::IsNullOrWhiteSpace($fallbackOperationLabel)) { 'unknown' } else { $fallbackOperationLabel }
+    $resolvedExpression = if ([string]::IsNullOrWhiteSpace($fallbackExpression)) { 'unknown' } else { $fallbackExpression }
+
+    return [ordered]@{
+        failure_stage = 'ROUTE_NORMALIZATION'
+        function_name = $resolvedFunctionName
+        activePhase = $resolvedPhase
+        activeOperationLabel = $resolvedOperation
+        activeExpression = $resolvedExpression
+        operation_label = $resolvedOperation
+        expression = $resolvedExpression
+        variable_names = @()
+        left_type = $fallbackLeftType
+        right_type = $fallbackRightType
+        left_value_sample = $fallbackLeftSample
+        right_value_sample = $fallbackRightSample
+        context_keys = @()
+        route_path_if_available = ''
+        stack_hint_if_available = if ([string]::IsNullOrWhiteSpace($StackHint)) { '' } else { $StackHint }
+        failure_function = $resolvedFunctionName
+        failure_expression = $resolvedExpression
+        value_samples = [ordered]@{
+            left = $fallbackLeftSample
+            right = $fallbackRightSample
+        }
+        route_context_shape = [ordered]@{
+            type = '<unknown>'
+            keys = @()
+            property_names = @()
+            count = 0
+        }
+        additional_context = [ordered]@{
+            fallback_source = if ($null -eq $fallbackEntry) { 'none' } else { $fallbackSource }
+            fallback_phase_name = $resolvedPhase
+            fallback_operation_label = $resolvedOperation
+            fallback_expression = $resolvedExpression
+            failure_message = if ([string]::IsNullOrWhiteSpace($FailureMessage)) { '' } else { $FailureMessage }
+        }
+    }
+}
+
+
 function Ensure-Dir([string]$Path) {
     New-Item -ItemType Directory -Force -Path $Path | Out-Null
 }
@@ -938,9 +1058,14 @@ function Normalize-LiveRoutes {
         $zeroBoundary = 0
         $droppedDeltaInt = Convert-ToIntSafe -Value $droppedDelta -Default 0
         Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_drop_count_coerce' -OperationLabel 'OP4A_dropped_delta_to_int' -Expression 'Convert-ToIntSafe -Value $droppedDelta -Default 0' -LeftOperand $droppedDelta -RightOperand $droppedDeltaInt -Status 'ok'
-        $droppedCount = [int]([Math]::Max([int]$zeroBoundary, [int]$droppedDeltaInt))
+        if ([int]$droppedDeltaInt -lt 0) {
+            $droppedCount = 0
+        }
+        else {
+            $droppedCount = [int]$droppedDeltaInt
+        }
         $aggregateComputedCounts.dropped_count = $droppedCount
-        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_drop_count_math' -OperationLabel 'OP4B_math_max_dropped_count' -Expression '[Math]::Max([int]$zeroBoundary, [int]$droppedDeltaInt)' -LeftOperand $zeroBoundary -RightOperand $droppedDeltaInt -Status 'ok'
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_drop_count_math' -OperationLabel 'OP4B_dropped_count_floor_zero' -Expression 'if ($droppedDeltaInt -lt 0) { 0 } else { [int]$droppedDeltaInt }' -LeftOperand $zeroBoundary -RightOperand $droppedDeltaInt -Status 'ok'
     }
     catch {
         Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_drop_count_math' -OperationLabel 'OP4_math_max_dropped_count' -Expression 'Convert-ToIntSafe($droppedDelta) -> [Math]::Max' -LeftOperand 0 -RightOperand $droppedDelta -Status 'failed' -ErrorRecord $_
@@ -963,11 +1088,51 @@ function Normalize-LiveRoutes {
             }) -Status 'ok'
     }
 
+    $normalizedRoutesOutput = $null
+    $shapeWarningsOutput = $null
+    try {
+        if ($normalized -is [System.Collections.Generic.List[object]]) {
+            $normalizedRoutesOutput = [object[]]$normalized.ToArray()
+        }
+        elseif ($normalized -is [System.Collections.IEnumerable] -and -not ($normalized -is [string])) {
+            $normalizedRoutesOutput = @($normalized | ForEach-Object { $_ })
+        }
+        elseif ($null -eq $normalized) {
+            $normalizedRoutesOutput = @()
+        }
+        else {
+            $normalizedRoutesOutput = @($normalized)
+        }
+
+        if ($shapeWarnings -is [System.Collections.Generic.List[string]]) {
+            $shapeWarningsOutput = [string[]]$shapeWarnings.ToArray()
+        }
+        elseif ($shapeWarnings -is [System.Collections.IEnumerable] -and -not ($shapeWarnings -is [string])) {
+            $shapeWarningsOutput = @($shapeWarnings | ForEach-Object { [string]$_ })
+        }
+        elseif ($null -eq $shapeWarnings) {
+            $shapeWarningsOutput = @()
+        }
+        else {
+            $shapeWarningsOutput = @([string]$shapeWarnings)
+        }
+
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_return_materialization' -OperationLabel 'OP5A_return_output_materialize' -Expression 'normalized/shapeWarnings safe output materialization' -LeftOperand $normalized -RightOperand $normalizedRoutesOutput -Status 'ok'
+    }
+    catch {
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_return_materialization' -OperationLabel 'OP5A_return_output_materialize' -Expression 'normalized/shapeWarnings safe output materialization' -LeftOperand $normalized -RightOperand $normalizedRoutesOutput -Status 'failed' -ErrorRecord $_
+        Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -ActivePhase 'aggregate_return_materialization' -ActiveOperationLabel 'OP5A_return_output_materialize' -ActiveExpression 'normalized/shapeWarnings safe output materialization' -OperationLabel 'OP5A_return_output_materialize' -Expression 'normalized/shapeWarnings safe output materialization' -LeftOperand $normalized -RightOperand $normalizedRoutesOutput -VariableNames @('normalized', 'shapeWarnings', 'normalizedRoutesOutput', 'shapeWarningsOutput') -AdditionalContext @{
+            counts_computed_before_failure = $aggregateComputedCounts
+            stack_hint = $_.ScriptStackTrace
+        }
+        throw
+    }
+
     return @{
-        routes = @($normalized)
+        routes = $normalizedRoutesOutput
         raw_count = $rawRouteCount
         dropped_count = $droppedCount
-        warnings = @($shapeWarnings)
+        warnings = $shapeWarningsOutput
     }
 }
 
@@ -1269,29 +1434,8 @@ function Invoke-LiveAudit {
                 $routeNormalizationDebug = $global:RouteNormalizationForensics
             }
             else {
-                $fallbackFirstFailingAggregateEntry = Get-FirstFailingAggregateTraceEntry
-                $fallbackOperationLabel = [string](Safe-Get -Object $fallbackFirstFailingAggregateEntry -Key 'operation_label' -Default '')
-                $fallbackPhaseName = [string](Safe-Get -Object $fallbackFirstFailingAggregateEntry -Key 'phase_name' -Default '')
-                $fallbackExpression = [string](Safe-Get -Object $fallbackFirstFailingAggregateEntry -Key 'expression' -Default '')
-                $fallbackLeftType = [string](Safe-Get -Object $fallbackFirstFailingAggregateEntry -Key 'left_type' -Default '<unknown>')
-                $fallbackRightType = [string](Safe-Get -Object $fallbackFirstFailingAggregateEntry -Key 'right_type' -Default '<unknown>')
-                $fallbackLeftSample = [string](Safe-Get -Object $fallbackFirstFailingAggregateEntry -Key 'left_value_sample' -Default '<unknown>')
-                $fallbackRightSample = [string](Safe-Get -Object $fallbackFirstFailingAggregateEntry -Key 'right_value_sample' -Default '<unknown>')
-                $routeNormalizationDebug = [ordered]@{
-                    failure_stage = 'ROUTE_NORMALIZATION'
-                    function_name = if ([string]::IsNullOrWhiteSpace($fallbackOperationLabel)) { 'unknown' } else { 'Normalize-LiveRoutes' }
-                    activePhase = if ([string]::IsNullOrWhiteSpace($fallbackPhaseName)) { 'unknown' } else { $fallbackPhaseName }
-                    activeOperationLabel = if ([string]::IsNullOrWhiteSpace($fallbackOperationLabel)) { 'unknown' } else { $fallbackOperationLabel }
-                    activeExpression = if ([string]::IsNullOrWhiteSpace($fallbackExpression)) { 'unknown' } else { $fallbackExpression }
-                    expression = if ([string]::IsNullOrWhiteSpace($fallbackExpression)) { 'unknown' } else { $fallbackExpression }
-                    left_type = $fallbackLeftType
-                    right_type = $fallbackRightType
-                    left_value_sample = $fallbackLeftSample
-                    right_value_sample = $fallbackRightSample
-                    context_keys = @()
-                    route_path_if_available = ''
-                    stack_hint_if_available = if ([string]::IsNullOrWhiteSpace($_.ScriptStackTrace)) { '' } else { [string]$_.ScriptStackTrace }
-                }
+                $routeNormalizationDebug = New-RouteNormalizationFallbackDebug -StackHint $_.ScriptStackTrace -FailureMessage $failure
+            }
             }
             try {
                 Write-JsonFile -Path (Join-Path $reportsDir 'route_normalization_debug.json') -Data $routeNormalizationDebug
