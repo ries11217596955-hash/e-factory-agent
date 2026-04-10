@@ -546,11 +546,24 @@ function Convert-ToObjectArraySafe {
         if ([string]::IsNullOrWhiteSpace($Value)) { return @() }
         return @([string]$Value)
     }
+    if ($Value -is [System.Collections.Generic.List[object]]) { return [object[]]$Value.ToArray() }
+    if ($Value -is [System.Collections.Generic.List[string]]) { return [object[]]$Value.ToArray() }
     if ($Value -is [System.Collections.IDictionary] -or $Value -is [PSCustomObject]) {
         return @($Value)
     }
+    if ($Value -is [System.Collections.ICollection]) {
+        $materialized = New-Object System.Collections.Generic.List[object]
+        foreach ($item in $Value) {
+            $materialized.Add($item)
+        }
+        return [object[]]$materialized.ToArray()
+    }
     if ($Value -is [System.Collections.IEnumerable]) {
-        return @($Value)
+        $materialized = New-Object System.Collections.Generic.List[object]
+        foreach ($item in $Value) {
+            $materialized.Add($item)
+        }
+        return [object[]]$materialized.ToArray()
     }
     return @($Value)
 }
@@ -580,7 +593,7 @@ function Convert-ToStringArraySafe {
         }
     }
 
-    return @($normalized)
+    return [string[]]$normalized.ToArray()
 }
 
 function Convert-ToStringKeyDictionarySafe {
