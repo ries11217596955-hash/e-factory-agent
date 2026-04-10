@@ -1,9 +1,16 @@
 # TASK_REPORT
 
+## INSTRUCTION_FILES_READ
+- `AGENTS.md`
+- `docs/README.md`
+- `docs/TASK_REPORT.md` (previous state)
+- `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- `agents/gh_batch/site_auditor_cloud/lib/validate-powershell-preflight.ps1`
+
 ## Summary
-- Isolated the OP2C failure path in `Normalize-LiveRoutes` and confirmed the count-read/scalarization logic itself was already deterministic for the observed runtime shape (`raw_route_count = 5`, normalized source count shape = `5`).
-- Hardened the OP2C diagnostic shape-capture step so `Get-ObjectShapeSummary` failures no longer abort `aggregate_normalized_count_read` after a successful count-read/scalarization.
-- Preserved forensic naming and active operation labeling (`OP2C_normalized_count_read`, expression `$normalizedCountSource.Count -> scalarized`) and preserved OP2B count-source replacement without reverting to materialization.
+- Rebuilt the malformed `Invoke-LiveAudit` ROUTE_NORMALIZATION failure block into a structurally coherent form by removing an extra stray closing brace that broke parse safety.
+- Preserved route normalization tracing and forensic/debug write paths (`route_normalization_trace.json`, `route_normalization_debug.json`) and kept fallback debug hydration flow intact.
+- Preserved existing SITE_AUDITOR output contract flow by leaving `Write-OperatorOutputs` and `Ensure-OutputContract` logic untouched.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -14,59 +21,46 @@
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- Updated function scope only: `Normalize-LiveRoutes` OP2C block (`aggregate_normalized_count_read`).
+- Affected function scope: `Invoke-LiveAudit` catch/ROUTE_NORMALIZATION branch only.
 
 ## Risks/blockers
-- No bundle/runtime execution was performed in this edit-only task, so final acceptance still depends on next runtime artifact.
-- If failure persists, the next run should now name the exact post-OP2C failing operation rather than masking through the prior diagnostic shape-capture path.
+- PowerShell runtime (`pwsh`/`powershell`) is not installed in this environment, so authoritative AST parse validation could not be executed.
+- Validation therefore relies on strongest available structural approximation in-container (brace-balance verification and targeted structural inspection).
 
 ## SUMMARY
-- Confirmed failure moved forward from OP2B to OP2C with normalized list/count already present (5 entries).
-- Kept OP2B deterministic count-source selection exactly in place.
-- Hardened OP2C by making normalized count shape capture best-effort (non-fatal) instead of a hard-fail path.
-- Preserved exact forensic labels/expressions for OP2C and downstream OP2D.
-- Limited changes strictly to the allowed files and OP2C-focused scope.
+- Fixed syntax drift in `agent.ps1` caused by one extra `}` in the ROUTE_NORMALIZATION catch path.
+- Preserved Normalize-LiveRoutes forensic and aggregate trace plumbing.
+- Preserved OP2/OP2C and OP4 logic already present in file (no behavioral rewrites applied).
+- Preserved route normalization trace + debug artifact output generation.
+- Preserved output artifact contract flow (`Write-OperatorOutputs`, `Ensure-OutputContract`).
 
 ## FILES CHANGED
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
 - `docs/TASK_REPORT.md`
 
-## VERIFIED RUNTIME EVIDENCE USED
-- `failure_stage = ROUTE_NORMALIZATION`
-- OP2B replacement had already moved failure forward
-- first failing phase now `aggregate_normalized_count_read`
-- first failing operation label `OP2C_normalized_count_read`
-- active expression `$normalizedCountSource.Count -> scalarized`
-- normalized route list exists with 5 entries
-- `raw_route_count = 5`
-- `normalized_count_source_shape.count = 5`
-- stack hint passed through `Get-ObjectShapeSummary` near OP2C
-
 ## ROOT CAUSE
-- The OP2C block bundled core count-read/scalarization with a diagnostic shape-summary call. Based on runtime evidence, count-read inputs were valid and already consistent, while the stack hint indicated the failure path passed through `Get-ObjectShapeSummary` in the OP2C region.
+- Repeated micro-patching introduced block-structure drift inside `Invoke-LiveAudit` catch handling. A stray closing brace closed the ROUTE_NORMALIZATION conditional too early, causing parse failure (`Unexpected token '}'` around line ~1418).
 
-## WHY OP2C FAILED
-- OP2C treated diagnostic shape introspection (`Get-ObjectShapeSummary -Value $normalizedCountReadScalar`) as mandatory within the same `try` that defines OP2C success.
-- If shape-summary throws for the runtime value/object wrapper, OP2C is marked as failed even when count-read/scalarization succeeded.
+## WHAT DRIFTED IN agent.ps1
+- ROUTE_NORMALIZATION failure handling block in `Invoke-LiveAudit` had mismatched brace structure.
+- This caused try/catch alignment breakage in the route normalization debug write sequence.
 
-## FIX APPLIED
-- In OP2C, retained existing deterministic count-read and scalarization logic unchanged.
-- Wrapped `Get-ObjectShapeSummary -Value $normalizedCountReadScalar` in its own inner `try/catch`.
-- On shape-capture failure, OP2C now stores a deterministic fallback shape object:
-  - `type = '<shape_capture_failed>'`
-  - empty `keys` / `property_names`
-  - `count = 0`
-  - captured `error_message`
-- Kept exact OP2C forensic naming and expression unchanged.
-- Did not alter OP2B logic or reintroduce `@($normalized)` materialization.
+## WHAT WAS REBUILT
+- Reconstructed the malformed section into a coherent block by removing the stray closing brace between fallback debug hydration and route_normalization_debug write block.
+- Left all trace/forensics/output-generation logic intact (no contract redesign).
+
+## PARSE VALIDATION RESULT
+- **Authoritative PowerShell parse:** Not executed (runtime missing: `pwsh` and `powershell` commands unavailable).
+- **Strongest available approximation executed:**
+  - Structural brace-balance validation script reports:
+    - `extra_closing_brace_line None`
+    - `unclosed_open_brace_count 0`
+- Result: structural mismatch that previously produced `Unexpected token '}'` is removed.
+
+## LIMITATIONS
+- Without PowerShell parser availability, absolute AST-level parse success cannot be proven in this container.
+- Runtime execution of SITE_AUDITOR bundle was intentionally not performed because task scope was parse/structural stabilization.
 
 ## EXPECTED NEXT RUNTIME STATE
-- Preferred: `ROUTE_NORMALIZATION` proceeds beyond OP2C into OP2D and later phases.
-- If another defect remains, next failure should now be a new exact operation after OP2C (or an explicit OP2D failure), satisfying precise post-OP2C diagnostics.
-
-## INSTRUCTION_FILES_READ
-- `AGENTS.md`
-- `docs/README.md`
-- `docs/REPO_LAYOUT.md`
-- `docs/TASK_REPORT.md` (prior version)
-- `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- Next execution should proceed past script parse stage and retain existing ROUTE_NORMALIZATION trace/debug behavior.
+- If any runtime defect remains, diagnostics should continue to emit aggregate trace and fallback debug artifacts rather than failing due to syntax structure drift.
