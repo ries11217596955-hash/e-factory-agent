@@ -2216,24 +2216,25 @@ function Build-ContradictionLayer {
     }
 
     $operationLabel = 'C2_combine_contradiction_candidates'
-    $expression = 'route/site candidate deterministic combination'
+    $expression = 'explicit object[] materialization + local object[] combine container (no implicit list arithmetic)'
     $routeCandidateArray = @()
     $siteCandidateArray = @()
     $allCandidates = @()
     $classCounts = @{}
+    $combineExpression = '$combinedCandidates += $routeCandidateArray; $combinedCandidates += $siteCandidateArray'
 
     try {
-        $routeCandidateArray = [object[]]@($routeCandidates)
-        $siteCandidateArray = [object[]]@($siteCandidates)
+        $routeCandidateArray = [object[]](Convert-ToObjectArraySafe -Value $routeCandidates)
+        $siteCandidateArray = [object[]](Convert-ToObjectArraySafe -Value $siteCandidates)
 
-        $combinedCandidateList = New-Object System.Collections.Generic.List[object]
+        $combinedCandidates = New-Object System.Collections.ArrayList
         foreach ($candidate in $routeCandidateArray) {
-            $combinedCandidateList.Add($candidate)
+            [void]$combinedCandidates.Add($candidate)
         }
         foreach ($candidate in $siteCandidateArray) {
-            $combinedCandidateList.Add($candidate)
+            [void]$combinedCandidates.Add($candidate)
         }
-        $allCandidates = [object[]]$combinedCandidateList.ToArray()
+        $allCandidates = [object[]]$combinedCandidates.ToArray([object])
 
         $operationLabel = 'C3_build_contradiction_class_counts'
         foreach ($candidate in $allCandidates) {
@@ -2252,6 +2253,7 @@ function Build-ContradictionLayer {
                 site_candidates_type = if ($null -eq $siteCandidates) { '<null>' } else { $siteCandidates.GetType().FullName }
                 route_candidate_array_type = if ($null -eq $routeCandidateArray) { '<null>' } else { $routeCandidateArray.GetType().FullName }
                 site_candidate_array_type = if ($null -eq $siteCandidateArray) { '<null>' } else { $siteCandidateArray.GetType().FullName }
+                exact_combine_expression = $combineExpression
                 route_candidate_count = [int]@($routeCandidateArray).Count
                 site_candidate_count = [int]@($siteCandidateArray).Count
                 error_message = $_.Exception.Message
