@@ -1846,8 +1846,8 @@ function Build-PageQualityFindings {
             }
             $verdictCounts[$primaryVerdict] = [int]$verdictCounts[$primaryVerdict] + 1
 
-            $operationLabel = 'PQ4_route_findings_materialize'
-            $expression = 'Route findings and output materialization'
+            $operationLabel = 'PQ4A_route_findings_output_string_array'
+            $expression = 'Build route findings list and materialize deterministic string[] output'
             $routeFindings = New-Object System.Collections.Generic.List[string]
             if ($empty) { $routeFindings.Add('Route has empty or near-empty visible content.') }
             if ($thin) { $routeFindings.Add('Route content is thin and likely underdeveloped.') }
@@ -1858,12 +1858,23 @@ function Build-PageQualityFindings {
                 $routeFindings.Add("Contradiction candidate [$([string](Safe-Get -Object $candidate -Key 'class' -Default 'UNKNOWN'))]: $([string](Safe-Get -Object $candidate -Key 'evidence' -Default ''))")
             }
             $routeFindings.Add("Primary verdict class: $primaryVerdict")
-
             $routeFindingsOutput = Convert-ToPageQualityStringArray -Value $routeFindings
-            $routeContradictionsOutput = Convert-ToPageQualityObjectArray -Value $routeContradictions
+
+            $operationLabel = 'PQ4B_route_contradictions_output_object_array'
+            $expression = 'Materialize route contradiction candidates into object[] without fragile rematerialization when already array'
+            $routeContradictionsSource = $routeContradictions
+            if ($routeContradictionsSource -is [object[]]) {
+                $routeContradictionsOutput = [object[]]$routeContradictionsSource
+            }
+            else {
+                $routeContradictionsOutput = Convert-ToPageQualityObjectArray -Value $routeContradictionsSource
+            }
+
+            $operationLabel = 'PQ4C_contamination_flags_output_string_array'
+            $expression = 'Materialize contamination flags into string[] output'
             $contaminationFlagsOutput = Convert-ToPageQualityStringArray -Value $contaminationFlags
 
-            $operationLabel = 'PQ5_route_result_add'
+            $operationLabel = 'PQ4D_route_result_add'
             $expression = 'Append route evaluation object to result list'
             $result.Add([ordered]@{
                 route_path = Safe-Get -Object $route -Key 'route_path' -Default ''
@@ -1908,8 +1919,8 @@ function Build-PageQualityFindings {
         $operationLabel = 'PQ7_pattern_summary_build'
         $expression = 'Build-SitePatternSummary -TotalRoutes @($routesInput).Count -Rollups $rollups'
         $patternSummary = Build-SitePatternSummary -TotalRoutes @($routesInput).Count -Rollups $rollups
-        $operationLabel = 'PQ8_route_details_output_materialize'
-        $expression = 'Convert-ToPageQualityObjectArray -Value $result'
+        $operationLabel = 'PQ4E_route_details_output_materialize'
+        $expression = 'Materialize final route_details object[] output'
         $routeDetailsOutput = Convert-ToPageQualityObjectArray -Value $result
 
         return @{
