@@ -3,64 +3,98 @@
 ## INSTRUCTION_FILES_READ
 - `AGENTS.md`
 - `docs/README.md`
+- `docs/REPO_LAYOUT.md`
+- `docs/PHASE2_STATUS.md`
+- `docs/PHASE3_STATUS.md`
+- `docs/CLEANUP_PLAN.md`
+- `docs/WORKFLOW_RESTORE_NOTE.md`
+- `docs/FINAL_ROOT_CLOSEOUT.md`
 - `docs/TASK_REPORT.md` (previous state)
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- `agents/gh_batch/site_auditor_cloud/run.ps1`
+- `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
+- `agents/gh_batch/site_auditor_cloud/capture.mjs`
+- `agents/gh_batch/site_auditor_cloud/lib/preflight.ps1`
 - `agents/gh_batch/site_auditor_cloud/lib/validate-powershell-preflight.ps1`
+- `agents/gh_batch/site_auditor_cloud/lib/intake_zip.ps1`
 
 ## Summary
-- Rebuilt the malformed `Invoke-LiveAudit` ROUTE_NORMALIZATION failure block into a structurally coherent form by removing an extra stray closing brace that broke parse safety.
-- Preserved route normalization tracing and forensic/debug write paths (`route_normalization_trace.json`, `route_normalization_debug.json`) and kept fallback debug hydration flow intact.
-- Preserved existing SITE_AUDITOR output contract flow by leaving `Write-OperatorOutputs` and `Ensure-OutputContract` logic untouched.
+- Completed a full-file deep structural audit of `agent.ps1` focused on stage transitions, block integrity, normalization dataflow, fallback behavior, and output contract stability.
+- Produced a defect map with grouped issue families and prioritized risk hotspots.
+- Produced staged repair batching strategy to move from ad-hoc whole-file replacement toward small deterministic PRs.
+- No runtime logic or output contract behavior was changed in this task (audit/planning only).
 
 ## Changed files
-- `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- `docs/TASK_REPORT.md`
+- `docs/AGENT_PS1_DEEP_AUDIT.md` (new)
+- `docs/TASK_REPORT.md` (updated)
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- Affected function scope: `Invoke-LiveAudit` catch/ROUTE_NORMALIZATION branch only.
+- Entrypoint remains `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- Wrappers unchanged: `agents/gh_batch/site_auditor_cloud/run.ps1`, `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`.
+- Output contract paths unchanged: `outbox/REPORT.txt`, `reports/audit_result.json`, done markers.
 
 ## Risks/blockers
-- PowerShell runtime (`pwsh`/`powershell`) is not installed in this environment, so authoritative AST parse validation could not be executed.
-- Validation therefore relies on strongest available structural approximation in-container (brace-balance verification and targeted structural inspection).
+- `pwsh`/`powershell` runtime is unavailable in this container; no authoritative AST parse execution was possible.
+- Audit conclusions are based on static structural inspection and cross-file path/dataflow review.
+- Because this task intentionally avoided behavioral edits, known runtime hotspots remain for follow-up PR batches.
 
-## SUMMARY
-- Fixed syntax drift in `agent.ps1` caused by one extra `}` in the ROUTE_NORMALIZATION catch path.
-- Preserved Normalize-LiveRoutes forensic and aggregate trace plumbing.
-- Preserved OP2/OP2C and OP4 logic already present in file (no behavioral rewrites applied).
-- Preserved route normalization trace + debug artifact output generation.
-- Preserved output artifact contract flow (`Write-OperatorOutputs`, `Ensure-OutputContract`).
+## AUDIT SCOPE
+- Full-file structural audit of `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- Explicit coverage delivered for:
+  - function boundaries
+  - brace/block integrity
+  - try/catch/finally nesting
+  - global state usage
+  - `Normalize-LiveRoutes` dataflow
+  - `Invoke-LiveAudit` transitions
+  - `ROUTE_MERGE`
+  - `PAGE_QUALITY_BUILD`
+  - fallback/debug hydration
+  - output writing/contract paths
+  - hybrid old/new drift zones
+  - repo-hygiene/runtime-assumption risks
 
-## FILES CHANGED
-- `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- `docs/TASK_REPORT.md`
+## TOP DEFECT FAMILIES
+- `PARSE_INTEGRITY`
+- `BLOCK_BOUNDARY_DRIFT`
+- `HYBRID_LOGIC_DRIFT`
+- `UNSAFE_ARRAY_MATERIALIZATION`
+- `UNSAFE_MEASURE_OBJECT_USAGE`
+- `FALLBACK_TRUTH_DRIFT`
+- `LABEL_EXPRESSION_MISMATCH`
+- `OUTPUT_CONTRACT_RISK`
+- `REPO_HYGIENE_RISK`
+- `DEAD_OR_DUPLICATE_BRANCHES`
 
-## ROOT CAUSE
-- Repeated micro-patching introduced block-structure drift inside `Invoke-LiveAudit` catch handling. A stray closing brace closed the ROUTE_NORMALIZATION conditional too early, causing parse failure (`Unexpected token '}'` around line ~1418).
+## RECOMMENDED BATCH ORDER
+1. Structural guardrails (comments/anchors only).
+2. Label/expression diagnostic alignment.
+3. Array/count materialization normalization helper.
+4. Fallback truth hardening.
+5. Output consistency checks.
+6. Dead/duplicate branch pruning (last, optional).
 
-## WHAT DRIFTED IN agent.ps1
-- ROUTE_NORMALIZATION failure handling block in `Invoke-LiveAudit` had mismatched brace structure.
-- This caused try/catch alignment breakage in the route normalization debug write sequence.
-
-## WHAT WAS REBUILT
-- Reconstructed the malformed section into a coherent block by removing the stray closing brace between fallback debug hydration and route_normalization_debug write block.
-- Left all trace/forensics/output-generation logic intact (no contract redesign).
-
-## PARSE VALIDATION RESULT
-- **Authoritative PowerShell parse:** Not executed (runtime missing: `pwsh` and `powershell` commands unavailable).
-- **Strongest available approximation executed:**
-  - Structural brace-balance validation script reports:
-    - `extra_closing_brace_line None`
-    - `unclosed_open_brace_count 0`
-- Result: structural mismatch that previously produced `Unexpected token '}'` is removed.
+## FIRST 5 SMALL TASKS
+1. Add section anchors around `Invoke-LiveAudit` catch + route normalization debug branch.
+2. Add section anchors around OP2/OP3/OP4 aggregate zones in `Normalize-LiveRoutes`.
+3. Add OP label legend/comments to reduce future mis-edits.
+4. Align stale operation-expression strings to current implementation semantics.
+5. Add explicit degraded-run marker in live-summary catch output (without changing output contract shape guarantees).
 
 ## LIMITATIONS
-- Without PowerShell parser availability, absolute AST-level parse success cannot be proven in this container.
-- Runtime execution of SITE_AUDITOR bundle was intentionally not performed because task scope was parse/structural stabilization.
+- No executable runtime validation was performed here; this was intentionally an audit/planning task.
+- No large rewrites were applied (per scope and PR-safety constraints).
 
-## EXPECTED NEXT RUNTIME STATE
-- Next execution should proceed past script parse stage and retain existing ROUTE_NORMALIZATION trace/debug behavior.
-- If any runtime defect remains, diagnostics should continue to emit aggregate trace and fallback debug artifacts rather than failing due to syntax structure drift.
+## SUMMARY
+- Produced `docs/AGENT_PS1_DEEP_AUDIT.md` with defect map, stage map, issue families, drift zones, hotspots, and staged repair plan.
+- Preserved all runtime logic and output contract behavior in `agent.ps1`.
+- Scoped recommendations toward sequential small PR-safe repairs.
+- Explicitly identified highest-risk zones (`ROUTE_NORMALIZATION`, `ROUTE_MERGE`, `PAGE_QUALITY_BUILD`, output contract handoff).
+- Documented concrete first five repair tasks for immediate next phase.
+
+## FILES CHANGED
+- `docs/AGENT_PS1_DEEP_AUDIT.md`
+- `docs/TASK_REPORT.md`
