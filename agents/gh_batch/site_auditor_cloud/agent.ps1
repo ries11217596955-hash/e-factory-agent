@@ -1776,6 +1776,11 @@ function Build-PageQualityFindings {
 
     $operationLabel = 'PQ1_routes_input_materialize'
     $expression = 'Convert-ToPageQualityObjectArray -Value $Routes'
+    $routesInput = @()
+    $pq4aRouteFindings = $null
+    $pq4aRouteFindingsOutput = $null
+    $pq4aRouteContradictions = $null
+    $pq4aContaminationFlags = $null
     try {
         $routesInput = Convert-ToPageQualityObjectArray -Value $Routes
         $result = New-Object System.Collections.Generic.List[object]
@@ -1858,7 +1863,16 @@ function Build-PageQualityFindings {
                 $routeFindings.Add("Contradiction candidate [$([string](Safe-Get -Object $candidate -Key 'class' -Default 'UNKNOWN'))]: $([string](Safe-Get -Object $candidate -Key 'evidence' -Default ''))")
             }
             $routeFindings.Add("Primary verdict class: $primaryVerdict")
-            $routeFindingsOutput = Convert-ToPageQualityStringArray -Value $routeFindings
+            $pq4aRouteFindings = $routeFindings
+            $pq4aRouteContradictions = $routeContradictions
+            $pq4aContaminationFlags = $contaminationFlags
+            if ($routeFindings -is [System.Collections.Generic.List[string]]) {
+                $routeFindingsOutput = [string[]]$routeFindings.ToArray()
+            }
+            else {
+                $routeFindingsOutput = Convert-ToPageQualityStringArray -Value $routeFindings
+            }
+            $pq4aRouteFindingsOutput = $routeFindingsOutput
 
             $operationLabel = 'PQ4B_route_contradictions_output_object_array'
             $expression = 'Materialize route contradiction candidates into object[] without fragile rematerialization when already array'
@@ -1930,8 +1944,23 @@ function Build-PageQualityFindings {
         }
     }
     catch {
-        Set-PageQualityForensics -FunctionName 'Build-PageQualityFindings' -ActivePhase 'PAGE_QUALITY_BUILD' -ActiveOperationLabel $operationLabel -ActiveExpression $expression -LeftOperand $Routes -RightOperand $null -StackHintIfAvailable $_.ScriptStackTrace -AdditionalContext ([ordered]@{
-                route_count_sample = @($Routes).Count
+        $leftOperand = $Routes
+        $rightOperand = $null
+        if ($operationLabel -eq 'PQ4A_route_findings_output_string_array') {
+            $leftOperand = $pq4aRouteFindings
+            $rightOperand = $pq4aRouteFindingsOutput
+        }
+        elseif ($operationLabel -eq 'PQ4B_route_contradictions_output_object_array') {
+            $leftOperand = $pq4aRouteContradictions
+            $rightOperand = $null
+        }
+        elseif ($operationLabel -eq 'PQ4C_contamination_flags_output_string_array') {
+            $leftOperand = $pq4aContaminationFlags
+            $rightOperand = $null
+        }
+
+        Set-PageQualityForensics -FunctionName 'Build-PageQualityFindings' -ActivePhase 'PAGE_QUALITY_BUILD' -ActiveOperationLabel $operationLabel -ActiveExpression $expression -LeftOperand $leftOperand -RightOperand $rightOperand -StackHintIfAvailable $_.ScriptStackTrace -AdditionalContext ([ordered]@{
+                route_count_sample = @($routesInput).Count
                 operation_label = $operationLabel
                 expression = $expression
                 error_message = $_.Exception.Message
