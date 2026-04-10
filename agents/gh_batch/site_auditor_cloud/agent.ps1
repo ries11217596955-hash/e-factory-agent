@@ -1389,7 +1389,6 @@ function Invoke-LiveAudit {
             else {
                 $routeNormalizationDebug = New-RouteNormalizationFallbackDebug -StackHint $_.ScriptStackTrace -FailureMessage $failure
             }
-            }
             try {
                 Write-JsonFile -Path (Join-Path $reportsDir 'route_normalization_debug.json') -Data $routeNormalizationDebug
                 $reportFiles.Add('reports/route_normalization_debug.json')
