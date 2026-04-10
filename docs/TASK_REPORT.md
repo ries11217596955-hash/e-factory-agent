@@ -7,7 +7,7 @@
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
 
 ## TASK
-- `SITE_AUDITOR — surgical fix for post-live contradiction/decision merge type failure`.
+- `SITE_AUDITOR — surgical fix for exact C1_prepare_contradiction_candidates failure`.
 
 ## REPOSITORY SCOPE (Allowed / Forbidden)
 - Allowed:
@@ -19,72 +19,70 @@
   - other runtime lanes
   - giant rewrite / broad refactor
   - output contract redesign
-  - touching already-passing live/page-quality logic except for downstream forensic attribution
 
 ## MODE
 - PR-FIRST
 - SURGICAL RUNTIME FIX
 
 ## REQUIREMENTS
-- Identify exact downstream merge/type failure path after `PAGE_QUALITY_BUILD`.
-- Repair contradiction merge path deterministically without fragile generic-list arithmetic.
-- Preserve output schema exactly for contradiction summary.
-- Add downstream forensic attribution so recurrent failures are not reduced to generic type errors.
-- Run strongest available structural validation and explicitly report parser availability.
+- Identify the exact C1 failing path and line region in `Build-ContradictionLayer`.
+- Repair contradiction candidate preparation deterministically before combine.
+- Preserve contradiction output schema exactly.
+- Improve C1 forensic fidelity with exact local operand/type/count context.
+- Run strongest available structural/parse validation and report parser availability explicitly.
 
 ## REPORTING
-- Includes repository-required sections and requested deep-audit sections.
+- Includes all requested deep-audit sections.
+- Includes repository-required sections: `Summary`, `Changed files`, `Moved files/folders`, `Current entrypoints/paths`, `Risks/blockers`.
 
 ## SUMMARY
-- Confirmed the downstream fragile path in `Build-ContradictionLayer` was `@($routeCandidates + $siteCandidates)`, where both operands are `System.Collections.Generic.List[object]` and can trigger non-deterministic operator binding/type-match failure in runtime contexts.
-- Replaced that merge with deterministic materialization into `object[]` (`$routeCandidateArray`, `$siteCandidateArray`) and explicit append into a local `List[object]`, then one-way conversion to final `object[]`.
-- Preserved contradiction output contract exactly: `route_candidates`, `site_candidates`, `candidates`, `class_counts`, `total_candidates`, `route_candidate_count`, `site_candidate_count`.
-- Added targeted downstream forensics via `Set-DecisionForensics` and `Build-ContradictionLayer` operation labels (`C1/C2/C3`) including exact operand types and counts.
-- Added top-level failure reason enrichment so decision-layer failures include `[DECISION_BUILD/<function>/<operation>]` attribution instead of collapsing to a generic message.
+- Identified the exact C1 failure region in `Build-ContradictionLayer` as the route-level contradiction candidate preparation loop, specifically the path from `Safe-Get ... 'contradiction_candidates'` into route candidate projection.
+- Repaired C1 locally by explicitly materializing each route’s `contradiction_candidates` via `Convert-ToObjectArraySafe` before iteration, then projecting candidates into `routeCandidates`.
+- Preserved contradiction output contract unchanged: `route_candidates`, `site_candidates`, `candidates`, `class_counts`, `total_candidates`, `route_candidate_count`, `site_candidate_count`.
+- Added C1 forensic fidelity in the local catch path with `route_path_if_available`, contradiction source type, local collection type/count, and exact failing sub-expression.
+- Kept C2/C3 deterministic combine/class-count path intact and narrow-scoped to contradiction layer only.
 
 ## CHANGED FILES
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
 - `docs/TASK_REPORT.md`
 
-## ROOT CAUSE OF THE DOWNSTREAM FAILURE
-- Root cause was unsafe collection merge semantics in the contradiction layer:
-  - previous code: `@($routeCandidates + $siteCandidates)`
-- This relied on implicit `+` operator behavior across generic list operands in PowerShell runtime binding; when operand types/coercion changed across runs, merge could fail with generic type-match errors (observed as `Argument types do not match`).
+## ROOT CAUSE OF C1_prepare_contradiction_candidates FAILURE
+- C1 was vulnerable to heterogeneous route-level `contradiction_candidates` payload shapes (ordered dictionary/object/array/list/scalar) entering a direct `foreach` iteration path without explicit deterministic materialization.
+- In those mixed-shape runs, route-candidate projection could fail with generic runtime binder/coercion errors reported as `Argument types do not match`.
 
 ## EXACT SECTION REPAIRED
 - Function: `Build-ContradictionLayer`.
-- Repaired section:
-  - Removed fragile generic-list `+` merge.
-  - Added deterministic local combination path:
-    - `[object[]]@($routeCandidates)` and `[object[]]@($siteCandidates)`
-    - explicit append into `System.Collections.Generic.List[object]`
-    - final `object[]` via `.ToArray()`
-  - `class_counts` now built from deterministic combined array.
-- Forensic additions:
-  - new `Set-DecisionForensics` helper/state (`$global:DecisionForensics`)
-  - operation labels: `C1_prepare_contradiction_candidates`, `C2_combine_contradiction_candidates`, `C3_build_contradiction_class_counts`
-  - captured fields include route/site left/right operand types and counts.
+- Repaired C1 path:
+  - Added local C1 try/catch around route contradiction preparation.
+  - Added explicit per-route source capture (`$candidateSource`) and deterministic conversion (`$candidateSourceArray = Convert-ToObjectArraySafe -Value $candidateSource`).
+  - Iteration now occurs only over deterministic `object[]`-compatible local materialization.
+  - Added targeted C1 forensic payload fields:
+    - `route_path_if_available`
+    - `contradiction_candidate_source_type`
+    - `local_collection_type`
+    - `local_collection_count`
+    - `exact_failing_sub_expression`
 
 ## VALIDATION EXECUTED
-- Targeted static inspection:
-  - `rg -n "function Set-DecisionForensics|global:DecisionForensics|function Build-ContradictionLayer|C1_prepare_contradiction_candidates|C2_combine_contradiction_candidates|C3_build_contradiction_class_counts|@\(\$routeCandidates \+ \$siteCandidates\)|DECISION_BUILD" agents/gh_batch/site_auditor_cloud/agent.ps1`
-- PowerShell parser availability check:
+- Static/structural validation:
+  - `rg -n "function Build-ContradictionLayer|C1_prepare_contradiction_candidates|Convert-ToObjectArraySafe -Value \$candidateSource|exact_failing_sub_expression|C2_combine_contradiction_candidates|C3_build_contradiction_class_counts" agents/gh_batch/site_auditor_cloud/agent.ps1`
+- Parser availability validation:
   - `command -v pwsh || command -v powershell || true`
 
 PowerShell parse status:
-- **PowerShell parse did not run in this container** because neither `pwsh` nor `powershell` is installed.
+- PowerShell parse did **not** run in this container because neither `pwsh` nor `powershell` binary is available.
 
 ## REMAINING RISKS
-- End-to-end runtime confirmation still depends on a PowerShell-capable runner.
-- If downstream failure persists, it may now be in other post-live layers (e.g., diagnosis/decision consumers), but attribution should include decision function/operation labels and operand details.
+- End-to-end runtime execution still requires a PowerShell-capable runner to confirm live behavior.
+- If a future failure persists in C1, it is now expected to include exact per-route candidate source/collection forensic details instead of broad type-only collapse.
 
 ## EXPECTED NEXT RUNTIME STATE
-- Downstream contradiction candidate merge should be deterministic and no longer depend on fragile generic-list operator coercion.
-- If recurrence occurs, failure output should identify exact decision function and operation label, with operand type/count context.
-- Previously passing lanes (`ROUTE_NORMALIZATION`, `ROUTE_MERGE`, `PAGE_QUALITY_BUILD`, `LIVE AUDIT`) remain unmodified in behavior.
+- `Build-ContradictionLayer` C1 contradiction preparation is deterministic across heterogeneous route payload shapes.
+- The previous C1 generic type mismatch should be removed from contradiction preparation path.
+- If C1 fails again, operator output should contain the exact local failing context with route path and source/collection typing details.
 
 ## Summary
-- Implemented a surgical downstream contradiction merge fix and added decision-layer forensic attribution for operator-grade failure diagnostics.
+- Implemented a surgical contradiction preparation hardening for exact C1 failure path with enhanced forensic attribution.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -100,4 +98,4 @@ PowerShell parse status:
   - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 
 ## Risks/blockers
-- Local PowerShell parse/runtime execution is blocked by missing `pwsh`/`powershell` binaries in this container.
+- Local PowerShell parse/runtime is blocked by missing `pwsh`/`powershell` binaries in this environment.
