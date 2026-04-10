@@ -1091,8 +1091,60 @@ function Normalize-LiveRoutes {
     $normalizedRoutesOutput = $null
     $shapeWarningsOutput = $null
     try {
-        $normalizedRoutesOutput = Convert-ToObjectArraySafe -Value $normalized
-        $shapeWarningsOutput = Convert-ToStringArraySafe -Value $shapeWarnings
+        if ($null -eq $normalized) {
+            $normalizedRoutesOutput = @()
+        }
+        elseif ($normalized -is [System.Collections.Generic.List[object]]) {
+            $normalizedRoutesOutput = @($normalized.ToArray())
+        }
+        elseif ($normalized -is [System.Collections.Generic.List[string]]) {
+            $normalizedRoutesOutput = @($normalized.ToArray())
+        }
+        elseif ($normalized -is [System.Collections.ICollection]) {
+            $normalizedRoutesOutput = @($normalized)
+        }
+        elseif ($normalized -is [System.Collections.IEnumerable] -and -not ($normalized -is [string])) {
+            $normalizedRoutesOutput = @($normalized)
+        }
+        else {
+            $normalizedRoutesOutput = @($normalized)
+        }
+
+        if ($null -eq $shapeWarnings) {
+            $shapeWarningsOutput = @()
+        }
+        elseif ($shapeWarnings -is [System.Collections.Generic.List[string]]) {
+            $shapeWarningsOutput = @($shapeWarnings.ToArray())
+        }
+        elseif ($shapeWarnings -is [System.Collections.Generic.List[object]]) {
+            $shapeWarningsOutput = @($shapeWarnings | ForEach-Object {
+                    if ($null -eq $_) { return }
+                    [string]$_
+                })
+        }
+        elseif ($shapeWarnings -is [System.Collections.ICollection]) {
+            $shapeWarningsOutput = @($shapeWarnings | ForEach-Object {
+                    if ($null -eq $_) { return }
+                    [string]$_
+                })
+        }
+        elseif ($shapeWarnings -is [System.Collections.IEnumerable] -and -not ($shapeWarnings -is [string])) {
+            $shapeWarningsOutput = @($shapeWarnings | ForEach-Object {
+                    if ($null -eq $_) { return }
+                    [string]$_
+                })
+        }
+        elseif ($shapeWarnings -is [string]) {
+            if ([string]::IsNullOrWhiteSpace($shapeWarnings)) {
+                $shapeWarningsOutput = @()
+            }
+            else {
+                $shapeWarningsOutput = @([string]$shapeWarnings)
+            }
+        }
+        else {
+            $shapeWarningsOutput = @([string]$shapeWarnings)
+        }
 
         Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_return_materialization' -OperationLabel 'OP5A_return_output_materialize' -Expression 'normalized/shapeWarnings safe output materialization' -LeftOperand $normalized -RightOperand $normalizedRoutesOutput -Status 'ok'
     }
