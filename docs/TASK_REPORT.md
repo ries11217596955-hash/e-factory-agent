@@ -2,13 +2,7 @@
 
 ## INSTRUCTION_FILES_READ
 - `AGENTS.md`
-- `docs/README.md`
-- `docs/REPO_LAYOUT.md`
-- `docs/PHASE2_STATUS.md`
-- `docs/PHASE3_STATUS.md`
-- `docs/CLEANUP_PLAN.md`
-- `docs/WORKFLOW_RESTORE_NOTE.md`
-- `docs/FINAL_ROOT_CLOSEOUT.md`
+- `docs/AGENT_PS1_DEEP_AUDIT.md`
 - `docs/TASK_REPORT.md` (previous state)
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
 - `agents/gh_batch/site_auditor_cloud/run.ps1`
@@ -18,83 +12,135 @@
 - `agents/gh_batch/site_auditor_cloud/lib/validate-powershell-preflight.ps1`
 - `agents/gh_batch/site_auditor_cloud/lib/intake_zip.ps1`
 
-## Summary
-- Completed a full-file deep structural audit of `agent.ps1` focused on stage transitions, block integrity, normalization dataflow, fallback behavior, and output contract stability.
-- Produced a defect map with grouped issue families and prioritized risk hotspots.
-- Produced staged repair batching strategy to move from ad-hoc whole-file replacement toward small deterministic PRs.
-- No runtime logic or output contract behavior was changed in this task (audit/planning only).
+## SUMMARY / Summary
+- Completed one staged runtime-repair pass on `agents/gh_batch/site_auditor_cloud/agent.ps1` after preflight reconciliation with the deep audit.
+- Kept scope locked to the authorized runtime file plus `docs/TASK_REPORT.md` only.
+- Repaired high-risk normalization/materialization/merge/fallback/consistency hotspots without giant rewrite.
+- Applied deterministic coercion and truth-marking hardening while preserving output contract file set.
+- Performed strongest available structural validation in this environment (PowerShell runtime unavailable).
 
-## Changed files
-- `docs/AGENT_PS1_DEEP_AUDIT.md` (new)
-- `docs/TASK_REPORT.md` (updated)
+## CHANGED FILES / Changed files
+- `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - None.
 
-## Current entrypoints/paths
-- Entrypoint remains `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Wrappers unchanged: `agents/gh_batch/site_auditor_cloud/run.ps1`, `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`.
-- Output contract paths unchanged: `outbox/REPORT.txt`, `reports/audit_result.json`, done markers.
+## CURRENT ENTRYPOINTS/PATHS / Current entrypoints/paths
+- Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- Wrapper entrypoints unchanged: `agents/gh_batch/site_auditor_cloud/run.ps1`, `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`.
+- Output contract file set preserved (`REPORT.txt`, `audit_result.json`, done markers, and report artifacts).
 
-## Risks/blockers
-- `pwsh`/`powershell` runtime is unavailable in this container; no authoritative AST parse execution was possible.
-- Audit conclusions are based on static structural inspection and cross-file path/dataflow review.
-- Because this task intentionally avoided behavioral edits, known runtime hotspots remain for follow-up PR batches.
+## RISKS/BLOCKERS / Risks/blockers
+- `pwsh`/`powershell` is unavailable in this container, so authoritative PowerShell AST parsing and full runtime execution were not possible.
+- Validation is based on strongest structural checks available locally plus focused code-path inspection.
+- Live-run semantic behavior still requires operator runtime execution to fully validate end-to-end.
 
-## AUDIT SCOPE
-- Full-file structural audit of `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Explicit coverage delivered for:
-  - function boundaries
-  - brace/block integrity
-  - try/catch/finally nesting
-  - global state usage
-  - `Normalize-LiveRoutes` dataflow
-  - `Invoke-LiveAudit` transitions
-  - `ROUTE_MERGE`
-  - `PAGE_QUALITY_BUILD`
-  - fallback/debug hydration
-  - output writing/contract paths
-  - hybrid old/new drift zones
-  - repo-hygiene/runtime-assumption risks
+## CURRENT MAIN VS AUDIT DIFFERENCES
+- Current `agent.ps1` still matched the deep-audit defect families before edits: nested route normalization math/count sections, mixed list/array materialization paths, route merge coercion fragility, fallback truth ambiguity, and output semantic consistency drift.
+- No material structural drift beyond the deep-audit assumptions was found that required scope expansion.
 
-## TOP DEFECT FAMILIES
-- `PARSE_INTEGRITY`
-- `BLOCK_BOUNDARY_DRIFT`
-- `HYBRID_LOGIC_DRIFT`
-- `UNSAFE_ARRAY_MATERIALIZATION`
-- `UNSAFE_MEASURE_OBJECT_USAGE`
-- `FALLBACK_TRUTH_DRIFT`
-- `LABEL_EXPRESSION_MISMATCH`
-- `OUTPUT_CONTRACT_RISK`
-- `REPO_HYGIENE_RISK`
-- `DEAD_OR_DUPLICATE_BRANCHES`
+## STAGED REPAIRS APPLIED
 
-## RECOMMENDED BATCH ORDER
-1. Structural guardrails (comments/anchors only).
-2. Label/expression diagnostic alignment.
-3. Array/count materialization normalization helper.
-4. Fallback truth hardening.
-5. Output consistency checks.
-6. Dead/duplicate branch pruning (last, optional).
+### STEP 0 — PREFLIGHT REALITY CHECK
+- **Target section/function:** `agent.ps1` global preflight against deep-audit hotspots.
+- **Root cause family:** `HYBRID_LOGIC_DRIFT`, `BLOCK_BOUNDARY_DRIFT`.
+- **What changed:** No code change in Step 0; confirmed assumptions and prepared constrained staged edits.
+- **Why this is safe:** Read-only reconciliation before any patching.
+- **Validation run:** File inspection + targeted function extraction.
+- **Remaining unresolved:** Full runtime proof deferred to next live run.
 
-## FIRST 5 SMALL TASKS
-1. Add section anchors around `Invoke-LiveAudit` catch + route normalization debug branch.
-2. Add section anchors around OP2/OP3/OP4 aggregate zones in `Normalize-LiveRoutes`.
-3. Add OP label legend/comments to reduce future mis-edits.
-4. Align stale operation-expression strings to current implementation semantics.
-5. Add explicit degraded-run marker in live-summary catch output (without changing output contract shape guarantees).
+### STEP 1 — PARSE / BLOCK INTEGRITY
+- **Target section/function:** `Normalize-LiveRoutes`, `Invoke-LiveAudit` edited blocks.
+- **Root cause family:** `PARSE_INTEGRITY`, `BLOCK_BOUNDARY_DRIFT`.
+- **What changed:** Applied localized block edits only (no full-function rewrite), preserving try/catch boundaries and deterministic return shape.
+- **Why this is safe:** Changes are local replacements within existing control flow and existing helper contracts.
+- **Validation run:** Structural delimiter validation script + function-anchor checks.
+- **Remaining unresolved:** No native PowerShell parser available in this environment.
 
-## LIMITATIONS
-- No executable runtime validation was performed here; this was intentionally an audit/planning task.
-- No large rewrites were applied (per scope and PR-safety constraints).
+### STEP 2 — NORMALIZE-LIVEROUTES HARDENING
+- **Target section/function:** `Normalize-LiveRoutes` OP2/OP4/OP5A zones.
+- **Root cause family:** `UNSAFE_ARRAY_MATERIALIZATION`, `UNSAFE_MEASURE_OBJECT_USAGE`, `LABEL_EXPRESSION_MISMATCH`.
+- **What changed:**
+  - Replaced enumerable count fallback using `Measure-Object` with deterministic `Convert-ToObjectArraySafe(...).Count`.
+  - Hardened count-source materialization defaults (`@()` instead of `$null`).
+  - Aligned OP2C expression text to actual safe-count behavior.
+  - Fixed OP4 catch label/expression drift from stale `Math.Max` wording to floor-zero logic.
+  - Replaced return-tail materialization branches with canonical safe helpers.
+- **Why this is safe:** Uses existing local helper functions already used across file; preserves return contract and trace/forensics outputs.
+- **Validation run:** Structural delimiter check + grep verification for removed stale OP4 expression and OP2C alignment.
+- **Remaining unresolved:** Runtime behavior still needs live execution confirmation.
 
-## SUMMARY
-- Produced `docs/AGENT_PS1_DEEP_AUDIT.md` with defect map, stage map, issue families, drift zones, hotspots, and staged repair plan.
-- Preserved all runtime logic and output contract behavior in `agent.ps1`.
-- Scoped recommendations toward sequential small PR-safe repairs.
-- Explicitly identified highest-risk zones (`ROUTE_NORMALIZATION`, `ROUTE_MERGE`, `PAGE_QUALITY_BUILD`, output contract handoff).
-- Documented concrete first five repair tasks for immediate next phase.
+### STEP 3 — ROUTE_MERGE HARDENING
+- **Target section/function:** `Invoke-LiveAudit` ROUTE_MERGE stage.
+- **Root cause family:** `HYBRID_LOGIC_DRIFT`, `UNSAFE_ARRAY_MATERIALIZATION`.
+- **What changed:**
+  - Normalized routes/warnings ingestion through safe materialization helpers.
+  - Hardened route status partition by case-normalized status text + numeric status code coercion.
+  - Preserved screenshot summation and summary semantics.
+- **Why this is safe:** Behavioral intent unchanged; only stabilizes shape/type handling.
+- **Validation run:** Structural validation + targeted diff review of ROUTE_MERGE block.
+- **Remaining unresolved:** Mixed upstream manifest edge cases require live replay.
 
-## FILES CHANGED
-- `docs/AGENT_PS1_DEEP_AUDIT.md`
-- `docs/TASK_REPORT.md`
+### STEP 4 — PAGE_QUALITY_BUILD HARDENING
+- **Target section/function:** `Build-PageQualityFindings`.
+- **Root cause family:** `UNSAFE_ARRAY_MATERIALIZATION`.
+- **What changed:**
+  - Canonicalized input route materialization via `Convert-ToObjectArraySafe`.
+  - Canonicalized findings/contradiction/contamination outputs via safe conversion helpers.
+  - Aligned pattern-summary total-routes source to normalized local input.
+- **Why this is safe:** Keeps existing taxonomy/threshold logic and only hardens collection/array conversions.
+- **Validation run:** Structural validation + targeted diff review for findings/route_details arrays.
+- **Remaining unresolved:** None identified in static inspection for this stage.
+
+### STEP 5 — FALLBACK / TRUTH HARDENING
+- **Target section/function:** `Invoke-LiveAudit` catch path in `ROUTE_NORMALIZATION` failure branch.
+- **Root cause family:** `FALLBACK_TRUTH_DRIFT`.
+- **What changed:**
+  - Added trace-aware fallback debug hydration when forensics object is absent but trace/aggregate data exists.
+  - Added `degraded_run = $true` in failed live-summary payload.
+  - Preserved fallback support and contract outputs.
+- **Why this is safe:** Adds truthful degradation markers and richer evidence attribution without removing legacy fallback.
+- **Validation run:** Structural validation + targeted diff review around catch writer.
+- **Remaining unresolved:** Live capture runtime needed to observe real degraded payloads.
+
+### STEP 6 — OUTPUT CONSISTENCY HARDENING
+- **Target section/function:** `Write-OperatorOutputs` / output consistency handoff.
+- **Root cause family:** `OUTPUT_CONTRACT_RISK`.
+- **What changed:**
+  - Added minimal consistency guard: if live is enabled/ok but page quality is `NOT_EVALUATED` or `PARTIAL`, force `live.ok = false` and append explicit consistency warning.
+  - Preserved output files and contract generation behavior.
+- **Why this is safe:** Prevents semantically contradictory “ok” state while keeping artifact contract intact.
+- **Validation run:** Structural validation + targeted diff review for consistency guard.
+- **Remaining unresolved:** End-to-end downstream consumers should be verified against this stricter `live.ok` behavior.
+
+## ISSUE FAMILIES REPAIRED
+- `PARSE_INTEGRITY` (localized block-safe edits + structural validation).
+- `BLOCK_BOUNDARY_DRIFT` (staged local replacements in high-nesting regions).
+- `HYBRID_LOGIC_DRIFT` (route merge + normalization flow alignment).
+- `UNSAFE_ARRAY_MATERIALIZATION` (canonical helper-based materialization in normalization/page-quality/merge inputs).
+- `UNSAFE_MEASURE_OBJECT_USAGE` (removed in Normalize-LiveRoutes count read path).
+- `FALLBACK_TRUTH_DRIFT` (degraded markers + trace-aware debug hydration).
+- `LABEL_EXPRESSION_MISMATCH` (OP2C/OP4 expression-label alignment).
+- `OUTPUT_CONTRACT_RISK` (live.ok consistency guard with explicit warning).
+
+## VALIDATION EXECUTED
+- Structural delimiter check (custom Python script over `agent.ps1`).
+- Function anchor presence + try/catch heuristic check (custom Python script).
+- Targeted grep verification for repaired labels/expressions and degraded markers.
+- Targeted diff review of modified sections.
+
+## VALIDATION LIMITATIONS
+- PowerShell runtime/parser unavailable (`pwsh`/`powershell` missing).
+- No full SITE_AUDITOR live execution in this environment.
+
+## REMAINING RISKS
+- Runtime-only integration behavior (node capture + manifest content variants) remains to be validated in operator environment.
+- Existing monolithic-file complexity remains; this run intentionally avoided broad refactor.
+- Further staged hardening may still be needed if live runs reveal additional edge-case object shapes.
+
+## EXPECTED NEXT RUNTIME STATE
+- `agent.ps1` should be structurally safer for parse/block stability.
+- Normalize/merge/page-quality layers should tolerate mixed enumerable/list/scalar shapes more deterministically.
+- Fallback outputs should more clearly indicate degraded state and preserve trace truth.
+- Output layer should avoid reporting a contradictory successful live state when page quality is partial/not evaluated.
