@@ -1542,9 +1542,12 @@ function Build-SitePatternSummary {
         }
     }
 
+    $repeatedPatternsOutput = [object[]]$repeatedPatterns.ToArray()
+    $isolatedPatternsOutput = [object[]]$isolatedPatterns.ToArray()
+
     return @{
-        repeated_patterns = @($repeatedPatterns)
-        isolated_patterns = @($isolatedPatterns)
+        repeated_patterns = $repeatedPatternsOutput
+        isolated_patterns = $isolatedPatternsOutput
         repeated_pattern_count = [int]$repeatedPatterns.Count
         isolated_pattern_count = [int]$isolatedPatterns.Count
         systemic = ([int]$repeatedPatterns.Count -gt 0)
@@ -1630,6 +1633,10 @@ function Build-PageQualityFindings {
         }
         $routeFindings.Add("Primary verdict class: $primaryVerdict")
 
+        $routeFindingsOutput = [string[]]$routeFindings.ToArray()
+        $routeContradictionsOutput = [object[]]$routeContradictions.ToArray()
+        $contaminationFlagsOutput = [string[]]$contaminationFlags
+
         $result.Add([ordered]@{
             route_path = Safe-Get -Object $route -Key 'route_path' -Default ''
             status = $status
@@ -1646,7 +1653,7 @@ function Build-PageQualityFindings {
                 dead_end = $deadEnd
                 ui_contamination = $uiContamination
             }
-            findings = @($routeFindings)
+            findings = $routeFindingsOutput
             h1Count = $h1Count
             buttonCount = $buttonCount
             hasMain = $hasMain
@@ -1654,8 +1661,8 @@ function Build-PageQualityFindings {
             hasNav = $hasNav
             hasFooter = $hasFooter
             visibleTextSample = $visibleTextSample
-            contaminationFlags = @($contaminationFlags)
-            contradiction_candidates = @($routeContradictions)
+            contaminationFlags = $contaminationFlagsOutput
+            contradiction_candidates = $routeContradictionsOutput
         })
     }
 
@@ -1669,9 +1676,10 @@ function Build-PageQualityFindings {
     }
 
     $patternSummary = Build-SitePatternSummary -TotalRoutes @($Routes).Count -Rollups $rollups
+    $routeDetailsOutput = [object[]]$result.ToArray()
 
     return @{
-        route_details = @($result)
+        route_details = $routeDetailsOutput
         rollups = $rollups
         pattern_summary = $patternSummary
     }
