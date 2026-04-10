@@ -938,9 +938,14 @@ function Normalize-LiveRoutes {
         $zeroBoundary = 0
         $droppedDeltaInt = Convert-ToIntSafe -Value $droppedDelta -Default 0
         Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_drop_count_coerce' -OperationLabel 'OP4A_dropped_delta_to_int' -Expression 'Convert-ToIntSafe -Value $droppedDelta -Default 0' -LeftOperand $droppedDelta -RightOperand $droppedDeltaInt -Status 'ok'
-        $droppedCount = [int]([Math]::Max([int]$zeroBoundary, [int]$droppedDeltaInt))
+        if ([int]$droppedDeltaInt -lt 0) {
+            $droppedCount = 0
+        }
+        else {
+            $droppedCount = [int]$droppedDeltaInt
+        }
         $aggregateComputedCounts.dropped_count = $droppedCount
-        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_drop_count_math' -OperationLabel 'OP4B_math_max_dropped_count' -Expression '[Math]::Max([int]$zeroBoundary, [int]$droppedDeltaInt)' -LeftOperand $zeroBoundary -RightOperand $droppedDeltaInt -Status 'ok'
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_drop_count_math' -OperationLabel 'OP4B_dropped_count_floor_zero' -Expression 'if ($droppedDeltaInt -lt 0) { 0 } else { [int]$droppedDeltaInt }' -LeftOperand $zeroBoundary -RightOperand $droppedDeltaInt -Status 'ok'
     }
     catch {
         Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_drop_count_math' -OperationLabel 'OP4_math_max_dropped_count' -Expression 'Convert-ToIntSafe($droppedDelta) -> [Math]::Max' -LeftOperand 0 -RightOperand $droppedDelta -Status 'failed' -ErrorRecord $_
@@ -963,11 +968,51 @@ function Normalize-LiveRoutes {
             }) -Status 'ok'
     }
 
+    $normalizedRoutesOutput = $null
+    $shapeWarningsOutput = $null
+    try {
+        if ($normalized -is [System.Collections.Generic.List[object]]) {
+            $normalizedRoutesOutput = [object[]]$normalized.ToArray()
+        }
+        elseif ($normalized -is [System.Collections.IEnumerable] -and -not ($normalized -is [string])) {
+            $normalizedRoutesOutput = @($normalized | ForEach-Object { $_ })
+        }
+        elseif ($null -eq $normalized) {
+            $normalizedRoutesOutput = @()
+        }
+        else {
+            $normalizedRoutesOutput = @($normalized)
+        }
+
+        if ($shapeWarnings -is [System.Collections.Generic.List[string]]) {
+            $shapeWarningsOutput = [string[]]$shapeWarnings.ToArray()
+        }
+        elseif ($shapeWarnings -is [System.Collections.IEnumerable] -and -not ($shapeWarnings -is [string])) {
+            $shapeWarningsOutput = @($shapeWarnings | ForEach-Object { [string]$_ })
+        }
+        elseif ($null -eq $shapeWarnings) {
+            $shapeWarningsOutput = @()
+        }
+        else {
+            $shapeWarningsOutput = @([string]$shapeWarnings)
+        }
+
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_return_materialization' -OperationLabel 'OP5A_return_output_materialize' -Expression 'normalized/shapeWarnings safe output materialization' -LeftOperand $normalized -RightOperand $normalizedRoutesOutput -Status 'ok'
+    }
+    catch {
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_return_materialization' -OperationLabel 'OP5A_return_output_materialize' -Expression 'normalized/shapeWarnings safe output materialization' -LeftOperand $normalized -RightOperand $normalizedRoutesOutput -Status 'failed' -ErrorRecord $_
+        Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -ActivePhase 'aggregate_return_materialization' -ActiveOperationLabel 'OP5A_return_output_materialize' -ActiveExpression 'normalized/shapeWarnings safe output materialization' -OperationLabel 'OP5A_return_output_materialize' -Expression 'normalized/shapeWarnings safe output materialization' -LeftOperand $normalized -RightOperand $normalizedRoutesOutput -VariableNames @('normalized', 'shapeWarnings', 'normalizedRoutesOutput', 'shapeWarningsOutput') -AdditionalContext @{
+            counts_computed_before_failure = $aggregateComputedCounts
+            stack_hint = $_.ScriptStackTrace
+        }
+        throw
+    }
+
     return @{
-        routes = @($normalized)
+        routes = $normalizedRoutesOutput
         raw_count = $rawRouteCount
         dropped_count = $droppedCount
-        warnings = @($shapeWarnings)
+        warnings = $shapeWarningsOutput
     }
 }
 
@@ -1174,10 +1219,8 @@ function Invoke-LiveAudit {
                 $statusCode = Convert-ToIntSafe -Value $statusValue -Default -1
                 ($statusValue -ne 'error') -and ($statusCode -ge 0) -and ($statusCode -lt 400)
             })
-        $totalShots = 0
-        foreach ($routeItem in @($routes)) {
-            $totalShots += Convert-ToIntSafe -Value (Safe-Get -Object $routeItem -Key 'screenshotCount' -Default 0) -Default 0
-        }
+        $totalShots = ($routes | Measure-Object -Property screenshotCount -Sum).Sum
+        if ($null -eq $totalShots) { $totalShots = 0 }
 
         $liveStage = 'PAGE_QUALITY_BUILD'
         $routeDetailsAndRollups = Build-PageQualityFindings -Routes $routes
