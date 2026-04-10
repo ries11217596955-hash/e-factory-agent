@@ -542,6 +542,8 @@ function Convert-ToObjectArraySafe {
     )
 
     if ($null -eq $Value) { return @() }
+    if ($Value -is [object[]]) { return [object[]]$Value }
+    if ($Value -is [string[]]) { return [object[]]$Value }
     if ($Value -is [string]) {
         if ([string]::IsNullOrWhiteSpace($Value)) { return @() }
         return @([string]$Value)
@@ -558,7 +560,7 @@ function Convert-ToObjectArraySafe {
         }
         return [object[]]$materialized.ToArray()
     }
-    if ($Value -is [System.Collections.IEnumerable]) {
+    if ($Value -is [System.Collections.IEnumerable] -and -not ($Value -is [string])) {
         $materialized = New-Object System.Collections.Generic.List[object]
         foreach ($item in $Value) {
             $materialized.Add($item)
@@ -576,7 +578,7 @@ function Convert-ToStringArraySafe {
     $items = Convert-ToObjectArraySafe -Value $Value
     $normalized = New-Object System.Collections.Generic.List[string]
 
-    foreach ($item in @($items)) {
+    foreach ($item in $items) {
         if ($null -eq $item) { continue }
 
         if ($item -is [System.Collections.IDictionary] -or $item -is [PSCustomObject]) {
@@ -593,6 +595,7 @@ function Convert-ToStringArraySafe {
         }
     }
 
+    if ($normalized.Count -eq 0) { return @() }
     return [string[]]$normalized.ToArray()
 }
 
@@ -1647,18 +1650,16 @@ function Build-SitePatternSummary {
         }
     }
 
+    $repeatedPatternsOutput = Convert-ToPageQualityObjectArray -Value $repeatedPatterns
+    $isolatedPatternsOutput = Convert-ToPageQualityObjectArray -Value $isolatedPatterns
+    $combinedPatterns = Convert-ToPageQualityObjectArray -Value @($repeatedPatternsOutput + $isolatedPatternsOutput)
+
     $dominant = $null
-    $allPatterns = New-Object System.Collections.Generic.List[object]
-    foreach ($pattern in $repeatedPatterns) { $allPatterns.Add($pattern) }
-    foreach ($pattern in $isolatedPatterns) { $allPatterns.Add($pattern) }
-    foreach ($pattern in $allPatterns) {
+    foreach ($pattern in $combinedPatterns) {
         if ($null -eq $dominant -or [int]$pattern.routes_affected -gt [int]$dominant.routes_affected) {
             $dominant = $pattern
         }
     }
-
-    $repeatedPatternsOutput = Convert-ToPageQualityObjectArray -Value $repeatedPatterns
-    $isolatedPatternsOutput = Convert-ToPageQualityObjectArray -Value $isolatedPatterns
 
     return @{
         repeated_patterns = $repeatedPatternsOutput

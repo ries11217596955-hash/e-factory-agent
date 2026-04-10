@@ -7,54 +7,67 @@
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
 
 ## SUMMARY
-- Performed a surgical PAGE_QUALITY_BUILD materialization hardening in the authorized scope only.
-- Hardened shared conversion helpers used by this failure family to deterministically materialize generic lists and enumerable shapes.
-- Preserved PAGE_QUALITY local deterministic converters and local output materialization paths already used by page-quality assembly.
-- Kept ROUTE_NORMALIZATION and ROUTE_MERGE behavior untouched.
+- Applied a surgical PAGE_QUALITY_BUILD hardening only in the authorized runtime lane.
+- Verified and reinforced helper materialization for generic lists, collections, enumerable inputs, null, and scalar fallback.
+- Repaired `Build-SitePatternSummary` to use deterministic plain-array combination before dominant-pattern evaluation.
+- Left ROUTE_NORMALIZATION and ROUTE_MERGE behavior untouched.
 
 ## CHANGED FILES
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
 - `docs/TASK_REPORT.md`
 
 ## ROOT CAUSE OF PAGE_QUALITY_BUILD FAILURE
-- PAGE_QUALITY_BUILD consumed mixed runtime shapes (`System.Collections.Generic.List[object]`, `System.Collections.Generic.List[string]`, `ICollection`, non-string `IEnumerable`, scalar) through helper materialization paths.
-- `Convert-ToObjectArraySafe` used fragile enumerable wrapping (`@($Value)`), and `Convert-ToStringArraySafe` returned `@($normalized)` where `$normalized` is a `Generic.List[string]`.
-- Those shapes could leak as generic-list containers instead of plain arrays, causing downstream binding/coercion mismatch in PAGE_QUALITY_BUILD materialization (`Argument types do not match`).
+- PAGE_QUALITY_BUILD still risked mixed collection-shape coercion during list materialization.
+- The failure family was generic list/container handling that could surface non-plain array shapes into page-quality evaluation paths, leading to binding/coercion mismatch (`Argument types do not match`).
 
 ## EXACT SECTION REPAIRED
-- `Convert-ToObjectArraySafe`:
-  - added explicit `ToArray()` handling for `List[object]` and `List[string]`
-  - added deterministic `ICollection` materialization into plain `object[]`
-  - retained scalar and dictionary/object behavior
-- `Convert-ToStringArraySafe`:
-  - replaced `@($normalized)` with deterministic `[string[]]$normalized.ToArray()`
-- PAGE_QUALITY_BUILD-local hardening remains in place:
-  - `Convert-ToPageQualityObjectArray`
-  - `Convert-ToPageQualityStringArray`
-  - deterministic outputs in `Build-PageQualityFindings` and `Build-SitePatternSummary`
+- `Convert-ToObjectArraySafe`
+  - Added explicit pass-through handling for `object[]` and `string[]`.
+  - Kept explicit `ToArray()` handling for `List[object]` and `List[string]`.
+  - Kept deterministic `ICollection` materialization.
+  - Hardened `IEnumerable` branch to explicitly exclude `string`.
+- `Convert-ToStringArraySafe`
+  - Iteration now consumes the materialized array directly.
+  - Added deterministic empty return for zero normalized items.
+- `Build-SitePatternSummary`
+  - Replaced generic-list traversal merge path with deterministic plain-array combination:
+    - materialize repeated and isolated lists separately
+    - combine through local object-array normalization
+    - compute dominant pattern from combined plain array
+  - Output semantics preserved for:
+    - `repeated_patterns`
+    - `isolated_patterns`
+    - `dominant_pattern`
+    - `systemic`
 
 ## VALIDATION EXECUTED
-- Structural inspection of repaired symbols:
-  - `rg -n "function Convert-ToObjectArraySafe|function Convert-ToStringArraySafe|function Convert-ToPageQualityObjectArray|function Convert-ToPageQualityStringArray|function Build-SitePatternSummary|function Build-PageQualityFindings|routesInput|routeFindingsOutput|routeContradictionsOutput|contaminationFlagsOutput|routeDetailsOutput|repeated_patterns|isolated_patterns" agents/gh_batch/site_auditor_cloud/agent.ps1`
-- PowerShell runtime availability check:
-  - `command -v pwsh || command -v powershell`
-- PowerShell parse validation:
-  - Not executed because no PowerShell binary is available in this environment.
+- Symbol/section verification:
+  - `rg -n "function Convert-ToObjectArraySafe|function Convert-ToStringArraySafe|function Build-SitePatternSummary|function Build-PageQualityFindings|\$combinedPatterns|Convert-ToPageQualityObjectArray -Value @(\$repeatedPatternsOutput + \$isolatedPatternsOutput)" agents/gh_batch/site_auditor_cloud/agent.ps1`
+- Runtime parser availability check:
+  - `command -v pwsh || command -v powershell || true`
+- PowerShell parse run status:
+  - **PowerShell parse did not run** in this environment because neither `pwsh` nor `powershell` is available.
+- Basic structural sanity check:
+  - `python - <<'PY' ...` (line and delimiter-count sanity output)
 
 ## REMAINING RISKS
-- Parser/runtime confirmation still requires operator-side execution in an environment with `pwsh` or `powershell`.
-- This is intentionally scoped to PAGE_QUALITY_BUILD helper/materialization paths; unrelated stages were not altered.
+- Definitive parser validation still requires operator-side execution in an environment with PowerShell installed.
+- This patch is intentionally narrow and does not modify unrelated runtime lanes.
 
 ## EXPECTED NEXT RUNTIME STATE
-- PAGE_QUALITY_BUILD materialization should be deterministic across generic lists, collections, non-string enumerables, nulls, and scalar fallback.
-- Expected removal of current blocker signature:
-  - `page_quality_status = NOT_EVALUATED`
+- PAGE_QUALITY_BUILD collection materialization should be deterministic for:
+  - `System.Collections.Generic.List[object]`
+  - `System.Collections.Generic.List[string]`
+  - `ICollection`
+  - non-string `IEnumerable`
+  - `null`
+  - scalar fallback
+- Expected blocker removal:
   - `failure_stage = PAGE_QUALITY_BUILD`
   - `evaluation_error = "Argument types do not match"`
 
 ## Summary
-- Applied a narrow helper/materialization hardening for the PAGE_QUALITY_BUILD failure family.
-- Avoided broad refactor and preserved output contract and operator forensics.
+- Implemented a surgical hardening of page-quality materialization helpers and site-pattern combination logic in the approved scope.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -70,4 +83,4 @@
   - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 
 ## Risks/blockers
-- Local environment does not include `pwsh`/`powershell`, so parse validation could not be executed here.
+- PowerShell binary is unavailable in this execution environment, so true parser execution could not be completed locally.
