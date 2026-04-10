@@ -1019,7 +1019,12 @@ function Normalize-LiveRoutes {
         $zeroBoundary = 0
         $droppedDeltaInt = Convert-ToIntSafe -Value $droppedDelta -Default 0
         Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_drop_count_coerce' -OperationLabel 'OP4A_dropped_delta_to_int' -Expression 'Convert-ToIntSafe -Value $droppedDelta -Default 0' -LeftOperand $droppedDelta -RightOperand $droppedDeltaInt -Status 'ok'
-        $droppedCount = [int]([Math]::Max([int]$zeroBoundary, [int]$droppedDeltaInt))
+        if ([int]$droppedDeltaInt -lt 0) {
+            $droppedCount = 0
+        }
+        else {
+            $droppedCount = [int]$droppedDeltaInt
+        }
         $aggregateComputedCounts.dropped_count = $droppedCount
         Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_drop_count_math' -OperationLabel 'OP4B_math_max_dropped_count' -Expression '[Math]::Max([int]$zeroBoundary, [int]$droppedDeltaInt)' -LeftOperand $zeroBoundary -RightOperand $droppedDeltaInt -Status 'ok'
     }
