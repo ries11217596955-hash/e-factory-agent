@@ -1702,6 +1702,12 @@ function Build-SitePatternSummary {
 
     $operationLabel = 'PQ7_pattern_summary_build'
     $expression = 'Build-SitePatternSummary aggregation and dominant selection'
+    $pq7CombineLeftOperand = $null
+    $pq7CombineRightOperand = $null
+    $pq7RepeatedOutputCount = 0
+    $pq7IsolatedOutputCount = 0
+    $pq7RepeatedOutputType = ''
+    $pq7IsolatedOutputType = ''
     try {
         $repeatedPatterns = New-Object System.Collections.Generic.List[object]
         $isolatedPatterns = New-Object System.Collections.Generic.List[object]
@@ -1743,8 +1749,24 @@ function Build-SitePatternSummary {
 
         $repeatedPatternsOutput = Convert-ToPageQualityObjectArray -Value $repeatedPatterns
         $isolatedPatternsOutput = Convert-ToPageQualityObjectArray -Value $isolatedPatterns
-        $combinedPatterns = Convert-ToPageQualityObjectArray -Value @($repeatedPatternsOutput + $isolatedPatternsOutput)
+        $operationLabel = 'PQ7a_pattern_summary_prepare_combine_operands'
+        $expression = 'Materialize repeated/isolated pattern outputs into deterministic object[] arrays'
+        $pq7CombineLeftOperand = Convert-ToPageQualityObjectArray -Value $repeatedPatternsOutput
+        $pq7CombineRightOperand = Convert-ToPageQualityObjectArray -Value $isolatedPatternsOutput
+        $pq7RepeatedOutputCount = @($pq7CombineLeftOperand).Count
+        $pq7IsolatedOutputCount = @($pq7CombineRightOperand).Count
+        $pq7RepeatedOutputType = if ($null -eq $pq7CombineLeftOperand) { '<null>' } else { $pq7CombineLeftOperand.GetType().FullName }
+        $pq7IsolatedOutputType = if ($null -eq $pq7CombineRightOperand) { '<null>' } else { $pq7CombineRightOperand.GetType().FullName }
 
+        $operationLabel = 'PQ7b_pattern_summary_combine_deterministic_array'
+        $expression = 'Build deterministic combined pattern object[] without hashtable addition semantics'
+        $combinedPatternList = New-Object System.Collections.Generic.List[object]
+        foreach ($pattern in $pq7CombineLeftOperand) { $combinedPatternList.Add($pattern) }
+        foreach ($pattern in $pq7CombineRightOperand) { $combinedPatternList.Add($pattern) }
+        $combinedPatterns = Convert-ToPageQualityObjectArray -Value $combinedPatternList.ToArray()
+
+        $operationLabel = 'PQ7c_pattern_summary_dominant_selection'
+        $expression = 'Select dominant pattern from deterministic combined pattern object[]'
         $dominant = $null
         foreach ($pattern in $combinedPatterns) {
             if ($null -eq $dominant -or [int]$pattern.routes_affected -gt [int]$dominant.routes_affected) {
@@ -1762,9 +1784,22 @@ function Build-SitePatternSummary {
         }
     }
     catch {
-        Set-PageQualityForensics -FunctionName 'Build-SitePatternSummary' -ActivePhase 'PAGE_QUALITY_BUILD' -ActiveOperationLabel $operationLabel -ActiveExpression $expression -LeftOperand $Rollups -RightOperand $TotalRoutes -StackHintIfAvailable $_.ScriptStackTrace -AdditionalContext ([ordered]@{
+        $leftOperand = $Rollups
+        $rightOperand = $TotalRoutes
+        if (($operationLabel -eq 'PQ7a_pattern_summary_prepare_combine_operands') -or
+            ($operationLabel -eq 'PQ7b_pattern_summary_combine_deterministic_array') -or
+            ($operationLabel -eq 'PQ7c_pattern_summary_dominant_selection')) {
+            $leftOperand = $pq7CombineLeftOperand
+            $rightOperand = $pq7CombineRightOperand
+        }
+
+        Set-PageQualityForensics -FunctionName 'Build-SitePatternSummary' -ActivePhase 'PAGE_QUALITY_BUILD' -ActiveOperationLabel $operationLabel -ActiveExpression $expression -LeftOperand $leftOperand -RightOperand $rightOperand -StackHintIfAvailable $_.ScriptStackTrace -AdditionalContext ([ordered]@{
                 total_routes = $TotalRoutes
                 rollups_shape = Get-ObjectShapeSummary -Value $Rollups
+                repeated_patterns_output_count = [int]$pq7RepeatedOutputCount
+                isolated_patterns_output_count = [int]$pq7IsolatedOutputCount
+                repeated_patterns_output_type = $pq7RepeatedOutputType
+                isolated_patterns_output_type = $pq7IsolatedOutputType
                 error_message = $_.Exception.Message
             })
         throw
