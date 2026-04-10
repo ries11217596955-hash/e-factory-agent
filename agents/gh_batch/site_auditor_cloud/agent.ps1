@@ -271,19 +271,6 @@ function Get-LastAggregateTraceEntry {
     return $entries[$entries.Count - 1]
 }
 
-function Get-LastRouteNormalizationTracePhaseEntry {
-    if ($null -eq $global:RouteNormalizationTrace) {
-        return $null
-    }
-
-    $entries = @($global:RouteNormalizationTrace)
-    if ($entries.Count -le 0) {
-        return $null
-    }
-
-    return $entries[$entries.Count - 1]
-}
-
 function New-RouteNormalizationFallbackDebug {
     param(
         [string]$StackHint = '',
@@ -291,16 +278,8 @@ function New-RouteNormalizationFallbackDebug {
     )
 
     $fallbackEntry = Get-FirstFailingAggregateTraceEntry
-    $fallbackSource = 'aggregate_first_failed'
-
     if ($null -eq $fallbackEntry) {
         $fallbackEntry = Get-LastAggregateTraceEntry
-        $fallbackSource = 'aggregate_last_known'
-    }
-
-    if ($null -eq $fallbackEntry) {
-        $fallbackEntry = Get-LastRouteNormalizationTracePhaseEntry
-        $fallbackSource = 'trace_last_known'
     }
 
     $fallbackOperationLabel = [string](Safe-Get -Object $fallbackEntry -Key 'operation_label' -Default '')
@@ -310,24 +289,7 @@ function New-RouteNormalizationFallbackDebug {
     $fallbackRightType = [string](Safe-Get -Object $fallbackEntry -Key 'right_type' -Default '<unknown>')
     $fallbackLeftSample = [string](Safe-Get -Object $fallbackEntry -Key 'left_value_sample' -Default '<unknown>')
     $fallbackRightSample = [string](Safe-Get -Object $fallbackEntry -Key 'right_value_sample' -Default '<unknown>')
-
-    if ($fallbackSource -eq 'trace_last_known') {
-        if ([string]::IsNullOrWhiteSpace($fallbackLeftType) -or $fallbackLeftType -eq '<unknown>') {
-            $fallbackLeftType = [string](Safe-Get -Object $fallbackEntry -Key 'object_type' -Default '<unknown>')
-        }
-        if ([string]::IsNullOrWhiteSpace($fallbackLeftSample) -or $fallbackLeftSample -eq '<unknown>') {
-            $fallbackLeftSample = [string](Safe-Get -Object $fallbackEntry -Key 'short_value_sample' -Default '<unknown>')
-        }
-        if ([string]::IsNullOrWhiteSpace($fallbackPhaseName)) {
-            $fallbackPhaseName = [string](Safe-Get -Object $fallbackEntry -Key 'phase_name' -Default '')
-        }
-        if ([string]::IsNullOrWhiteSpace($fallbackOperationLabel)) {
-            $fallbackOperationLabel = 'TRACE_LAST_KNOWN'
-        }
-        if ([string]::IsNullOrWhiteSpace($fallbackExpression)) {
-            $fallbackExpression = '<derived_from_trace_phase>'
-        }
-    }
+    $fallbackEntryStatus = [string](Safe-Get -Object $fallbackEntry -Key 'status' -Default '')
 
     $resolvedFunctionName = if (
         [string]::IsNullOrWhiteSpace($fallbackOperationLabel) -and
@@ -368,7 +330,7 @@ function New-RouteNormalizationFallbackDebug {
             count = 0
         }
         additional_context = [ordered]@{
-            fallback_source = if ($null -eq $fallbackEntry) { 'none' } else { $fallbackSource }
+            fallback_source = if ($null -eq $fallbackEntry) { 'none' } elseif ($fallbackEntryStatus -eq 'failed') { 'aggregate_first_failed' } else { 'aggregate_last_known' }
             fallback_phase_name = $resolvedPhase
             fallback_operation_label = $resolvedOperation
             fallback_expression = $resolvedExpression
@@ -376,7 +338,6 @@ function New-RouteNormalizationFallbackDebug {
         }
     }
 }
-
 
 function Ensure-Dir([string]$Path) {
     New-Item -ItemType Directory -Force -Path $Path | Out-Null
@@ -1065,14 +1026,54 @@ function Normalize-LiveRoutes {
             $droppedCount = [int]$droppedDeltaInt
         }
         $aggregateComputedCounts.dropped_count = $droppedCount
-        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_drop_count_math' -OperationLabel 'OP4B_dropped_count_floor_zero' -Expression 'if ([int]$droppedDeltaInt -lt 0) { 0 } else { [int]$droppedDeltaInt }' -LeftOperand $zeroBoundary -RightOperand $droppedDeltaInt -Status 'ok'
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_drop_count_math' -OperationLabel 'OP4B_math_max_dropped_count' -Expression '[Math]::Max([int]$zeroBoundary, [int]$droppedDeltaInt)' -LeftOperand $zeroBoundary -RightOperand $droppedDeltaInt -Status 'ok'
     }
     catch {
-        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_drop_count_math' -OperationLabel 'OP4_dropped_count_floor_zero' -Expression 'Convert-ToIntSafe($droppedDelta) -> if/else floor at zero' -LeftOperand 0 -RightOperand $droppedDelta -Status 'failed' -ErrorRecord $_
-        Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -ActivePhase 'aggregate_drop_count_math' -ActiveOperationLabel 'OP4_dropped_count_floor_zero' -ActiveExpression 'Convert-ToIntSafe($droppedDelta) -> if/else floor at zero' -OperationLabel 'OP4_dropped_count_floor_zero' -Expression 'Convert-ToIntSafe($droppedDelta) -> if/else floor at zero' -LeftOperand 0 -RightOperand $droppedDelta -VariableNames @('zeroBoundary', 'droppedDelta', 'droppedDeltaInt', 'droppedCount') -AdditionalContext @{
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_drop_count_math' -OperationLabel 'OP4_math_max_dropped_count' -Expression 'Convert-ToIntSafe($droppedDelta) -> [Math]::Max' -LeftOperand 0 -RightOperand $droppedDelta -Status 'failed' -ErrorRecord $_
+        Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -ActivePhase 'aggregate_drop_count_math' -ActiveOperationLabel 'OP4_math_max_dropped_count' -ActiveExpression 'Convert-ToIntSafe($droppedDelta) -> [Math]::Max' -OperationLabel 'OP4_math_max_dropped_count' -Expression 'Convert-ToIntSafe($droppedDelta) -> [Math]::Max' -LeftOperand 0 -RightOperand $droppedDelta -VariableNames @('zeroBoundary', 'droppedDelta', 'droppedDeltaInt', 'droppedCount') -AdditionalContext @{
             counts_computed_before_failure = $aggregateComputedCounts
             raw_route_count = $rawRouteCount
             normalized_count = $normalizedCount
+            stack_hint = $_.ScriptStackTrace
+        }
+        throw
+    }
+
+    $normalizedRoutesOutput = $null
+    $shapeWarningsOutput = $null
+    try {
+        if ($normalized -is [System.Collections.Generic.List[object]]) {
+            $normalizedRoutesOutput = [object[]]$normalized.ToArray()
+        }
+        elseif ($normalized -is [System.Collections.IEnumerable] -and -not ($normalized -is [string])) {
+            $normalizedRoutesOutput = @($normalized | ForEach-Object { $_ })
+        }
+        elseif ($null -eq $normalized) {
+            $normalizedRoutesOutput = @()
+        }
+        else {
+            $normalizedRoutesOutput = @($normalized)
+        }
+
+        if ($shapeWarnings -is [System.Collections.Generic.List[string]]) {
+            $shapeWarningsOutput = [string[]]$shapeWarnings.ToArray()
+        }
+        elseif ($shapeWarnings -is [System.Collections.IEnumerable] -and -not ($shapeWarnings -is [string])) {
+            $shapeWarningsOutput = @($shapeWarnings | ForEach-Object { [string]$_ })
+        }
+        elseif ($null -eq $shapeWarnings) {
+            $shapeWarningsOutput = @()
+        }
+        else {
+            $shapeWarningsOutput = @([string]$shapeWarnings)
+        }
+
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_return_materialization' -OperationLabel 'OP5A_return_output_materialize' -Expression 'normalized/shapeWarnings safe output materialization' -LeftOperand $normalized -RightOperand $normalizedRoutesOutput -Status 'ok'
+    }
+    catch {
+        Add-RouteNormalizationAggregateTrace -PhaseName 'aggregate_return_materialization' -OperationLabel 'OP5A_return_output_materialize' -Expression 'normalized/shapeWarnings safe output materialization' -LeftOperand $normalized -RightOperand $normalizedRoutesOutput -Status 'failed' -ErrorRecord $_
+        Set-RouteNormalizationForensics -FunctionName 'Normalize-LiveRoutes' -ActivePhase 'aggregate_return_materialization' -ActiveOperationLabel 'OP5A_return_output_materialize' -ActiveExpression 'normalized/shapeWarnings safe output materialization' -OperationLabel 'OP5A_return_output_materialize' -Expression 'normalized/shapeWarnings safe output materialization' -LeftOperand $normalized -RightOperand $normalizedRoutesOutput -VariableNames @('normalized', 'shapeWarnings', 'normalizedRoutesOutput', 'shapeWarningsOutput') -AdditionalContext @{
+            counts_computed_before_failure = $aggregateComputedCounts
             stack_hint = $_.ScriptStackTrace
         }
         throw
@@ -1089,10 +1090,10 @@ function Normalize-LiveRoutes {
     }
 
     return @{
-        routes = @($normalized)
+        routes = $normalizedRoutesOutput
         raw_count = $rawRouteCount
         dropped_count = $droppedCount
-        warnings = @($shapeWarnings)
+        warnings = $shapeWarningsOutput
     }
 }
 
