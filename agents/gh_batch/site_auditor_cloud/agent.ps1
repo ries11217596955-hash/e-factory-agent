@@ -2140,17 +2140,39 @@ function Build-ContradictionLayer {
         [int](Safe-Get -Object $liveSummary -Key 'contaminated_routes' -Default 0)
 
     $routeCandidates = New-Object System.Collections.Generic.List[object]
-    foreach ($route in @($routes)) {
-        $routePath = [string](Safe-Get -Object $route -Key 'route_path' -Default '')
-        foreach ($candidate in @(Safe-Get -Object $route -Key 'contradiction_candidates' -Default @())) {
-            $routeCandidates.Add([ordered]@{
-                    class = [string](Safe-Get -Object $candidate -Key 'class' -Default 'UNKNOWN')
-                    scope = 'ROUTE'
-                    route_path = $routePath
-                    severity = [string](Safe-Get -Object $candidate -Key 'severity' -Default 'REVIEW')
-                    evidence = [string](Safe-Get -Object $candidate -Key 'evidence' -Default '')
-                })
+    $operationLabel = 'C1_prepare_contradiction_candidates'
+    $expression = 'materialize route contradiction_candidates into deterministic object[] before route candidate projection'
+    $activeRoutePath = ''
+    $candidateSource = $null
+    $candidateSourceArray = @()
+    try {
+        foreach ($route in @($routes)) {
+            $activeRoutePath = [string](Safe-Get -Object $route -Key 'route_path' -Default '')
+            $candidateSource = Safe-Get -Object $route -Key 'contradiction_candidates' -Default @()
+            $candidateSourceArray = Convert-ToObjectArraySafe -Value $candidateSource
+            foreach ($candidate in $candidateSourceArray) {
+                $routeCandidates.Add([ordered]@{
+                        class = [string](Safe-Get -Object $candidate -Key 'class' -Default 'UNKNOWN')
+                        scope = 'ROUTE'
+                        route_path = $activeRoutePath
+                        severity = [string](Safe-Get -Object $candidate -Key 'severity' -Default 'REVIEW')
+                        evidence = [string](Safe-Get -Object $candidate -Key 'evidence' -Default '')
+                    })
+            }
         }
+    }
+    catch {
+        Set-DecisionForensics -FunctionName 'Build-ContradictionLayer' -ActivePhase 'DECISION_BUILD' -ActiveOperationLabel $operationLabel -ActiveExpression $expression -LeftOperand $candidateSource -RightOperand $candidateSourceArray -StackHintIfAvailable $_.ScriptStackTrace -AdditionalContext ([ordered]@{
+                operation_label = $operationLabel
+                expression = $expression
+                route_path_if_available = $activeRoutePath
+                contradiction_candidate_source_type = if ($null -eq $candidateSource) { '<null>' } else { $candidateSource.GetType().FullName }
+                local_collection_type = if ($null -eq $candidateSourceArray) { '<null>' } else { $candidateSourceArray.GetType().FullName }
+                local_collection_count = [int]@($candidateSourceArray).Count
+                exact_failing_sub_expression = '$routeCandidates.Add([ordered]@{...})'
+                error_message = $_.Exception.Message
+            })
+        throw "Build-ContradictionLayer failed at [$operationLabel]: $($_.Exception.Message)"
     }
 
     $siteCandidates = New-Object System.Collections.Generic.List[object]
@@ -2193,8 +2215,8 @@ function Build-ContradictionLayer {
             })
     }
 
-    $operationLabel = 'C1_prepare_contradiction_candidates'
-    $expression = 'route/site candidate materialization and deterministic combine'
+    $operationLabel = 'C2_combine_contradiction_candidates'
+    $expression = 'route/site candidate deterministic combination'
     $routeCandidateArray = @()
     $siteCandidateArray = @()
     $allCandidates = @()
@@ -2204,7 +2226,6 @@ function Build-ContradictionLayer {
         $routeCandidateArray = [object[]]@($routeCandidates)
         $siteCandidateArray = [object[]]@($siteCandidates)
 
-        $operationLabel = 'C2_combine_contradiction_candidates'
         $combinedCandidateList = New-Object System.Collections.Generic.List[object]
         foreach ($candidate in $routeCandidateArray) {
             $combinedCandidateList.Add($candidate)
