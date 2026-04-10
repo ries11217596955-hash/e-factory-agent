@@ -1777,8 +1777,12 @@ function Build-PageQualityFindings {
     $operationLabel = 'PQ1_routes_input_materialize'
     $expression = 'Convert-ToPageQualityObjectArray -Value $Routes'
     $routesInput = @()
+    $pq4aRoutePath = ''
     $pq4aRouteFindings = $null
     $pq4aRouteFindingsOutput = $null
+    $pq4aRouteFindingsCount = 0
+    $pq4aRouteFindingsType = ''
+    $pq4aRouteVerdict = ''
     $pq4aRouteContradictions = $null
     $pq4aContaminationFlags = $null
     try {
@@ -1851,9 +1855,13 @@ function Build-PageQualityFindings {
             }
             $verdictCounts[$primaryVerdict] = [int]$verdictCounts[$primaryVerdict] + 1
 
-            $operationLabel = 'PQ4A_route_findings_output_string_array'
-            $expression = 'Build route findings list and materialize deterministic string[] output'
+            $pq4aRoutePath = [string](Safe-Get -Object $route -Key 'route_path' -Default '')
+            $operationLabel = 'PQ4A1_route_findings_list_init'
+            $expression = 'Initialize local deterministic route findings list as Generic.List[string]'
             $routeFindings = New-Object System.Collections.Generic.List[string]
+
+            $operationLabel = 'PQ4A2_route_findings_list_populate'
+            $expression = 'Populate local route findings list from route signals and contradiction candidates'
             if ($empty) { $routeFindings.Add('Route has empty or near-empty visible content.') }
             if ($thin) { $routeFindings.Add('Route content is thin and likely underdeveloped.') }
             if ($weakCta) { $routeFindings.Add('Route lacks clear CTA affordances.') }
@@ -1864,12 +1872,26 @@ function Build-PageQualityFindings {
             }
             $routeFindings.Add("Primary verdict class: $primaryVerdict")
             $pq4aRouteFindings = $routeFindings
+            $pq4aRouteFindingsCount = @($routeFindings).Count
+            $pq4aRouteFindingsType = if ($null -eq $routeFindings) { '' } else { [string]$routeFindings.GetType().FullName }
+            $pq4aRouteVerdict = $primaryVerdict
             $pq4aRouteContradictions = $routeContradictions
             $pq4aContaminationFlags = $contaminationFlags
-            if ($routeFindings -is [System.Collections.Generic.List[string]]) {
+
+            $operationLabel = 'PQ4A3_route_findings_fastpath_toarray'
+            $expression = 'Use local deterministic fast-path when routeFindings is Generic.List[string]'
+            if (@($routeFindings).Count -eq 0) {
+                $routeFindingsOutput = @()
+            }
+            elseif ($routeFindings -is [System.Collections.Generic.List[string]]) {
                 $routeFindingsOutput = [string[]]$routeFindings.ToArray()
             }
+            elseif ($routeFindings -is [string[]]) {
+                $routeFindingsOutput = [string[]]$routeFindings
+            }
             else {
+                $operationLabel = 'PQ4A4_route_findings_fallback_string_array'
+                $expression = 'Fallback conversion of route findings to string[] only when fast-paths are not applicable'
                 $routeFindingsOutput = Convert-ToPageQualityStringArray -Value $routeFindings
             }
             $pq4aRouteFindingsOutput = $routeFindingsOutput
@@ -1946,7 +1968,10 @@ function Build-PageQualityFindings {
     catch {
         $leftOperand = $Routes
         $rightOperand = $null
-        if ($operationLabel -eq 'PQ4A_route_findings_output_string_array') {
+        if (($operationLabel -eq 'PQ4A1_route_findings_list_init') -or
+            ($operationLabel -eq 'PQ4A2_route_findings_list_populate') -or
+            ($operationLabel -eq 'PQ4A3_route_findings_fastpath_toarray') -or
+            ($operationLabel -eq 'PQ4A4_route_findings_fallback_string_array')) {
             $leftOperand = $pq4aRouteFindings
             $rightOperand = $pq4aRouteFindingsOutput
         }
@@ -1961,6 +1986,10 @@ function Build-PageQualityFindings {
 
         Set-PageQualityForensics -FunctionName 'Build-PageQualityFindings' -ActivePhase 'PAGE_QUALITY_BUILD' -ActiveOperationLabel $operationLabel -ActiveExpression $expression -LeftOperand $leftOperand -RightOperand $rightOperand -StackHintIfAvailable $_.ScriptStackTrace -AdditionalContext ([ordered]@{
                 route_count_sample = @($routesInput).Count
+                route_path = $pq4aRoutePath
+                route_findings_count = [int]$pq4aRouteFindingsCount
+                route_findings_type = $pq4aRouteFindingsType
+                route_verdict = $pq4aRouteVerdict
                 operation_label = $operationLabel
                 expression = $expression
                 error_message = $_.Exception.Message
