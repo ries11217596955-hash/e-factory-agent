@@ -26,6 +26,7 @@ $global:AuditError = $null
 $global:RouteNormalizationForensics = $null
 $global:RouteNormalizationTrace = @()
 $global:RouteNormalizationAggregateTrace = @()
+$global:PageQualityForensics = $null
 $reportFiles = New-Object System.Collections.Generic.List[string]
 
 function Get-DebugValueSample {
@@ -161,6 +162,41 @@ function Set-RouteNormalizationForensics {
             right = $rightSample
         }
         route_context_shape = Get-ObjectShapeSummary -Value $RouteContext
+        additional_context = if ($null -eq $AdditionalContext) { @{} } else { $AdditionalContext }
+    }
+}
+
+function Set-PageQualityForensics {
+    param(
+        [string]$FunctionName,
+        [string]$ActivePhase = 'PAGE_QUALITY_BUILD',
+        [string]$ActiveOperationLabel = '',
+        [string]$ActiveExpression = '',
+        [object]$LeftOperand = $null,
+        [object]$RightOperand = $null,
+        [object]$AdditionalContext = $null,
+        [string]$StackHintIfAvailable = ''
+    )
+
+    $leftType = if ($null -eq $LeftOperand) { '<null>' } else { $LeftOperand.GetType().FullName }
+    $rightType = if ($null -eq $RightOperand) { '<null>' } else { $RightOperand.GetType().FullName }
+
+    $stackHint = $StackHintIfAvailable
+    if ([string]::IsNullOrWhiteSpace($stackHint) -and $null -ne $AdditionalContext) {
+        $stackHint = [string](Safe-Get -Object $AdditionalContext -Key 'stack_hint' -Default '')
+    }
+
+    $global:PageQualityForensics = [ordered]@{
+        failure_stage = 'PAGE_QUALITY_BUILD'
+        function_name = $FunctionName
+        activePhase = if ([string]::IsNullOrWhiteSpace($ActivePhase)) { 'PAGE_QUALITY_BUILD' } else { $ActivePhase }
+        activeOperationLabel = if ([string]::IsNullOrWhiteSpace($ActiveOperationLabel)) { '' } else { $ActiveOperationLabel }
+        activeExpression = if ([string]::IsNullOrWhiteSpace($ActiveExpression)) { '' } else { $ActiveExpression }
+        left_type = $leftType
+        right_type = $rightType
+        left_value_sample = Get-DebugValueSample -Value $LeftOperand
+        right_value_sample = Get-DebugValueSample -Value $RightOperand
+        stack_hint_if_available = if ([string]::IsNullOrWhiteSpace($stackHint)) { '' } else { [string]$stackHint }
         additional_context = if ($null -eq $AdditionalContext) { @{} } else { $AdditionalContext }
     }
 }
@@ -1392,6 +1428,7 @@ function Invoke-LiveAudit {
         }
 
         $liveStage = 'PAGE_QUALITY_BUILD'
+        $global:PageQualityForensics = $null
         $routeDetailsAndRollups = Build-PageQualityFindings -Routes $routes
         $routeDetails = @($routeDetailsAndRollups.route_details)
         $rollups = $routeDetailsAndRollups.rollups
@@ -1453,7 +1490,34 @@ function Invoke-LiveAudit {
     catch {
         $failure = $_.Exception.Message
         if ([string]::IsNullOrWhiteSpace($failure)) { $failure = 'Unknown live audit failure.' }
+        $failureDetailed = $failure
         $routeNormalizationDebug = $null
+        if ($liveStage -eq 'PAGE_QUALITY_BUILD') {
+            if ($null -eq $global:PageQualityForensics) {
+                Set-PageQualityForensics -FunctionName 'Invoke-LiveAudit' -ActivePhase 'PAGE_QUALITY_BUILD' -ActiveOperationLabel 'PQ_UNATTRIBUTED_RUNTIME_FAILURE' -ActiveExpression 'Build-PageQualityFindings -Routes $routes' -LeftOperand $routes -RightOperand $null -StackHintIfAvailable $_.ScriptStackTrace -AdditionalContext ([ordered]@{
+                        failure_message = $failure
+                        note = 'PAGE_QUALITY_BUILD failed before helper-level forensic state was populated.'
+                    })
+            }
+
+            $pageQualityDebug = [ordered]@{
+                forensic = $global:PageQualityForensics
+                failure_message = $failure
+                timestamp = (Get-Date).ToString('o')
+            }
+            try {
+                Write-JsonFile -Path (Join-Path $reportsDir 'page_quality_debug.json') -Data $pageQualityDebug
+                $reportFiles.Add('reports/page_quality_debug.json')
+            }
+            catch {
+            }
+
+            $pqFunction = [string](Safe-Get -Object $global:PageQualityForensics -Key 'function_name' -Default '')
+            $pqOperation = [string](Safe-Get -Object $global:PageQualityForensics -Key 'activeOperationLabel' -Default '')
+            if (-not [string]::IsNullOrWhiteSpace($pqOperation)) {
+                $failureDetailed = "$failure [PAGE_QUALITY_BUILD/$pqFunction/$pqOperation]"
+            }
+        }
         if ($liveStage -eq 'ROUTE_NORMALIZATION') {
             try {
                 if ($null -eq $global:RouteNormalizationTrace) {
@@ -1517,13 +1581,13 @@ function Invoke-LiveAudit {
             summary = @{
                 page_quality_status = 'NOT_EVALUATED'
                 failure_stage = $liveStage
-                evaluation_error = $failure
+                evaluation_error = $failureDetailed
                 degraded_run = $true
                 total_routes = [int]$fallbackRouteCount
                 route_normalization_debug = if ($null -eq $routeNormalizationDebug) { @{} } else { $routeNormalizationDebug }
             }
-            findings = @("Live audit failed at stage ${liveStage}: $failure")
-            warnings = @("Live audit encountered an execution error at stage ${liveStage}: $failure")
+            findings = @("Live audit failed at stage ${liveStage}: $failureDetailed")
+            warnings = @("Live audit encountered an execution error at stage ${liveStage}: $failureDetailed")
             route_details = @($fallbackRouteDetails)
             ok = $false
         })
@@ -1561,49 +1625,73 @@ function Get-RoutePrimaryVerdict {
 function Convert-ToPageQualityObjectArray {
     param([object]$Value)
 
-    if ($null -eq $Value) { return @() }
-    if ($Value -is [System.Collections.Generic.List[object]]) { return [object[]]$Value.ToArray() }
-    if ($Value -is [System.Collections.Generic.List[string]]) { return [object[]]$Value.ToArray() }
-    if ($Value -is [System.Collections.ICollection]) {
-        $output = New-Object System.Collections.Generic.List[object]
-        foreach ($item in $Value) {
-            $output.Add($item)
+    $operationLabel = 'PQX_helper_object_array_materialize'
+    $expression = 'Convert-ToPageQualityObjectArray boundary conversion'
+    try {
+        if ($null -eq $Value) { return @() }
+        if ($Value -is [System.Collections.Generic.List[object]]) { return [object[]]$Value.ToArray() }
+        if ($Value -is [System.Collections.Generic.List[string]]) { return [object[]]$Value.ToArray() }
+        if ($Value -is [System.Collections.ICollection]) {
+            $output = New-Object System.Collections.Generic.List[object]
+            foreach ($item in $Value) {
+                $output.Add($item)
+            }
+            return [object[]]$output.ToArray()
         }
-        return [object[]]$output.ToArray()
-    }
-    if ($Value -is [System.Collections.IEnumerable] -and -not ($Value -is [string])) {
-        $output = New-Object System.Collections.Generic.List[object]
-        foreach ($item in $Value) {
-            $output.Add($item)
+        if ($Value -is [System.Collections.IEnumerable] -and -not ($Value -is [string])) {
+            $output = New-Object System.Collections.Generic.List[object]
+            foreach ($item in $Value) {
+                $output.Add($item)
+            }
+            return [object[]]$output.ToArray()
         }
-        return [object[]]$output.ToArray()
+        return @($Value)
     }
-    return @($Value)
+    catch {
+        Set-PageQualityForensics -FunctionName 'Convert-ToPageQualityObjectArray' -ActivePhase 'PAGE_QUALITY_BUILD' -ActiveOperationLabel $operationLabel -ActiveExpression $expression -LeftOperand $Value -RightOperand $null -StackHintIfAvailable $_.ScriptStackTrace -AdditionalContext ([ordered]@{
+                helper = 'Convert-ToPageQualityObjectArray'
+                value_shape = Get-ObjectShapeSummary -Value $Value
+                error_message = $_.Exception.Message
+            })
+        throw
+    }
 }
 
 function Convert-ToPageQualityStringArray {
     param([object]$Value)
 
-    $items = Convert-ToPageQualityObjectArray -Value $Value
-    $normalized = New-Object System.Collections.Generic.List[string]
+    $operationLabel = 'PQX_helper_string_array_materialize'
+    $expression = 'Convert-ToPageQualityStringArray normalization'
+    try {
+        $items = Convert-ToPageQualityObjectArray -Value $Value
+        $normalized = New-Object System.Collections.Generic.List[string]
 
-    foreach ($item in $items) {
-        if ($null -eq $item) { continue }
-        if ($item -is [System.Collections.IDictionary] -or $item -is [PSCustomObject]) {
-            $json = $item | ConvertTo-Json -Depth 8 -Compress
-            if (-not [string]::IsNullOrWhiteSpace($json)) {
-                $normalized.Add([string]$json)
+        foreach ($item in $items) {
+            if ($null -eq $item) { continue }
+            if ($item -is [System.Collections.IDictionary] -or $item -is [PSCustomObject]) {
+                $json = $item | ConvertTo-Json -Depth 8 -Compress
+                if (-not [string]::IsNullOrWhiteSpace($json)) {
+                    $normalized.Add([string]$json)
+                }
+                continue
             }
-            continue
+
+            $text = [string]$item
+            if (-not [string]::IsNullOrWhiteSpace($text)) {
+                $normalized.Add($text)
+            }
         }
 
-        $text = [string]$item
-        if (-not [string]::IsNullOrWhiteSpace($text)) {
-            $normalized.Add($text)
-        }
+        return [string[]]$normalized.ToArray()
     }
-
-    return [string[]]$normalized.ToArray()
+    catch {
+        Set-PageQualityForensics -FunctionName 'Convert-ToPageQualityStringArray' -ActivePhase 'PAGE_QUALITY_BUILD' -ActiveOperationLabel $operationLabel -ActiveExpression $expression -LeftOperand $Value -RightOperand $null -StackHintIfAvailable $_.ScriptStackTrace -AdditionalContext ([ordered]@{
+                helper = 'Convert-ToPageQualityStringArray'
+                value_shape = Get-ObjectShapeSummary -Value $Value
+                error_message = $_.Exception.Message
+            })
+        throw
+    }
 }
 
 function Build-SitePatternSummary {
@@ -1612,8 +1700,11 @@ function Build-SitePatternSummary {
         [hashtable]$Rollups
     )
 
-    $repeatedPatterns = New-Object System.Collections.Generic.List[object]
-    $isolatedPatterns = New-Object System.Collections.Generic.List[object]
+    $operationLabel = 'PQ7_pattern_summary_build'
+    $expression = 'Build-SitePatternSummary aggregation and dominant selection'
+    try {
+        $repeatedPatterns = New-Object System.Collections.Generic.List[object]
+        $isolatedPatterns = New-Object System.Collections.Generic.List[object]
 
     $definitions = @(
         @{ key = 'empty_routes'; label = 'repeated empty-shell pattern'; issue_type = 'coverage/content blocker' },
@@ -1623,9 +1714,9 @@ function Build-SitePatternSummary {
         @{ key = 'contaminated_routes'; label = 'repeated contamination pattern'; issue_type = 'trust blocker' }
     )
 
-    foreach ($definition in $definitions) {
-        $count = [int](Safe-Get -Object $Rollups -Key $definition.key -Default 0)
-        if ($count -le 0) { continue }
+        foreach ($definition in $definitions) {
+            $count = [int](Safe-Get -Object $Rollups -Key $definition.key -Default 0)
+            if ($count -le 0) { continue }
 
         $ratio = 0.0
         if ($TotalRoutes -gt 0) {
@@ -1642,163 +1733,199 @@ function Build-SitePatternSummary {
             scope = if ($count -ge 2) { 'REPEATED' } else { 'ISOLATED' }
         }
 
-        if ($count -ge 2) {
-            $repeatedPatterns.Add($pattern)
+            if ($count -ge 2) {
+                $repeatedPatterns.Add($pattern)
+            }
+            else {
+                $isolatedPatterns.Add($pattern)
+            }
         }
-        else {
-            $isolatedPatterns.Add($pattern)
+
+        $repeatedPatternsOutput = Convert-ToPageQualityObjectArray -Value $repeatedPatterns
+        $isolatedPatternsOutput = Convert-ToPageQualityObjectArray -Value $isolatedPatterns
+        $combinedPatterns = Convert-ToPageQualityObjectArray -Value @($repeatedPatternsOutput + $isolatedPatternsOutput)
+
+        $dominant = $null
+        foreach ($pattern in $combinedPatterns) {
+            if ($null -eq $dominant -or [int]$pattern.routes_affected -gt [int]$dominant.routes_affected) {
+                $dominant = $pattern
+            }
+        }
+
+        return @{
+            repeated_patterns = $repeatedPatternsOutput
+            isolated_patterns = $isolatedPatternsOutput
+            repeated_pattern_count = [int]$repeatedPatterns.Count
+            isolated_pattern_count = [int]$isolatedPatterns.Count
+            systemic = ([int]$repeatedPatterns.Count -gt 0)
+            dominant_pattern = $dominant
         }
     }
-
-    $repeatedPatternsOutput = Convert-ToPageQualityObjectArray -Value $repeatedPatterns
-    $isolatedPatternsOutput = Convert-ToPageQualityObjectArray -Value $isolatedPatterns
-    $combinedPatterns = Convert-ToPageQualityObjectArray -Value @($repeatedPatternsOutput + $isolatedPatternsOutput)
-
-    $dominant = $null
-    foreach ($pattern in $combinedPatterns) {
-        if ($null -eq $dominant -or [int]$pattern.routes_affected -gt [int]$dominant.routes_affected) {
-            $dominant = $pattern
-        }
-    }
-
-    return @{
-        repeated_patterns = $repeatedPatternsOutput
-        isolated_patterns = $isolatedPatternsOutput
-        repeated_pattern_count = [int]$repeatedPatterns.Count
-        isolated_pattern_count = [int]$isolatedPatterns.Count
-        systemic = ([int]$repeatedPatterns.Count -gt 0)
-        dominant_pattern = $dominant
+    catch {
+        Set-PageQualityForensics -FunctionName 'Build-SitePatternSummary' -ActivePhase 'PAGE_QUALITY_BUILD' -ActiveOperationLabel $operationLabel -ActiveExpression $expression -LeftOperand $Rollups -RightOperand $TotalRoutes -StackHintIfAvailable $_.ScriptStackTrace -AdditionalContext ([ordered]@{
+                total_routes = $TotalRoutes
+                rollups_shape = Get-ObjectShapeSummary -Value $Rollups
+                error_message = $_.Exception.Message
+            })
+        throw
     }
 }
 
 function Build-PageQualityFindings {
     param([object[]]$Routes)
 
-    $routesInput = Convert-ToPageQualityObjectArray -Value $Routes
-    $result = New-Object System.Collections.Generic.List[object]
-    $emptyRoutes = 0
-    $thinRoutes = 0
-    $weakCtaRoutes = 0
-    $deadEndRoutes = 0
-    $contaminatedRoutes = 0
-    $verdictCounts = @{}
+    $operationLabel = 'PQ1_routes_input_materialize'
+    $expression = 'Convert-ToPageQualityObjectArray -Value $Routes'
+    try {
+        $routesInput = Convert-ToPageQualityObjectArray -Value $Routes
+        $result = New-Object System.Collections.Generic.List[object]
+        $emptyRoutes = 0
+        $thinRoutes = 0
+        $weakCtaRoutes = 0
+        $deadEndRoutes = 0
+        $contaminatedRoutes = 0
+        $verdictCounts = @{}
 
-    foreach ($route in @($routesInput)) {
-        $status = Safe-Get -Object $route -Key 'status' -Default 'error'
-        $bodyTextLength = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'bodyTextLength' -Default 0) -Default 0
-        $links = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'links' -Default 0) -Default 0
-        $images = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'images' -Default 0) -Default 0
-        $title = [string](Safe-Get -Object $route -Key 'title' -Default '')
-        $h1Count = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'h1Count' -Default 0) -Default 0
-        $buttonCount = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'buttonCount' -Default 0) -Default 0
-        $hasMain = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasMain' -Default $false) -Default $false
-        $hasArticle = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasArticle' -Default $false) -Default $false
-        $hasNav = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasNav' -Default $false) -Default $false
-        $hasFooter = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasFooter' -Default $false) -Default $false
-        $visibleTextSample = [string](Safe-Get -Object $route -Key 'visibleTextSample' -Default '')
-        $contaminationFlags = Convert-ToPageQualityStringArray -Value (Safe-Get -Object $route -Key 'contaminationFlags' -Default @())
-        $normalizedText = ($visibleTextSample + ' ' + $title).ToLowerInvariant()
+        foreach ($route in @($routesInput)) {
+            $operationLabel = 'PQ2_route_flag_extraction'
+            $expression = 'Route signal extraction and boolean flag derivation'
+            $status = Safe-Get -Object $route -Key 'status' -Default 'error'
+            $bodyTextLength = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'bodyTextLength' -Default 0) -Default 0
+            $links = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'links' -Default 0) -Default 0
+            $images = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'images' -Default 0) -Default 0
+            $title = [string](Safe-Get -Object $route -Key 'title' -Default '')
+            $h1Count = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'h1Count' -Default 0) -Default 0
+            $buttonCount = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'buttonCount' -Default 0) -Default 0
+            $hasMain = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasMain' -Default $false) -Default $false
+            $hasArticle = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasArticle' -Default $false) -Default $false
+            $hasNav = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasNav' -Default $false) -Default $false
+            $hasFooter = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasFooter' -Default $false) -Default $false
+            $visibleTextSample = [string](Safe-Get -Object $route -Key 'visibleTextSample' -Default '')
+            $contaminationFlags = Convert-ToPageQualityStringArray -Value (Safe-Get -Object $route -Key 'contaminationFlags' -Default @())
+            $normalizedText = ($visibleTextSample + ' ' + $title).ToLowerInvariant()
 
-        $statusCode = 0
-        $statusParsed = [int]::TryParse([string]$status, [ref]$statusCode)
-        $isErrorRoute = ($status -eq 'error') -or ($statusParsed -and $statusCode -ge 400)
-        $empty = $isErrorRoute -or $bodyTextLength -le 120
-        $thin = (-not $empty) -and $bodyTextLength -le 420
-        $hasActionLanguage = $normalizedText -match '(start|contact|book|schedule|get started|sign up|learn more|request|apply|buy|download|join)'
-        $weakCta = (-not $empty) -and $buttonCount -eq 0 -and (-not $hasActionLanguage)
-        $deadEnd = (-not $empty) -and (($links + $buttonCount) -le 2) -and (-not $hasNav)
-        $uiContamination = @($contaminationFlags).Count -gt 0
-        $primaryVerdict = Get-RoutePrimaryVerdict -Empty $empty -Thin $thin -WeakCta $weakCta -DeadEnd $deadEnd -UiContamination $uiContamination
-        $routeContradictions = New-Object System.Collections.Generic.List[object]
+            $statusCode = 0
+            $statusParsed = [int]::TryParse([string]$status, [ref]$statusCode)
+            $isErrorRoute = ($status -eq 'error') -or ($statusParsed -and $statusCode -ge 400)
+            $empty = $isErrorRoute -or $bodyTextLength -le 120
+            $thin = (-not $empty) -and $bodyTextLength -le 420
+            $hasActionLanguage = $normalizedText -match '(start|contact|book|schedule|get started|sign up|learn more|request|apply|buy|download|join)'
+            $weakCta = (-not $empty) -and $buttonCount -eq 0 -and (-not $hasActionLanguage)
+            $deadEnd = (-not $empty) -and (($links + $buttonCount) -le 2) -and (-not $hasNav)
+            $uiContamination = @($contaminationFlags).Count -gt 0
+            $primaryVerdict = Get-RoutePrimaryVerdict -Empty $empty -Thin $thin -WeakCta $weakCta -DeadEnd $deadEnd -UiContamination $uiContamination
+            $routeContradictions = New-Object System.Collections.Generic.List[object]
 
-        if ($primaryVerdict -eq 'HEALTHY' -and ($thin -or $weakCta -or $deadEnd -or $bodyTextLength -lt 250 -or $statusCode -ge 400 -or [int](Safe-Get -Object $route -Key 'screenshotCount' -Default 0) -eq 0)) {
-            $routeContradictions.Add([ordered]@{
-                    class = 'HEALTHY_BUT_VISUALLY_WEAK'
-                    scope = 'ROUTE'
-                    severity = 'REVIEW'
-                    evidence = "verdict=HEALTHY while thin=$thin weak_cta=$weakCta dead_end=$deadEnd bodyTextLength=$bodyTextLength status=$statusCode screenshotCount=$([int](Safe-Get -Object $route -Key 'screenshotCount' -Default 0))"
-                })
-        }
-        if ((-not $empty) -and $bodyTextLength -gt 120 -and ($weakCta -or $deadEnd)) {
-            $routeContradictions.Add([ordered]@{
-                    class = 'NON_EMPTY_BUT_LOW_VALUE'
-                    scope = 'ROUTE'
-                    severity = 'REVIEW'
-                    evidence = "bodyTextLength=$bodyTextLength avoids EMPTY, but weak_cta=$weakCta dead_end=$deadEnd links=$links buttonCount=$buttonCount hasNav=$hasNav"
-                })
-        }
-
-        if ($empty) { $emptyRoutes++ }
-        if ($thin) { $thinRoutes++ }
-        if ($weakCta) { $weakCtaRoutes++ }
-        if ($deadEnd) { $deadEndRoutes++ }
-        if ($uiContamination) { $contaminatedRoutes++ }
-
-        if (-not $verdictCounts.ContainsKey($primaryVerdict)) {
-            $verdictCounts[$primaryVerdict] = 0
-        }
-        $verdictCounts[$primaryVerdict] = [int]$verdictCounts[$primaryVerdict] + 1
-
-        $routeFindings = New-Object System.Collections.Generic.List[string]
-        if ($empty) { $routeFindings.Add('Route has empty or near-empty visible content.') }
-        if ($thin) { $routeFindings.Add('Route content is thin and likely underdeveloped.') }
-        if ($weakCta) { $routeFindings.Add('Route lacks clear CTA affordances.') }
-        if ($deadEnd) { $routeFindings.Add('Route appears to be a dead-end with limited onward navigation.') }
-        if ($uiContamination) { $routeFindings.Add("UI contamination markers detected: $(@($contaminationFlags) -join ', ').") }
-        foreach ($candidate in @($routeContradictions)) {
-            $routeFindings.Add("Contradiction candidate [$([string](Safe-Get -Object $candidate -Key 'class' -Default 'UNKNOWN'))]: $([string](Safe-Get -Object $candidate -Key 'evidence' -Default ''))")
-        }
-        $routeFindings.Add("Primary verdict class: $primaryVerdict")
-
-        $routeFindingsOutput = Convert-ToPageQualityStringArray -Value $routeFindings
-        $routeContradictionsOutput = Convert-ToPageQualityObjectArray -Value $routeContradictions
-        $contaminationFlagsOutput = Convert-ToPageQualityStringArray -Value $contaminationFlags
-
-        $result.Add([ordered]@{
-            route_path = Safe-Get -Object $route -Key 'route_path' -Default ''
-            status = $status
-            screenshotCount = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'screenshotCount' -Default 0) -Default 0
-            bodyTextLength = $bodyTextLength
-            links = $links
-            images = $images
-            title = $title
-            verdict_class = $primaryVerdict
-            page_flags = @{
-                empty = $empty
-                thin = $thin
-                weak_cta = $weakCta
-                dead_end = $deadEnd
-                ui_contamination = $uiContamination
+            $operationLabel = 'PQ3_route_contradictions_build'
+            $expression = 'Route contradiction candidate construction'
+            if ($primaryVerdict -eq 'HEALTHY' -and ($thin -or $weakCta -or $deadEnd -or $bodyTextLength -lt 250 -or $statusCode -ge 400 -or [int](Safe-Get -Object $route -Key 'screenshotCount' -Default 0) -eq 0)) {
+                $routeContradictions.Add([ordered]@{
+                        class = 'HEALTHY_BUT_VISUALLY_WEAK'
+                        scope = 'ROUTE'
+                        severity = 'REVIEW'
+                        evidence = "verdict=HEALTHY while thin=$thin weak_cta=$weakCta dead_end=$deadEnd bodyTextLength=$bodyTextLength status=$statusCode screenshotCount=$([int](Safe-Get -Object $route -Key 'screenshotCount' -Default 0))"
+                    })
             }
-            findings = $routeFindingsOutput
-            h1Count = $h1Count
-            buttonCount = $buttonCount
-            hasMain = $hasMain
-            hasArticle = $hasArticle
-            hasNav = $hasNav
-            hasFooter = $hasFooter
-            visibleTextSample = $visibleTextSample
-            contaminationFlags = $contaminationFlagsOutput
-            contradiction_candidates = $routeContradictionsOutput
-        })
+            if ((-not $empty) -and $bodyTextLength -gt 120 -and ($weakCta -or $deadEnd)) {
+                $routeContradictions.Add([ordered]@{
+                        class = 'NON_EMPTY_BUT_LOW_VALUE'
+                        scope = 'ROUTE'
+                        severity = 'REVIEW'
+                        evidence = "bodyTextLength=$bodyTextLength avoids EMPTY, but weak_cta=$weakCta dead_end=$deadEnd links=$links buttonCount=$buttonCount hasNav=$hasNav"
+                    })
+            }
+
+            if ($empty) { $emptyRoutes++ }
+            if ($thin) { $thinRoutes++ }
+            if ($weakCta) { $weakCtaRoutes++ }
+            if ($deadEnd) { $deadEndRoutes++ }
+            if ($uiContamination) { $contaminatedRoutes++ }
+
+            if (-not $verdictCounts.ContainsKey($primaryVerdict)) {
+                $verdictCounts[$primaryVerdict] = 0
+            }
+            $verdictCounts[$primaryVerdict] = [int]$verdictCounts[$primaryVerdict] + 1
+
+            $operationLabel = 'PQ4_route_findings_materialize'
+            $expression = 'Route findings and output materialization'
+            $routeFindings = New-Object System.Collections.Generic.List[string]
+            if ($empty) { $routeFindings.Add('Route has empty or near-empty visible content.') }
+            if ($thin) { $routeFindings.Add('Route content is thin and likely underdeveloped.') }
+            if ($weakCta) { $routeFindings.Add('Route lacks clear CTA affordances.') }
+            if ($deadEnd) { $routeFindings.Add('Route appears to be a dead-end with limited onward navigation.') }
+            if ($uiContamination) { $routeFindings.Add("UI contamination markers detected: $(@($contaminationFlags) -join ', ').") }
+            foreach ($candidate in @($routeContradictions)) {
+                $routeFindings.Add("Contradiction candidate [$([string](Safe-Get -Object $candidate -Key 'class' -Default 'UNKNOWN'))]: $([string](Safe-Get -Object $candidate -Key 'evidence' -Default ''))")
+            }
+            $routeFindings.Add("Primary verdict class: $primaryVerdict")
+
+            $routeFindingsOutput = Convert-ToPageQualityStringArray -Value $routeFindings
+            $routeContradictionsOutput = Convert-ToPageQualityObjectArray -Value $routeContradictions
+            $contaminationFlagsOutput = Convert-ToPageQualityStringArray -Value $contaminationFlags
+
+            $operationLabel = 'PQ5_route_result_add'
+            $expression = 'Append route evaluation object to result list'
+            $result.Add([ordered]@{
+                route_path = Safe-Get -Object $route -Key 'route_path' -Default ''
+                status = $status
+                screenshotCount = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'screenshotCount' -Default 0) -Default 0
+                bodyTextLength = $bodyTextLength
+                links = $links
+                images = $images
+                title = $title
+                verdict_class = $primaryVerdict
+                page_flags = @{
+                    empty = $empty
+                    thin = $thin
+                    weak_cta = $weakCta
+                    dead_end = $deadEnd
+                    ui_contamination = $uiContamination
+                }
+                findings = $routeFindingsOutput
+                h1Count = $h1Count
+                buttonCount = $buttonCount
+                hasMain = $hasMain
+                hasArticle = $hasArticle
+                hasNav = $hasNav
+                hasFooter = $hasFooter
+                visibleTextSample = $visibleTextSample
+                contaminationFlags = $contaminationFlagsOutput
+                contradiction_candidates = $routeContradictionsOutput
+            })
+        }
+
+        $operationLabel = 'PQ6_rollup_build'
+        $expression = 'Create page-quality rollup counters and verdict counts'
+        $rollups = @{
+            empty_routes = [int]$emptyRoutes
+            thin_routes = [int]$thinRoutes
+            weak_cta_routes = [int]$weakCtaRoutes
+            dead_end_routes = [int]$deadEndRoutes
+            contaminated_routes = [int]$contaminatedRoutes
+            verdict_counts = $verdictCounts
+        }
+
+        $operationLabel = 'PQ7_pattern_summary_build'
+        $expression = 'Build-SitePatternSummary -TotalRoutes @($routesInput).Count -Rollups $rollups'
+        $patternSummary = Build-SitePatternSummary -TotalRoutes @($routesInput).Count -Rollups $rollups
+        $operationLabel = 'PQ8_route_details_output_materialize'
+        $expression = 'Convert-ToPageQualityObjectArray -Value $result'
+        $routeDetailsOutput = Convert-ToPageQualityObjectArray -Value $result
+
+        return @{
+            route_details = $routeDetailsOutput
+            rollups = $rollups
+            pattern_summary = $patternSummary
+        }
     }
-
-    $rollups = @{
-        empty_routes = [int]$emptyRoutes
-        thin_routes = [int]$thinRoutes
-        weak_cta_routes = [int]$weakCtaRoutes
-        dead_end_routes = [int]$deadEndRoutes
-        contaminated_routes = [int]$contaminatedRoutes
-        verdict_counts = $verdictCounts
-    }
-
-    $patternSummary = Build-SitePatternSummary -TotalRoutes @($routesInput).Count -Rollups $rollups
-    $routeDetailsOutput = Convert-ToPageQualityObjectArray -Value $result
-
-    return @{
-        route_details = $routeDetailsOutput
-        rollups = $rollups
-        pattern_summary = $patternSummary
+    catch {
+        Set-PageQualityForensics -FunctionName 'Build-PageQualityFindings' -ActivePhase 'PAGE_QUALITY_BUILD' -ActiveOperationLabel $operationLabel -ActiveExpression $expression -LeftOperand $Routes -RightOperand $null -StackHintIfAvailable $_.ScriptStackTrace -AdditionalContext ([ordered]@{
+                route_count_sample = @($Routes).Count
+                operation_label = $operationLabel
+                expression = $expression
+                error_message = $_.Exception.Message
+            })
+        throw
     }
 }
 
