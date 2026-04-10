@@ -1542,6 +1542,54 @@ function Get-RoutePrimaryVerdict {
     return 'MIXED'
 }
 
+function Convert-ToPageQualityObjectArray {
+    param([object]$Value)
+
+    if ($null -eq $Value) { return @() }
+    if ($Value -is [System.Collections.Generic.List[object]]) { return [object[]]$Value.ToArray() }
+    if ($Value -is [System.Collections.Generic.List[string]]) { return [object[]]$Value.ToArray() }
+    if ($Value -is [System.Collections.ICollection]) {
+        $output = New-Object System.Collections.Generic.List[object]
+        foreach ($item in $Value) {
+            $output.Add($item)
+        }
+        return [object[]]$output.ToArray()
+    }
+    if ($Value -is [System.Collections.IEnumerable] -and -not ($Value -is [string])) {
+        $output = New-Object System.Collections.Generic.List[object]
+        foreach ($item in $Value) {
+            $output.Add($item)
+        }
+        return [object[]]$output.ToArray()
+    }
+    return @($Value)
+}
+
+function Convert-ToPageQualityStringArray {
+    param([object]$Value)
+
+    $items = Convert-ToPageQualityObjectArray -Value $Value
+    $normalized = New-Object System.Collections.Generic.List[string]
+
+    foreach ($item in $items) {
+        if ($null -eq $item) { continue }
+        if ($item -is [System.Collections.IDictionary] -or $item -is [PSCustomObject]) {
+            $json = $item | ConvertTo-Json -Depth 8 -Compress
+            if (-not [string]::IsNullOrWhiteSpace($json)) {
+                $normalized.Add([string]$json)
+            }
+            continue
+        }
+
+        $text = [string]$item
+        if (-not [string]::IsNullOrWhiteSpace($text)) {
+            $normalized.Add($text)
+        }
+    }
+
+    return [string[]]$normalized.ToArray()
+}
+
 function Build-SitePatternSummary {
     param(
         [int]$TotalRoutes,
@@ -1587,14 +1635,17 @@ function Build-SitePatternSummary {
     }
 
     $dominant = $null
-    foreach ($pattern in @($repeatedPatterns + $isolatedPatterns)) {
+    $allPatterns = New-Object System.Collections.Generic.List[object]
+    foreach ($pattern in $repeatedPatterns) { $allPatterns.Add($pattern) }
+    foreach ($pattern in $isolatedPatterns) { $allPatterns.Add($pattern) }
+    foreach ($pattern in $allPatterns) {
         if ($null -eq $dominant -or [int]$pattern.routes_affected -gt [int]$dominant.routes_affected) {
             $dominant = $pattern
         }
     }
 
-    $repeatedPatternsOutput = [object[]]$repeatedPatterns.ToArray()
-    $isolatedPatternsOutput = [object[]]$isolatedPatterns.ToArray()
+    $repeatedPatternsOutput = Convert-ToPageQualityObjectArray -Value $repeatedPatterns
+    $isolatedPatternsOutput = Convert-ToPageQualityObjectArray -Value $isolatedPatterns
 
     return @{
         repeated_patterns = $repeatedPatternsOutput
@@ -1609,7 +1660,7 @@ function Build-SitePatternSummary {
 function Build-PageQualityFindings {
     param([object[]]$Routes)
 
-    $routesInput = Convert-ToObjectArraySafe -Value $Routes
+    $routesInput = Convert-ToPageQualityObjectArray -Value $Routes
     $result = New-Object System.Collections.Generic.List[object]
     $emptyRoutes = 0
     $thinRoutes = 0
@@ -1631,7 +1682,7 @@ function Build-PageQualityFindings {
         $hasNav = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasNav' -Default $false) -Default $false
         $hasFooter = Convert-ToBoolSafe -Value (Safe-Get -Object $route -Key 'hasFooter' -Default $false) -Default $false
         $visibleTextSample = [string](Safe-Get -Object $route -Key 'visibleTextSample' -Default '')
-        $contaminationFlags = Convert-ToStringArraySafe -Value (Safe-Get -Object $route -Key 'contaminationFlags' -Default @())
+        $contaminationFlags = Convert-ToPageQualityStringArray -Value (Safe-Get -Object $route -Key 'contaminationFlags' -Default @())
         $normalizedText = ($visibleTextSample + ' ' + $title).ToLowerInvariant()
 
         $statusCode = 0
@@ -1685,9 +1736,9 @@ function Build-PageQualityFindings {
         }
         $routeFindings.Add("Primary verdict class: $primaryVerdict")
 
-        $routeFindingsOutput = Convert-ToStringArraySafe -Value $routeFindings
-        $routeContradictionsOutput = Convert-ToObjectArraySafe -Value $routeContradictions
-        $contaminationFlagsOutput = Convert-ToStringArraySafe -Value $contaminationFlags
+        $routeFindingsOutput = Convert-ToPageQualityStringArray -Value $routeFindings
+        $routeContradictionsOutput = Convert-ToPageQualityObjectArray -Value $routeContradictions
+        $contaminationFlagsOutput = Convert-ToPageQualityStringArray -Value $contaminationFlags
 
         $result.Add([ordered]@{
             route_path = Safe-Get -Object $route -Key 'route_path' -Default ''
@@ -1728,7 +1779,7 @@ function Build-PageQualityFindings {
     }
 
     $patternSummary = Build-SitePatternSummary -TotalRoutes @($routesInput).Count -Rollups $rollups
-    $routeDetailsOutput = Convert-ToObjectArraySafe -Value $result
+    $routeDetailsOutput = Convert-ToPageQualityObjectArray -Value $result
 
     return @{
         route_details = $routeDetailsOutput
