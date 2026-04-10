@@ -27,6 +27,7 @@ $global:RouteNormalizationForensics = $null
 $global:RouteNormalizationTrace = @()
 $global:RouteNormalizationAggregateTrace = @()
 $global:PageQualityForensics = $null
+$global:DecisionForensics = $null
 $reportFiles = New-Object System.Collections.Generic.List[string]
 
 function Get-DebugValueSample {
@@ -190,6 +191,41 @@ function Set-PageQualityForensics {
         failure_stage = 'PAGE_QUALITY_BUILD'
         function_name = $FunctionName
         activePhase = if ([string]::IsNullOrWhiteSpace($ActivePhase)) { 'PAGE_QUALITY_BUILD' } else { $ActivePhase }
+        activeOperationLabel = if ([string]::IsNullOrWhiteSpace($ActiveOperationLabel)) { '' } else { $ActiveOperationLabel }
+        activeExpression = if ([string]::IsNullOrWhiteSpace($ActiveExpression)) { '' } else { $ActiveExpression }
+        left_type = $leftType
+        right_type = $rightType
+        left_value_sample = Get-DebugValueSample -Value $LeftOperand
+        right_value_sample = Get-DebugValueSample -Value $RightOperand
+        stack_hint_if_available = if ([string]::IsNullOrWhiteSpace($stackHint)) { '' } else { [string]$stackHint }
+        additional_context = if ($null -eq $AdditionalContext) { @{} } else { $AdditionalContext }
+    }
+}
+
+function Set-DecisionForensics {
+    param(
+        [string]$FunctionName,
+        [string]$ActivePhase = 'DECISION_BUILD',
+        [string]$ActiveOperationLabel = '',
+        [string]$ActiveExpression = '',
+        [object]$LeftOperand = $null,
+        [object]$RightOperand = $null,
+        [object]$AdditionalContext = $null,
+        [string]$StackHintIfAvailable = ''
+    )
+
+    $leftType = if ($null -eq $LeftOperand) { '<null>' } else { $LeftOperand.GetType().FullName }
+    $rightType = if ($null -eq $RightOperand) { '<null>' } else { $RightOperand.GetType().FullName }
+
+    $stackHint = $StackHintIfAvailable
+    if ([string]::IsNullOrWhiteSpace($stackHint) -and $null -ne $AdditionalContext) {
+        $stackHint = [string](Safe-Get -Object $AdditionalContext -Key 'stack_hint' -Default '')
+    }
+
+    $global:DecisionForensics = [ordered]@{
+        failure_stage = 'DECISION_BUILD'
+        function_name = $FunctionName
+        activePhase = if ([string]::IsNullOrWhiteSpace($ActivePhase)) { 'DECISION_BUILD' } else { $ActivePhase }
         activeOperationLabel = if ([string]::IsNullOrWhiteSpace($ActiveOperationLabel)) { '' } else { $ActiveOperationLabel }
         activeExpression = if ([string]::IsNullOrWhiteSpace($ActiveExpression)) { '' } else { $ActiveExpression }
         left_type = $leftType
@@ -2157,24 +2193,59 @@ function Build-ContradictionLayer {
             })
     }
 
-    $allCandidates = @($routeCandidates + $siteCandidates)
+    $operationLabel = 'C1_prepare_contradiction_candidates'
+    $expression = 'route/site candidate materialization and deterministic combine'
+    $routeCandidateArray = @()
+    $siteCandidateArray = @()
+    $allCandidates = @()
     $classCounts = @{}
-    foreach ($candidate in @($allCandidates)) {
-        $className = [string](Safe-Get -Object $candidate -Key 'class' -Default 'UNKNOWN')
-        if (-not $classCounts.ContainsKey($className)) {
-            $classCounts[$className] = 0
+
+    try {
+        $routeCandidateArray = [object[]]@($routeCandidates)
+        $siteCandidateArray = [object[]]@($siteCandidates)
+
+        $operationLabel = 'C2_combine_contradiction_candidates'
+        $combinedCandidateList = New-Object System.Collections.Generic.List[object]
+        foreach ($candidate in $routeCandidateArray) {
+            $combinedCandidateList.Add($candidate)
         }
-        $classCounts[$className] = [int]$classCounts[$className] + 1
+        foreach ($candidate in $siteCandidateArray) {
+            $combinedCandidateList.Add($candidate)
+        }
+        $allCandidates = [object[]]$combinedCandidateList.ToArray()
+
+        $operationLabel = 'C3_build_contradiction_class_counts'
+        foreach ($candidate in $allCandidates) {
+            $className = [string](Safe-Get -Object $candidate -Key 'class' -Default 'UNKNOWN')
+            if (-not $classCounts.ContainsKey($className)) {
+                $classCounts[$className] = 0
+            }
+            $classCounts[$className] = [int]$classCounts[$className] + 1
+        }
+    }
+    catch {
+        Set-DecisionForensics -FunctionName 'Build-ContradictionLayer' -ActivePhase 'DECISION_BUILD' -ActiveOperationLabel $operationLabel -ActiveExpression $expression -LeftOperand $routeCandidateArray -RightOperand $siteCandidateArray -StackHintIfAvailable $_.ScriptStackTrace -AdditionalContext ([ordered]@{
+                operation_label = $operationLabel
+                expression = $expression
+                route_candidates_type = if ($null -eq $routeCandidates) { '<null>' } else { $routeCandidates.GetType().FullName }
+                site_candidates_type = if ($null -eq $siteCandidates) { '<null>' } else { $siteCandidates.GetType().FullName }
+                route_candidate_array_type = if ($null -eq $routeCandidateArray) { '<null>' } else { $routeCandidateArray.GetType().FullName }
+                site_candidate_array_type = if ($null -eq $siteCandidateArray) { '<null>' } else { $siteCandidateArray.GetType().FullName }
+                route_candidate_count = [int]@($routeCandidateArray).Count
+                site_candidate_count = [int]@($siteCandidateArray).Count
+                error_message = $_.Exception.Message
+            })
+        throw "Build-ContradictionLayer failed at [$operationLabel]: $($_.Exception.Message)"
     }
 
     return @{
-        route_candidates = @($routeCandidates)
-        site_candidates = @($siteCandidates)
+        route_candidates = @($routeCandidateArray)
+        site_candidates = @($siteCandidateArray)
         candidates = @($allCandidates)
         class_counts = $classCounts
         total_candidates = [int]$allCandidates.Count
-        route_candidate_count = [int]$routeCandidates.Count
-        site_candidate_count = [int]$siteCandidates.Count
+        route_candidate_count = [int]$routeCandidateArray.Count
+        site_candidate_count = [int]$siteCandidateArray.Count
     }
 }
 
@@ -3602,6 +3673,13 @@ catch {
 
     $failureReason = $global:AuditError.Exception.Message
     if (-not $failureReason) { $failureReason = 'Unknown failure while running SITE_AUDITOR.' }
+    if ($null -ne $global:DecisionForensics) {
+        $dfFunction = [string](Safe-Get -Object $global:DecisionForensics -Key 'function_name' -Default '')
+        $dfOperation = [string](Safe-Get -Object $global:DecisionForensics -Key 'activeOperationLabel' -Default '')
+        if (-not [string]::IsNullOrWhiteSpace($dfFunction) -or -not [string]::IsNullOrWhiteSpace($dfOperation)) {
+            $failureReason = "$failureReason [DECISION_BUILD/$dfFunction/$dfOperation]"
+        }
+    }
 
     $sourceLayer = New-SourceLayer -Overrides $sourceLayer
     $liveLayer = New-LiveLayer -Overrides $liveLayer

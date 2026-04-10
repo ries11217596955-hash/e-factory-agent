@@ -7,7 +7,7 @@
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
 
 ## TASK
-- `SITE_AUDITOR — surgical fix for PQ7_pattern_summary_build hashtable merge failure`.
+- `SITE_AUDITOR — surgical fix for post-live contradiction/decision merge type failure`.
 
 ## REPOSITORY SCOPE (Allowed / Forbidden)
 - Allowed:
@@ -19,52 +19,55 @@
   - other runtime lanes
   - giant rewrite / broad refactor
   - output contract redesign
-  - touching already-passing `ROUTE_NORMALIZATION` / `ROUTE_MERGE`
+  - touching already-passing live/page-quality logic except for downstream forensic attribution
 
 ## MODE
 - PR-FIRST
 - SURGICAL RUNTIME FIX
 
 ## REQUIREMENTS
-- Identify exact failing combine path inside `Build-SitePatternSummary`.
-- Replace fragile pattern output merge with deterministic `object[]` combination (no hashtable arithmetic).
-- Improve local PQ7 forensic fidelity with combine operand and type/count details.
-- Run strongest available parse/structural validation and report parser execution status.
+- Identify exact downstream merge/type failure path after `PAGE_QUALITY_BUILD`.
+- Repair contradiction merge path deterministically without fragile generic-list arithmetic.
+- Preserve output schema exactly for contradiction summary.
+- Add downstream forensic attribution so recurrent failures are not reduced to generic type errors.
+- Run strongest available structural validation and explicitly report parser availability.
 
 ## REPORTING
-- Includes repository-mandated sections and operator-required runtime forensics notes.
+- Includes repository-required sections and requested deep-audit sections.
 
 ## SUMMARY
-- Confirmed the exact PQ7 failure site was the `@($repeatedPatternsOutput + $isolatedPatternsOutput)` combine expression in `Build-SitePatternSummary`.
-- Replaced the combine path with deterministic array materialization and explicit list-based append (`List[object]`), then converted once to final `object[]`.
-- Added local PQ7 sub-operation labels (`PQ7a`, `PQ7b`, `PQ7c`) to isolate prepare/combine/dominant-selection phases.
-- Added PQ7-specific forensic capture for exact combine left/right operands plus counts/types for repeated/isolated outputs.
-- Preserved output schema exactly (`repeated_patterns`, `isolated_patterns`, `repeated_pattern_count`, `isolated_pattern_count`, `systemic`, `dominant_pattern`).
+- Confirmed the downstream fragile path in `Build-ContradictionLayer` was `@($routeCandidates + $siteCandidates)`, where both operands are `System.Collections.Generic.List[object]` and can trigger non-deterministic operator binding/type-match failure in runtime contexts.
+- Replaced that merge with deterministic materialization into `object[]` (`$routeCandidateArray`, `$siteCandidateArray`) and explicit append into a local `List[object]`, then one-way conversion to final `object[]`.
+- Preserved contradiction output contract exactly: `route_candidates`, `site_candidates`, `candidates`, `class_counts`, `total_candidates`, `route_candidate_count`, `site_candidate_count`.
+- Added targeted downstream forensics via `Set-DecisionForensics` and `Build-ContradictionLayer` operation labels (`C1/C2/C3`) including exact operand types and counts.
+- Added top-level failure reason enrichment so decision-layer failures include `[DECISION_BUILD/<function>/<operation>]` attribution instead of collapsing to a generic message.
 
 ## CHANGED FILES
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
 - `docs/TASK_REPORT.md`
 
-## ROOT CAUSE OF PQ7 FAILURE
-- The previous combine expression used `+` directly between two values that can resolve to hashtable-like/dictionary-shaped objects in edge cases:
-  - `@($repeatedPatternsOutput + $isolatedPatternsOutput)`
-- In PowerShell, `+` on hashtable-like values invokes hashtable-add semantics, producing the runtime error:
-  - `A hash table can only be added to another hash table.`
+## ROOT CAUSE OF THE DOWNSTREAM FAILURE
+- Root cause was unsafe collection merge semantics in the contradiction layer:
+  - previous code: `@($routeCandidates + $siteCandidates)`
+- This relied on implicit `+` operator behavior across generic list operands in PowerShell runtime binding; when operand types/coercion changed across runs, merge could fail with generic type-match errors (observed as `Argument types do not match`).
 
 ## EXACT SECTION REPAIRED
-- Function: `Build-SitePatternSummary`.
-- Repaired path:
-  - Removed fragile merge expression at the pattern summary combine point.
-  - Added deterministic operand materialization (`Convert-ToPageQualityObjectArray` for each side).
-  - Combined via explicit append into `System.Collections.Generic.List[object]`, then output as `object[]`.
-  - Dominant pattern selection now iterates deterministic combined array.
-- Forensics enhancement:
-  - Added `repeated_patterns_output_count`, `isolated_patterns_output_count`, `repeated_patterns_output_type`, `isolated_patterns_output_type`.
-  - Added PQ7 left/right operand remapping in catch for combine/dominant sub-operations.
+- Function: `Build-ContradictionLayer`.
+- Repaired section:
+  - Removed fragile generic-list `+` merge.
+  - Added deterministic local combination path:
+    - `[object[]]@($routeCandidates)` and `[object[]]@($siteCandidates)`
+    - explicit append into `System.Collections.Generic.List[object]`
+    - final `object[]` via `.ToArray()`
+  - `class_counts` now built from deterministic combined array.
+- Forensic additions:
+  - new `Set-DecisionForensics` helper/state (`$global:DecisionForensics`)
+  - operation labels: `C1_prepare_contradiction_candidates`, `C2_combine_contradiction_candidates`, `C3_build_contradiction_class_counts`
+  - captured fields include route/site left/right operand types and counts.
 
 ## VALIDATION EXECUTED
-- Targeted code inspection and line verification:
-  - `rg -n "function Build-SitePatternSummary|PQ7[a-c]_pattern_summary|repeatedPatternsOutput|isolatedPatternsOutput|combinedPatternList|combinedPatterns|A hash table can only be added" agents/gh_batch/site_auditor_cloud/agent.ps1`
+- Targeted static inspection:
+  - `rg -n "function Set-DecisionForensics|global:DecisionForensics|function Build-ContradictionLayer|C1_prepare_contradiction_candidates|C2_combine_contradiction_candidates|C3_build_contradiction_class_counts|@\(\$routeCandidates \+ \$siteCandidates\)|DECISION_BUILD" agents/gh_batch/site_auditor_cloud/agent.ps1`
 - PowerShell parser availability check:
   - `command -v pwsh || command -v powershell || true`
 
@@ -72,16 +75,16 @@ PowerShell parse status:
 - **PowerShell parse did not run in this container** because neither `pwsh` nor `powershell` is installed.
 
 ## REMAINING RISKS
-- End-to-end runtime validation is still required in a PowerShell-capable runner.
-- If a subsequent failure appears, it may occur in downstream consumers of `pattern_summary`, not in the repaired combine path.
+- End-to-end runtime confirmation still depends on a PowerShell-capable runner.
+- If downstream failure persists, it may now be in other post-live layers (e.g., diagnosis/decision consumers), but attribution should include decision function/operation labels and operand details.
 
 ## EXPECTED NEXT RUNTIME STATE
-- `PAGE_QUALITY_BUILD` should no longer fail due to hashtable-addition semantics in `PQ7_pattern_summary_build`.
-- If PQ7 fails again, forensics should identify exact sub-operation (`PQ7a`/`PQ7b`/`PQ7c`) and include combine operand counts/types.
-- Upstream passing lanes (`ROUTE_NORMALIZATION`, `ROUTE_MERGE`) remain untouched.
+- Downstream contradiction candidate merge should be deterministic and no longer depend on fragile generic-list operator coercion.
+- If recurrence occurs, failure output should identify exact decision function and operation label, with operand type/count context.
+- Previously passing lanes (`ROUTE_NORMALIZATION`, `ROUTE_MERGE`, `PAGE_QUALITY_BUILD`, `LIVE AUDIT`) remain unmodified in behavior.
 
 ## Summary
-- Implemented a narrow PQ7 repair for deterministic pattern-array merging and improved PQ7-local forensics.
+- Implemented a surgical downstream contradiction merge fix and added decision-layer forensic attribution for operator-grade failure diagnostics.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -97,4 +100,4 @@ PowerShell parse status:
   - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 
 ## Risks/blockers
-- PowerShell executable is unavailable in this container; parse/runtime confirmation must occur in CI or an operator PowerShell environment.
+- Local PowerShell parse/runtime execution is blocked by missing `pwsh`/`powershell` binaries in this container.
