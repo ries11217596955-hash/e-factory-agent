@@ -1785,6 +1785,9 @@ function Build-PageQualityFindings {
     $pq4aRouteVerdict = ''
     $pq4aRouteContradictions = $null
     $pq4aContaminationFlags = $null
+    $pq4aCurrentLeftOperand = $null
+    $pq4aCurrentRightOperand = $null
+    $pq4aRouteFindingsCountBeforeFailure = 0
     try {
         $routesInput = Convert-ToPageQualityObjectArray -Value $Routes
         $result = New-Object System.Collections.Generic.List[object]
@@ -1862,21 +1865,67 @@ function Build-PageQualityFindings {
 
             $operationLabel = 'PQ4A2_route_findings_list_populate'
             $expression = 'Populate local route findings list from route signals and contradiction candidates'
+            $routeContradictionsLocal = Convert-ToPageQualityObjectArray -Value $routeContradictions
+            $contaminationFlagsLocal = Convert-ToPageQualityStringArray -Value $contaminationFlags
+            $pq4aRouteContradictions = $routeContradictionsLocal
+            $pq4aContaminationFlags = $contaminationFlagsLocal
+
+            $operationLabel = 'PQ4A2a_add_empty_flag_line'
+            $expression = 'Add empty-route finding line when empty route signal is true'
+            $pq4aCurrentLeftOperand = $empty
+            $pq4aCurrentRightOperand = $routeFindings
+            $pq4aRouteFindingsCountBeforeFailure = [int]$routeFindings.Count
             if ($empty) { $routeFindings.Add('Route has empty or near-empty visible content.') }
+
+            $operationLabel = 'PQ4A2b_add_thin_flag_line'
+            $expression = 'Add thin-route finding line when thin route signal is true'
+            $pq4aCurrentLeftOperand = $thin
+            $pq4aCurrentRightOperand = $routeFindings
+            $pq4aRouteFindingsCountBeforeFailure = [int]$routeFindings.Count
             if ($thin) { $routeFindings.Add('Route content is thin and likely underdeveloped.') }
+
+            $operationLabel = 'PQ4A2c_add_weak_cta_line'
+            $expression = 'Add weak-cta finding line when weak_cta route signal is true'
+            $pq4aCurrentLeftOperand = $weakCta
+            $pq4aCurrentRightOperand = $routeFindings
+            $pq4aRouteFindingsCountBeforeFailure = [int]$routeFindings.Count
             if ($weakCta) { $routeFindings.Add('Route lacks clear CTA affordances.') }
+
+            $operationLabel = 'PQ4A2d_add_dead_end_line'
+            $expression = 'Add dead-end finding line when dead_end route signal is true'
+            $pq4aCurrentLeftOperand = $deadEnd
+            $pq4aCurrentRightOperand = $routeFindings
+            $pq4aRouteFindingsCountBeforeFailure = [int]$routeFindings.Count
             if ($deadEnd) { $routeFindings.Add('Route appears to be a dead-end with limited onward navigation.') }
-            if ($uiContamination) { $routeFindings.Add("UI contamination markers detected: $(@($contaminationFlags) -join ', ').") }
-            foreach ($candidate in @($routeContradictions)) {
+
+            $operationLabel = 'PQ4A2e_add_contamination_line'
+            $expression = 'Add ui contamination finding line using deterministic local contamination flags'
+            $pq4aCurrentLeftOperand = $contaminationFlagsLocal
+            $pq4aCurrentRightOperand = $routeFindings
+            $pq4aRouteFindingsCountBeforeFailure = [int]$routeFindings.Count
+            if ($uiContamination) { $routeFindings.Add("UI contamination markers detected: $($contaminationFlagsLocal -join ', ').") }
+
+            $operationLabel = 'PQ4A2f_iterate_route_contradictions'
+            $expression = 'Iterate deterministic local contradiction candidates and append contradiction finding lines'
+            $pq4aCurrentLeftOperand = $routeContradictionsLocal
+            $pq4aCurrentRightOperand = $routeFindings
+            $pq4aRouteFindingsCountBeforeFailure = [int]$routeFindings.Count
+            foreach ($candidate in $routeContradictionsLocal) {
                 $routeFindings.Add("Contradiction candidate [$([string](Safe-Get -Object $candidate -Key 'class' -Default 'UNKNOWN'))]: $([string](Safe-Get -Object $candidate -Key 'evidence' -Default ''))")
             }
+
+            $operationLabel = 'PQ4A2g_add_primary_verdict_line'
+            $expression = 'Add primary verdict class finding line'
+            $pq4aCurrentLeftOperand = $primaryVerdict
+            $pq4aCurrentRightOperand = $routeFindings
+            $pq4aRouteFindingsCountBeforeFailure = [int]$routeFindings.Count
             $routeFindings.Add("Primary verdict class: $primaryVerdict")
             $pq4aRouteFindings = $routeFindings
-            $pq4aRouteFindingsCount = @($routeFindings).Count
+            $pq4aRouteFindingsCount = [int]$routeFindings.Count
             $pq4aRouteFindingsType = if ($null -eq $routeFindings) { '' } else { [string]$routeFindings.GetType().FullName }
             $pq4aRouteVerdict = $primaryVerdict
-            $pq4aRouteContradictions = $routeContradictions
-            $pq4aContaminationFlags = $contaminationFlags
+            $pq4aRouteContradictions = $routeContradictionsLocal
+            $pq4aContaminationFlags = $contaminationFlagsLocal
 
             $operationLabel = 'PQ4A3_route_findings_fastpath_toarray'
             $expression = 'Use local deterministic fast-path when routeFindings is Generic.List[string]'
@@ -1969,11 +2018,11 @@ function Build-PageQualityFindings {
         $leftOperand = $Routes
         $rightOperand = $null
         if (($operationLabel -eq 'PQ4A1_route_findings_list_init') -or
-            ($operationLabel -eq 'PQ4A2_route_findings_list_populate') -or
+            ($operationLabel -like 'PQ4A2*') -or
             ($operationLabel -eq 'PQ4A3_route_findings_fastpath_toarray') -or
             ($operationLabel -eq 'PQ4A4_route_findings_fallback_string_array')) {
-            $leftOperand = $pq4aRouteFindings
-            $rightOperand = $pq4aRouteFindingsOutput
+            $leftOperand = if ($null -ne $pq4aCurrentLeftOperand) { $pq4aCurrentLeftOperand } else { $pq4aRouteFindings }
+            $rightOperand = if ($null -ne $pq4aCurrentRightOperand) { $pq4aCurrentRightOperand } else { $pq4aRouteFindingsOutput }
         }
         elseif ($operationLabel -eq 'PQ4B_route_contradictions_output_object_array') {
             $leftOperand = $pq4aRouteContradictions
@@ -1988,8 +2037,10 @@ function Build-PageQualityFindings {
                 route_count_sample = @($routesInput).Count
                 route_path = $pq4aRoutePath
                 route_findings_count = [int]$pq4aRouteFindingsCount
+                route_findings_count_before_failure = [int]$pq4aRouteFindingsCountBeforeFailure
                 route_findings_type = $pq4aRouteFindingsType
                 route_verdict = $pq4aRouteVerdict
+                primaryVerdict = $pq4aRouteVerdict
                 operation_label = $operationLabel
                 expression = $expression
                 error_message = $_.Exception.Message

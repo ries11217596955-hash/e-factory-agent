@@ -7,7 +7,7 @@
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
 
 ## TASK
-- `SITE_AUDITOR — split and repair exact PQ4A micro-substep failure`.
+- `SITE_AUDITOR — surgical fix for exact PQ4A2 route findings populate failure`.
 
 ## REPOSITORY SCOPE (Allowed / Forbidden)
 - Allowed:
@@ -26,67 +26,66 @@
 - SURGICAL RUNTIME FIX
 
 ## REQUIREMENTS
-- Split former PQ4A into exact micro-substeps.
-- Make routeFindingsOutput deterministic and local.
-- Improve PQ4A forensic operands to local values with route context.
-- Run strongest available validation and report parse status explicitly.
+- Split PQ4A2 into exact populate micro-substeps.
+- Remove/contain fragile `@(...)` list coercion usage inside PQ4A2 populate path.
+- Improve local forensic fidelity (route path, primary verdict, local count before failure, exact operands).
+- Run strongest available parse/structural validation and explicitly report parse execution status.
 
 ## REPORTING
-- Includes mandatory sections from task instructions and operator reporting format.
+- Includes mandatory sections required by repository and operator instructions.
 
 ## SUMMARY
-- Split broad `PQ4A_route_findings_output_string_array` into exact micro-substeps: init, populate, fast-path conversion, and fallback conversion.
-- Repaired `routeFindingsOutput` path to be local and deterministic:
-  - empty list => `@()`
-  - `Generic.List[string]` => `.ToArray()`
-  - `string[]` => direct pass-through
-  - fallback helper only when needed.
-- Preserved output contract as `string[]` and kept scope local to `Build-PageQualityFindings`.
-- Upgraded PAGE_QUALITY_BUILD forensics so PQ4A failures now include route-local operands and context (route path, findings count/type, verdict).
+- Split the broad populate phase into exact PQ4A2 micro-substeps (`a`..`g`) so reruns can pinpoint the exact failing action.
+- Hardened PQ4A2 by pre-materializing deterministic local arrays for contradictions and contamination flags, then using those locals for string assembly and iteration.
+- Removed fragile populate-time list sugar patterns from the targeted block (`foreach ($candidate in @($routeContradictions))` and contamination `@(...)-join` pattern).
+- Added per-micro-substep forensic operand capture and route-local failure context, including findings count before failure.
+- Kept all behavior local to `Build-PageQualityFindings`; no changes were made to already-passing `ROUTE_NORMALIZATION`/`ROUTE_MERGE`.
 
 ## CHANGED FILES
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
 - `docs/TASK_REPORT.md`
 
 ## EXACT PQ4A MICRO-SUBSTEPS ADDED
-- `PQ4A1_route_findings_list_init`
-- `PQ4A2_route_findings_list_populate`
-- `PQ4A3_route_findings_fastpath_toarray`
-- `PQ4A4_route_findings_fallback_string_array`
+- `PQ4A2a_add_empty_flag_line`
+- `PQ4A2b_add_thin_flag_line`
+- `PQ4A2c_add_weak_cta_line`
+- `PQ4A2d_add_dead_end_line`
+- `PQ4A2e_add_contamination_line`
+- `PQ4A2f_iterate_route_contradictions`
+- `PQ4A2g_add_primary_verdict_line`
 
 ## ROOT CAUSE OF THE FAILING MICRO-SUBSTEP
-- Former PQ4A used one broad label and a mixed conversion path that could route through generalized helper coercion even when local data was already a concrete list.
-- This made the exact failing point ambiguous and reduced determinism for route findings materialization.
+- The populate phase used one broad label and fragile/coercive list sugar patterns during contradiction iteration and contamination text assembly, making failure provenance ambiguous and increasing risk around mixed enumerable/list values.
 
 ## EXACT SECTION REPAIRED
 - Function: `Build-PageQualityFindings`.
-- Section: route findings list construction/materialization and PAGE_QUALITY_BUILD catch forensic operand selection.
-- Repair details:
-  - split PQ4A into A1/A2/A3/A4 labels.
-  - added deterministic fast-paths and explicit empty handling.
-  - updated catch label matching so all PQ4A micro-substeps use local PQ4 operands.
-  - enriched additional context with route-local forensic fields.
+- Target section: PQ4A route findings populate phase and its PAGE_QUALITY_BUILD catch-side forensic mapping.
+- Repairs:
+  - split populate into explicit `PQ4A2a`..`PQ4A2g` micro-substeps;
+  - pre-materialized `$routeContradictionsLocal` and `$contaminationFlagsLocal` as deterministic local arrays;
+  - removed populate-time `@(...)` coercion usage from contradiction iteration and contamination join;
+  - added local forensic operand tracking plus `route_findings_count_before_failure` context.
 
 ## VALIDATION EXECUTED
-- `rg -n "PQ4A[1-4]_route_findings|routeFindingsOutput|route_findings_(count|type)|route_path" agents/gh_batch/site_auditor_cloud/agent.ps1`
-- `command -v pwsh || command -v powershell || true`
-- `git diff -- agents/gh_batch/site_auditor_cloud/agent.ps1 docs/TASK_REPORT.md`
+- Structural/targeted code checks:
+  - `rg -n "PQ4A2[a-g]|routeContradictionsLocal|contaminationFlagsLocal|route_findings_count_before_failure|PQ4A2_route_findings_list_populate" agents/gh_batch/site_auditor_cloud/agent.ps1`
+- PowerShell availability check:
+  - `command -v pwsh || command -v powershell || true`
 
 PowerShell parse status:
-- **PowerShell parse did not run in this environment** (`pwsh`/`powershell` binary unavailable).
+- **PowerShell parse did not run in this environment** because neither `pwsh` nor `powershell` is present.
 
 ## REMAINING RISKS
-- Parse/runtime verification for PowerShell must be performed in the operator environment due to missing PowerShell executable here.
-- If future failure occurs outside PQ4A, additional focused micro-splitting may still be needed in adjacent labels.
+- PowerShell parse/runtime validation is still required in operator CI/runner due to missing PowerShell executable in this container.
+- If failures move to adjacent phases, additional localized micro-splitting outside PQ4A2 may still be needed.
 
 ## EXPECTED NEXT RUNTIME STATE
-- `PAGE_QUALITY_BUILD` should now pinpoint exact PQ4A micro-substep when failures recur.
-- `routeFindingsOutput` should materialize deterministically as `string[]` from local route findings state.
-- Forensics should expose route-local operands/context instead of broad upstream inputs.
-- `ROUTE_NORMALIZATION` and `ROUTE_MERGE` remain unchanged.
+- PAGE_QUALITY_BUILD failures in the target area should now identify the exact micro-substep (`PQ4A2a`..`PQ4A2g`) instead of a broad populate label.
+- Populate logic should remain deterministic for route contradictions/contamination assembly without fragile `@(...)` coercion in the repaired block.
+- Forensics should include route-local operands, `route_path`, current `primaryVerdict`, and `route_findings_count_before_failure`.
 
 ## Summary
-- Applied a surgical, local fix for PQ4A determinism and observability in `Build-PageQualityFindings`.
+- Applied a surgical fix for the exact PQ4A2 populate path while preserving existing output semantics and scope.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -102,4 +101,4 @@ PowerShell parse status:
   - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 
 ## Risks/blockers
-- PowerShell parser/runtime not available in this container; operator-side parse/runtime validation is still required.
+- PowerShell parser/runtime unavailable in this container; full parse/runtime must be validated in a PowerShell-capable environment.
