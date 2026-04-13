@@ -749,6 +749,58 @@ function Normalize-ProductCloseout {
     }
 }
 
+function Get-ProductStatusString {
+    param(
+        [object]$ProductStatus,
+        [string]$Default = 'UNKNOWN'
+    )
+
+    if ($null -eq $ProductStatus) { return [string]$Default }
+    if ($ProductStatus -is [string]) {
+        $text = [string]$ProductStatus
+        if ([string]::IsNullOrWhiteSpace($text)) { return [string]$Default }
+        return $text
+    }
+
+    $statusText = [string](Safe-Get -Object $ProductStatus -Key 'status' -Default $Default)
+    if ([string]::IsNullOrWhiteSpace($statusText)) { return [string]$Default }
+    return $statusText
+}
+
+function Normalize-ProductCloseoutForOutput {
+    param([object]$Value)
+
+    $node = Normalize-ProductCloseout -Value $Value
+    $checksRaw = Convert-ToObjectArraySafe -Value (Safe-Get -Object $node -Key 'checks' -Default @())
+    $checks = New-Object System.Collections.Generic.List[object]
+    foreach ($check in @($checksRaw)) {
+        if ($null -eq $check) { continue }
+        if ($check -is [System.Collections.IDictionary] -or $check -is [PSCustomObject]) {
+            $checks.Add([ordered]@{
+                name = [string](Safe-Get -Object $check -Key 'name' -Default 'unnamed_check')
+                status = [string](Safe-Get -Object $check -Key 'status' -Default 'UNKNOWN')
+                detail = [string](Safe-Get -Object $check -Key 'detail' -Default '')
+            })
+            continue
+        }
+        $checks.Add([ordered]@{
+            name = 'closeout_check'
+            status = 'UNKNOWN'
+            detail = [string]$check
+        })
+    }
+
+    $evidence = Convert-ToStringArraySafe -Value (Safe-Get -Object $node -Key 'evidence' -Default @())
+
+    return [ordered]@{
+        class = [string](Safe-Get -Object $node -Key 'class' -Default 'BLOCKED_BY_UNKNOWN')
+        reason = [string](Safe-Get -Object $node -Key 'reason' -Default 'Product closeout classification was not generated.')
+        confidence = [string](Safe-Get -Object $node -Key 'confidence' -Default 'low')
+        checks = @($checks)
+        evidence = @($evidence)
+    }
+}
+
 function Resolve-ManifestRoutes {
     param([object]$ManifestData)
 
@@ -3543,7 +3595,8 @@ function Get-FallbackTruthEvidence {
     $sourceLayer = Safe-Get -Object $auditResult -Key 'source' -Default @{}
     $liveLayer = Safe-Get -Object $auditResult -Key 'live' -Default @{}
     $liveSummary = Safe-Get -Object $liveLayer -Key 'summary' -Default @{}
-    $productStatus = Safe-Get -Object $auditResult -Key 'product_status' -Default @{}
+    $productStatusRaw = Safe-Get -Object $auditResult -Key 'product_status' -Default $null
+    $productStatusDetail = Safe-Get -Object $auditResult -Key 'product_status_detail' -Default @{}
     $sourceSummary = Safe-Get -Object $sourceLayer -Key 'summary' -Default @{}
 
     $sourceStatus = Get-LayerStatusLabel -Layer $sourceLayer -DisabledLabel 'UNKNOWN'
@@ -3571,8 +3624,8 @@ function Get-FallbackTruthEvidence {
         source_status = $sourceStatus
         live_status = $liveStatus
         page_quality_status = $pageQualityStatus
-        product_status = [string](Safe-Get -Object $productStatus -Key 'status' -Default 'UNKNOWN')
-        product_reason = [string](Safe-Get -Object $productStatus -Key 'reason' -Default 'Fallback report only.')
+        product_status = Get-ProductStatusString -ProductStatus (if ($null -ne $productStatusRaw) { $productStatusRaw } else { $productStatusDetail }) -Default 'UNKNOWN'
+        product_reason = [string](Safe-Get -Object $productStatusDetail -Key 'reason' -Default 'Fallback report only.')
         repo_summary_status = [string](Safe-Get -Object $sourceSummary -Key 'status' -Default 'UNKNOWN')
         failure_stage = $failureStage
         error_message = if ([string]::IsNullOrWhiteSpace($FailureReason)) { '' } else { $FailureReason }
@@ -3600,7 +3653,8 @@ function Write-RunForensicsReports {
     $liveStatus = Get-LayerStatusLabel -Layer (Safe-Get -Object $AuditResult -Key 'live' -Default @{})
     $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
 
-    $productStatus = Safe-Get -Object $AuditResult -Key 'product_status' -Default (Safe-Get -Object $Decision -Key 'product_status' -Default @{})
+    $productStatusRaw = Safe-Get -Object $AuditResult -Key 'product_status' -Default $null
+    $productStatusDetail = Safe-Get -Object $AuditResult -Key 'product_status_detail' -Default (Safe-Get -Object $Decision -Key 'product_status' -Default @{})
     $sourceSummary = Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'source' -Default @{}) -Key 'summary' -Default @{}
     $repoSummaryStatus = [string](Safe-Get -Object $sourceSummary -Key 'status' -Default '')
 
@@ -3691,8 +3745,8 @@ function Write-RunForensicsReports {
         source_status = $sourceStatus
         live_status = $liveStatus
         page_quality_status = $pageQualityStatus
-        product_status = [string](Safe-Get -Object $productStatus -Key 'status' -Default 'UNKNOWN')
-        product_reason = [string](Safe-Get -Object $productStatus -Key 'reason' -Default 'none')
+        product_status = Get-ProductStatusString -ProductStatus (if ($null -ne $productStatusRaw) { $productStatusRaw } else { $productStatusDetail }) -Default 'UNKNOWN'
+        product_reason = [string](Safe-Get -Object $productStatusDetail -Key 'reason' -Default 'none')
         repo_summary_status = if ([string]::IsNullOrWhiteSpace($repoSummaryStatus)) { 'UNKNOWN' } else { $repoSummaryStatus }
         failure_stage = $failedStage
         error_message = if ([string]::IsNullOrWhiteSpace($FailureReason)) { '' } else { $FailureReason }
@@ -3836,9 +3890,12 @@ function Write-OperatorOutputs {
     $AuditResult = Normalize-AuditResult -AuditResult $AuditResult
 
     $remediationPackage = Safe-Get -Object $Decision -Key 'remediation_package' -Default @{}
-    $productCloseout = Normalize-ProductCloseout -Value (Safe-Get -Object $Decision -Key 'product_closeout' -Default $null)
-    $productStatus = Convert-ToProductStatus -Decision $Decision -FinalStatus $FinalStatus
-    $AuditResult.product_status = $productStatus
+    $productCloseout = Normalize-ProductCloseoutForOutput -Value (Safe-Get -Object $Decision -Key 'product_closeout' -Default $null)
+    $productStatusDetail = Convert-ToProductStatus -Decision $Decision -FinalStatus $FinalStatus
+    $productStatusText = Get-ProductStatusString -ProductStatus $productStatusDetail -Default "BLOCKED_BY_RUN_STATUS_$FinalStatus"
+    $AuditResult.product_status = $productStatusText
+    $AuditResult.product_status_detail = $productStatusDetail
+    $AuditResult.product_closeout = $productCloseout
     $liveLayer = Safe-Get -Object $AuditResult -Key 'live' -Default @{}
     $liveSummary = Safe-Get -Object $liveLayer -Key 'summary' -Default @{}
     $liveEnabled = [bool](Safe-Get -Object $liveLayer -Key 'enabled' -Default $false)
@@ -4090,9 +4147,9 @@ function Write-OperatorOutputs {
     $reportLines += "STAGE $siteStage"
     $reportLines += "DIAGNOSIS: $([string](Safe-Get -Object $siteDiagnosis -Key 'class' -Default 'INCONCLUSIVE_DIAGNOSIS'))"
     $reportLines += "MATURITY: $maturityClass"
-    $reportLines += "PRODUCT STATUS: $([string](Safe-Get -Object $productStatus -Key 'status' -Default 'BLOCKED_BY_UNCLEAR_CLOSEOUT'))"
-    $reportLines += "PRODUCT REASON: $([string](Safe-Get -Object $productStatus -Key 'reason' -Default 'Closeout reason unavailable; review reports/audit_result.json.'))"
-    $reportLines += "PRODUCT CONFIDENCE: $([string](Safe-Get -Object $productStatus -Key 'confidence' -Default 'low'))"
+    $reportLines += "PRODUCT STATUS: $productStatusText"
+    $reportLines += "PRODUCT REASON: $([string](Safe-Get -Object $productStatusDetail -Key 'reason' -Default 'Closeout reason unavailable; review reports/audit_result.json.'))"
+    $reportLines += "PRODUCT CONFIDENCE: $([string](Safe-Get -Object $productStatusDetail -Key 'confidence' -Default 'low'))"
     $reportLines += "PRIMARY REMEDIATION PACKAGE: $packageName"
 
     $manifest = @{
