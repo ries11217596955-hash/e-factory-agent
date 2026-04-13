@@ -1,9 +1,9 @@
 ## Summary
-- Decoupled `product_status` fallback behavior in `Write-OperatorOutputs` from run-level `FinalStatus` blocking text.
-- Added fallback reassignment so unresolved/blocked product status now derives from decision quality (`p0`/`problems`) instead of run status.
-- Fallback now yields `NEEDS_FIX` when decision blockers/problems are present.
-- Fallback now yields `SUCCESS` when no blockers/problems are present.
-- Kept `FinalStatus` and decision structure untouched; only fallback assignment logic was changed.
+- Stabilized `statusSource` resolution in fallback/report forensics functions and removed parse-breaking inline insertion in param blocks.
+- Locked `product_status` to string contract and preserved structured status data in `product_status_detail`.
+- Unified product status policy so run `FinalStatus` no longer remaps decision/output status.
+- Normalized fallback `audit_result` contract to include deterministic `product_status`, `product_status_detail`, and `product_closeout` objects.
+- Kept scope limited to report/output/final-status behavior only.
 
 ## Changed files
 - agents/gh_batch/site_auditor_cloud/agent.ps1
@@ -13,9 +13,9 @@
 - None.
 
 ## Current entrypoints/paths
-- Entry point unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Updated only `Write-OperatorOutputs` product status fallback assignment block.
-- Audit layers and run status flow remain unchanged.
+- Entry script remains `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- Output/report paths remain under `agents/gh_batch/site_auditor_cloud/reports` and `agents/gh_batch/site_auditor_cloud/outbox`.
 
 ## Risks/blockers
-- Validation in this task is static (code-path inspection); full behavioral confirmation requires pipeline execution where `FinalStatus=FAIL` and decision outputs are present.
+- Local environment does not include `pwsh`/`powershell`, so parser execution validation could not be run directly.
+- Functional rerun validation requires runtime dependencies and target inputs not executed in this pass.

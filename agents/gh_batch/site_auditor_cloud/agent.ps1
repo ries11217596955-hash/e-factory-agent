@@ -2809,46 +2809,27 @@ function Convert-ToProductStatus {
     )
 
     $productCloseout = Normalize-ProductCloseout -Value (Safe-Get -Object $Decision -Key 'product_closeout' -Default $null)
-    $classification = [string](Safe-Get -Object $productCloseout -Key 'class' -Default 'BLOCKED_BY_UNKNOWN')
+    $closeoutClass = [string](Safe-Get -Object $productCloseout -Key 'class' -Default 'BLOCKED_BY_UNKNOWN')
     $reason = [string](Safe-Get -Object $productCloseout -Key 'reason' -Default 'Product closeout classification was not generated.')
     $confidence = [string](Safe-Get -Object $productCloseout -Key 'confidence' -Default 'low')
-    if ($FinalStatus -ne 'PASS' -and $classification -eq 'PRODUCT_READY_BASELINE') {
-        $classification = "BLOCKED_BY_RUN_STATUS_$FinalStatus"
-        $reason = "Run status is $FinalStatus; baseline is blocked until a full PASS run is produced."
-        $confidence = 'low'
-    }
 
-    if ($classification -notlike 'BLOCKED_BY_*' -and $classification -ne 'PRODUCT_READY_BASELINE') {
-        $classification = "BLOCKED_BY_$classification"
-    }
+    $hasFindings = (@($Decision.p0).Count -gt 0 -or @($Decision.problems).Count -gt 0)
+    $hasDiagnosticContract = $hasFindings -or -not [string]::IsNullOrWhiteSpace($reason)
 
-    if ($null -eq $classification -or $classification -eq 'BLOCKED_BY_UNKNOWN') {
-        if (@($decision.p0).Count -gt 0) {
-            $classification = 'NEEDS_FIX'
-        }
-        elseif (@($decision.problems).Count -gt 0) {
-            $classification = 'NEEDS_FIX'
-        }
-        else {
-            $classification = 'SUCCESS'
-        }
+    $status = 'FAIL'
+    if ($closeoutClass -eq 'PRODUCT_READY_BASELINE') {
+        $status = 'SUCCESS'
     }
-
-   if ([string]::IsNullOrWhiteSpace([string]$classification)) {
-    if (@($Decision.p0).Count -gt 0 -or @($Decision.problems).Count -gt 0) {
-        $classification = 'NEEDS_FIX'
+    elseif ($hasDiagnosticContract) {
+        $status = 'NEEDS_FIX'
     }
-    else {
-        $classification = 'SUCCESS'
-    }
-}
-
-$classification = [string]$classification
 
     return @{
-        status = $classification
+        status = [string]$status
         reason = $reason
         confidence = if ($confidence -in @('high', 'medium', 'low')) { $confidence } else { 'low' }
+        source_closeout_class = $closeoutClass
+        run_status = [string]$FinalStatus
     }
 }
 
@@ -3576,12 +3557,6 @@ function Get-FallbackTruthEvidence {
         [string]$AuditResultPath,
         [string]$FailureReason,
         [string]$CurrentStage,
-        if ($null -ne $productStatusRaw) {
-    $statusSource = $productStatusRaw
-}
-else {
-    $statusSource = $productStatusDetail
-}
         [string]$LastSuccessStage
     )
 
@@ -3603,6 +3578,7 @@ else {
     $liveSummary = Safe-Get -Object $liveLayer -Key 'summary' -Default @{}
     $productStatusRaw = Safe-Get -Object $auditResult -Key 'product_status' -Default $null
     $productStatusDetail = Safe-Get -Object $auditResult -Key 'product_status_detail' -Default @{}
+    $statusSource = if ($null -ne $productStatusRaw) { $productStatusRaw } else { $productStatusDetail }
     $sourceSummary = Safe-Get -Object $sourceLayer -Key 'summary' -Default @{}
 
     $sourceStatus = Get-LayerStatusLabel -Layer $sourceLayer -DisabledLabel 'UNKNOWN'
@@ -3648,12 +3624,6 @@ function Write-RunForensicsReports {
         [string]$FinalStatus,
         [hashtable]$AuditResult,
         [hashtable]$Decision,
-        if ($null -ne $productStatusRaw) {
-    $statusSource = $productStatusRaw
-}
-else {
-    $statusSource = $productStatusDetail
-}
         [string]$FailureReason,
         [string]$CurrentStage,
         [string]$LastSuccessStage,
@@ -3667,6 +3637,7 @@ else {
 
     $productStatusRaw = Safe-Get -Object $AuditResult -Key 'product_status' -Default $null
     $productStatusDetail = Safe-Get -Object $AuditResult -Key 'product_status_detail' -Default (Safe-Get -Object $Decision -Key 'product_status' -Default @{})
+    $statusSource = if ($null -ne $productStatusRaw) { $productStatusRaw } else { $productStatusDetail }
     $sourceSummary = Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'source' -Default @{}) -Key 'summary' -Default @{}
     $repoSummaryStatus = [string](Safe-Get -Object $sourceSummary -Key 'status' -Default '')
 
@@ -3904,17 +3875,9 @@ function Write-OperatorOutputs {
     $remediationPackage = Safe-Get -Object $Decision -Key 'remediation_package' -Default @{}
     $productCloseout = Normalize-ProductCloseoutForOutput -Value (Safe-Get -Object $Decision -Key 'product_closeout' -Default $null)
     $productStatusDetail = Convert-ToProductStatus -Decision $Decision -FinalStatus $FinalStatus
-    $productStatusText = Get-ProductStatusString -ProductStatus $productStatusDetail -Default "BLOCKED_BY_RUN_STATUS_$FinalStatus"
-    if ([string]::IsNullOrWhiteSpace($productStatusText) -or $productStatusText -like "BLOCKED_BY_RUN_STATUS*") {
-        if (@($Decision.p0).Count -gt 0) {
-            $productStatusText = "NEEDS_FIX"
-        }
-        elseif (@($Decision.problems).Count -gt 0) {
-            $productStatusText = "NEEDS_FIX"
-        }
-        else {
-            $productStatusText = "SUCCESS"
-        }
+    $productStatusText = Get-ProductStatusString -ProductStatus $productStatusDetail -Default 'FAIL'
+    if ($productStatusText -notin @('SUCCESS', 'NEEDS_FIX', 'FAIL')) {
+        $productStatusText = 'FAIL'
     }
     $AuditResult.product_status = $productStatusText
     $AuditResult.product_status_detail = $productStatusDetail
@@ -4218,10 +4181,19 @@ function Ensure-OutputContract {
             timestamp = (Get-Date).ToString('o')
             mode = $ResolvedMode
             error = if ([string]::IsNullOrWhiteSpace($FailureReason)) { 'FAILED: no report generated' } else { $FailureReason }
-            product_status = @{
-                status = "BLOCKED_BY_RUN_STATUS_$FinalStatus"
+            product_status = 'NEEDS_FIX'
+            product_status_detail = [ordered]@{
+                status = 'NEEDS_FIX'
                 reason = 'Fallback audit result generated without full decision context.'
                 confidence = 'low'
+                run_status = $FinalStatus
+            }
+            product_closeout = [ordered]@{
+                class = 'BLOCKED_BY_MISSING_OPERATOR_OUTPUT_CONTRACT'
+                reason = 'Fallback audit result generated without full decision context.'
+                confidence = 'low'
+                checks = @()
+                evidence = @("final_status=$FinalStatus", 'fallback_contract=true')
             }
         }
         Write-JsonFile -Path $auditResultPath -Data $fallbackAuditResult
