@@ -793,13 +793,6 @@ function Normalize-Result {
         [string]$name
     )
 
-    if ($null -eq $r) {
-        return @{
-            status = 'FAIL'
-            reason = "${name}_NULL_RESULT"
-        }
-    }
-
     $readProperty = {
         param($obj, [string]$propName)
 
@@ -818,9 +811,49 @@ function Normalize-Result {
         return $null
     }
 
+    $getSafeCount = {
+        param($value)
+
+        if ($null -eq $value) { return 0 }
+        if ($value -is [string]) {
+            if ([string]::IsNullOrWhiteSpace([string]$value)) { return 0 }
+            return 1
+        }
+        if ($value -is [hashtable]) { return $value.Keys.Count }
+        if ($value -is [System.Collections.IDictionary]) { return $value.Keys.Count }
+        if ($value -is [System.Collections.ICollection]) { return $value.Count }
+        if ($value -is [System.Collections.IEnumerable]) { return @($value).Count }
+
+        return 1
+    }
+
+    if ($null -eq $r) {
+        if ($name -eq 'repo') {
+            $repoEvidence = Get-RepoEvidence
+            $repoHasArtifacts = [bool]($repoEvidence.has_outbox -or $repoEvidence.has_reports)
+            Write-Output "REPO_HAS_DATA=$repoHasArtifacts"
+            Write-Output "ORIGINAL_OBJECT=null"
+            Write-Output ('NORMALIZED_STATUS=' + ($(if ($repoHasArtifacts) { 'PARTIAL' } else { 'FAIL' })))
+
+            if ($repoHasArtifacts) {
+                return @{
+                    status = 'PARTIAL'
+                    reason = 'repo_MISSING_RESULT_OBJECT_WITH_ARTIFACTS'
+                }
+            }
+        }
+
+        return @{
+            status = 'FAIL'
+            reason = "${name}_NULL_RESULT"
+        }
+    }
+
     $screenshotsCountRaw = & $readProperty $r 'screenshots_count'
     $reportsPathRaw = & $readProperty $r 'reports_path'
     $outboxPathRaw = & $readProperty $r 'outbox_path'
+    $artifactsRaw = & $readProperty $r 'artifacts'
+    $artifactsPresentRaw = & $readProperty $r 'artifacts_present'
     $statusRaw = & $readProperty $r 'status'
     $reasonRaw = & $readProperty $r 'reason'
 
@@ -831,9 +864,13 @@ function Normalize-Result {
 
     $hasReportsPath = -not [string]::IsNullOrWhiteSpace([string]$reportsPathRaw)
     $hasOutboxPath = -not [string]::IsNullOrWhiteSpace([string]$outboxPathRaw)
+    $artifactCount = & $getSafeCount $artifactsRaw
+    $artifactsPresent = [bool]$artifactsPresentRaw
 
     $hasData =
         ($screenshotsCount -gt 0) -or
+        ($artifactCount -gt 0) -or
+        $artifactsPresent -or
         $hasReportsPath -or
         $hasOutboxPath
 

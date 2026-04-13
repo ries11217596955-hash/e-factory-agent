@@ -1,14 +1,14 @@
 # TASK_REPORT
 
 ## Summary
-- Applied a narrow fix only in the SITE_AUDITOR decision/output packaging boundary for `product_closeout` so downstream report generation no longer depends on unstable runtime shapes.
-- Added `Normalize-ProductCloseout` to coerce `null`, singleton, enumerable, hashtable, and `PSCustomObject` inputs into one deterministic structure with safe defaults.
-- Wired normalization at the producer and consumers of product closeout (`Build-DecisionLayer`, `Convert-ToProductStatus`, and `Write-OperatorOutputs`) so report/status generation remains stable.
-- Added an explicit fallback `decision.product_closeout` object in the top-level failure path to ensure diagnostic artifacts remain human-readable even during run failure.
-- Preserved source/live/page-quality logic and all capture/route normalization behavior.
+- Applied a narrow post-PR #92 fix in `run_bundle.ps1` at the REPO result normalization boundary only (no product_closeout changes).
+- Made `Normalize-Result` shape-safe for REPO data signals by handling `artifacts`, `artifacts_present`, path fields, and scalar/hashtable/object/list shapes without unsafe `.Count` assumptions.
+- Added explicit REPO null-object handling that classifies as `PARTIAL` when repo evidence directories exist (`repo_MISSING_RESULT_OBJECT_WITH_ARTIFACTS`) and `FAIL` only when no evidence exists.
+- Ensured `REPO_HAS_DATA` now reflects truth from artifacts and evidence, preventing false `repo_INVALID_RESULT` when reports/artifacts are present.
+- Preserved existing source/live/page-quality and report-generation behavior by constraining changes to REPO normalization/summarization logic.
 
 ## Changed files
-- `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
@@ -21,5 +21,5 @@
   - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 
 ## Risks/blockers
-- Could not run end-to-end PowerShell execution in this container if `pwsh`/`powershell` is unavailable.
-- The patch intentionally does not refactor unrelated decision/report nodes; if a separate non-closeout `.Count` misuse exists elsewhere, it would require a separate targeted fix.
+- Could not run a full end-to-end SITE_AUDITOR bundle in this environment; verification here is limited to static PowerShell parse checks.
+- The patch intentionally avoids broad refactors and touches only REPO normalization/summarization behavior in `run_bundle.ps1`.
