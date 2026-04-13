@@ -3624,7 +3624,7 @@ function Get-FallbackTruthEvidence {
         source_status = $sourceStatus
         live_status = $liveStatus
         page_quality_status = $pageQualityStatus
-        product_status = Get-ProductStatusString -ProductStatus (if ($null -ne $productStatusRaw) { $productStatusRaw } else { $productStatusDetail }) -Default 'UNKNOWN'
+                product_status = Get-ProductStatusString -ProductStatus $statusSource -Default 'UNKNOWN'
         product_reason = [string](Safe-Get -Object $productStatusDetail -Key 'reason' -Default 'Fallback report only.')
         repo_summary_status = [string](Safe-Get -Object $sourceSummary -Key 'status' -Default 'UNKNOWN')
         failure_stage = $failureStage
