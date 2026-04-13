@@ -3893,6 +3893,17 @@ function Write-OperatorOutputs {
     $productCloseout = Normalize-ProductCloseoutForOutput -Value (Safe-Get -Object $Decision -Key 'product_closeout' -Default $null)
     $productStatusDetail = Convert-ToProductStatus -Decision $Decision -FinalStatus $FinalStatus
     $productStatusText = Get-ProductStatusString -ProductStatus $productStatusDetail -Default "BLOCKED_BY_RUN_STATUS_$FinalStatus"
+    if ([string]::IsNullOrWhiteSpace($productStatusText) -or $productStatusText -like "BLOCKED_BY_RUN_STATUS*") {
+        if (@($Decision.p0).Count -gt 0) {
+            $productStatusText = "NEEDS_FIX"
+        }
+        elseif (@($Decision.problems).Count -gt 0) {
+            $productStatusText = "NEEDS_FIX"
+        }
+        else {
+            $productStatusText = "SUCCESS"
+        }
+    }
     $AuditResult.product_status = $productStatusText
     $AuditResult.product_status_detail = $productStatusDetail
     $AuditResult.product_closeout = $productCloseout
