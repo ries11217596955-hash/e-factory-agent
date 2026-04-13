@@ -2250,12 +2250,12 @@ function Build-ContradictionLayer {
             [bool](Safe-Get -Object $pageFlags -Key 'weak_cta' -Default $false) -or
             [bool](Safe-Get -Object $pageFlags -Key 'dead_end' -Default $false)
         })
-    if ($sourceEnabled -and $sourceFileCount -ge 25 -and @($sourceTopDirs).Count -ge 2 -and $thinOrLowValueRoutes.Count -gt 0) {
+    if ($sourceEnabled -and $sourceFileCount -ge 25 -and @($sourceTopDirs).Where({ $_ -ne $null }).Count -ge 2 -and @($thinOrLowValueRoutes).Where({ $_ -ne $null }).Count -gt 0) {
         $siteCandidates.Add([ordered]@{
                 class = 'SOURCE_EXPECTS_MORE_THAN_LIVE_DELIVERS'
                 scope = 'SITE'
                 severity = 'REVIEW'
-                evidence = "source inventory suggests non-trivial implementation (file_count=$sourceFileCount, top_dirs=$(@($sourceTopDirs).Count)) while low-value live routes exist ($($thinOrLowValueRoutes.Count))."
+                evidence = "source inventory suggests non-trivial implementation (file_count=$sourceFileCount, top_dirs=$(@($sourceTopDirs).Where({ $_ -ne $null }).Count)) while low-value live routes exist ($(@($thinOrLowValueRoutes).Where({ $_ -ne $null }).Count))."
             })
     }
 
@@ -2268,14 +2268,14 @@ function Build-ContradictionLayer {
             })
     }
 
-    $degradedState = ($pageQualityStatus -in @('PARTIAL', 'NOT_EVALUATED')) -or @($MissingInputs).Count -gt 0
-    $evidenceRich = (@($routes).Count -ge 3) -and ($routeCandidates.Count -ge 2)
+    $degradedState = ($pageQualityStatus -in @('PARTIAL', 'NOT_EVALUATED')) -or @($MissingInputs).Where({ $_ -ne $null }).Count -gt 0
+    $evidenceRich = (@($routes).Where({ $_ -ne $null }).Count -ge 3) -and (@($routeCandidates).Where({ $_ -ne $null }).Count -ge 2)
     if ($degradedState -and $evidenceRich) {
         $siteCandidates.Add([ordered]@{
                 class = 'PARTIAL_BUT_EVIDENCE_RICH'
                 scope = 'SITE'
                 severity = 'REVIEW'
-                evidence = "run degradation detected (page_quality_status=$pageQualityStatus, missing_inputs=$(@($MissingInputs).Count)) but route-level contradiction evidence is still meaningful (routes=$(@($routes).Count), route_candidates=$($routeCandidates.Count))."
+                evidence = "run degradation detected (page_quality_status=$pageQualityStatus, missing_inputs=$(@($MissingInputs).Where({ $_ -ne $null }).Count)) but route-level contradiction evidence is still meaningful (routes=$(@($routes).Where({ $_ -ne $null }).Count), route_candidates=$(@($routeCandidates).Where({ $_ -ne $null }).Count))."
             })
     }
 
@@ -2330,9 +2330,9 @@ function Build-ContradictionLayer {
         site_candidates = @($siteCandidateArray)
         candidates = @($allCandidates)
         class_counts = $classCounts
-        total_candidates = [int]$allCandidates.Count
-        route_candidate_count = [int]$routeCandidateArray.Count
-        site_candidate_count = [int]$siteCandidateArray.Count
+        total_candidates = [int](@($allCandidates) | Where-Object { $_ -ne $null }).Count
+        route_candidate_count = [int](@($routeCandidateArray) | Where-Object { $_ -ne $null }).Count
+        site_candidate_count = [int](@($siteCandidateArray) | Where-Object { $_ -ne $null }).Count
     }
 }
 
@@ -2405,16 +2405,16 @@ function Build-SiteDiagnosisLayer {
     if (-not [string]::IsNullOrWhiteSpace($dominantPatternLabel)) {
         $evidence.Add("dominant_pattern=$dominantPatternLabel")
     }
-    if (@($MissingInputs).Count -gt 0) {
-        $evidence.Add("missing_inputs=$(@($MissingInputs).Count)")
+    if (@($MissingInputs).Where({ $_ -ne $null }).Count -gt 0) {
+        $evidence.Add("missing_inputs=$(@($MissingInputs).Where({ $_ -ne $null }).Count)")
     }
 
     $confidence = 'HIGH'
-    $degradedRun = ($pageQualityStatus -in @('PARTIAL', 'NOT_EVALUATED')) -or @($MissingInputs).Count -gt 0 -or (-not $LiveLayer.ok)
+    $degradedRun = ($pageQualityStatus -in @('PARTIAL', 'NOT_EVALUATED')) -or @($MissingInputs).Where({ $_ -ne $null }).Count -gt 0 -or (-not $LiveLayer.ok)
     if ($degradedRun -or $totalRoutes -lt 3) {
         $confidence = 'MEDIUM'
     }
-    if ($pageQualityStatus -eq 'NOT_EVALUATED' -or $totalRoutes -eq 0 -or @($MissingInputs).Count -gt 0 -or (-not $LiveLayer.ok)) {
+    if ($pageQualityStatus -eq 'NOT_EVALUATED' -or $totalRoutes -eq 0 -or @($MissingInputs).Where({ $_ -ne $null }).Count -gt 0 -or (-not $LiveLayer.ok)) {
         $confidence = 'LOW'
     }
     elseif ($confidence -eq 'HIGH' -and $contradictionTotal -ge 3) {
@@ -2452,7 +2452,7 @@ function Build-MaturityReadinessLayer {
     $diagnosisClass = [string](Safe-Get -Object $SiteDiagnosis -Key 'class' -Default 'UNKNOWN')
     $evidenceCoverage = Safe-Get -Object $liveSummary -Key 'evidence_coverage' -Default @{}
     $evidenceRichness = [string](Safe-Get -Object $evidenceCoverage -Key 'evidence_richness' -Default 'SPARSE')
-    $missingCount = @($MissingInputs).Count
+    $missingCount = (@($MissingInputs) | Where-Object { $_ -ne $null }).Count
 
     $class = 'NOT_READY'
     $reason = 'Run or route-quality evidence is insufficient for release review.'
@@ -2539,7 +2539,7 @@ function Build-AuditorBaselineCertification {
 
     $failedChecks = @($checks.Keys | Where-Object { [string]$checks[$_] -eq 'FAIL' })
     $classification = 'BASELINE_READY'
-    if ($failedChecks.Count -gt 0) {
+    if (@($failedChecks).Where({ $_ -ne $null }).Count -gt 0) {
         $classification = "BLOCKED_BY_$($failedChecks[0].ToUpperInvariant())"
     }
 
@@ -2640,7 +2640,7 @@ function Build-PrimaryRemediationPackage {
         }
     }
     $targetsArray = @($targets) | Where-Object { $_ -ne $null }
-    if ($targetsArray.Count -eq 0) {
+    if (@($targetsArray).Where({ $_ -ne $null }).Count -eq 0) {
         foreach ($route in @($routeDetails | Select-Object -First 3)) {
             $path = [string](Safe-Get -Object $route -Key 'route_path' -Default '')
             if (-not [string]::IsNullOrWhiteSpace($path)) {
@@ -2698,7 +2698,7 @@ function Build-ProductCloseoutClassification {
         diagnosis_usefulness = if ($diagnosisClass -ne 'UNKNOWN') { 'PASS' } else { 'FAIL' }
         maturity_usefulness = if ($maturityClass -ne 'NOT_READY') { 'PASS' } else { 'FAIL' }
         operator_output_usefulness = if ([string](Safe-Get -Object $RemediationPackage -Key 'why_first' -Default '') -ne '') { 'PASS' } else { 'FAIL' }
-        remediation_package_usefulness = if (-not [string]::IsNullOrWhiteSpace($packageName) -and $packageTargetsArray.Count -gt 0) { 'PASS' } else { 'FAIL' }
+        remediation_package_usefulness = if (-not [string]::IsNullOrWhiteSpace($packageName) -and @($packageTargetsArray).Where({ $_ -ne $null }).Count -gt 0) { 'PASS' } else { 'FAIL' }
         analyst_brief_usefulness = if ($pageQualityStatus -in @('EVALUATED', 'PARTIAL') -and $routeCount -gt 0) { 'PASS' } else { 'FAIL' }
         report_bundle_consistency = if ($FinalStatus -in @('PASS', 'PARTIAL', 'FAIL')) { 'PASS' } else { 'FAIL' }
     }
@@ -2718,7 +2718,7 @@ function Build-ProductCloseoutClassification {
     $failedKey = @($checksByName.Keys | Where-Object { [string]$checksByName[$_] -eq 'FAIL' } | Select-Object -First 1)
     $failedKeyArray = @($failedKey) | Where-Object { $_ -ne $null }
     $classification = 'PRODUCT_READY_BASELINE'
-    if ($failedKeyArray.Count -gt 0) {
+    if (@($failedKeyArray).Where({ $_ -ne $null }).Count -gt 0) {
         $classification = "BLOCKED_BY_$($failureMap[$failedKeyArray[0]])"
     }
 
@@ -2739,12 +2739,12 @@ function Build-ProductCloseoutClassification {
 
     return @{
         class = $classification
-        reason = if ($failedKeyArray.Count -eq 0) { 'Deterministic closeout checks passed for baseline operator use.' } else { "Product closeout blocked by $($failedKeyArray[0])." }
+        reason = if (@($failedKeyArray).Where({ $_ -ne $null }).Count -eq 0) { 'Deterministic closeout checks passed for baseline operator use.' } else { "Product closeout blocked by $($failedKeyArray[0])." }
         confidence = $confidence
         checks = $checks
         evidence = @(
             "final_status=$FinalStatus failure_stage=$failureStage page_quality_status=$pageQualityStatus",
-            "route_count=$routeCount screenshot_count=$screenshotCount package_name=$packageName package_targets=$($packageTargetsArray.Count)",
+            "route_count=$routeCount screenshot_count=$screenshotCount package_name=$packageName package_targets=$(@($packageTargetsArray).Where({ $_ -ne $null }).Count)",
             "site_diagnosis=$diagnosisClass maturity=$maturityClass contradiction_shape=$contradictionHasCoreShape"
         )
     }
@@ -2913,7 +2913,7 @@ function Build-DecisionLayer {
 
     $maturityReadiness = Build-MaturityReadinessLayer -SourceLayer $SourceLayer -LiveLayer $LiveLayer -SiteDiagnosis $siteDiagnosis -ContradictionSummary $contradictionSummary -MissingInputs @($MissingInputs)
     $candidateFinalStatus = 'PASS'
-    if (@($MissingInputs).Count -gt 0 -or ($SourceLayer.required -and (-not $SourceLayer.enabled -or -not $SourceLayer.ok)) -or ($LiveLayer.required -and (-not $LiveLayer.enabled -or -not $LiveLayer.ok))) {
+    if (@($MissingInputs).Where({ $_ -ne $null }).Count -gt 0 -or ($SourceLayer.required -and (-not $SourceLayer.enabled -or -not $SourceLayer.ok)) -or ($LiveLayer.required -and (-not $LiveLayer.enabled -or -not $LiveLayer.ok))) {
         $candidateFinalStatus = 'FAIL'
     }
     elseif ($pageQualityStatus -eq 'PARTIAL') {
@@ -2925,10 +2925,10 @@ function Build-DecisionLayer {
 
     $p0Array = @($p0) | Where-Object { $_ -ne $null }
     $p1Array = @($p1) | Where-Object { $_ -ne $null }
-    if ($p0Array.Count -gt 0) {
+    if (@($p0Array).Where({ $_ -ne $null }).Count -gt 0) {
         $core = $p0Array[0]
     }
-    elseif ($p1Array.Count -gt 0) {
+    elseif (@($p1Array).Where({ $_ -ne $null }).Count -gt 0) {
         $core = $p1Array[0]
     }
     else {
@@ -2943,7 +2943,7 @@ function Build-DecisionLayer {
     # DECISION_BUILD requires deterministic collection shape before Count/iteration consumption.
     $packageTargets = Convert-ToObjectArraySafe -Value (Safe-Get -Object $remediationPackage -Key 'primary_targets' -Default @())
     $packageTargetsArray = @($packageTargets) | Where-Object { $_ -ne $null }
-    if ($packageTargetsArray.Count -gt 0) {
+    if (@($packageTargetsArray).Where({ $_ -ne $null }).Count -gt 0) {
         $targetPreview = (@($packageTargets | Select-Object -First 3)) -join ', '
         $doNext.Add("Execute $([string](Safe-Get -Object $remediationPackage -Key 'package_name' -Default 'MIXED_RECOVERY_PACKAGE')) first on routes: $targetPreview.")
     }

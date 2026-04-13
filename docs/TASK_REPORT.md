@@ -1,11 +1,11 @@
 # TASK_REPORT
 
 ## Summary
-- Added a universal `Normalize-ToArray` function to enforce deterministic array shape for potentially null/scalar/enumerable values.
-- Applied DECISION_BUILD guard normalization at a single return-layer insertion point for `decision.problems`, `decision.next_actions`, `decision.inputs`, and `decision.product_closeout.{checks,evidence}`.
-- Updated product closeout normalization to always coerce `checks` and `evidence` through the same universal array normalizer.
-- Updated operator-output consumption paths to use normalized `problems` / `next_actions` collections and Count checks guarded via `Normalize-ToArray`.
-- Preserved decision logic and structure intent; only collection-shape hardening was introduced.
+- Replaced unsafe `.Count` usages in DECISION_BUILD functions with null-safe collection length evaluation using `@(...)` and null filtering.
+- Updated conditional Count checks to deterministic expressions like `@($var).Where({ $_ -ne $null }).Count`.
+- Updated direct Count reads/embeds to safe expressions like `(@($var) | Where-Object { $_ -ne $null }).Count`.
+- Kept DECISION_BUILD flow and branching unchanged; only Count access mechanics were updated.
+- Preserved output contract behavior for contradiction, diagnosis, and product closeout generation paths.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -19,11 +19,12 @@
   - `agents/gh_batch/site_auditor_cloud/agent.ps1`
   - `agents/gh_batch/site_auditor_cloud/run.ps1`
   - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
-- DECISION_BUILD shape guard is enforced in:
-  - `Normalize-ToArray`
-  - `Build-DecisionLayer` (pre-return normalization insertion)
-  - `Normalize-ProductCloseout`
+- DECISION_BUILD Count safety updates were applied in:
+  - `Build-ContradictionLayer`
+  - `Build-SiteDiagnosisLayer`
+  - `Build-ProductCloseoutClassification`
+  - `Build-DecisionLayer`
 
 ## Risks/blockers
-- Runtime execution validation (e.g., generated `reports/RUN_REPORT.json`) was not performed in this environment because PowerShell runtime (`pwsh`) is unavailable.
-- Validation performed here is static patch verification only.
+- Full runtime verification (DECISION_BUILD completion and artifact generation) depends on running the PowerShell pipeline with task inputs.
+- If this environment lacks `pwsh` or required input fixtures, validation is limited to static Count-usage checks.
