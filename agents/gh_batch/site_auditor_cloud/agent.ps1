@@ -3585,12 +3585,6 @@ function Get-FallbackTruthEvidence {
     $liveStatus = Get-LayerStatusLabel -Layer $liveLayer -DisabledLabel 'UNKNOWN'
     $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
     if ([string]::IsNullOrWhiteSpace($pageQualityStatus)) {
-        if ($null -ne $productStatusRaw) {
-        $statusSource = $productStatusRaw
-    }
-    else {
-        $statusSource = $productStatusDetail
-    }
         $pageQualityStatus = 'NOT_EVALUATED'
     }
 
@@ -3658,12 +3652,6 @@ function Write-RunForensicsReports {
     else {
         $statusSource = $productStatusDetail
     }
-        $failedStage = [string](Safe-Get -Object $global:PageQualityForensics -Key 'failure_stage' -Default '')
-    }
-    if ([string]::IsNullOrWhiteSpace($failedStage) -and $null -ne $global:RouteNormalizationForensics) {
-        $failedStage = [string](Safe-Get -Object $global:RouteNormalizationForensics -Key 'failure_stage' -Default '')
-    }
-    if ([string]::IsNullOrWhiteSpace($failedStage)) {
         $failedStage = [string]$CurrentStage
     }
 
