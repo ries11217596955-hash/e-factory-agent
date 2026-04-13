@@ -7,7 +7,7 @@
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
 
 ## TASK
-- `SITE_AUDITOR — surgical fix for exact C2_combine_contradiction_candidates failure`.
+- `SITE_AUDITOR — repair exact site_pattern_summary shape contract (singleton/null -> deterministic arrays)`.
 
 ## REPOSITORY SCOPE (Allowed / Forbidden)
 - Allowed:
@@ -18,48 +18,67 @@
   - unrelated agents
   - other runtime lanes
   - giant rewrite / broad refactor
-  - output contract redesign
+  - output contract redesign outside the exact shape normalization
 
 ## MODE
 - PR-FIRST
-- SURGICAL RUNTIME FIX
+- SURGICAL CONTRACT FIX
 
 ## REQUIREMENTS
-- Identify exact C2 failing line/path without guessing.
-- Repair contradiction candidate combine path deterministically.
-- Preserve output schema exactly (`route_candidates`, `site_candidates`, `candidates`, `class_counts`, `total_candidates`, `route_candidate_count`, `site_candidate_count`).
-- Improve C2 forensic fidelity with local operand type/count and combine expression.
-- Run strongest available structural validation and explicitly report parser availability.
+- Inspect exact `Build-SitePatternSummary` return contract behavior for `repeated_patterns`, `isolated_patterns`, and `dominant_pattern`.
+- Repair collection shape deterministically so repeated/isolated fields are always `object[]` (`@()` for zero, one-element array for singleton).
+- Preserve existing semantic fields: `repeated_pattern_count`, `isolated_pattern_count`, `systemic`, and `dominant_pattern`.
+- Add narrow forensic emit-shape metadata for recurrence triage.
+- Run strongest available parse/structural validation and explicitly report parser availability.
 
 ## REPORTING
-- Includes requested deep-audit sections.
-- Includes repository-required sections: `Summary`, `Changed files`, `Moved files/folders`, `Current entrypoints/paths`, `Risks/blockers`.
+- Includes requested deep-audit sections:
+  - `INSTRUCTION_FILES_READ`
+  - `SUMMARY`
+  - `CHANGED FILES`
+  - `ROOT CAUSE OF site_pattern_summary SHAPE FAILURE`
+  - `EXACT SECTION REPAIRED`
+  - `VALIDATION EXECUTED`
+  - `REMAINING RISKS`
+  - `EXPECTED NEXT RUNTIME STATE`
+- Includes repository-required sections:
+  - `Summary`
+  - `Changed files`
+  - `Moved files/folders`
+  - `Current entrypoints/paths`
+  - `Risks/blockers`
 
 ## SUMMARY
-- Confirmed exact failure section/path in `Build-ContradictionLayer` at the C2 block beginning with `$operationLabel = 'C2_combine_contradiction_candidates'`, specifically the combine sequence that materialized and merged route/site candidate collections.
-- Repaired C2 by explicitly normalizing `routeCandidates` and `siteCandidates` through `Convert-ToObjectArraySafe`, then combining with a local `System.Collections.ArrayList` container and final `[object[]]` projection.
-- Removed fragile dependence on implicit/ambiguous collection behavior during contradiction merge while preserving contradiction output contract and field names.
-- Added C2 forensic fidelity field `exact_combine_expression` and retained local type/count diagnostics for route/site operands.
+- Verified `Build-SitePatternSummary` previously returned `repeated_patterns` / `isolated_patterns` from helper materialization variables without final explicit typed array assignment at emit boundary.
+- Repaired the emission path by explicitly materializing both outputs as `[object[]]` immediately before return (`$repeatedPatternsOutput = [object[]]$pq7CombineLeftOperand`, `$isolatedPatternsOutput = [object[]]$pq7CombineRightOperand`).
+- Preserved `repeated_pattern_count`, `isolated_pattern_count`, `systemic`, and `dominant_pattern` semantics unchanged.
+- Added narrow forensic emit-shape context (`repeated_patterns_emit_shape`, `isolated_patterns_emit_shape`) in the function catch payload for recurrence triage.
 
 ## CHANGED FILES
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
 - `docs/TASK_REPORT.md`
 
-## ROOT CAUSE OF C2_combine_contradiction_candidates FAILURE
-- C2 combine path was still exposed to heterogeneous collection-shape coercion risk during route/site merge materialization, producing runtime binder/coercion failures surfaced as `Argument types do not match`.
-- The failing path was the contradiction combine section in `Build-ContradictionLayer` where route/site collections were prepared and merged before class counting.
+## ROOT CAUSE OF site_pattern_summary SHAPE FAILURE
+- The site pattern summary collection fields depended on helper output variables that were materialized but not hard-pinned at the final return boundary as typed arrays.
+- Under downstream serialization/consumption, this allowed singleton/null shape drift to surface as non-collection semantics (`singleton object` / `null`) instead of deterministic array semantics expected by count-based consumers.
 
 ## EXACT SECTION REPAIRED
-- Function: `Build-ContradictionLayer`.
-- Block: `C2_combine_contradiction_candidates`.
-- Repaired lines/logic:
-  - `routeCandidates` and `siteCandidates` are now explicitly converted via `Convert-ToObjectArraySafe` into deterministic `[object[]]` arrays.
-  - Candidate merge now uses local `System.Collections.ArrayList` append (`Add`) and a typed `ToArray([object])` finalization.
-  - C2 catch forensics now records `exact_combine_expression` in addition to route/site types and counts.
+- Function: `Build-SitePatternSummary`.
+- Block: `PQ7a_pattern_summary_prepare_combine_operands`.
+- Exact repair:
+  - Cast combine operands to deterministic typed arrays:  
+    ` $pq7CombineLeftOperand = [object[]](Convert-ToPageQualityObjectArray -Value $repeatedPatternsOutput)`  
+    ` $pq7CombineRightOperand = [object[]](Convert-ToPageQualityObjectArray -Value $isolatedPatternsOutput)`
+  - Rebound return variables to those typed arrays immediately before return:  
+    ` $repeatedPatternsOutput = [object[]]$pq7CombineLeftOperand`  
+    ` $isolatedPatternsOutput = [object[]]$pq7CombineRightOperand`
+  - Added catch-time forensic metadata:
+    - `repeated_patterns_emit_shape`
+    - `isolated_patterns_emit_shape`
 
 ## VALIDATION EXECUTED
 - Structural locator validation:
-  - `rg -n "C2_combine_contradiction_candidates|Convert-ToObjectArraySafe -Value \$routeCandidates|Convert-ToObjectArraySafe -Value \$siteCandidates|ArrayList|exact_combine_expression" agents/gh_batch/site_auditor_cloud/agent.ps1`
+  - `rg -n "function Build-SitePatternSummary|PQ7a_pattern_summary_prepare_combine_operands|repeatedPatternsOutput = \[object\[\]\]\$pq7CombineLeftOperand|isolatedPatternsOutput = \[object\[\]\]\$pq7CombineRightOperand|repeated_patterns_emit_shape|isolated_patterns_emit_shape" agents/gh_batch/site_auditor_cloud/agent.ps1`
 - PowerShell parser availability check:
   - `command -v pwsh || command -v powershell || true`
 
@@ -67,16 +86,17 @@ PowerShell parse status:
 - PowerShell parse did **not** run in this container because neither `pwsh` nor `powershell` binary is available.
 
 ## REMAINING RISKS
-- End-to-end runtime verification still depends on a PowerShell-capable runner.
-- Any future upstream shape drift in route payloads can still fail earlier/later phases, but C2 merge path now avoids fragile implicit list arithmetic.
+- Local end-to-end parse/runtime validation remains blocked by missing PowerShell binaries.
+- If downstream has additional non-array coercion outside this function, that must be handled in that downstream path separately.
 
 ## EXPECTED NEXT RUNTIME STATE
-- `Build-ContradictionLayer` C2 contradiction combine is deterministic for mixed route/site collection shapes.
-- Failure tag `[DECISION_BUILD/Build-ContradictionLayer/C2_combine_contradiction_candidates]` should no longer originate from collection merge type mismatch in this repaired path.
-- If C2 fails again, operator forensics should include local operand types/counts plus `exact_combine_expression` for precise triage.
+- `site_pattern_summary.repeated_patterns` emits deterministic `object[]` (`[]` for zero, one-element array for singleton).
+- `site_pattern_summary.isolated_patterns` emits deterministic `object[]` (`[]` for zero, one-element array for singleton).
+- `repeated_pattern_count`, `isolated_pattern_count`, `systemic`, and `dominant_pattern` remain semantically consistent with prior behavior.
+- If recurrence appears, catch forensics include explicit emit-shape metadata for both collections.
 
 ## Summary
-- Applied a narrow C2 contradiction-combine hardening fix with deterministic collection handling and improved C2 forensic detail.
+- Applied a surgical upstream contract fix in `Build-SitePatternSummary` to force deterministic array shapes for `repeated_patterns` and `isolated_patterns` at the return boundary.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -92,4 +112,4 @@ PowerShell parse status:
   - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 
 ## Risks/blockers
-- Local PowerShell parse/runtime execution is blocked by missing `pwsh`/`powershell` binaries in this environment.
+- Local parser/runtime execution is blocked by missing `pwsh` / `powershell` binaries in this environment.

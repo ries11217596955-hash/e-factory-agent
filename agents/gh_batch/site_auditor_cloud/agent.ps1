@@ -1787,8 +1787,10 @@ function Build-SitePatternSummary {
         $isolatedPatternsOutput = Convert-ToPageQualityObjectArray -Value $isolatedPatterns
         $operationLabel = 'PQ7a_pattern_summary_prepare_combine_operands'
         $expression = 'Materialize repeated/isolated pattern outputs into deterministic object[] arrays'
-        $pq7CombineLeftOperand = Convert-ToPageQualityObjectArray -Value $repeatedPatternsOutput
-        $pq7CombineRightOperand = Convert-ToPageQualityObjectArray -Value $isolatedPatternsOutput
+        $pq7CombineLeftOperand = [object[]](Convert-ToPageQualityObjectArray -Value $repeatedPatternsOutput)
+        $pq7CombineRightOperand = [object[]](Convert-ToPageQualityObjectArray -Value $isolatedPatternsOutput)
+        $repeatedPatternsOutput = [object[]]$pq7CombineLeftOperand
+        $isolatedPatternsOutput = [object[]]$pq7CombineRightOperand
         $pq7RepeatedOutputCount = @($pq7CombineLeftOperand).Count
         $pq7IsolatedOutputCount = @($pq7CombineRightOperand).Count
         $pq7RepeatedOutputType = if ($null -eq $pq7CombineLeftOperand) { '<null>' } else { $pq7CombineLeftOperand.GetType().FullName }
@@ -1836,6 +1838,8 @@ function Build-SitePatternSummary {
                 isolated_patterns_output_count = [int]$pq7IsolatedOutputCount
                 repeated_patterns_output_type = $pq7RepeatedOutputType
                 isolated_patterns_output_type = $pq7IsolatedOutputType
+                repeated_patterns_emit_shape = Get-ObjectShapeSummary -Value $pq7CombineLeftOperand
+                isolated_patterns_emit_shape = Get-ObjectShapeSummary -Value $pq7CombineRightOperand
                 error_message = $_.Exception.Message
             })
         throw
