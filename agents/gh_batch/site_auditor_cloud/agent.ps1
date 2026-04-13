@@ -2684,7 +2684,7 @@ function Build-ProductCloseoutClassification {
         ($null -ne (Safe-Get -Object $ContradictionSummary -Key 'class_counts' -Default $null)) -and
         ($null -ne (Safe-Get -Object $ContradictionSummary -Key 'total_candidates' -Default $null))
     $packageName = [string](Safe-Get -Object $RemediationPackage -Key 'package_name' -Default '')
-    $packageTargets = @(Safe-Get -Object $RemediationPackage -Key 'primary_targets' -Default @())
+    $packageTargets = Convert-ToObjectArraySafe -Value (Safe-Get -Object $RemediationPackage -Key 'primary_targets' -Default @())
 
     $checks = [ordered]@{
         runtime_stability = if ($FinalStatus -ne 'FAIL' -and $failureStage -in @('none', '')) { 'PASS' } else { 'FAIL' }

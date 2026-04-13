@@ -1,11 +1,11 @@
 # TASK_REPORT
 
 ## Summary
-- Hardened only the fallback/operator truth extraction boundary used by `Ensure-OutputContract` when `RUN_REPORT.json` is missing.
-- Added a shape-safe fallback truth reader that reuses already-emitted `reports/audit_result.json` to populate source/live/page-quality status instead of UNKNOWN placeholders.
-- Added truth-backed confirmed stage derivation so fallback summaries include proven stages (including `last_success_stage` when present) while excluding the failed stage.
-- Preserved the actual DECISION_BUILD blocker message by carrying `FailureReason` through fallback `RUN_REPORT` and `FAILURE_SUMMARY` evidence fields.
-- Kept scope narrow: no route normalization, screenshot, product closeout (#92), or run-bundle REPO normalization (#93) logic was changed.
+- Repaired the remaining DECISION_BUILD collection-shape node in `Build-ProductCloseoutClassification`.
+- Isolated the unsafe assumption: `primary_targets` was read with `@(...)` and then consumed via `.Count`, which can still receive non-list shapes from decision-layer objects under strict mode.
+- Normalized `primary_targets` using `Convert-ToObjectArraySafe` before `.Count` usage, making the boundary safe for null, scalar/string, hashtable/dictionary, singleton PSCustomObject, and array/list inputs.
+- Kept patch scope limited to the exact decision-layer node; no changes were made to source/live audit, page-quality, fallback truth extraction, route normalization, screenshot capture, or REPO summary handling.
+- Goal of this change is to allow DECISION_BUILD to complete final decision/output assembly without the remaining `.Count` shape failure.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -19,11 +19,9 @@
   - `agents/gh_batch/site_auditor_cloud/agent.ps1`
   - `agents/gh_batch/site_auditor_cloud/run.ps1`
   - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
-- Patched boundary/functions:
-  - `Ensure-OutputContract`
-  - `Get-FallbackTruthEvidence` (new helper)
-  - `Get-TruthBackedConfirmedStages` (new helper)
+- Patched boundary/function:
+  - `Build-ProductCloseoutClassification` (`primary_targets` normalization for shape-safe `.Count` consumption)
 
 ## Risks/blockers
 - Environment limitation: `pwsh` is not installed in this container, so runtime PowerShell execution could not be performed locally.
-- Fallback truth extraction depends on the presence and readability of `reports/audit_result.json`; when absent/corrupt, fallback remains intentionally defensive.
+- Runtime verification of full DECISION_BUILD completion is blocked in this environment; change was validated via static inspection only.
