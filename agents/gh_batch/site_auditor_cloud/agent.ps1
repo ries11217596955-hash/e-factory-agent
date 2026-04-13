@@ -2770,6 +2770,25 @@ function Convert-ToProductStatus {
         $classification = "BLOCKED_BY_$classification"
     }
 
+    if ($null -eq $classification -or $classification -eq 'BLOCKED_BY_UNKNOWN') {
+        if (@($decision.p0).Count -gt 0) {
+            $classification = 'NEEDS_FIX'
+        }
+        elseif (@($decision.problems).Count -gt 0) {
+            $classification = 'NEEDS_FIX'
+        }
+        else {
+            $classification = 'SUCCESS'
+        }
+    }
+
+    $classification = [string](if ([string]::IsNullOrWhiteSpace([string]$classification)) {
+            if (@($decision.p0).Count -gt 0 -or @($decision.problems).Count -gt 0) { 'NEEDS_FIX' } else { 'SUCCESS' }
+        }
+        else {
+            $classification
+        })
+
     return @{
         status = $classification
         reason = $reason
