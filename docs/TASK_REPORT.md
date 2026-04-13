@@ -1,9 +1,9 @@
 ## Summary
-- Enforced the `decision.do_next` output contract in `DECISION_BUILD` so the field is always populated with executable steps.
-- Added post-generation filtering to remove null/empty items and detect weak abstract actions (`improve`, `analyze`).
-- Added deterministic fallback steps when generated actions are empty or weak.
-- Enforced maximum length of 3 steps and forced final assignment back to `decision.do_next`.
-- Left audit logic and reasoning flow unchanged.
+- Downgraded `primary_targets` in `Build-DecisionLayer` missing-input handling from a blocking P0 to a warning message.
+- Preserved P0 behavior for all other missing inputs.
+- Updated decision-level final status candidate logic to ignore `primary_targets` as a blocking missing input.
+- Updated run-level status determination to ignore `primary_targets` as a blocking missing input.
+- Kept SOURCE/LIVE validation and required-input enforcement unchanged.
 
 ## Changed files
 - agents/gh_batch/site_auditor_cloud/agent.ps1
@@ -14,7 +14,8 @@
 
 ## Current entrypoints/paths
 - Entry point unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- Output contract target unchanged: `decision.do_next` in DECISION_BUILD packaging path.
+- Decision logic updated in `Build-DecisionLayer` missing-input processing and candidate status evaluation.
+- Final run status evaluation updated in the main execution flow after `Build-DecisionLayer`.
 
 ## Risks/blockers
-- Validation here is static/code-level; end-to-end runtime verification depends on running the full agent workflow with required inputs.
+- Validation performed via static inspection only; full runtime confirmation of REPO subrun behavior depends on executing the pipeline with a payload where `primary_targets` is omitted.

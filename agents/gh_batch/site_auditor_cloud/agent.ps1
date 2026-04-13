@@ -2815,6 +2815,10 @@ function Build-DecisionLayer {
     $doNext = New-Object System.Collections.Generic.List[string]
 
     foreach ($missing in @($MissingInputs)) {
+        if ([string]::Equals($missing, 'primary_targets', [System.StringComparison]::OrdinalIgnoreCase)) {
+            $p1.Add('Missing optional input: primary_targets')
+            continue
+        }
         $p0.Add("Missing required input: $missing")
     }
 
@@ -2935,8 +2939,9 @@ function Build-DecisionLayer {
     }
 
     $maturityReadiness = Build-MaturityReadinessLayer -SourceLayer $SourceLayer -LiveLayer $LiveLayer -SiteDiagnosis $siteDiagnosis -ContradictionSummary $contradictionSummary -MissingInputs @($MissingInputs)
+    $blockingMissingInputs = @(@($MissingInputs).Where({ $_ -ne $null -and -not [string]::Equals([string]$_, 'primary_targets', [System.StringComparison]::OrdinalIgnoreCase) }))
     $candidateFinalStatus = 'PASS'
-    if (@($MissingInputs).Where({ $_ -ne $null }).Count -gt 0 -or ($SourceLayer.required -and (-not $SourceLayer.enabled -or -not $SourceLayer.ok)) -or ($LiveLayer.required -and (-not $LiveLayer.enabled -or -not $LiveLayer.ok))) {
+    if ($blockingMissingInputs.Count -gt 0 -or ($SourceLayer.required -and (-not $SourceLayer.enabled -or -not $SourceLayer.ok)) -or ($LiveLayer.required -and (-not $LiveLayer.enabled -or -not $LiveLayer.ok))) {
         $candidateFinalStatus = 'FAIL'
     }
     elseif ($pageQualityStatus -eq 'PARTIAL') {
@@ -4324,8 +4329,10 @@ try {
         $liveLayer.summary.contradiction_summary = Safe-Get -Object $decision -Key 'contradiction_summary' -Default @{}
     }
 
+    $blockingMissingInputs = @($missingInputs | Where-Object { $_ -ne $null -and -not [string]::Equals([string]$_, 'primary_targets', [System.StringComparison]::OrdinalIgnoreCase) })
+
     $status = 'PASS'
-    if ($missingInputs.Count -gt 0) { $status = 'FAIL' }
+    if ($blockingMissingInputs.Count -gt 0) { $status = 'FAIL' }
     if ($sourceLayer.required -and (-not $sourceLayer.enabled -or -not $sourceLayer.ok)) { $status = 'FAIL' }
     if ($liveLayer.required -and (-not $liveLayer.enabled -or -not $liveLayer.ok)) { $status = 'FAIL' }
 
