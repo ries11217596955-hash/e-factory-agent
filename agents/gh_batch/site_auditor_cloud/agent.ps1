@@ -701,7 +701,7 @@ function Normalize-ProductCloseout {
         class = 'BLOCKED_BY_UNKNOWN'
         reason = 'Product closeout classification was not generated.'
         confidence = 'low'
-        checks = [ordered]@{}
+        checks = @()
         evidence = @()
     }
 
@@ -727,14 +727,14 @@ function Normalize-ProductCloseout {
     $confidence = [string](Safe-Get -Object $Value -Key 'confidence' -Default 'low')
     if ($confidence -notin @('high', 'medium', 'low')) { $confidence = 'low' }
 
-    $checksValue = Safe-Get -Object $Value -Key 'checks' -Default @{}
-    if (-not ($checksValue -is [System.Collections.IDictionary]) -and -not ($checksValue -is [PSCustomObject])) {
-        $checksValue = [ordered]@{}
+    $checksValue = Safe-Get -Object $Value -Key 'checks' -Default @()
+    if ($null -eq $checksValue) {
+        $checksValue = @()
     }
-    $checks = Convert-ToStringKeyDictionarySafe -Value $checksValue
-    if (-not ($checks -is [System.Collections.IDictionary]) -and -not ($checks -is [PSCustomObject])) {
-        $checks = [ordered]@{}
+    elseif ($checksValue -isnot [System.Collections.IEnumerable] -or $checksValue -is [string]) {
+        $checksValue = @($checksValue)
     }
+    $checks = @($checksValue) | Where-Object { $_ -ne $null }
 
     $evidence = Convert-ToStringArraySafe -Value (Safe-Get -Object $Value -Key 'evidence' -Default @())
 
@@ -2688,7 +2688,7 @@ function Build-ProductCloseoutClassification {
     $packageTargets = Convert-ToObjectArraySafe -Value (Safe-Get -Object $RemediationPackage -Key 'primary_targets' -Default @())
     $packageTargetsArray = @($packageTargets) | Where-Object { $_ -ne $null }
 
-    $checks = [ordered]@{
+    $checksByName = [ordered]@{
         runtime_stability = if ($FinalStatus -ne 'FAIL' -and $failureStage -in @('none', '')) { 'PASS' } else { 'FAIL' }
         source_live_evidence_integrity = if ([bool]$LiveLayer.enabled -and [bool]$LiveLayer.ok -and $routeCount -gt 0 -and $screenshotCount -gt 0 -and (-not $SourceLayer.required -or [bool]$SourceLayer.ok)) { 'PASS' } else { 'FAIL' }
         page_quality_usefulness = if ($pageQualityStatus -eq 'EVALUATED') { 'PASS' } else { 'FAIL' }
@@ -2713,7 +2713,7 @@ function Build-ProductCloseoutClassification {
         analyst_brief_usefulness = 'ANALYST_BRIEF_USEFULNESS'
         report_bundle_consistency = 'REPORT_BUNDLE_CONSISTENCY'
     }
-    $failedKey = @($checks.Keys | Where-Object { [string]$checks[$_] -eq 'FAIL' } | Select-Object -First 1)
+    $failedKey = @($checksByName.Keys | Where-Object { [string]$checksByName[$_] -eq 'FAIL' } | Select-Object -First 1)
     $failedKeyArray = @($failedKey) | Where-Object { $_ -ne $null }
     $classification = 'PRODUCT_READY_BASELINE'
     if ($failedKeyArray.Count -gt 0) {
@@ -2727,6 +2727,13 @@ function Build-ProductCloseoutClassification {
     elseif ($FinalStatus -eq 'FAIL' -or $pageQualityStatus -in @('NOT_EVALUATED', 'PARTIAL') -or $diagnosisClass -eq 'UNKNOWN') {
         $confidence = 'low'
     }
+
+    $checks = @($checksByName.GetEnumerator() | ForEach-Object {
+            [ordered]@{
+                name = [string]$_.Key
+                status = [string]$_.Value
+            }
+        }) | Where-Object { $_ -ne $null }
 
     return @{
         class = $classification
