@@ -647,6 +647,15 @@ function Convert-ToObjectArraySafe {
     return @($Value)
 }
 
+function Normalize-ToArray {
+    param([object]$x)
+
+    if ($null -eq $x) { return @() }
+    if ($x -is [string]) { return @($x) }
+    if ($x -is [System.Collections.IEnumerable]) { return @($x) }
+    return @($x)
+}
+
 function Convert-ToStringArraySafe {
     param(
         [object]$Value
@@ -727,16 +736,9 @@ function Normalize-ProductCloseout {
     $confidence = [string](Safe-Get -Object $Value -Key 'confidence' -Default 'low')
     if ($confidence -notin @('high', 'medium', 'low')) { $confidence = 'low' }
 
-    $checksValue = Safe-Get -Object $Value -Key 'checks' -Default @()
-    if ($null -eq $checksValue) {
-        $checksValue = @()
-    }
-    elseif ($checksValue -isnot [System.Collections.IEnumerable] -or $checksValue -is [string]) {
-        $checksValue = @($checksValue)
-    }
-    $checks = @($checksValue) | Where-Object { $_ -ne $null }
+    $checks = Normalize-ToArray (Safe-Get -Object $Value -Key 'checks' -Default @()) | Where-Object { $_ -ne $null }
 
-    $evidence = Convert-ToStringArraySafe -Value (Safe-Get -Object $Value -Key 'evidence' -Default @())
+    $evidence = Normalize-ToArray (Convert-ToStringArraySafe -Value (Safe-Get -Object $Value -Key 'evidence' -Default @()))
 
     return [ordered]@{
         class = $classification
@@ -2963,7 +2965,7 @@ function Build-DecisionLayer {
     $suspiciouslyClean = $looksClean -and ($contradictionTotal -gt 0)
     $cleanStateLabel = if ($suspiciouslyClean) { 'SUSPICIOUSLY_CLEAN' } elseif ($looksClean) { 'CLEAN' } else { 'NOT_CLEAN' }
 
-    return @{
+    $decision = @{
         core_problem = $core
         p0 = @($p0)
         p1 = @($p1)
@@ -2977,6 +2979,18 @@ function Build-DecisionLayer {
         contradiction_summary = $contradictionSummary
         clean_state = $cleanStateLabel
     }
+
+    # DECISION_BUILD universal shape guard for deterministic Count/iteration safety.
+    $decision.problems = Normalize-ToArray (Safe-Get -Object $decision -Key 'problems' -Default (Safe-Get -Object $decision -Key 'p0' -Default @()))
+    $decision.next_actions = Normalize-ToArray (Safe-Get -Object $decision -Key 'next_actions' -Default (Safe-Get -Object $decision -Key 'do_next' -Default @()))
+    $decision.inputs = Normalize-ToArray (Safe-Get -Object $decision -Key 'inputs' -Default @($MissingInputs))
+
+    $productCloseoutNode = Normalize-ProductCloseout -Value (Safe-Get -Object $decision -Key 'product_closeout' -Default $null)
+    $productCloseoutNode.checks = Normalize-ToArray (Safe-Get -Object $productCloseoutNode -Key 'checks' -Default @())
+    $productCloseoutNode.evidence = Normalize-ToArray (Safe-Get -Object $productCloseoutNode -Key 'evidence' -Default @())
+    $decision.product_closeout = $productCloseoutNode
+
+    return $decision
 }
 
 function Build-MetaAuditBriefLines {
@@ -3776,20 +3790,21 @@ function Write-OperatorOutputs {
     $decisionP0 = Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object $Decision -Key 'p0' -Default @())
     $decisionP1 = Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object $Decision -Key 'p1' -Default @())
     $decisionP2 = Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object $Decision -Key 'p2' -Default @())
-    $topIssues = @($decisionP0 + $decisionP1)
+    $decisionProblems = Normalize-ToArray (Safe-Get -Object $Decision -Key 'problems' -Default @($decisionP0 + $decisionP1))
+    $topIssues = @($decisionProblems)
     if (-not [string]::IsNullOrWhiteSpace($packageGoal)) {
         $topIssues = @("Primary remediation package: $packageName — $packageGoal") + @($topIssues)
     }
-    if ($topIssues.Count -eq 0) {
+    if ((Normalize-ToArray $topIssues).Count -eq 0) {
         $topIssues = @($decisionP2)
     }
-    if ($topIssues.Count -eq 0) {
+    if ((Normalize-ToArray $topIssues).Count -eq 0) {
         $topIssues = @('No major issues detected from collected source/live evidence.')
     }
 
     $priorityActions = New-Object System.Collections.Generic.List[string]
-    $doNextItems = Convert-ToObjectArrayOrEmpty -Value @((Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object $Decision -Key 'do_next' -Default @())) | Select-Object -First 3)
-    if ($doNextItems.Count -gt 0) {
+    $doNextItems = Normalize-ToArray @((Normalize-ToArray (Safe-Get -Object $Decision -Key 'next_actions' -Default (Safe-Get -Object $Decision -Key 'do_next' -Default @()))) | Select-Object -First 3)
+    if ((Normalize-ToArray $doNextItems).Count -gt 0) {
         for ($i = 0; $i -lt $doNextItems.Count; $i++) {
             $priorityActions.Add("$($i + 1)) $($doNextItems[$i])")
         }
@@ -4283,6 +4298,9 @@ catch {
         p1 = @($warnings)
         p2 = @()
         do_next = @('Resolve the failure reason and rerun SITE_AUDITOR.')
+        problems = Normalize-ToArray @($failureReason)
+        next_actions = Normalize-ToArray @('Resolve the failure reason and rerun SITE_AUDITOR.')
+        inputs = Normalize-ToArray @($requiredInputs)
         site_diagnosis = @{
             class = 'BROKEN_SYSTEM'
             reason = 'Run failed before reliable live evidence could be evaluated.'
