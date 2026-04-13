@@ -1,11 +1,11 @@
 # TASK_REPORT
 
 ## Summary
-- Repaired the remaining DECISION_BUILD collection-shape node in `Build-ProductCloseoutClassification`.
-- Isolated the unsafe assumption: `primary_targets` was read with `@(...)` and then consumed via `.Count`, which can still receive non-list shapes from decision-layer objects under strict mode.
-- Normalized `primary_targets` using `Convert-ToObjectArraySafe` before `.Count` usage, making the boundary safe for null, scalar/string, hashtable/dictionary, singleton PSCustomObject, and array/list inputs.
-- Kept patch scope limited to the exact decision-layer node; no changes were made to source/live audit, page-quality, fallback truth extraction, route normalization, screenshot capture, or REPO summary handling.
-- Goal of this change is to allow DECISION_BUILD to complete final decision/output assembly without the remaining `.Count` shape failure.
+- Hardened DECISION_BUILD collection-shape handling at the `primary_targets` boundary in decision construction/output packaging.
+- Isolated the unsafe assumption: `primary_targets` was consumed via `.Count` in DECISION_BUILD nodes after being materialized with `@(...)`/`Convert-ToObjectArrayOrEmpty`, which is not the canonical normalization path for strict collection-shape guarantees.
+- Normalized `primary_targets` with `Convert-ToObjectArraySafe` before `.Count` and preview iteration, ensuring null/singleton/scalar/PSCustomObject/list inputs are deterministic object arrays.
+- Kept patch scope local to decision-layer builder/consumer nodes; no source/live/page-quality/fallback/route-normalization/screenshot-family behavior was changed.
+- Goal of this change is to remove the remaining DECISION_BUILD `.Count` shape crash and preserve existing report/output contracts.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -20,7 +20,8 @@
   - `agents/gh_batch/site_auditor_cloud/run.ps1`
   - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 - Patched boundary/function:
-  - `Build-ProductCloseoutClassification` (`primary_targets` normalization for shape-safe `.Count` consumption)
+  - `Build-DecisionLayer` (`remediation_package.primary_targets` normalization for shape-safe `.Count` / preview consumption)
+  - `Write-OperatorOutputs` (`remediation_package.primary_targets` normalization for shape-safe `.Count` / summary rendering)
 
 ## Risks/blockers
 - Environment limitation: `pwsh` is not installed in this container, so runtime PowerShell execution could not be performed locally.
