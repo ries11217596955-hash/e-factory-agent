@@ -2637,7 +2637,8 @@ function Build-PrimaryRemediationPackage {
             $targets.Add($path)
         }
     }
-    if ($targets.Count -eq 0) {
+    $targetsArray = @($targets) | Where-Object { $_ -ne $null }
+    if ($targetsArray.Count -eq 0) {
         foreach ($route in @($routeDetails | Select-Object -First 3)) {
             $path = [string](Safe-Get -Object $route -Key 'route_path' -Default '')
             if (-not [string]::IsNullOrWhiteSpace($path)) {
@@ -2685,6 +2686,7 @@ function Build-ProductCloseoutClassification {
         ($null -ne (Safe-Get -Object $ContradictionSummary -Key 'total_candidates' -Default $null))
     $packageName = [string](Safe-Get -Object $RemediationPackage -Key 'package_name' -Default '')
     $packageTargets = Convert-ToObjectArraySafe -Value (Safe-Get -Object $RemediationPackage -Key 'primary_targets' -Default @())
+    $packageTargetsArray = @($packageTargets) | Where-Object { $_ -ne $null }
 
     $checks = [ordered]@{
         runtime_stability = if ($FinalStatus -ne 'FAIL' -and $failureStage -in @('none', '')) { 'PASS' } else { 'FAIL' }
@@ -2694,7 +2696,7 @@ function Build-ProductCloseoutClassification {
         diagnosis_usefulness = if ($diagnosisClass -ne 'UNKNOWN') { 'PASS' } else { 'FAIL' }
         maturity_usefulness = if ($maturityClass -ne 'NOT_READY') { 'PASS' } else { 'FAIL' }
         operator_output_usefulness = if ([string](Safe-Get -Object $RemediationPackage -Key 'why_first' -Default '') -ne '') { 'PASS' } else { 'FAIL' }
-        remediation_package_usefulness = if (-not [string]::IsNullOrWhiteSpace($packageName) -and $packageTargets.Count -gt 0) { 'PASS' } else { 'FAIL' }
+        remediation_package_usefulness = if (-not [string]::IsNullOrWhiteSpace($packageName) -and $packageTargetsArray.Count -gt 0) { 'PASS' } else { 'FAIL' }
         analyst_brief_usefulness = if ($pageQualityStatus -in @('EVALUATED', 'PARTIAL') -and $routeCount -gt 0) { 'PASS' } else { 'FAIL' }
         report_bundle_consistency = if ($FinalStatus -in @('PASS', 'PARTIAL', 'FAIL')) { 'PASS' } else { 'FAIL' }
     }
@@ -2712,9 +2714,10 @@ function Build-ProductCloseoutClassification {
         report_bundle_consistency = 'REPORT_BUNDLE_CONSISTENCY'
     }
     $failedKey = @($checks.Keys | Where-Object { [string]$checks[$_] -eq 'FAIL' } | Select-Object -First 1)
+    $failedKeyArray = @($failedKey) | Where-Object { $_ -ne $null }
     $classification = 'PRODUCT_READY_BASELINE'
-    if ($failedKey.Count -gt 0) {
-        $classification = "BLOCKED_BY_$($failureMap[$failedKey[0]])"
+    if ($failedKeyArray.Count -gt 0) {
+        $classification = "BLOCKED_BY_$($failureMap[$failedKeyArray[0]])"
     }
 
     $confidence = 'medium'
@@ -2727,12 +2730,12 @@ function Build-ProductCloseoutClassification {
 
     return @{
         class = $classification
-        reason = if ($failedKey.Count -eq 0) { 'Deterministic closeout checks passed for baseline operator use.' } else { "Product closeout blocked by $($failedKey[0])." }
+        reason = if ($failedKeyArray.Count -eq 0) { 'Deterministic closeout checks passed for baseline operator use.' } else { "Product closeout blocked by $($failedKeyArray[0])." }
         confidence = $confidence
         checks = $checks
         evidence = @(
             "final_status=$FinalStatus failure_stage=$failureStage page_quality_status=$pageQualityStatus",
-            "route_count=$routeCount screenshot_count=$screenshotCount package_name=$packageName package_targets=$($packageTargets.Count)",
+            "route_count=$routeCount screenshot_count=$screenshotCount package_name=$packageName package_targets=$($packageTargetsArray.Count)",
             "site_diagnosis=$diagnosisClass maturity=$maturityClass contradiction_shape=$contradictionHasCoreShape"
         )
     }
@@ -2911,11 +2914,13 @@ function Build-DecisionLayer {
     $remediationPackage = Build-PrimaryRemediationPackage -LiveLayer $LiveLayer -SiteDiagnosis $siteDiagnosis -ContradictionSummary $contradictionSummary
     $productCloseout = Normalize-ProductCloseout -Value (Build-ProductCloseoutClassification -FinalStatus $candidateFinalStatus -SourceLayer $SourceLayer -LiveLayer $LiveLayer -ContradictionSummary $contradictionSummary -SiteDiagnosis $siteDiagnosis -MaturityReadiness $maturityReadiness -RemediationPackage $remediationPackage)
 
-    if ($p0.Count -gt 0) {
-        $core = $p0[0]
+    $p0Array = @($p0) | Where-Object { $_ -ne $null }
+    $p1Array = @($p1) | Where-Object { $_ -ne $null }
+    if ($p0Array.Count -gt 0) {
+        $core = $p0Array[0]
     }
-    elseif ($p1.Count -gt 0) {
-        $core = $p1[0]
+    elseif ($p1Array.Count -gt 0) {
+        $core = $p1Array[0]
     }
     else {
         if ($ResolvedMode -in @('REPO', 'ZIP')) {
@@ -2928,7 +2933,8 @@ function Build-DecisionLayer {
 
     # DECISION_BUILD requires deterministic collection shape before Count/iteration consumption.
     $packageTargets = Convert-ToObjectArraySafe -Value (Safe-Get -Object $remediationPackage -Key 'primary_targets' -Default @())
-    if ($packageTargets.Count -gt 0) {
+    $packageTargetsArray = @($packageTargets) | Where-Object { $_ -ne $null }
+    if ($packageTargetsArray.Count -gt 0) {
         $targetPreview = (@($packageTargets | Select-Object -First 3)) -join ', '
         $doNext.Add("Execute $([string](Safe-Get -Object $remediationPackage -Key 'package_name' -Default 'MIXED_RECOVERY_PACKAGE')) first on routes: $targetPreview.")
     }
