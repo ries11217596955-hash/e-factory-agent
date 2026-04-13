@@ -1,11 +1,11 @@
 # TASK_REPORT
 
 ## Summary
-- Fixed DECISION_BUILD closeout-check shape handling so `product_closeout.checks` is always normalized to an array.
-- Updated product closeout normalization to coerce `checks` into an array and remove null entries.
-- Kept closeout decision logic intact while converting emitted check data to an array shape.
-- Limited the patch strictly to closeout-check shape normalization in `agent.ps1`.
-- No protected paths or runtime entrypoints were modified.
+- Added a universal `Normalize-ToArray` function to enforce deterministic array shape for potentially null/scalar/enumerable values.
+- Applied DECISION_BUILD guard normalization at a single return-layer insertion point for `decision.problems`, `decision.next_actions`, `decision.inputs`, and `decision.product_closeout.{checks,evidence}`.
+- Updated product closeout normalization to always coerce `checks` and `evidence` through the same universal array normalizer.
+- Updated operator-output consumption paths to use normalized `problems` / `next_actions` collections and Count checks guarded via `Normalize-ToArray`.
+- Preserved decision logic and structure intent; only collection-shape hardening was introduced.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -19,10 +19,11 @@
   - `agents/gh_batch/site_auditor_cloud/agent.ps1`
   - `agents/gh_batch/site_auditor_cloud/run.ps1`
   - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
-- DECISION_BUILD closeout-check normalization is implemented in:
+- DECISION_BUILD shape guard is enforced in:
+  - `Normalize-ToArray`
+  - `Build-DecisionLayer` (pre-return normalization insertion)
   - `Normalize-ProductCloseout`
-  - `Build-ProductCloseoutClassification`
 
 ## Risks/blockers
-- Full pipeline validation (`RUN_REPORT.json` / `DONE.fail`) was not executed in this environment.
-- Verification here is static/code-level only.
+- Runtime execution validation (e.g., generated `reports/RUN_REPORT.json`) was not performed in this environment because PowerShell runtime (`pwsh`) is unavailable.
+- Validation performed here is static patch verification only.
