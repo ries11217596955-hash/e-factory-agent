@@ -1,11 +1,11 @@
 # TASK_REPORT
 
 ## Summary
-- Hardened remaining DECISION_BUILD collection-shape consumers that still relied on direct `.Count` access from potentially non-collection inputs.
-- Normalized `LiveLayer.route_details`, `SourceLayer.summary.top_level_directories`, and DECISION warning ingestion through `Convert-ToObjectArraySafe` before downstream count/iteration use.
-- Kept existing primary-targets fixes intact; this patch only addresses additional Count-assumption nodes in DECISION_BUILD helper flow.
-- Added deterministic forensics field `decision_build_failed_node` to RUN_REPORT/FAILURE_SUMMARY evidence payloads to pinpoint failing DECISION_BUILD node on future failures.
-- Preserved product closeout behavior with non-crashing fallback semantics and no capture/live/page-quality pipeline rewrites.
+- Patched DECISION_BUILD collection-shape guards to prevent `.Count` access on ambiguous/non-array values at the failing decision node.
+- Added explicit array normalization (`@(...) | Where-Object { $_ -ne $null }`) before `.Count` checks for DECISION-layer priority buckets (`p0`, `p1`) and remediation target inputs.
+- Hardened product closeout classification inputs by normalizing remediation target and failed-check collections before any `.Count` evaluation.
+- Preserved existing decision logic and output semantics; this is a shape-guard patch only (no architecture/layer refactor).
+- Kept `product_closeout` generation deterministic through existing `Normalize-ProductCloseout` flow while removing Count-crash pathways in DECISION_BUILD helpers.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -19,13 +19,11 @@
   - `agents/gh_batch/site_auditor_cloud/agent.ps1`
   - `agents/gh_batch/site_auditor_cloud/run.ps1`
   - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
-- DECISION_BUILD-path hardening updates:
-  - `Build-ContradictionLayer`
+- DECISION_BUILD-related hardening points:
   - `Build-PrimaryRemediationPackage`
+  - `Build-ProductCloseoutClassification`
   - `Build-DecisionLayer`
-- Reporting forensic update:
-  - `Write-OperatorOutputs` (`decision_build_failed_node` in evidence + summary payload)
 
 ## Risks/blockers
-- Environment limitation: PowerShell runtime (`pwsh`) is not available in this container, so end-to-end execution validation could not be run locally.
-- Validation performed via static inspection and syntax parse only; runtime confirmation requires execution in the normal SITE_AUDITOR runner environment.
+- Runtime validation is blocked in this environment because `pwsh` is unavailable; only static checks were run.
+- RUN_REPORT/DONE.fail behavioral verification requires executing the normal SITE_AUDITOR pipeline in an environment with PowerShell runtime.
