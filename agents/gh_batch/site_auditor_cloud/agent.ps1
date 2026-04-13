@@ -3035,6 +3035,24 @@ function Build-DecisionLayer {
     $decision.p2 = Normalize-ToArrayOrEmpty (Safe-Get -Object $decision -Key 'p2' -Default @())
     $decision.do_next = Normalize-ToArrayOrEmpty (Safe-Get -Object $decision -Key 'do_next' -Default @())
 
+    $doNext = @($decision.do_next) | Where-Object { $_ -ne $null -and $_ -ne "" }
+    $weakDoNext = @($doNext | Where-Object {
+        $stepText = [string]$_
+        $trimmedStep = $stepText.Trim()
+        [string]::IsNullOrWhiteSpace($trimmedStep) -or $trimmedStep -match '^(?i)(improve|analyze)\b'
+    })
+    if ($doNext.Count -eq 0 -or $weakDoNext.Count -gt 0) {
+        $doNext = @(
+            "Review top P0 issue and fix it directly",
+            "Apply fix to affected page/component",
+            "Re-run audit to verify resolution"
+        )
+    }
+    if ($doNext.Count -gt 3) {
+        $doNext = $doNext[0..2]
+    }
+    $decision.do_next = $doNext
+
     $productCloseoutNode = Normalize-ProductCloseout -Value (Safe-Get -Object $decision -Key 'product_closeout' -Default $null)
     $productCloseoutNode.class = Normalize-ToTextOrEmpty (Safe-Get -Object $productCloseoutNode -Key 'class' -Default 'BLOCKED_BY_UNKNOWN')
     $productCloseoutNode.reason = Normalize-ToTextOrEmpty (Safe-Get -Object $productCloseoutNode -Key 'reason' -Default 'Product closeout classification was not generated.')
