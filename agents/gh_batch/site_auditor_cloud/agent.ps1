@@ -3363,6 +3363,104 @@ function Convert-ToObjectArrayOrEmpty {
     return @($Value)
 }
 
+function Get-TruthBackedConfirmedStages {
+    param(
+        [string]$SourceStatus,
+        [string]$LiveStatus,
+        [string]$PageQualityStatus,
+        [string]$LastSuccessStage,
+        [string]$CurrentStage
+    )
+
+    $confirmed = New-Object System.Collections.Generic.List[string]
+    if ($SourceStatus -eq 'PASS') { $confirmed.Add('SOURCE_AUDIT') }
+    if ($LiveStatus -eq 'PASS') { $confirmed.Add('LIVE_AUDIT') }
+    if ($PageQualityStatus -notin @('NOT_EVALUATED', 'PARTIAL')) { $confirmed.Add('PAGE_QUALITY_BUILD') }
+
+    $lastSuccess = [string]$LastSuccessStage
+    if (-not [string]::IsNullOrWhiteSpace($lastSuccess) -and ($confirmed -notcontains $lastSuccess)) {
+        $confirmed.Add($lastSuccess)
+    }
+
+    $failedStage = [string]$CurrentStage
+    if (-not [string]::IsNullOrWhiteSpace($failedStage)) {
+        $filtered = New-Object System.Collections.Generic.List[string]
+        foreach ($stage in @($confirmed)) {
+            if ([string]::IsNullOrWhiteSpace([string]$stage)) { continue }
+            if ([string]$stage -eq $failedStage) { continue }
+            if ($filtered -contains [string]$stage) { continue }
+            $filtered.Add([string]$stage)
+        }
+        return @($filtered)
+    }
+
+    return @($confirmed)
+}
+
+function Get-FallbackTruthEvidence {
+    param(
+        [string]$AuditResultPath,
+        [string]$FailureReason,
+        [string]$CurrentStage,
+        [string]$LastSuccessStage
+    )
+
+    $auditResult = @{}
+    if (-not [string]::IsNullOrWhiteSpace($AuditResultPath) -and (Test-Path $AuditResultPath -PathType Leaf)) {
+        try {
+            $parsedAudit = Get-Content -Path $AuditResultPath -Raw | ConvertFrom-Json -Depth 32
+            if ($null -ne $parsedAudit) {
+                $auditResult = $parsedAudit
+            }
+        }
+        catch {
+            $auditResult = @{}
+        }
+    }
+
+    $sourceLayer = Safe-Get -Object $auditResult -Key 'source' -Default @{}
+    $liveLayer = Safe-Get -Object $auditResult -Key 'live' -Default @{}
+    $liveSummary = Safe-Get -Object $liveLayer -Key 'summary' -Default @{}
+    $productStatus = Safe-Get -Object $auditResult -Key 'product_status' -Default @{}
+    $sourceSummary = Safe-Get -Object $sourceLayer -Key 'summary' -Default @{}
+
+    $sourceStatus = Get-LayerStatusLabel -Layer $sourceLayer -DisabledLabel 'UNKNOWN'
+    $liveStatus = Get-LayerStatusLabel -Layer $liveLayer -DisabledLabel 'UNKNOWN'
+    $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
+    if ([string]::IsNullOrWhiteSpace($pageQualityStatus)) {
+        $pageQualityStatus = 'NOT_EVALUATED'
+    }
+
+    $failureStage = [string](Safe-Get -Object $liveSummary -Key 'failure_stage' -Default '')
+    if ([string]::IsNullOrWhiteSpace($failureStage)) { $failureStage = [string]$CurrentStage }
+
+    $confirmedStages = Get-TruthBackedConfirmedStages -SourceStatus $sourceStatus -LiveStatus $liveStatus -PageQualityStatus $pageQualityStatus -LastSuccessStage $LastSuccessStage -CurrentStage $CurrentStage
+
+    $truthSources = New-Object System.Collections.Generic.List[string]
+    if (-not [string]::IsNullOrWhiteSpace($AuditResultPath) -and (Test-Path $AuditResultPath -PathType Leaf)) {
+        $truthSources.Add('reports/audit_result.json')
+    }
+    $routeTracePath = Join-Path $reportsDir 'route_normalization_trace.json'
+    if (Test-Path $routeTracePath -PathType Leaf) {
+        $truthSources.Add('reports/route_normalization_trace.json')
+    }
+
+    return [ordered]@{
+        source_status = $sourceStatus
+        live_status = $liveStatus
+        page_quality_status = $pageQualityStatus
+        product_status = [string](Safe-Get -Object $productStatus -Key 'status' -Default 'UNKNOWN')
+        product_reason = [string](Safe-Get -Object $productStatus -Key 'reason' -Default 'Fallback report only.')
+        repo_summary_status = [string](Safe-Get -Object $sourceSummary -Key 'status' -Default 'UNKNOWN')
+        failure_stage = $failureStage
+        error_message = if ([string]::IsNullOrWhiteSpace($FailureReason)) { '' } else { $FailureReason }
+        failure_node = [string]$CurrentStage
+        blocker = if ([string]::IsNullOrWhiteSpace($FailureReason)) { 'Unknown fallback failure.' } else { $FailureReason }
+        confirmed_passing_stages = @($confirmedStages)
+        primary_truth_sources = @($truthSources)
+    }
+}
+
 function Write-RunForensicsReports {
     param(
         [string]$ResolvedMode,
@@ -3928,7 +4026,17 @@ function Ensure-OutputContract {
 
     $runReportJsonPath = Join-Path $reportsDir 'RUN_REPORT.json'
     if (-not (Test-Path $runReportJsonPath -PathType Leaf)) {
-        $fallbackNextMove = if ($FinalStatus -eq 'PASS') { 'No technical repair node remains.' } else { 'Inspect fallback failure and rerun SITE_AUDITOR.' }
+        $fallbackTruth = Get-FallbackTruthEvidence -AuditResultPath $auditResultPath -FailureReason $FailureReason -CurrentStage $currentStage -LastSuccessStage $lastSuccessStage
+        $fallbackNextMove = if ($FinalStatus -eq 'PASS') {
+            'No technical repair node remains.'
+        }
+        else {
+            "Inspect failed node '$($fallbackTruth.failure_stage)' and remediate the blocker before rerun."
+        }
+        $primaryTruthSources = Convert-ToObjectArraySafe -Value (Safe-Get -Object $fallbackTruth -Key 'primary_truth_sources' -Default @())
+        if (@($primaryTruthSources).Count -le 0) {
+            $primaryTruthSources = @('reports/audit_result.json')
+        }
         $fallbackContract = [ordered]@{
             run_status = [ordered]@{
                 run_id = $runId
@@ -3942,23 +4050,23 @@ function Ensure-OutputContract {
             }
             executive_summary = 'Fallback run report generated because primary operator report contract was missing.'
             key_evidence_excerpts = [ordered]@{
-                source_status = 'UNKNOWN'
-                live_status = 'UNKNOWN'
-                page_quality_status = 'NOT_EVALUATED'
-                product_status = 'UNKNOWN'
-                product_reason = 'Fallback report only.'
-                repo_summary_status = 'UNKNOWN'
-                failure_stage = $currentStage
-                error_message = if ([string]::IsNullOrWhiteSpace($FailureReason)) { '' } else { $FailureReason }
-                failure_node = $currentStage
-                blocker = if ([string]::IsNullOrWhiteSpace($FailureReason)) { 'Unknown fallback failure.' } else { $FailureReason }
+                source_status = [string](Safe-Get -Object $fallbackTruth -Key 'source_status' -Default 'UNKNOWN')
+                live_status = [string](Safe-Get -Object $fallbackTruth -Key 'live_status' -Default 'UNKNOWN')
+                page_quality_status = [string](Safe-Get -Object $fallbackTruth -Key 'page_quality_status' -Default 'NOT_EVALUATED')
+                product_status = [string](Safe-Get -Object $fallbackTruth -Key 'product_status' -Default 'UNKNOWN')
+                product_reason = [string](Safe-Get -Object $fallbackTruth -Key 'product_reason' -Default 'Fallback report only.')
+                repo_summary_status = [string](Safe-Get -Object $fallbackTruth -Key 'repo_summary_status' -Default 'UNKNOWN')
+                failure_stage = [string](Safe-Get -Object $fallbackTruth -Key 'failure_stage' -Default $currentStage)
+                error_message = [string](Safe-Get -Object $fallbackTruth -Key 'error_message' -Default '')
+                failure_node = [string](Safe-Get -Object $fallbackTruth -Key 'failure_node' -Default $currentStage)
+                blocker = [string](Safe-Get -Object $fallbackTruth -Key 'blocker' -Default 'Unknown fallback failure.')
             }
             artifact_manifest_summary = [ordered]@{
                 artifacts = @(
                     [ordered]@{ path = 'reports/audit_result.json'; artifact_type = 'truth_audit'; purpose = 'Primary structured source/live/decision truth.'; priority_for_operator = 'high' },
                     [ordered]@{ path = 'outbox/REPORT.txt'; artifact_type = 'operator_report'; purpose = 'Legacy operator summary output.'; priority_for_operator = 'medium' }
                 )
-                primary_truth_sources = @('reports/audit_result.json')
+                primary_truth_sources = @($primaryTruthSources)
             }
             next_technical_move = $fallbackNextMove
         }
@@ -3992,13 +4100,13 @@ function Ensure-OutputContract {
             final_status = $FinalStatus
             final_stage = $currentStage
             last_success_stage = $lastSuccessStage
-            failed_stage = $currentStage
+            failed_stage = [string](Safe-Get -Object $fallbackTruth -Key 'failure_stage' -Default $currentStage)
             error_message = if ([string]::IsNullOrWhiteSpace($FailureReason)) { '' } else { $FailureReason }
-            confirmed_passing_stages = @()
+            confirmed_passing_stages = @(Convert-ToObjectArraySafe -Value (Safe-Get -Object $fallbackTruth -Key 'confirmed_passing_stages' -Default @()))
             usable_partial_artifacts_exist = $true
             next_technical_move = $fallbackNextMove
             key_evidence_excerpts = $fallbackContract.key_evidence_excerpts
-            primary_truth_sources = @('reports/audit_result.json')
+            primary_truth_sources = @($primaryTruthSources)
         }
         if ($FinalStatus -in @('FAIL', 'PARTIAL')) {
             Write-JsonFile -Path (Join-Path $reportsDir 'FAILURE_SUMMARY.json') -Data $fallbackSummary
