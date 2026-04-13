@@ -2980,14 +2980,62 @@ function Build-DecisionLayer {
         clean_state = $cleanStateLabel
     }
 
-    # DECISION_BUILD universal shape guard for deterministic Count/iteration safety.
-    $decision.problems = Normalize-ToArray (Safe-Get -Object $decision -Key 'problems' -Default (Safe-Get -Object $decision -Key 'p0' -Default @()))
-    $decision.next_actions = Normalize-ToArray (Safe-Get -Object $decision -Key 'next_actions' -Default (Safe-Get -Object $decision -Key 'do_next' -Default @()))
-    $decision.inputs = Normalize-ToArray (Safe-Get -Object $decision -Key 'inputs' -Default @($MissingInputs))
+    function Normalize-ToArrayOrEmpty {
+        param([object]$Value)
+
+        if ($null -eq $Value) { return @() }
+        if ($Value -is [System.Collections.IDictionary] -or $Value -is [PSCustomObject]) { return @($Value) }
+        if ($Value -is [System.Collections.IEnumerable] -and -not ($Value -is [string])) { return @($Value) }
+        return @($Value)
+    }
+
+    function Normalize-ToTextOrEmpty {
+        param([object]$Value)
+
+        if ($null -eq $Value) { return '' }
+        if ($Value -is [string]) { return [string]$Value }
+        if ($Value -is [System.Collections.IDictionary] -or $Value -is [PSCustomObject]) {
+            return [string]($Value | ConvertTo-Json -Depth 8 -Compress)
+        }
+        if ($Value -is [System.Collections.IEnumerable] -and -not ($Value -is [string])) {
+            $items = Convert-ToStringArraySafe -Value $Value
+            if ($items.Count -le 0) { return '' }
+            return [string](@($items) -join ' | ')
+        }
+        return [string]$Value
+    }
+
+    # DECISION_BUILD final contract lock: deterministic text/array output types before packaging.
+    $decision.core_problem = Normalize-ToTextOrEmpty (Safe-Get -Object $decision -Key 'core_problem' -Default $core)
+    $decision.problems = Normalize-ToTextOrEmpty (Safe-Get -Object $decision -Key 'problems' -Default (Safe-Get -Object $decision -Key 'p0' -Default @()))
+    $decision.next_actions = Normalize-ToTextOrEmpty (Safe-Get -Object $decision -Key 'next_actions' -Default (Safe-Get -Object $decision -Key 'do_next' -Default @()))
+    $decision.clean_state = Normalize-ToTextOrEmpty (Safe-Get -Object $decision -Key 'clean_state' -Default $cleanStateLabel)
+    $decision.inputs = Normalize-ToArrayOrEmpty (Safe-Get -Object $decision -Key 'inputs' -Default @($MissingInputs))
+    $decision.p0 = Normalize-ToArrayOrEmpty (Safe-Get -Object $decision -Key 'p0' -Default @())
+    $decision.p1 = Normalize-ToArrayOrEmpty (Safe-Get -Object $decision -Key 'p1' -Default @())
+    $decision.p2 = Normalize-ToArrayOrEmpty (Safe-Get -Object $decision -Key 'p2' -Default @())
+    $decision.do_next = Normalize-ToArrayOrEmpty (Safe-Get -Object $decision -Key 'do_next' -Default @())
 
     $productCloseoutNode = Normalize-ProductCloseout -Value (Safe-Get -Object $decision -Key 'product_closeout' -Default $null)
-    $productCloseoutNode.checks = Normalize-ToArray (Safe-Get -Object $productCloseoutNode -Key 'checks' -Default @())
-    $productCloseoutNode.evidence = Normalize-ToArray (Safe-Get -Object $productCloseoutNode -Key 'evidence' -Default @())
+    $productCloseoutNode.class = Normalize-ToTextOrEmpty (Safe-Get -Object $productCloseoutNode -Key 'class' -Default 'BLOCKED_BY_UNKNOWN')
+    $productCloseoutNode.reason = Normalize-ToTextOrEmpty (Safe-Get -Object $productCloseoutNode -Key 'reason' -Default 'Product closeout classification was not generated.')
+    $productCloseoutNode.checks = Normalize-ToArrayOrEmpty (Safe-Get -Object $productCloseoutNode -Key 'checks' -Default @())
+    $productCloseoutNode.evidence = Normalize-ToArrayOrEmpty (Safe-Get -Object $productCloseoutNode -Key 'evidence' -Default @())
+    if ($productCloseoutNode.class -eq 'BLOCKED_BY_UNKNOWN' -and
+        $productCloseoutNode.reason -eq 'Product closeout classification was not generated.') {
+        $productCloseoutNode.reason = 'Product closeout classification was not generated; emitted deterministic diagnostic payload.'
+        $productCloseoutNode.checks = @(
+            [ordered]@{
+                name = 'closeout_classification'
+                status = 'FAIL'
+                detail = 'classification_not_generated'
+            }
+        )
+        $productCloseoutNode.evidence = @(
+            "diagnostic=closeout_classification_unavailable",
+            "candidate_final_status=$candidateFinalStatus"
+        )
+    }
     $decision.product_closeout = $productCloseoutNode
 
     return $decision
@@ -4298,8 +4346,8 @@ catch {
         p1 = @($warnings)
         p2 = @()
         do_next = @('Resolve the failure reason and rerun SITE_AUDITOR.')
-        problems = Normalize-ToArray @($failureReason)
-        next_actions = Normalize-ToArray @('Resolve the failure reason and rerun SITE_AUDITOR.')
+        problems = [string]$failureReason
+        next_actions = [string]'Resolve the failure reason and rerun SITE_AUDITOR.'
         inputs = Normalize-ToArray @($requiredInputs)
         site_diagnosis = @{
             class = 'BROKEN_SYSTEM'
@@ -4323,7 +4371,22 @@ catch {
             site_candidate_count = 0
         }
         clean_state = 'NOT_CLEAN'
-        product_closeout = Normalize-ProductCloseout -Value $null
+        product_closeout = Normalize-ProductCloseout -Value @{
+            class = 'BLOCKED_BY_DIAGNOSTIC'
+            reason = 'Product closeout classification unavailable because DECISION_BUILD failed before closeout synthesis.'
+            confidence = 'low'
+            checks = @(
+                @{
+                    name = 'closeout_classification'
+                    status = 'FAIL'
+                    detail = 'decision_build_failure'
+                }
+            )
+            evidence = @(
+                "failure_reason=$failureReason",
+                "stage=$currentStage"
+            )
+        }
     }
 
     $auditResult = @{

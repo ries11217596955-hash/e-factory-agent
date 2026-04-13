@@ -1,11 +1,11 @@
 # TASK_REPORT
 
 ## Summary
-- Replaced unsafe `.Count` usages in DECISION_BUILD functions with null-safe collection length evaluation using `@(...)` and null filtering.
-- Updated conditional Count checks to deterministic expressions like `@($var).Where({ $_ -ne $null }).Count`.
-- Updated direct Count reads/embeds to safe expressions like `(@($var) | Where-Object { $_ -ne $null }).Count`.
-- Kept DECISION_BUILD flow and branching unchanged; only Count access mechanics were updated.
-- Preserved output contract behavior for contradiction, diagnosis, and product closeout generation paths.
+- Locked DECISION_BUILD final payload fields to a deterministic text/array contract immediately before closeout/output packaging.
+- Added tiny in-block helpers (`Normalize-ToArrayOrEmpty`, `Normalize-ToTextOrEmpty`) inside `Build-DecisionLayer`.
+- Normalized decision fields so `problems`/`next_actions`/`core_problem`/`clean_state` are text and `p0`/`p1`/`p2`/`do_next`/`inputs` are arrays.
+- Normalized `product_closeout` field contract (`class`/`reason` text, `checks`/`evidence` arrays) and emitted deterministic closeout diagnostic payload when classification is unavailable.
+- Updated DECISION_BUILD fail-path decision payload so `problems` and `next_actions` are text and closeout always includes a structured diagnostic classification object.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -19,12 +19,10 @@
   - `agents/gh_batch/site_auditor_cloud/agent.ps1`
   - `agents/gh_batch/site_auditor_cloud/run.ps1`
   - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
-- DECISION_BUILD Count safety updates were applied in:
-  - `Build-ContradictionLayer`
-  - `Build-SiteDiagnosisLayer`
-  - `Build-ProductCloseoutClassification`
-  - `Build-DecisionLayer`
+- DECISION_BUILD contract lock updates were applied in:
+  - `Build-DecisionLayer` (final decision/output type shaping helpers and field normalization)
+  - Main catch/fail decision payload (deterministic closeout diagnostic object)
 
 ## Risks/blockers
-- Full runtime verification (DECISION_BUILD completion and artifact generation) depends on running the PowerShell pipeline with task inputs.
-- If this environment lacks `pwsh` or required input fixtures, validation is limited to static Count-usage checks.
+- Full end-to-end validation of `RUN_REPORT.json` / `audit_result.json` output contracts requires running the PowerShell flow with representative runtime inputs.
+- If required run fixtures/inputs are unavailable in this environment, verification is limited to static script checks and parse validation.
