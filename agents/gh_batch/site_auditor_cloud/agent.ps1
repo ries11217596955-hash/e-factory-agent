@@ -3648,6 +3648,12 @@ function Write-RunForensicsReports {
         [string]$FinalStatus,
         [hashtable]$AuditResult,
         [hashtable]$Decision,
+        if ($null -ne $productStatusRaw) {
+    $statusSource = $productStatusRaw
+}
+else {
+    $statusSource = $productStatusDetail
+}
         [string]$FailureReason,
         [string]$CurrentStage,
         [string]$LastSuccessStage,
