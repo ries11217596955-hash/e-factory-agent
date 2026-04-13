@@ -3356,6 +3356,13 @@ function Add-ArtifactManifestItem {
     })
 }
 
+function Convert-ToObjectArrayOrEmpty {
+    param($Value)
+
+    if ($null -eq $Value) { return @() }
+    return @($Value)
+}
+
 function Write-RunForensicsReports {
     param(
         [string]$ResolvedMode,
@@ -3391,7 +3398,7 @@ function Write-RunForensicsReports {
         $failedStage = [string]$CurrentStage
     }
 
-    $doNextList = @(Safe-Get -Object $Decision -Key 'do_next' -Default @())
+    $doNextList = Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object $Decision -Key 'do_next' -Default @())
     $nextMove = [string]($doNextList | Select-Object -First 1)
     if ([string]::IsNullOrWhiteSpace($nextMove)) {
         if ($FinalStatus -eq 'PASS') {
@@ -3428,7 +3435,7 @@ function Write-RunForensicsReports {
         'reports/SUCCESS_SUMMARY.json' = @{ type = 'success_summary'; purpose = 'Structured success summary for automation.'; priority = 'medium' }
     }
 
-    foreach ($path in @($reportFiles)) {
+    foreach ($path in (Convert-ToObjectArrayOrEmpty -Value $reportFiles)) {
         $hint = Safe-Get -Object $artifactHints -Key $path -Default $null
         if ($null -ne $hint) {
             Add-ArtifactManifestItem -Items $artifactItems -Path $path -ArtifactType ([string]$hint.type) -Purpose ([string]$hint.purpose) -Priority ([string]$hint.priority)
@@ -3442,7 +3449,7 @@ function Write-RunForensicsReports {
     Add-ArtifactManifestItem -Items $artifactItems -Path 'outbox/DONE.ok' -ArtifactType 'run_marker' -Purpose 'Run pass marker file.' -Priority 'low'
     Add-ArtifactManifestItem -Items $artifactItems -Path 'outbox/DONE.fail' -ArtifactType 'run_marker' -Purpose 'Run fail marker file.' -Priority 'low'
 
-    $primaryTruth = @($artifactItems | Where-Object { $_.priority_for_operator -eq 'high' } | ForEach-Object { $_.path })
+    $primaryTruth = Convert-ToObjectArrayOrEmpty -Value @($artifactItems | Where-Object { $_.priority_for_operator -eq 'high' } | ForEach-Object { $_.path })
     $usablePartialArtifacts = ($artifactItems.Count -gt 0)
 
     $confirmedPassingStages = New-Object System.Collections.Generic.List[string]
@@ -3625,8 +3632,8 @@ function Write-OperatorOutputs {
 
     $packageName = [string](Safe-Get -Object $remediationPackage -Key 'package_name' -Default 'MIXED_RECOVERY_PACKAGE')
     $packageGoal = [string](Safe-Get -Object $remediationPackage -Key 'package_goal' -Default 'Stabilize highest-impact route-quality cluster first.')
-    $packageTargets = @(Safe-Get -Object $remediationPackage -Key 'primary_targets' -Default @())
-    $packageSteps = @($Decision.do_next | Select-Object -First 5)
+    $packageTargets = Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object $remediationPackage -Key 'primary_targets' -Default @())
+    $packageSteps = Convert-ToObjectArrayOrEmpty -Value @((Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object $Decision -Key 'do_next' -Default @())) | Select-Object -First 5)
     $remediationPayload = @{
         package_name = $packageName
         goal = $packageGoal
@@ -3641,19 +3648,22 @@ function Write-OperatorOutputs {
     Write-JsonFile -Path $remediationPath -Data $remediationPayload
     $reportFiles.Add('reports/REMEDIATION_PACKAGE.json')
 
-    $topIssues = @($Decision.p0 + $Decision.p1)
+    $decisionP0 = Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object $Decision -Key 'p0' -Default @())
+    $decisionP1 = Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object $Decision -Key 'p1' -Default @())
+    $decisionP2 = Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object $Decision -Key 'p2' -Default @())
+    $topIssues = @($decisionP0 + $decisionP1)
     if (-not [string]::IsNullOrWhiteSpace($packageGoal)) {
         $topIssues = @("Primary remediation package: $packageName — $packageGoal") + @($topIssues)
     }
     if ($topIssues.Count -eq 0) {
-        $topIssues = @($Decision.p2)
+        $topIssues = @($decisionP2)
     }
     if ($topIssues.Count -eq 0) {
         $topIssues = @('No major issues detected from collected source/live evidence.')
     }
 
     $priorityActions = New-Object System.Collections.Generic.List[string]
-    $doNextItems = @($Decision.do_next | Select-Object -First 3)
+    $doNextItems = Convert-ToObjectArrayOrEmpty -Value @((Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object $Decision -Key 'do_next' -Default @())) | Select-Object -First 3)
     if ($doNextItems.Count -gt 0) {
         for ($i = 0; $i -lt $doNextItems.Count; $i++) {
             $priorityActions.Add("$($i + 1)) $($doNextItems[$i])")
@@ -3691,7 +3701,7 @@ function Write-OperatorOutputs {
 
     $sourceStatus = if (-not (Safe-Get -Object $AuditResult.source -Key 'enabled' -Default $false)) { 'OFF' } elseif (Safe-Get -Object $AuditResult.source -Key 'ok' -Default $false) { 'PASS' } else { 'FAIL' }
     $liveStatus = if (-not (Safe-Get -Object $AuditResult.live -Key 'enabled' -Default $false)) { 'OFF' } elseif (Safe-Get -Object $AuditResult.live -Key 'ok' -Default $false) { 'PASS' } else { 'FAIL' }
-    $requiredInputs = @(Safe-Get -Object $AuditResult -Key 'required_inputs' -Default @())
+    $requiredInputs = Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object $AuditResult -Key 'required_inputs' -Default @())
     $requiredInputsLine = if ($requiredInputs.Count -gt 0) { $requiredInputs -join ', ' } else { 'Not required for this mode.' }
     $repoRoot = Safe-Get -Object $AuditResult.source -Key 'root' -Default $null
     $sourceEnabled = [bool](Safe-Get -Object $AuditResult.source -Key 'enabled' -Default $false)
@@ -3772,7 +3782,7 @@ function Write-OperatorOutputs {
                     $summaryLines += '- warning: summary appears clean but contradiction layer flagged cross-layer mismatches.'
                 }
             }
-            $diagnosisEvidence = @(Safe-Get -Object (Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}) -Key 'evidence' -Default @())
+            $diagnosisEvidence = Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object (Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}) -Key 'evidence' -Default @())
             if ($diagnosisEvidence.Count -gt 0) {
                 $summaryLines += '- diagnosis evidence:'
                 foreach ($line in @($diagnosisEvidence | Select-Object -First 3)) {
@@ -3802,9 +3812,9 @@ function Write-OperatorOutputs {
     if ([string]::IsNullOrWhiteSpace($primaryProblem)) {
         $primaryProblem = 'Core problem was not generated; use remediation package as the immediate operator path.'
     }
-    $criticalBlockers = @($Decision.p0 | Select-Object -First 3)
+    $criticalBlockers = Convert-ToObjectArrayOrEmpty -Value @($decisionP0 | Select-Object -First 3)
     if ($criticalBlockers.Count -eq 0) { $criticalBlockers = @('No critical blockers were detected; execute operator path to validate baseline stability.') }
-    $doNextItems = @($Decision.do_next | Select-Object -First 3)
+    $doNextItems = Convert-ToObjectArrayOrEmpty -Value @((Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object $Decision -Key 'do_next' -Default @())) | Select-Object -First 3)
     if ($doNextItems.Count -eq 0) { $doNextItems = @('Execute remediation package steps from reports/REMEDIATION_PACKAGE.json and rerun SITE_AUDITOR.') }
     $successSignalItems = @(
         'Primary target page is updated in source/live evidence. (YES/NO)',
