@@ -370,6 +370,11 @@ function Get-RepoEvidence {
     $runManifestPath = Join-Path $reportsDir 'run_manifest.json'
     $visualManifestPath = Join-Path $reportsDir 'visual_manifest.json'
     $repoReportPath = Join-Path $outboxDir 'REPORT.txt'
+    $runReportTextPath = Join-Path $reportsDir 'RUN_REPORT.txt'
+    $runReportJsonPath = Join-Path $reportsDir 'RUN_REPORT.json'
+    $artifactManifestPath = Join-Path $reportsDir 'ARTIFACT_MANIFEST.json'
+    $failureSummaryPath = Join-Path $reportsDir 'FAILURE_SUMMARY.json'
+    $successSummaryPath = Join-Path $reportsDir 'SUCCESS_SUMMARY.json'
 
     return [ordered]@{
         repo_root = $repoRoot
@@ -381,10 +386,20 @@ function Get-RepoEvidence {
         has_run_manifest = (Test-Path -Path $runManifestPath -PathType Leaf)
         has_visual_manifest = (Test-Path -Path $visualManifestPath -PathType Leaf)
         has_repo_report = (Test-Path -Path $repoReportPath -PathType Leaf)
+        has_run_report_text = (Test-Path -Path $runReportTextPath -PathType Leaf)
+        has_run_report_json = (Test-Path -Path $runReportJsonPath -PathType Leaf)
+        has_artifact_manifest = (Test-Path -Path $artifactManifestPath -PathType Leaf)
+        has_failure_summary = (Test-Path -Path $failureSummaryPath -PathType Leaf)
+        has_success_summary = (Test-Path -Path $successSummaryPath -PathType Leaf)
         audit_result_path = $auditResultPath
         run_manifest_path = $runManifestPath
         visual_manifest_path = $visualManifestPath
         repo_report_path = $repoReportPath
+        run_report_text_path = $runReportTextPath
+        run_report_json_path = $runReportJsonPath
+        artifact_manifest_path = $artifactManifestPath
+        failure_summary_path = $failureSummaryPath
+        success_summary_path = $successSummaryPath
     }
 }
 
@@ -830,7 +845,18 @@ function Normalize-Result {
     if ($null -eq $r) {
         if ($name -eq 'repo') {
             $repoEvidence = Get-RepoEvidence
-            $repoHasArtifacts = [bool]($repoEvidence.has_outbox -or $repoEvidence.has_reports)
+            $repoHasArtifacts = [bool](
+                $repoEvidence.has_outbox -or
+                $repoEvidence.has_reports -or
+                $repoEvidence.has_audit_result -or
+                $repoEvidence.has_run_manifest -or
+                $repoEvidence.has_repo_report -or
+                $repoEvidence.has_run_report_text -or
+                $repoEvidence.has_run_report_json -or
+                $repoEvidence.has_artifact_manifest -or
+                $repoEvidence.has_failure_summary -or
+                $repoEvidence.has_success_summary
+            )
             Write-Output "REPO_HAS_DATA=$repoHasArtifacts"
             Write-Output "ORIGINAL_OBJECT=null"
             Write-Output ('NORMALIZED_STATUS=' + ($(if ($repoHasArtifacts) { 'PARTIAL' } else { 'FAIL' })))
@@ -875,6 +901,17 @@ function Normalize-Result {
         $hasOutboxPath
 
     if ($name -eq 'repo') {
+        $repoEvidence = Get-RepoEvidence
+        $hasForensicEvidence = [bool](
+            $repoEvidence.has_run_report_text -or
+            $repoEvidence.has_run_report_json -or
+            $repoEvidence.has_artifact_manifest -or
+            $repoEvidence.has_failure_summary -or
+            $repoEvidence.has_success_summary
+        )
+        if ($hasForensicEvidence) {
+            $hasData = $true
+        }
         Write-Output "REPO_HAS_DATA=$hasData"
         Write-Output ("ORIGINAL_OBJECT=" + ($r | ConvertTo-Json -Depth 5 -Compress))
     }
