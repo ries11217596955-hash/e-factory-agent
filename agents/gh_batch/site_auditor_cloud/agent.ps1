@@ -2189,7 +2189,7 @@ function Build-ContradictionLayer {
         [string[]]$MissingInputs
     )
 
-    $routes = @(Safe-Get -Object $LiveLayer -Key 'route_details' -Default @())
+    $routes = Convert-ToObjectArraySafe -Value (Safe-Get -Object $LiveLayer -Key 'route_details' -Default @())
     $liveSummary = Safe-Get -Object $LiveLayer -Key 'summary' -Default @{}
     $patternSummary = Safe-Get -Object $liveSummary -Key 'site_pattern_summary' -Default @{}
     $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
@@ -2241,8 +2241,8 @@ function Build-ContradictionLayer {
 
     $sourceEnabled = [bool](Safe-Get -Object $SourceLayer -Key 'enabled' -Default $false)
     $sourceFileCount = [int](Safe-Get -Object (Safe-Get -Object $SourceLayer -Key 'summary' -Default @{}) -Key 'file_count' -Default 0)
-    $sourceTopDirs = @(Safe-Get -Object (Safe-Get -Object $SourceLayer -Key 'summary' -Default @{}) -Key 'top_level_directories' -Default @())
-    $thinOrLowValueRoutes = @($routes | Where-Object {
+    $sourceTopDirs = Convert-ToObjectArraySafe -Value (Safe-Get -Object (Safe-Get -Object $SourceLayer -Key 'summary' -Default @{}) -Key 'top_level_directories' -Default @())
+    $thinOrLowValueRoutes = Convert-ToObjectArraySafe -Value @($routes | Where-Object {
             $pageFlags = Safe-Get -Object $_ -Key 'page_flags' -Default @{}
             [bool](Safe-Get -Object $pageFlags -Key 'thin' -Default $false) -or
             [bool](Safe-Get -Object $pageFlags -Key 'weak_cta' -Default $false) -or
@@ -2343,7 +2343,7 @@ function Build-SiteDiagnosisLayer {
     )
 
     $liveSummary = Safe-Get -Object $LiveLayer -Key 'summary' -Default @{}
-    $routeDetails = @(Safe-Get -Object $LiveLayer -Key 'route_details' -Default @())
+    $routeDetails = Convert-ToObjectArraySafe -Value (Safe-Get -Object $LiveLayer -Key 'route_details' -Default @())
     $patternSummary = Safe-Get -Object $liveSummary -Key 'site_pattern_summary' -Default @{}
     $dominantPattern = Safe-Get -Object $patternSummary -Key 'dominant_pattern' -Default $null
     $dominantPatternLabel = [string](Safe-Get -Object $dominantPattern -Key 'label' -Default '')
@@ -2565,7 +2565,7 @@ function Build-PrimaryRemediationPackage {
     )
 
     $liveSummary = Safe-Get -Object $LiveLayer -Key 'summary' -Default @{}
-    $routeDetails = @(Safe-Get -Object $LiveLayer -Key 'route_details' -Default @())
+    $routeDetails = Convert-ToObjectArraySafe -Value (Safe-Get -Object $LiveLayer -Key 'route_details' -Default @())
     $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
     $emptyRoutes = [int](Safe-Get -Object $liveSummary -Key 'empty_routes' -Default 0)
     $thinRoutes = [int](Safe-Get -Object $liveSummary -Key 'thin_routes' -Default 0)
@@ -2793,7 +2793,7 @@ function Build-DecisionLayer {
         $p0.Add("Live audit failure in $ResolvedMode mode.")
     }
 
-    foreach ($warning in $Warnings) {
+    foreach ($warning in (Convert-ToObjectArraySafe -Value $Warnings)) {
         $p1.Add($warning)
     }
 
@@ -3557,6 +3557,15 @@ function Write-RunForensicsReports {
     if ($pageQualityStatus -notin @('NOT_EVALUATED', 'PARTIAL')) { $confirmedPassingStages.Add('PAGE_QUALITY_BUILD') }
     if ($FinalStatus -eq 'PASS') { $confirmedPassingStages.Add('OPERATOR_OUTPUT_CONTRACT') }
 
+    $decisionBuildFailedNode = ''
+    if ($null -ne $global:DecisionForensics) {
+        $dfFunction = [string](Safe-Get -Object $global:DecisionForensics -Key 'function_name' -Default '')
+        $dfOperation = [string](Safe-Get -Object $global:DecisionForensics -Key 'activeOperationLabel' -Default '')
+        if (-not [string]::IsNullOrWhiteSpace($dfFunction) -or -not [string]::IsNullOrWhiteSpace($dfOperation)) {
+            $decisionBuildFailedNode = "DECISION_BUILD/$dfFunction/$dfOperation".TrimEnd('/')
+        }
+    }
+
     $evidence = [ordered]@{
         source_status = $sourceStatus
         live_status = $liveStatus
@@ -3567,6 +3576,7 @@ function Write-RunForensicsReports {
         failure_stage = $failedStage
         error_message = if ([string]::IsNullOrWhiteSpace($FailureReason)) { '' } else { $FailureReason }
         failure_node = [string]$CurrentStage
+        decision_build_failed_node = $decisionBuildFailedNode
         blocker = [string](Safe-Get -Object $Decision -Key 'core_problem' -Default '')
     }
 
@@ -3609,6 +3619,7 @@ function Write-RunForensicsReports {
         last_success_stage = $LastSuccessStage
         failed_stage = $failedStage
         error_message = if ([string]::IsNullOrWhiteSpace($FailureReason)) { '' } else { $FailureReason }
+        decision_build_failed_node = $decisionBuildFailedNode
         confirmed_passing_stages = @($confirmedPassingStages)
         usable_partial_artifacts_exist = [bool]$usablePartialArtifacts
         next_technical_move = $nextMove
@@ -3646,6 +3657,7 @@ function Write-RunForensicsReports {
         "- repo_summary_status: $($evidence.repo_summary_status)",
         "- failure_stage: $($evidence.failure_stage)",
         "- failure_node: $($evidence.failure_node)",
+        "- decision_build_failed_node: $($evidence.decision_build_failed_node)",
         "- blocker: $($evidence.blocker)",
         "- error_message: $($evidence.error_message)",
         '',
