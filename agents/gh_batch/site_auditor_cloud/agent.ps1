@@ -2926,7 +2926,8 @@ function Build-DecisionLayer {
         }
     }
 
-    $packageTargets = @(Safe-Get -Object $remediationPackage -Key 'primary_targets' -Default @())
+    # DECISION_BUILD requires deterministic collection shape before Count/iteration consumption.
+    $packageTargets = Convert-ToObjectArraySafe -Value (Safe-Get -Object $remediationPackage -Key 'primary_targets' -Default @())
     if ($packageTargets.Count -gt 0) {
         $targetPreview = (@($packageTargets | Select-Object -First 3)) -join ', '
         $doNext.Add("Execute $([string](Safe-Get -Object $remediationPackage -Key 'package_name' -Default 'MIXED_RECOVERY_PACKAGE')) first on routes: $targetPreview.")
@@ -3730,7 +3731,8 @@ function Write-OperatorOutputs {
 
     $packageName = [string](Safe-Get -Object $remediationPackage -Key 'package_name' -Default 'MIXED_RECOVERY_PACKAGE')
     $packageGoal = [string](Safe-Get -Object $remediationPackage -Key 'package_goal' -Default 'Stabilize highest-impact route-quality cluster first.')
-    $packageTargets = Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object $remediationPackage -Key 'primary_targets' -Default @())
+    # Keep decision/output packaging resilient when primary_targets arrives as singleton/scalar/object.
+    $packageTargets = Convert-ToObjectArraySafe -Value (Safe-Get -Object $remediationPackage -Key 'primary_targets' -Default @())
     $packageSteps = Convert-ToObjectArrayOrEmpty -Value @((Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object $Decision -Key 'do_next' -Default @())) | Select-Object -First 5)
     $remediationPayload = @{
         package_name = $packageName
