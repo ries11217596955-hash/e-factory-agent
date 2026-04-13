@@ -20,6 +20,11 @@ $reportsDir = Join-Path $base 'reports'
 $runtimeDir = Join-Path $base 'runtime'
 $zipWorkRoot = Join-Path $runtimeDir 'zip_extracted'
 $timestamp = (Get-Date).ToString('o')
+$runStartedAt = $timestamp
+$runFinishedAt = $null
+$runId = "SITE_AUDITOR_$((Get-Date).ToString('yyyyMMdd_HHmmss_fff'))_$PID"
+$currentStage = 'INIT'
+$lastSuccessStage = 'INIT'
 $status = 'FAIL'
 $failureReason = $null
 $global:AuditError = $null
@@ -3317,12 +3322,276 @@ function Build-MetaAuditBriefLines {
     )
 }
 
+function Get-LayerStatusLabel {
+    param(
+        [object]$Layer,
+        [string]$DisabledLabel = 'OFF'
+    )
+
+    if (-not (Convert-ToBoolSafe -Value (Safe-Get -Object $Layer -Key 'enabled' -Default $false))) { return $DisabledLabel }
+    if (Convert-ToBoolSafe -Value (Safe-Get -Object $Layer -Key 'ok' -Default $false)) { return 'PASS' }
+    return 'FAIL'
+}
+
+function Add-ArtifactManifestItem {
+    param(
+        [System.Collections.Generic.List[object]]$Items,
+        [string]$Path,
+        [string]$ArtifactType,
+        [string]$Purpose,
+        [string]$Priority
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) { return }
+
+    foreach ($existing in @($Items)) {
+        if ([string]$existing.path -eq $Path) { return }
+    }
+
+    $Items.Add([ordered]@{
+        path = $Path
+        artifact_type = $ArtifactType
+        purpose = $Purpose
+        priority_for_operator = $Priority
+    })
+}
+
+function Write-RunForensicsReports {
+    param(
+        [string]$ResolvedMode,
+        [string]$FinalStatus,
+        [hashtable]$AuditResult,
+        [hashtable]$Decision,
+        [string]$FailureReason,
+        [string]$CurrentStage,
+        [string]$LastSuccessStage,
+        [string]$RunFinishedAt
+    )
+
+    $liveSummary = Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'live' -Default @{}) -Key 'summary' -Default @{}
+    $sourceStatus = Get-LayerStatusLabel -Layer (Safe-Get -Object $AuditResult -Key 'source' -Default @{})
+    $liveStatus = Get-LayerStatusLabel -Layer (Safe-Get -Object $AuditResult -Key 'live' -Default @{})
+    $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
+
+    $productStatus = Safe-Get -Object $AuditResult -Key 'product_status' -Default (Safe-Get -Object $Decision -Key 'product_status' -Default @{})
+    $sourceSummary = Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'source' -Default @{}) -Key 'summary' -Default @{}
+    $repoSummaryStatus = [string](Safe-Get -Object $sourceSummary -Key 'status' -Default '')
+
+    $failedStage = [string](Safe-Get -Object $liveSummary -Key 'failure_stage' -Default '')
+    if ([string]::IsNullOrWhiteSpace($failedStage) -and $null -ne $global:DecisionForensics) {
+        $failedStage = [string](Safe-Get -Object $global:DecisionForensics -Key 'failure_stage' -Default '')
+    }
+    if ([string]::IsNullOrWhiteSpace($failedStage) -and $null -ne $global:PageQualityForensics) {
+        $failedStage = [string](Safe-Get -Object $global:PageQualityForensics -Key 'failure_stage' -Default '')
+    }
+    if ([string]::IsNullOrWhiteSpace($failedStage) -and $null -ne $global:RouteNormalizationForensics) {
+        $failedStage = [string](Safe-Get -Object $global:RouteNormalizationForensics -Key 'failure_stage' -Default '')
+    }
+    if ([string]::IsNullOrWhiteSpace($failedStage)) {
+        $failedStage = [string]$CurrentStage
+    }
+
+    $doNextList = @(Safe-Get -Object $Decision -Key 'do_next' -Default @())
+    $nextMove = [string]($doNextList | Select-Object -First 1)
+    if ([string]::IsNullOrWhiteSpace($nextMove)) {
+        if ($FinalStatus -eq 'PASS') {
+            $nextMove = 'No technical repair node remains. Continue with normal monitoring cadence.'
+        }
+        else {
+            $nextMove = "Inspect failed node '$failedStage' and remediate the blocker before rerun."
+        }
+    }
+
+    $executiveSummary = if ($FinalStatus -eq 'PASS') {
+        'Run completed with PASS status; outputs are usable and no repair node remains.'
+    }
+    elseif ($FinalStatus -eq 'PARTIAL') {
+        "Run completed with PARTIAL status; some outputs are usable but repair is required at $failedStage."
+    }
+    else {
+        "Run completed with FAIL status; repair is required at $failedStage before output can be trusted."
+    }
+
+    $artifactItems = New-Object System.Collections.Generic.List[object]
+    $artifactHints = @{
+        'reports/audit_result.json' = @{ type = 'truth_audit'; purpose = 'Primary structured source/live/decision truth.'; priority = 'high' }
+        'reports/run_manifest.json' = @{ type = 'run_manifest'; purpose = 'Lists run outputs and metadata.'; priority = 'high' }
+        'outbox/REPORT.txt' = @{ type = 'operator_report'; purpose = 'Legacy operator summary output.'; priority = 'medium' }
+        'reports/11A_EXECUTIVE_SUMMARY.txt' = @{ type = 'summary'; purpose = 'Human executive summary.'; priority = 'medium' }
+        'reports/12A_META_AUDIT_BRIEF.txt' = @{ type = 'meta_brief'; purpose = 'Analyst handoff brief.'; priority = 'medium' }
+        'reports/HOW_TO_FIX.json' = @{ type = 'remediation'; purpose = 'Top issues and priority actions.'; priority = 'high' }
+        'reports/REMEDIATION_PACKAGE.json' = @{ type = 'remediation_package'; purpose = 'Ordered remediation package.'; priority = 'high' }
+        'reports/RUN_REPORT.txt' = @{ type = 'run_report_text'; purpose = 'Top-level operator-ready forensic report.'; priority = 'high' }
+        'reports/RUN_REPORT.json' = @{ type = 'run_report_json'; purpose = 'Machine-readable run report contract.'; priority = 'high' }
+        'reports/ARTIFACT_MANIFEST.json' = @{ type = 'artifact_manifest'; purpose = 'Artifact inventory with priorities and purposes.'; priority = 'high' }
+        'reports/FAILURE_SUMMARY.json' = @{ type = 'failure_summary'; purpose = 'Structured fail/partial summary for automation.'; priority = 'high' }
+        'reports/SUCCESS_SUMMARY.json' = @{ type = 'success_summary'; purpose = 'Structured success summary for automation.'; priority = 'medium' }
+    }
+
+    foreach ($path in @($reportFiles)) {
+        $hint = Safe-Get -Object $artifactHints -Key $path -Default $null
+        if ($null -ne $hint) {
+            Add-ArtifactManifestItem -Items $artifactItems -Path $path -ArtifactType ([string]$hint.type) -Purpose ([string]$hint.purpose) -Priority ([string]$hint.priority)
+        }
+        else {
+            Add-ArtifactManifestItem -Items $artifactItems -Path $path -ArtifactType 'report' -Purpose 'Supporting SITE_AUDITOR output artifact.' -Priority 'low'
+        }
+    }
+
+    Add-ArtifactManifestItem -Items $artifactItems -Path 'outbox/REPORT.txt' -ArtifactType 'operator_report' -Purpose 'Legacy operator summary output.' -Priority 'medium'
+    Add-ArtifactManifestItem -Items $artifactItems -Path 'outbox/DONE.ok' -ArtifactType 'run_marker' -Purpose 'Run pass marker file.' -Priority 'low'
+    Add-ArtifactManifestItem -Items $artifactItems -Path 'outbox/DONE.fail' -ArtifactType 'run_marker' -Purpose 'Run fail marker file.' -Priority 'low'
+
+    $primaryTruth = @($artifactItems | Where-Object { $_.priority_for_operator -eq 'high' } | ForEach-Object { $_.path })
+    $usablePartialArtifacts = ($artifactItems.Count -gt 0)
+
+    $confirmedPassingStages = New-Object System.Collections.Generic.List[string]
+    if ($sourceStatus -eq 'PASS') { $confirmedPassingStages.Add('SOURCE_AUDIT') }
+    if ($liveStatus -eq 'PASS') { $confirmedPassingStages.Add('LIVE_AUDIT') }
+    if ($pageQualityStatus -notin @('NOT_EVALUATED', 'PARTIAL')) { $confirmedPassingStages.Add('PAGE_QUALITY_BUILD') }
+    if ($FinalStatus -eq 'PASS') { $confirmedPassingStages.Add('OPERATOR_OUTPUT_CONTRACT') }
+
+    $evidence = [ordered]@{
+        source_status = $sourceStatus
+        live_status = $liveStatus
+        page_quality_status = $pageQualityStatus
+        product_status = [string](Safe-Get -Object $productStatus -Key 'status' -Default 'UNKNOWN')
+        product_reason = [string](Safe-Get -Object $productStatus -Key 'reason' -Default 'none')
+        repo_summary_status = if ([string]::IsNullOrWhiteSpace($repoSummaryStatus)) { 'UNKNOWN' } else { $repoSummaryStatus }
+        failure_stage = $failedStage
+        error_message = if ([string]::IsNullOrWhiteSpace($FailureReason)) { '' } else { $FailureReason }
+        failure_node = [string]$CurrentStage
+        blocker = [string](Safe-Get -Object $Decision -Key 'core_problem' -Default '')
+    }
+
+    $contract = [ordered]@{
+        run_status = [ordered]@{
+            run_id = $runId
+            target = if ([string]::IsNullOrWhiteSpace([string]$env:TARGET_REPO_PATH)) { [string](Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'live' -Default @{}) -Key 'base_url' -Default 'UNKNOWN_TARGET') } else { [string]$env:TARGET_REPO_PATH }
+            mode = $ResolvedMode
+            started_at = $runStartedAt
+            finished_at = $RunFinishedAt
+            final_status = $FinalStatus
+            final_stage = $CurrentStage
+            last_success_stage = $LastSuccessStage
+        }
+        executive_summary = $executiveSummary
+        key_evidence_excerpts = $evidence
+        artifact_manifest_summary = [ordered]@{
+            artifacts = @($artifactItems)
+            primary_truth_sources = @($primaryTruth)
+        }
+        next_technical_move = $nextMove
+    }
+
+    $manifestPath = Join-Path $reportsDir 'ARTIFACT_MANIFEST.json'
+    Write-JsonFile -Path $manifestPath -Data ([ordered]@{
+        run_id = $runId
+        generated_at = $RunFinishedAt
+        final_status = $FinalStatus
+        artifacts = @($artifactItems)
+    })
+
+    $runReportJsonPath = Join-Path $reportsDir 'RUN_REPORT.json'
+    Write-JsonFile -Path $runReportJsonPath -Data $contract
+
+    $summaryPayload = [ordered]@{
+        run_id = $runId
+        mode = $ResolvedMode
+        final_status = $FinalStatus
+        final_stage = $CurrentStage
+        last_success_stage = $LastSuccessStage
+        failed_stage = $failedStage
+        error_message = if ([string]::IsNullOrWhiteSpace($FailureReason)) { '' } else { $FailureReason }
+        confirmed_passing_stages = @($confirmedPassingStages)
+        usable_partial_artifacts_exist = [bool]$usablePartialArtifacts
+        next_technical_move = $nextMove
+        key_evidence_excerpts = $evidence
+        primary_truth_sources = @($primaryTruth)
+    }
+
+    if ($FinalStatus -in @('FAIL', 'PARTIAL')) {
+        Write-JsonFile -Path (Join-Path $reportsDir 'FAILURE_SUMMARY.json') -Data $summaryPayload
+    }
+    else {
+        Write-JsonFile -Path (Join-Path $reportsDir 'SUCCESS_SUMMARY.json') -Data $summaryPayload
+    }
+
+    $lines = @(
+        'RUN STATUS',
+        "- run_id: $($contract.run_status.run_id)",
+        "- target: $($contract.run_status.target)",
+        "- mode: $($contract.run_status.mode)",
+        "- started_at: $($contract.run_status.started_at)",
+        "- finished_at: $($contract.run_status.finished_at)",
+        "- final_status: $($contract.run_status.final_status)",
+        "- final_stage: $($contract.run_status.final_stage)",
+        "- last_success_stage: $($contract.run_status.last_success_stage)",
+        '',
+        'EXECUTIVE SUMMARY',
+        $executiveSummary,
+        '',
+        'KEY EVIDENCE EXCERPTS',
+        "- source_status: $($evidence.source_status)",
+        "- live_status: $($evidence.live_status)",
+        "- page_quality_status: $($evidence.page_quality_status)",
+        "- product_status: $($evidence.product_status)",
+        "- product_reason: $($evidence.product_reason)",
+        "- repo_summary_status: $($evidence.repo_summary_status)",
+        "- failure_stage: $($evidence.failure_stage)",
+        "- failure_node: $($evidence.failure_node)",
+        "- blocker: $($evidence.blocker)",
+        "- error_message: $($evidence.error_message)",
+        '',
+        'ARTIFACT MANIFEST SUMMARY'
+    )
+
+    foreach ($artifact in @($artifactItems | Sort-Object -Property @{Expression='priority_for_operator';Descending=$false}, @{Expression='path';Descending=$false})) {
+        $lines += "- $($artifact.path) | type=$($artifact.artifact_type) | priority=$($artifact.priority_for_operator) | purpose=$($artifact.purpose)"
+    }
+
+    $lines += ''
+    $lines += 'PRIMARY TRUTH SOURCES'
+    foreach ($truth in @($primaryTruth)) {
+        $lines += "- $truth"
+    }
+
+    if ($FinalStatus -in @('FAIL', 'PARTIAL')) {
+        $lines += ''
+        $lines += 'FAILURE SUMMARY'
+        $lines += "- exact_failed_stage_or_node: $failedStage"
+        $lines += "- error_class_or_message: $($evidence.error_message)"
+        $lines += "- confirmed_passing_stages: $((@($confirmedPassingStages) -join ', '))"
+        $lines += "- usable_partial_artifacts_exist: $usablePartialArtifacts"
+    }
+
+    $lines += ''
+    $lines += 'NEXT TECHNICAL MOVE'
+    $lines += $nextMove
+
+    Write-TextFile -Path (Join-Path $reportsDir 'RUN_REPORT.txt') -Lines $lines
+
+    $reportFiles.Add('reports/ARTIFACT_MANIFEST.json')
+    $reportFiles.Add('reports/RUN_REPORT.json')
+    $reportFiles.Add('reports/RUN_REPORT.txt')
+    if ($FinalStatus -in @('FAIL', 'PARTIAL')) {
+        $reportFiles.Add('reports/FAILURE_SUMMARY.json')
+    }
+    else {
+        $reportFiles.Add('reports/SUCCESS_SUMMARY.json')
+    }
+}
+
 function Write-OperatorOutputs {
     param(
         [string]$ResolvedMode,
         [string]$FinalStatus,
         [hashtable]$AuditResult,
-        [hashtable]$Decision
+        [hashtable]$Decision,
+        [string]$CurrentStage = '',
+        [string]$LastSuccessStage = '',
+        [string]$RunFinishedAt = '',
+        [string]$FailureReason = ''
     )
 
     $AuditResult = Normalize-AuditResult -AuditResult $AuditResult
@@ -3589,6 +3858,11 @@ function Write-OperatorOutputs {
         target_repo_bound = $sourceEnabled
         output_root = $base
         report_files = @($reportFiles)
+        run_id = $runId
+        started_at = $runStartedAt
+        finished_at = $RunFinishedAt
+        final_stage = $CurrentStage
+        last_success_stage = $LastSuccessStage
         timestamp = $timestamp
     }
 
@@ -3599,6 +3873,8 @@ function Write-OperatorOutputs {
 
     $reportPath = Join-Path $outboxDir 'REPORT.txt'
     Write-TextFile -Path $reportPath -Lines $reportLines
+
+    Write-RunForensicsReports -ResolvedMode $ResolvedMode -FinalStatus $FinalStatus -AuditResult $AuditResult -Decision $Decision -FailureReason $FailureReason -CurrentStage $CurrentStage -LastSuccessStage $LastSuccessStage -RunFinishedAt $RunFinishedAt
 }
 
 function Ensure-OutputContract {
@@ -3639,6 +3915,89 @@ function Ensure-OutputContract {
         Write-TextFile -Path $reportPath -Lines $fallbackLines
     }
 
+
+    $runReportJsonPath = Join-Path $reportsDir 'RUN_REPORT.json'
+    if (-not (Test-Path $runReportJsonPath -PathType Leaf)) {
+        $fallbackNextMove = if ($FinalStatus -eq 'PASS') { 'No technical repair node remains.' } else { 'Inspect fallback failure and rerun SITE_AUDITOR.' }
+        $fallbackContract = [ordered]@{
+            run_status = [ordered]@{
+                run_id = $runId
+                target = if ([string]::IsNullOrWhiteSpace([string]$env:TARGET_REPO_PATH)) { [string]$env:BASE_URL } else { [string]$env:TARGET_REPO_PATH }
+                mode = $ResolvedMode
+                started_at = $runStartedAt
+                finished_at = $runFinishedAt
+                final_status = $FinalStatus
+                final_stage = $currentStage
+                last_success_stage = $lastSuccessStage
+            }
+            executive_summary = 'Fallback run report generated because primary operator report contract was missing.'
+            key_evidence_excerpts = [ordered]@{
+                source_status = 'UNKNOWN'
+                live_status = 'UNKNOWN'
+                page_quality_status = 'NOT_EVALUATED'
+                product_status = 'UNKNOWN'
+                product_reason = 'Fallback report only.'
+                repo_summary_status = 'UNKNOWN'
+                failure_stage = $currentStage
+                error_message = if ([string]::IsNullOrWhiteSpace($FailureReason)) { '' } else { $FailureReason }
+                failure_node = $currentStage
+                blocker = if ([string]::IsNullOrWhiteSpace($FailureReason)) { 'Unknown fallback failure.' } else { $FailureReason }
+            }
+            artifact_manifest_summary = [ordered]@{
+                artifacts = @(
+                    [ordered]@{ path = 'reports/audit_result.json'; artifact_type = 'truth_audit'; purpose = 'Primary structured source/live/decision truth.'; priority_for_operator = 'high' },
+                    [ordered]@{ path = 'outbox/REPORT.txt'; artifact_type = 'operator_report'; purpose = 'Legacy operator summary output.'; priority_for_operator = 'medium' }
+                )
+                primary_truth_sources = @('reports/audit_result.json')
+            }
+            next_technical_move = $fallbackNextMove
+        }
+        Write-JsonFile -Path $runReportJsonPath -Data $fallbackContract
+        Write-TextFile -Path (Join-Path $reportsDir 'RUN_REPORT.txt') -Lines @(
+            'RUN STATUS',
+            "- run_id: $runId",
+            "- mode: $ResolvedMode",
+            "- final_status: $FinalStatus",
+            "- final_stage: $currentStage",
+            "- last_success_stage: $lastSuccessStage",
+            '',
+            'EXECUTIVE SUMMARY',
+            'Fallback run report generated because primary operator report contract was missing.',
+            '',
+            'NEXT TECHNICAL MOVE',
+            $fallbackNextMove
+        )
+        Write-JsonFile -Path (Join-Path $reportsDir 'ARTIFACT_MANIFEST.json') -Data ([ordered]@{
+            run_id = $runId
+            generated_at = $runFinishedAt
+            final_status = $FinalStatus
+            artifacts = @(
+                [ordered]@{ path = 'reports/audit_result.json'; artifact_type = 'truth_audit'; purpose = 'Primary structured source/live/decision truth.'; priority_for_operator = 'high' },
+                [ordered]@{ path = 'outbox/REPORT.txt'; artifact_type = 'operator_report'; purpose = 'Legacy operator summary output.'; priority_for_operator = 'medium' }
+            )
+        })
+        $fallbackSummary = [ordered]@{
+            run_id = $runId
+            mode = $ResolvedMode
+            final_status = $FinalStatus
+            final_stage = $currentStage
+            last_success_stage = $lastSuccessStage
+            failed_stage = $currentStage
+            error_message = if ([string]::IsNullOrWhiteSpace($FailureReason)) { '' } else { $FailureReason }
+            confirmed_passing_stages = @()
+            usable_partial_artifacts_exist = $true
+            next_technical_move = $fallbackNextMove
+            key_evidence_excerpts = $fallbackContract.key_evidence_excerpts
+            primary_truth_sources = @('reports/audit_result.json')
+        }
+        if ($FinalStatus -in @('FAIL', 'PARTIAL')) {
+            Write-JsonFile -Path (Join-Path $reportsDir 'FAILURE_SUMMARY.json') -Data $fallbackSummary
+        }
+        else {
+            Write-JsonFile -Path (Join-Path $reportsDir 'SUCCESS_SUMMARY.json') -Data $fallbackSummary
+        }
+    }
+
     $doneOk = Join-Path $outboxDir 'DONE.ok'
     $doneFail = Join-Path $outboxDir 'DONE.fail'
     if (Test-Path $doneOk) { Remove-Item $doneOk -Force }
@@ -3663,6 +4022,8 @@ try {
     Ensure-Dir $outboxDir
     Ensure-Dir $reportsDir
     Ensure-Dir $runtimeDir
+
+    $currentStage = 'INPUT_VALIDATION'
 
     switch ($resolvedMode) {
         'REPO' {
@@ -3706,7 +4067,10 @@ try {
 
     foreach ($lw in @($liveLayer.warnings)) { $warnings.Add($lw) }
 
+    $lastSuccessStage = 'INPUT_VALIDATION'
+    $currentStage = 'DECISION_BUILD'
     $decision = Build-DecisionLayer -ResolvedMode $resolvedMode -SourceLayer $sourceLayer -LiveLayer $liveLayer -MissingInputs @($missingInputs) -Warnings $warnings
+    $lastSuccessStage = 'DECISION_BUILD'
     if ($liveLayer.enabled -and ($liveLayer.summary -is [System.Collections.IDictionary])) {
         $liveLayer.summary.contradiction_summary = Safe-Get -Object $decision -Key 'contradiction_summary' -Default @{}
     }
@@ -3745,7 +4109,11 @@ try {
         decision = $decision
     }
 
-    Write-OperatorOutputs -ResolvedMode $resolvedMode -FinalStatus $status -AuditResult $auditResult -Decision $decision
+    $currentStage = 'OPERATOR_OUTPUT_CONTRACT'
+    $runFinishedAt = (Get-Date).ToString('o')
+    Write-OperatorOutputs -ResolvedMode $resolvedMode -FinalStatus $status -AuditResult $auditResult -Decision $decision -CurrentStage $currentStage -LastSuccessStage $lastSuccessStage -RunFinishedAt $runFinishedAt -FailureReason ''
+    $lastSuccessStage = 'OPERATOR_OUTPUT_CONTRACT'
+    $currentStage = 'COMPLETE'
 }
 catch {
     $global:AuditError = $_
@@ -3824,9 +4192,12 @@ catch {
         decision = $decision
     }
 
-    Write-OperatorOutputs -ResolvedMode $resolvedMode -FinalStatus 'FAIL' -AuditResult $auditResult -Decision $decision
+    if ([string]::IsNullOrWhiteSpace($currentStage)) { $currentStage = 'RUNTIME_FAILURE' }
+    $runFinishedAt = (Get-Date).ToString('o')
+    Write-OperatorOutputs -ResolvedMode $resolvedMode -FinalStatus 'FAIL' -AuditResult $auditResult -Decision $decision -CurrentStage $currentStage -LastSuccessStage $lastSuccessStage -RunFinishedAt $runFinishedAt -FailureReason $failureReason
 }
 finally {
+    if ([string]::IsNullOrWhiteSpace($runFinishedAt)) { $runFinishedAt = (Get-Date).ToString('o') }
     Ensure-OutputContract -ResolvedMode $resolvedMode -FinalStatus $status -FailureReason $failureReason
 }
 

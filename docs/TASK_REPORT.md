@@ -1,14 +1,14 @@
 # TASK_REPORT
 
 ## Summary
-- Applied a narrow post-PR #92 fix in `run_bundle.ps1` at the REPO result normalization boundary only (no product_closeout changes).
-- Made `Normalize-Result` shape-safe for REPO data signals by handling `artifacts`, `artifacts_present`, path fields, and scalar/hashtable/object/list shapes without unsafe `.Count` assumptions.
-- Added explicit REPO null-object handling that classifies as `PARTIAL` when repo evidence directories exist (`repo_MISSING_RESULT_OBJECT_WITH_ARTIFACTS`) and `FAIL` only when no evidence exists.
-- Ensured `REPO_HAS_DATA` now reflects truth from artifacts and evidence, preventing false `repo_INVALID_RESULT` when reports/artifacts are present.
-- Preserved existing source/live/page-quality and report-generation behavior by constraining changes to REPO normalization/summarization logic.
+- Added a narrow reporting-contract layer in `SITE_AUDITOR_AGENT` so each run now emits a top-level operator-ready forensic report plus machine-readable companion summaries.
+- Added `reports/RUN_REPORT.txt` generation with embedded evidence excerpts (source/live/page-quality/product/failure context), artifact guidance, and explicit next technical move.
+- Added `reports/RUN_REPORT.json`, `reports/ARTIFACT_MANIFEST.json`, and status-gated `reports/FAILURE_SUMMARY.json`/`reports/SUCCESS_SUMMARY.json` for automation.
+- Added run metadata surfacing (`run_id`, `started_at`, `finished_at`, `final_stage`, `last_success_stage`) and carried those fields into report/manifest outputs.
+- Added fallback contract generation in `Ensure-OutputContract` so the new report files still exist even when primary report emission fails.
 
 ## Changed files
-- `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
+- `agents/gh_batch/site_auditor_cloud/agent.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
@@ -19,7 +19,12 @@
   - `agents/gh_batch/site_auditor_cloud/agent.ps1`
   - `agents/gh_batch/site_auditor_cloud/run.ps1`
   - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
+- New operator-report contract outputs emitted under:
+  - `agents/gh_batch/site_auditor_cloud/reports/RUN_REPORT.txt`
+  - `agents/gh_batch/site_auditor_cloud/reports/RUN_REPORT.json`
+  - `agents/gh_batch/site_auditor_cloud/reports/ARTIFACT_MANIFEST.json`
+  - `agents/gh_batch/site_auditor_cloud/reports/FAILURE_SUMMARY.json` (or `SUCCESS_SUMMARY.json` on PASS)
 
 ## Risks/blockers
-- Could not run a full end-to-end SITE_AUDITOR bundle in this environment; verification here is limited to static PowerShell parse checks.
-- The patch intentionally avoids broad refactors and touches only REPO normalization/summarization behavior in `run_bundle.ps1`.
+- Environment does not include `pwsh`, so direct PowerShell parse/runtime validation could not be executed here.
+- Changes are intentionally constrained to reporting/forensics surfacing and output contract generation; source/live/page-quality decision logic was not redesigned.
