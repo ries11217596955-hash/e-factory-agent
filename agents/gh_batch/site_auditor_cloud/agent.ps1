@@ -689,6 +689,59 @@ function Convert-ToStringKeyDictionarySafe {
     return $normalized
 }
 
+function Normalize-ProductCloseout {
+    param([object]$Value)
+
+    $default = [ordered]@{
+        class = 'BLOCKED_BY_UNKNOWN'
+        reason = 'Product closeout classification was not generated.'
+        confidence = 'low'
+        checks = [ordered]@{}
+        evidence = @()
+    }
+
+    if ($null -eq $Value) { return $default }
+
+    if ($Value -is [System.Collections.IEnumerable] -and
+        -not ($Value -is [string]) -and
+        -not ($Value -is [System.Collections.IDictionary]) -and
+        -not ($Value -is [PSCustomObject])) {
+        $items = Convert-ToObjectArraySafe -Value $Value
+        if ($items.Count -le 0) { return $default }
+        return Normalize-ProductCloseout -Value $items[0]
+    }
+
+    if (-not ($Value -is [System.Collections.IDictionary]) -and -not ($Value -is [PSCustomObject])) {
+        return $default
+    }
+
+    $classification = [string](Safe-Get -Object $Value -Key 'class' -Default 'BLOCKED_BY_UNKNOWN')
+    if ([string]::IsNullOrWhiteSpace($classification)) { $classification = 'BLOCKED_BY_UNKNOWN' }
+    $reason = [string](Safe-Get -Object $Value -Key 'reason' -Default 'Product closeout classification was not generated.')
+    if ([string]::IsNullOrWhiteSpace($reason)) { $reason = 'Product closeout classification was not generated.' }
+    $confidence = [string](Safe-Get -Object $Value -Key 'confidence' -Default 'low')
+    if ($confidence -notin @('high', 'medium', 'low')) { $confidence = 'low' }
+
+    $checksValue = Safe-Get -Object $Value -Key 'checks' -Default @{}
+    if (-not ($checksValue -is [System.Collections.IDictionary]) -and -not ($checksValue -is [PSCustomObject])) {
+        $checksValue = [ordered]@{}
+    }
+    $checks = Convert-ToStringKeyDictionarySafe -Value $checksValue
+    if (-not ($checks -is [System.Collections.IDictionary]) -and -not ($checks -is [PSCustomObject])) {
+        $checks = [ordered]@{}
+    }
+
+    $evidence = Convert-ToStringArraySafe -Value (Safe-Get -Object $Value -Key 'evidence' -Default @())
+
+    return [ordered]@{
+        class = $classification
+        reason = $reason
+        confidence = $confidence
+        checks = $checks
+        evidence = @($evidence)
+    }
+}
+
 function Resolve-ManifestRoutes {
     param([object]$ManifestData)
 
@@ -2686,7 +2739,7 @@ function Convert-ToProductStatus {
         [string]$FinalStatus
     )
 
-    $productCloseout = Safe-Get -Object $Decision -Key 'product_closeout' -Default @{}
+    $productCloseout = Normalize-ProductCloseout -Value (Safe-Get -Object $Decision -Key 'product_closeout' -Default $null)
     $classification = [string](Safe-Get -Object $productCloseout -Key 'class' -Default 'BLOCKED_BY_UNKNOWN')
     $reason = [string](Safe-Get -Object $productCloseout -Key 'reason' -Default 'Product closeout classification was not generated.')
     $confidence = [string](Safe-Get -Object $productCloseout -Key 'confidence' -Default 'low')
@@ -2851,7 +2904,7 @@ function Build-DecisionLayer {
     }
     $auditorBaseline = Build-AuditorBaselineCertification -FinalStatus $candidateFinalStatus -SourceLayer $SourceLayer -LiveLayer $LiveLayer -ContradictionSummary $contradictionSummary -SiteDiagnosis $siteDiagnosis -MaturityReadiness $maturityReadiness
     $remediationPackage = Build-PrimaryRemediationPackage -LiveLayer $LiveLayer -SiteDiagnosis $siteDiagnosis -ContradictionSummary $contradictionSummary
-    $productCloseout = Build-ProductCloseoutClassification -FinalStatus $candidateFinalStatus -SourceLayer $SourceLayer -LiveLayer $LiveLayer -ContradictionSummary $contradictionSummary -SiteDiagnosis $siteDiagnosis -MaturityReadiness $maturityReadiness -RemediationPackage $remediationPackage
+    $productCloseout = Normalize-ProductCloseout -Value (Build-ProductCloseoutClassification -FinalStatus $candidateFinalStatus -SourceLayer $SourceLayer -LiveLayer $LiveLayer -ContradictionSummary $contradictionSummary -SiteDiagnosis $siteDiagnosis -MaturityReadiness $maturityReadiness -RemediationPackage $remediationPackage)
 
     if ($p0.Count -gt 0) {
         $core = $p0[0]
@@ -2926,7 +2979,7 @@ function Build-MetaAuditBriefLines {
     $maturityReadiness = Safe-Get -Object $Decision -Key 'maturity_readiness' -Default @{}
     $auditorBaseline = Safe-Get -Object $Decision -Key 'auditor_baseline' -Default @{}
     $remediationPackage = Safe-Get -Object $Decision -Key 'remediation_package' -Default @{}
-    $productCloseout = Safe-Get -Object $Decision -Key 'product_closeout' -Default @{}
+    $productCloseout = Normalize-ProductCloseout -Value (Safe-Get -Object $Decision -Key 'product_closeout' -Default $null)
     $dominantPattern = Safe-Get -Object $patternSummary -Key 'dominant_pattern' -Default $null
     $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
     $failureStage = [string](Safe-Get -Object $liveSummary -Key 'failure_stage' -Default 'none')
@@ -3275,7 +3328,7 @@ function Write-OperatorOutputs {
     $AuditResult = Normalize-AuditResult -AuditResult $AuditResult
 
     $remediationPackage = Safe-Get -Object $Decision -Key 'remediation_package' -Default @{}
-    $productCloseout = Safe-Get -Object $Decision -Key 'product_closeout' -Default @{}
+    $productCloseout = Normalize-ProductCloseout -Value (Safe-Get -Object $Decision -Key 'product_closeout' -Default $null)
     $productStatus = Convert-ToProductStatus -Decision $Decision -FinalStatus $FinalStatus
     $AuditResult.product_status = $productStatus
     $liveLayer = Safe-Get -Object $AuditResult -Key 'live' -Default @{}
@@ -3739,6 +3792,7 @@ catch {
             site_candidate_count = 0
         }
         clean_state = 'NOT_CLEAN'
+        product_closeout = Normalize-ProductCloseout -Value $null
     }
 
     $auditResult = @{
