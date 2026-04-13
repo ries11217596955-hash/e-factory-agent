@@ -1,11 +1,11 @@
 # TASK_REPORT
 
 ## Summary
-- Hardened DECISION_BUILD collection-shape handling at the `primary_targets` boundary in decision construction/output packaging.
-- Isolated the unsafe assumption: `primary_targets` was consumed via `.Count` in DECISION_BUILD nodes after being materialized with `@(...)`/`Convert-ToObjectArrayOrEmpty`, which is not the canonical normalization path for strict collection-shape guarantees.
-- Normalized `primary_targets` with `Convert-ToObjectArraySafe` before `.Count` and preview iteration, ensuring null/singleton/scalar/PSCustomObject/list inputs are deterministic object arrays.
-- Kept patch scope local to decision-layer builder/consumer nodes; no source/live/page-quality/fallback/route-normalization/screenshot-family behavior was changed.
-- Goal of this change is to remove the remaining DECISION_BUILD `.Count` shape crash and preserve existing report/output contracts.
+- Hardened remaining DECISION_BUILD collection-shape consumers that still relied on direct `.Count` access from potentially non-collection inputs.
+- Normalized `LiveLayer.route_details`, `SourceLayer.summary.top_level_directories`, and DECISION warning ingestion through `Convert-ToObjectArraySafe` before downstream count/iteration use.
+- Kept existing primary-targets fixes intact; this patch only addresses additional Count-assumption nodes in DECISION_BUILD helper flow.
+- Added deterministic forensics field `decision_build_failed_node` to RUN_REPORT/FAILURE_SUMMARY evidence payloads to pinpoint failing DECISION_BUILD node on future failures.
+- Preserved product closeout behavior with non-crashing fallback semantics and no capture/live/page-quality pipeline rewrites.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -19,10 +19,13 @@
   - `agents/gh_batch/site_auditor_cloud/agent.ps1`
   - `agents/gh_batch/site_auditor_cloud/run.ps1`
   - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
-- Patched boundary/function:
-  - `Build-DecisionLayer` (`remediation_package.primary_targets` normalization for shape-safe `.Count` / preview consumption)
-  - `Write-OperatorOutputs` (`remediation_package.primary_targets` normalization for shape-safe `.Count` / summary rendering)
+- DECISION_BUILD-path hardening updates:
+  - `Build-ContradictionLayer`
+  - `Build-PrimaryRemediationPackage`
+  - `Build-DecisionLayer`
+- Reporting forensic update:
+  - `Write-OperatorOutputs` (`decision_build_failed_node` in evidence + summary payload)
 
 ## Risks/blockers
-- Environment limitation: `pwsh` is not installed in this container, so runtime PowerShell execution could not be performed locally.
-- Runtime verification of full DECISION_BUILD completion is blocked in this environment; change was validated via static inspection only.
+- Environment limitation: PowerShell runtime (`pwsh`) is not available in this container, so end-to-end execution validation could not be run locally.
+- Validation performed via static inspection and syntax parse only; runtime confirmation requires execution in the normal SITE_AUDITOR runner environment.
