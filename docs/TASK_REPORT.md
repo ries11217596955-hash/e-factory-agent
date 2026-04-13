@@ -1,9 +1,9 @@
 ## Summary
-- Downgraded `primary_targets` in `Build-DecisionLayer` missing-input handling from a blocking P0 to a warning message.
-- Preserved P0 behavior for all other missing inputs.
-- Updated decision-level final status candidate logic to ignore `primary_targets` as a blocking missing input.
-- Updated run-level status determination to ignore `primary_targets` as a blocking missing input.
-- Kept SOURCE/LIVE validation and required-input enforcement unchanged.
+- Decoupled `product_status` fallback behavior in `Write-OperatorOutputs` from run-level `FinalStatus` blocking text.
+- Added fallback reassignment so unresolved/blocked product status now derives from decision quality (`p0`/`problems`) instead of run status.
+- Fallback now yields `NEEDS_FIX` when decision blockers/problems are present.
+- Fallback now yields `SUCCESS` when no blockers/problems are present.
+- Kept `FinalStatus` and decision structure untouched; only fallback assignment logic was changed.
 
 ## Changed files
 - agents/gh_batch/site_auditor_cloud/agent.ps1
@@ -13,9 +13,9 @@
 - None.
 
 ## Current entrypoints/paths
-- Entry point unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- Decision logic updated in `Build-DecisionLayer` missing-input processing and candidate status evaluation.
-- Final run status evaluation updated in the main execution flow after `Build-DecisionLayer`.
+- Entry point unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- Updated only `Write-OperatorOutputs` product status fallback assignment block.
+- Audit layers and run status flow remain unchanged.
 
 ## Risks/blockers
-- Validation performed via static inspection only; full runtime confirmation of REPO subrun behavior depends on executing the pipeline with a payload where `primary_targets` is omitted.
+- Validation in this task is static (code-path inspection); full behavioral confirmation requires pipeline execution where `FinalStatus=FAIL` and decision outputs are present.
