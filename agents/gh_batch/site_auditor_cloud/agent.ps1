@@ -2760,23 +2760,25 @@ function Build-ProductCloseoutClassification {
     $screenshotCount = [int](Safe-Get -Object $liveSummary -Key 'screenshot_count' -Default 0)
     $diagnosisClass = [string](Safe-Get -Object $normalizedSiteDiagnosis -Key 'class' -Default 'UNKNOWN')
     $maturityClass = [string](Safe-Get -Object $normalizedMaturityReadiness -Key 'class' -Default 'NOT_READY')
-    $contradictionHasCoreShape =
-        ($null -ne $normalizedContradictionSummary) -and
-        ($null -ne (Safe-Get -Object $normalizedContradictionSummary -Key 'class_counts' -Default $null)) -and
-        ($null -ne (Safe-Get -Object $normalizedContradictionSummary -Key 'total_candidates' -Default $null))
+
+    $classCounts = Convert-ToHashtableSafe -Value (Safe-Get -Object $normalizedContradictionSummary -Key 'class_counts' -Default @{})
+    $totalCandidatesRaw = Safe-Get -Object $normalizedContradictionSummary -Key 'total_candidates' -Default $null
+    $hasTotalCandidates = $null -ne $totalCandidatesRaw
+    $contradictionHasCoreShape = ($classCounts.Count -ge 0) -and $hasTotalCandidates
+
     $packageName = [string](Safe-Get -Object $normalizedRemediationPackage -Key 'package_name' -Default '')
-    $packageTargets = Convert-ToObjectArraySafe -Value (Safe-Get -Object $normalizedRemediationPackage -Key 'primary_targets' -Default @())
-    $packageTargetsArray = @($packageTargets | Where-Object { $_ -ne $null })
+    $packageTargets = Convert-ToStringArraySafe -Value (Safe-Get -Object $normalizedRemediationPackage -Key 'primary_targets' -Default @())
+    $packageTargetsArray = @($packageTargets | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
     $packageTargetCount = @($packageTargetsArray).Count
 
     $checksByName = [ordered]@{
         runtime_stability = if ($FinalStatus -ne 'FAIL' -and $failureStage -in @('none', '')) { 'PASS' } else { 'FAIL' }
-        source_live_evidence_integrity = if ([bool]$normalizedLiveLayer.enabled -and [bool]$normalizedLiveLayer.ok -and $routeCount -gt 0 -and $screenshotCount -gt 0 -and (-not $normalizedSourceLayer.required -or [bool]$normalizedSourceLayer.ok)) { 'PASS' } else { 'FAIL' }
+        source_live_evidence_integrity = if ([bool](Safe-Get -Object $normalizedLiveLayer -Key 'enabled' -Default $false) -and [bool](Safe-Get -Object $normalizedLiveLayer -Key 'ok' -Default $false) -and $routeCount -gt 0 -and $screenshotCount -gt 0 -and (-not [bool](Safe-Get -Object $normalizedSourceLayer -Key 'required' -Default $false) -or [bool](Safe-Get -Object $normalizedSourceLayer -Key 'ok' -Default $false))) { 'PASS' } else { 'FAIL' }
         page_quality_usefulness = if ($pageQualityStatus -eq 'EVALUATED') { 'PASS' } else { 'FAIL' }
         contradiction_usefulness = if ($contradictionHasCoreShape) { 'PASS' } else { 'FAIL' }
         diagnosis_usefulness = if ($diagnosisClass -ne 'UNKNOWN') { 'PASS' } else { 'FAIL' }
         maturity_usefulness = if ($maturityClass -ne 'NOT_READY') { 'PASS' } else { 'FAIL' }
-        operator_output_usefulness = if ([string](Safe-Get -Object $normalizedRemediationPackage -Key 'why_first' -Default '') -ne '') { 'PASS' } else { 'FAIL' }
+        operator_output_usefulness = if (-not [string]::IsNullOrWhiteSpace([string](Safe-Get -Object $normalizedRemediationPackage -Key 'why_first' -Default ''))) { 'PASS' } else { 'FAIL' }
         remediation_package_usefulness = if (-not [string]::IsNullOrWhiteSpace($packageName) -and $packageTargetCount -gt 0) { 'PASS' } else { 'FAIL' }
         analyst_brief_usefulness = if ($pageQualityStatus -in @('EVALUATED', 'PARTIAL') -and $routeCount -gt 0) { 'PASS' } else { 'FAIL' }
         report_bundle_consistency = if ($FinalStatus -in @('PASS', 'PARTIAL', 'FAIL')) { 'PASS' } else { 'FAIL' }
@@ -2794,12 +2796,18 @@ function Build-ProductCloseoutClassification {
         analyst_brief_usefulness = 'ANALYST_BRIEF_USEFULNESS'
         report_bundle_consistency = 'REPORT_BUNDLE_CONSISTENCY'
     }
-    $failedKey = @($checksByName.Keys | Where-Object { [string]$checksByName[$_] -eq 'FAIL' } | Select-Object -First 1)
-    $failedKeyArray = @($failedKey | Where-Object { $_ -ne $null })
-    $failedKeyCount = @($failedKeyArray).Count
+
+    $failedKey = ''
+    foreach ($key in @($checksByName.Keys)) {
+        if ([string]$checksByName[$key] -eq 'FAIL') {
+            $failedKey = [string]$key
+            break
+        }
+    }
+
     $classification = 'PRODUCT_READY_BASELINE'
-    if ($failedKeyCount -gt 0) {
-        $classification = "BLOCKED_BY_$($failureMap[$failedKeyArray[0]])"
+    if (-not [string]::IsNullOrWhiteSpace($failedKey)) {
+        $classification = "BLOCKED_BY_$([string]$failureMap[$failedKey])"
     }
 
     $confidence = 'medium'
@@ -2810,24 +2818,25 @@ function Build-ProductCloseoutClassification {
         $confidence = 'low'
     }
 
-    $checks = @($checksByName.GetEnumerator() | ForEach-Object {
-            [ordered]@{
-                name = [string]$_.Key
-                status = [string]$_.Value
-            }
-        } | Where-Object { $_ -ne $null })
-    $checks = @($checks)
+    $checks = New-Object System.Collections.Generic.List[object]
+    foreach ($entry in @($checksByName.GetEnumerator())) {
+        $checkItem = [ordered]@{
+            name = [string]$entry.Key
+            status = [string]$entry.Value
+        }
+        $checks.Add($checkItem)
+    }
 
     $reasonText = 'Deterministic closeout checks passed for baseline operator use.'
-    if ($failedKeyCount -gt 0) {
-        $reasonText = "Product closeout blocked by $($failedKeyArray[0])."
+    if (-not [string]::IsNullOrWhiteSpace($failedKey)) {
+        $reasonText = "Product closeout blocked by $failedKey."
     }
-    $evidence = @(
+
+    $evidence = Convert-ToStringArraySafe -Value @(
         [string]"final_status=$FinalStatus failure_stage=$failureStage page_quality_status=$pageQualityStatus",
         [string]"route_count=$routeCount screenshot_count=$screenshotCount package_name=$packageName package_targets=$packageTargetCount",
         [string]"site_diagnosis=$diagnosisClass maturity=$maturityClass contradiction_shape=$contradictionHasCoreShape"
     )
-    $evidence = Convert-ToStringArraySafe -Value $evidence
 
     return @{
         class = [string]$classification
@@ -2844,12 +2853,17 @@ function Convert-ToProductStatus {
         [string]$FinalStatus
     )
 
-    $normalizedDecision = Convert-ToHashtableSafe -Value $Decision
-    $productCloseout = Normalize-ProductCloseout -Value (Safe-Get -Object $normalizedDecision -Key 'product_closeout' -Default $null)
-    $normalizedCloseout = Convert-ToHashtableSafe -Value $productCloseout
+    $normalizedInput = Convert-ToHashtableSafe -Value $Decision
+    $rawCloseout = Safe-Get -Object $normalizedInput -Key 'product_closeout' -Default $null
+    if ($null -eq $rawCloseout) {
+        $rawCloseout = $normalizedInput
+    }
+
+    $normalizedCloseout = Convert-ToHashtableSafe -Value (Normalize-ProductCloseout -Value $rawCloseout)
     $closeoutClass = [string](Safe-Get -Object $normalizedCloseout -Key 'class' -Default 'BLOCKED_BY_UNKNOWN')
     $reason = [string](Safe-Get -Object $normalizedCloseout -Key 'reason' -Default 'Product closeout classification was not generated.')
     $confidence = [string](Safe-Get -Object $normalizedCloseout -Key 'confidence' -Default 'low')
+
     if ($confidence -notin @('high', 'medium', 'low')) { $confidence = 'low' }
 
     $status = 'FAIL'
@@ -2878,42 +2892,51 @@ function Build-DecisionLayer {
         [System.Collections.Generic.List[string]]$Warnings
     )
 
-    $p0 = New-Object System.Collections.Generic.List[string]
-    $p1 = New-Object System.Collections.Generic.List[string]
-    $p2 = New-Object System.Collections.Generic.List[string]
-    $doNext = New-Object System.Collections.Generic.List[string]
+    $normalizedSourceLayer = Convert-ToHashtableSafe -Value $SourceLayer
+    $normalizedLiveLayer = Convert-ToHashtableSafe -Value $LiveLayer
+    $normalizedMissingInputs = Convert-ToStringArraySafe -Value $MissingInputs
+    $normalizedWarnings = Convert-ToStringArraySafe -Value $Warnings
 
-    foreach ($missing in @($MissingInputs)) {
-        if ([string]::Equals($missing, 'primary_targets', [System.StringComparison]::OrdinalIgnoreCase)) {
-            $p1.Add('Missing optional input: primary_targets')
+    $p0List = New-Object System.Collections.Generic.List[string]
+    $p1List = New-Object System.Collections.Generic.List[string]
+    $p2List = New-Object System.Collections.Generic.List[string]
+    $doNextList = New-Object System.Collections.Generic.List[string]
+
+    foreach ($missing in @($normalizedMissingInputs)) {
+        $missingText = [string]$missing
+        if ([string]::IsNullOrWhiteSpace($missingText)) { continue }
+        if ([string]::Equals($missingText, 'primary_targets', [System.StringComparison]::OrdinalIgnoreCase)) {
+            $p1List.Add([string]'Missing optional input: primary_targets')
             continue
         }
-        $p0.Add("Missing required input: $missing")
+        $p0List.Add([string]"Missing required input: $missingText")
     }
 
-    if ($ResolvedMode -in @('REPO', 'ZIP') -and $SourceLayer.required) {
-        if (-not $SourceLayer.enabled -or -not $SourceLayer.ok) {
-            $p0.Add("Source audit failure in $ResolvedMode mode.")
+    if ($ResolvedMode -in @('REPO', 'ZIP') -and [bool](Safe-Get -Object $normalizedSourceLayer -Key 'required' -Default $false)) {
+        if (-not [bool](Safe-Get -Object $normalizedSourceLayer -Key 'enabled' -Default $false) -or -not [bool](Safe-Get -Object $normalizedSourceLayer -Key 'ok' -Default $false)) {
+            $p0List.Add([string]"Source audit failure in $ResolvedMode mode.")
         }
     }
 
-    if ($LiveLayer.required -and (-not $LiveLayer.enabled -or -not $LiveLayer.ok)) {
-        $p0.Add("Live audit failure in $ResolvedMode mode.")
+    if ([bool](Safe-Get -Object $normalizedLiveLayer -Key 'required' -Default $false) -and (-not [bool](Safe-Get -Object $normalizedLiveLayer -Key 'enabled' -Default $false) -or -not [bool](Safe-Get -Object $normalizedLiveLayer -Key 'ok' -Default $false))) {
+        $p0List.Add([string]"Live audit failure in $ResolvedMode mode.")
     }
 
-    $normalizedWarnings = Convert-ToStringArraySafe -Value $Warnings
     foreach ($warning in @($normalizedWarnings)) {
         $warningText = [string]$warning
         if ([string]::IsNullOrWhiteSpace($warningText)) { continue }
-        $p1.Add($warningText)
+        $p1List.Add([string]$warningText)
     }
 
-    if ($SourceLayer.enabled -and $SourceLayer.summary.file_count -gt 0 -and ($SourceLayer.findings | Measure-Object).Count -eq 0) {
-        $p2.Add('Source structure baseline looks healthy from inventory scan.')
+    $sourceFindings = Convert-ToObjectArraySafe -Value (Safe-Get -Object $normalizedSourceLayer -Key 'findings' -Default @())
+    $sourceSummary = Convert-ToHashtableSafe -Value (Safe-Get -Object $normalizedSourceLayer -Key 'summary' -Default @{})
+    $sourceFileCount = [int](Safe-Get -Object $sourceSummary -Key 'file_count' -Default 0)
+    if ([bool](Safe-Get -Object $normalizedSourceLayer -Key 'enabled' -Default $false) -and $sourceFileCount -gt 0 -and @($sourceFindings).Count -eq 0) {
+        $p2List.Add([string]'Source structure baseline looks healthy from inventory scan.')
     }
 
-    if ($LiveLayer.enabled -and $LiveLayer.ok) {
-        $p2.Add('Live route capture completed with healthy status codes and screenshots.')
+    if ([bool](Safe-Get -Object $normalizedLiveLayer -Key 'enabled' -Default $false) -and [bool](Safe-Get -Object $normalizedLiveLayer -Key 'ok' -Default $false)) {
+        $p2List.Add([string]'Live route capture completed with healthy status codes and screenshots.')
     }
 
     $liveSummary = @{}
@@ -2925,19 +2948,10 @@ function Build-DecisionLayer {
     $deadEndRoutes = 0
     $contaminatedRoutes = 0
     $conversionRoutes = 0
-    $contradictionSummary = @{
-        route_candidates = @()
-        site_candidates = @()
-        candidates = @()
-        class_counts = @{}
-        total_candidates = 0
-        route_candidate_count = 0
-        site_candidate_count = 0
-    }
 
-    if ($LiveLayer.enabled) {
-        $liveSummary = Safe-Get -Object $LiveLayer -Key 'summary' -Default @{}
-        $patternSummary = Safe-Get -Object $liveSummary -Key 'site_pattern_summary' -Default @{}
+    if ([bool](Safe-Get -Object $normalizedLiveLayer -Key 'enabled' -Default $false)) {
+        $liveSummary = Convert-ToHashtableSafe -Value (Safe-Get -Object $normalizedLiveLayer -Key 'summary' -Default @{})
+        $patternSummary = Convert-ToHashtableSafe -Value (Safe-Get -Object $liveSummary -Key 'site_pattern_summary' -Default @{})
         $emptyRoutes = [int](Safe-Get -Object $liveSummary -Key 'empty_routes' -Default 0)
         $thinRoutes = [int](Safe-Get -Object $liveSummary -Key 'thin_routes' -Default 0)
         $weakCtaRoutes = [int](Safe-Get -Object $liveSummary -Key 'weak_cta_routes' -Default 0)
@@ -2946,115 +2960,96 @@ function Build-DecisionLayer {
         $conversionRoutes = [int]($weakCtaRoutes + $deadEndRoutes)
         $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
 
-        if ($contaminatedRoutes -ge 2) {
-            $p0.Add("Trust blocker: repeated contamination pattern across $contaminatedRoutes route(s).")
-        }
-        elseif ($contaminatedRoutes -eq 1) {
-            $p1.Add('Trust blocker: contamination markers detected on 1 route.')
-        }
+        if ($contaminatedRoutes -ge 2) { $p0List.Add([string]"Trust blocker: repeated contamination pattern across $contaminatedRoutes route(s).") }
+        elseif ($contaminatedRoutes -eq 1) { $p1List.Add([string]'Trust blocker: contamination markers detected on 1 route.') }
 
-        if ($emptyRoutes -ge 2) {
-            $p0.Add("Coverage/content blocker: $emptyRoutes empty routes require primary-content restoration.")
-        }
-        elseif ($emptyRoutes -eq 1) {
-            $p1.Add('Coverage/content blocker: 1 empty route detected in live pages.')
-        }
+        if ($emptyRoutes -ge 2) { $p0List.Add([string]"Coverage/content blocker: $emptyRoutes empty routes require primary-content restoration.") }
+        elseif ($emptyRoutes -eq 1) { $p1List.Add([string]'Coverage/content blocker: 1 empty route detected in live pages.') }
 
-        if ($thinRoutes -ge 2) {
-            $p1.Add("Coverage/content blocker: repeated thin-content pattern on $thinRoutes route(s).")
-        }
-        elseif ($thinRoutes -eq 1) {
-            $p2.Add('Secondary optimization issue: 1 thin route could be strengthened.')
-        }
+        if ($thinRoutes -ge 2) { $p1List.Add([string]"Coverage/content blocker: repeated thin-content pattern on $thinRoutes route(s).") }
+        elseif ($thinRoutes -eq 1) { $p2List.Add([string]'Secondary optimization issue: 1 thin route could be strengthened.') }
 
-        if ($conversionRoutes -ge 3) {
-            $p1.Add("Conversion blocker: weak decision/conversion paths across $conversionRoutes route observations.")
-        }
-        elseif ($conversionRoutes -gt 0) {
-            $p2.Add("Secondary optimization issue: conversion friction present on $conversionRoutes route observation(s).")
-        }
+        if ($conversionRoutes -ge 3) { $p1List.Add([string]"Conversion blocker: weak decision/conversion paths across $conversionRoutes route observations.") }
+        elseif ($conversionRoutes -gt 0) { $p2List.Add([string]"Secondary optimization issue: conversion friction present on $conversionRoutes route observation(s).") }
 
-        if ($pageQualityStatus -eq 'PARTIAL') {
-            $p1.Add('Page-quality evaluation is PARTIAL due to route normalization or merge issues.')
-        }
-        if ($pageQualityStatus -eq 'NOT_EVALUATED') {
-            $p0.Add('Page-quality evaluation is NOT_EVALUATED; live findings are incomplete.')
-        }
+        if ($pageQualityStatus -eq 'PARTIAL') { $p1List.Add([string]'Page-quality evaluation is PARTIAL due to route normalization or merge issues.') }
+        if ($pageQualityStatus -eq 'NOT_EVALUATED') { $p0List.Add([string]'Page-quality evaluation is NOT_EVALUATED; live findings are incomplete.') }
 
-        if ($emptyRoutes -eq 0 -and $thinRoutes -eq 0 -and $weakCtaRoutes -eq 0 -and $deadEndRoutes -eq 0 -and $contaminatedRoutes -eq 0 -and $LiveLayer.ok -and $pageQualityStatus -eq 'EVALUATED') {
-            $p2.Add('No page-quality v1 concerns detected in sampled live routes.')
+        if ($emptyRoutes -eq 0 -and $thinRoutes -eq 0 -and $weakCtaRoutes -eq 0 -and $deadEndRoutes -eq 0 -and $contaminatedRoutes -eq 0 -and [bool](Safe-Get -Object $normalizedLiveLayer -Key 'ok' -Default $false) -and $pageQualityStatus -eq 'EVALUATED') {
+            $p2List.Add([string]'No page-quality v1 concerns detected in sampled live routes.')
         }
 
         $dominantPattern = Safe-Get -Object $patternSummary -Key 'dominant_pattern' -Default $null
         if ($null -ne $dominantPattern) {
-            $scope = [string](Safe-Get -Object $dominantPattern -Key 'scope' -Default 'ISOLATED')
-            $label = [string](Safe-Get -Object $dominantPattern -Key 'label' -Default 'route-quality pattern')
-            $count = [int](Safe-Get -Object $dominantPattern -Key 'routes_affected' -Default 0)
-            $p1.Add("Dominant $scope pattern: $label ($count route(s)).")
+            $dominantPatternNode = Convert-ToHashtableSafe -Value $dominantPattern
+            $scope = [string](Safe-Get -Object $dominantPatternNode -Key 'scope' -Default 'ISOLATED')
+            $label = [string](Safe-Get -Object $dominantPatternNode -Key 'label' -Default 'route-quality pattern')
+            $count = [int](Safe-Get -Object $dominantPatternNode -Key 'routes_affected' -Default 0)
+            $p1List.Add([string]"Dominant $scope pattern: $label ($count route(s)).")
         }
     }
 
-    $contradictionSummary = Build-ContradictionLayer -SourceLayer $SourceLayer -LiveLayer $LiveLayer -MissingInputs @($MissingInputs)
+    $contradictionSummary = Convert-ToHashtableSafe -Value (Build-ContradictionLayer -SourceLayer $normalizedSourceLayer -LiveLayer $normalizedLiveLayer -MissingInputs @($normalizedMissingInputs))
     $contradictionTotal = [int](Safe-Get -Object $contradictionSummary -Key 'total_candidates' -Default 0)
-    $siteDiagnosis = Build-SiteDiagnosisLayer -SourceLayer $SourceLayer -LiveLayer $LiveLayer -ContradictionSummary $contradictionSummary -MissingInputs @($MissingInputs)
+    $siteDiagnosis = Convert-ToHashtableSafe -Value (Build-SiteDiagnosisLayer -SourceLayer $normalizedSourceLayer -LiveLayer $normalizedLiveLayer -ContradictionSummary $contradictionSummary -MissingInputs @($normalizedMissingInputs))
+
     if ($contradictionTotal -gt 0) {
-        $classCounts = Safe-Get -Object $contradictionSummary -Key 'class_counts' -Default @{}
-        $rankedClasses = @()
+        $classCounts = Convert-ToHashtableSafe -Value (Safe-Get -Object $contradictionSummary -Key 'class_counts' -Default @{})
+        $rankedClasses = New-Object System.Collections.Generic.List[object]
         foreach ($className in @($classCounts.Keys)) {
-            $rankedClasses += [ordered]@{
-                class = [string]$className
-                count = [int]$classCounts[$className]
-            }
+            $rankedClasses.Add([ordered]@{ class = [string]$className; count = [int]$classCounts[$className] })
         }
-        $topClassText = @($rankedClasses | Sort-Object -Property @{Expression = 'count'; Descending = $true }, @{Expression = 'class'; Descending = $false } | Select-Object -First 3 | ForEach-Object { "$($_.class)=$($_.count)" }) -join ', '
-        $p1.Add("Cross-layer contradiction candidates detected: $contradictionTotal total ($topClassText).")
+        $topClassText = @($rankedClasses | Sort-Object -Property @{Expression = 'count'; Descending = $true }, @{Expression = 'class'; Descending = $false } | Select-Object -First 3 | ForEach-Object { "$(($_.class))=$(($_.count))" }) -join ', '
+        $p1List.Add([string]"Cross-layer contradiction candidates detected: $contradictionTotal total ($topClassText).")
     }
 
-    $maturityReadiness = Build-MaturityReadinessLayer -SourceLayer $SourceLayer -LiveLayer $LiveLayer -SiteDiagnosis $siteDiagnosis -ContradictionSummary $contradictionSummary -MissingInputs @($MissingInputs)
-    $normalizedMissingInputs = Convert-ToStringArraySafe -Value $MissingInputs
-    $blockingMissingInputs = @(@($normalizedMissingInputs).Where({ $_ -ne $null -and -not [string]::Equals([string]$_, 'primary_targets', [System.StringComparison]::OrdinalIgnoreCase) }))
+    $maturityReadiness = Convert-ToHashtableSafe -Value (Build-MaturityReadinessLayer -SourceLayer $normalizedSourceLayer -LiveLayer $normalizedLiveLayer -SiteDiagnosis $siteDiagnosis -ContradictionSummary $contradictionSummary -MissingInputs @($normalizedMissingInputs))
+    $blockingMissingInputs = @($normalizedMissingInputs | Where-Object { $_ -ne $null -and -not [string]::Equals([string]$_, 'primary_targets', [System.StringComparison]::OrdinalIgnoreCase) })
+
     $candidateFinalStatus = 'PASS'
-    if ($blockingMissingInputs.Count -gt 0 -or ($SourceLayer.required -and (-not $SourceLayer.enabled -or -not $SourceLayer.ok)) -or ($LiveLayer.required -and (-not $LiveLayer.enabled -or -not $LiveLayer.ok))) {
+    if (@($blockingMissingInputs).Count -gt 0 -or ([bool](Safe-Get -Object $normalizedSourceLayer -Key 'required' -Default $false) -and (-not [bool](Safe-Get -Object $normalizedSourceLayer -Key 'enabled' -Default $false) -or -not [bool](Safe-Get -Object $normalizedSourceLayer -Key 'ok' -Default $false))) -or ([bool](Safe-Get -Object $normalizedLiveLayer -Key 'required' -Default $false) -and (-not [bool](Safe-Get -Object $normalizedLiveLayer -Key 'enabled' -Default $false) -or -not [bool](Safe-Get -Object $normalizedLiveLayer -Key 'ok' -Default $false)))) {
         $candidateFinalStatus = 'FAIL'
     }
     elseif ($pageQualityStatus -eq 'PARTIAL') {
         $candidateFinalStatus = 'PARTIAL'
     }
-    $auditorBaseline = Build-AuditorBaselineCertification -FinalStatus $candidateFinalStatus -SourceLayer $SourceLayer -LiveLayer $LiveLayer -ContradictionSummary $contradictionSummary -SiteDiagnosis $siteDiagnosis -MaturityReadiness $maturityReadiness
-    $remediationPackage = Build-PrimaryRemediationPackage -LiveLayer $LiveLayer -SiteDiagnosis $siteDiagnosis -ContradictionSummary $contradictionSummary
-    $productCloseout = Normalize-ProductCloseout -Value (Build-ProductCloseoutClassification -FinalStatus $candidateFinalStatus -SourceLayer $SourceLayer -LiveLayer $LiveLayer -ContradictionSummary $contradictionSummary -SiteDiagnosis $siteDiagnosis -MaturityReadiness $maturityReadiness -RemediationPackage $remediationPackage)
 
-    $p0Array = @($p0) | Where-Object { $_ -ne $null }
-    $p1Array = @($p1) | Where-Object { $_ -ne $null }
-    if (@($p0Array).Where({ $_ -ne $null }).Count -gt 0) {
-        $core = $p0Array[0]
-    }
-    elseif (@($p1Array).Where({ $_ -ne $null }).Count -gt 0) {
-        $core = $p1Array[0]
-    }
-    else {
-        if ($ResolvedMode -in @('REPO', 'ZIP')) {
-            $core = "Combined source + live audit succeeded for $ResolvedMode mode."
-        }
-        else {
-            $core = 'Live URL audit succeeded for URL mode.'
-        }
-    }
+    $auditorBaseline = Build-AuditorBaselineCertification -FinalStatus $candidateFinalStatus -SourceLayer $normalizedSourceLayer -LiveLayer $normalizedLiveLayer -ContradictionSummary $contradictionSummary -SiteDiagnosis $siteDiagnosis -MaturityReadiness $maturityReadiness
+    $remediationPackage = Convert-ToHashtableSafe -Value (Build-PrimaryRemediationPackage -LiveLayer $normalizedLiveLayer -SiteDiagnosis $siteDiagnosis -ContradictionSummary $contradictionSummary)
+    $productCloseout = Normalize-ProductCloseout -Value (Build-ProductCloseoutClassification -FinalStatus $candidateFinalStatus -SourceLayer $normalizedSourceLayer -LiveLayer $normalizedLiveLayer -ContradictionSummary $contradictionSummary -SiteDiagnosis $siteDiagnosis -MaturityReadiness $maturityReadiness -RemediationPackage $remediationPackage)
 
-    # DECISION_BUILD requires deterministic collection shape before Count/iteration consumption.
-    $packageTargets = Convert-ToStringArraySafe -Value (Safe-Get -Object $remediationPackage -Key 'primary_targets' -Default @())
-    $packageTargetsArray = @($packageTargets | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
-    $packageTargetCount = @($packageTargetsArray).Count
+    $p0 = Convert-ToStringArraySafe -Value @($p0List)
+    $p1 = Convert-ToStringArraySafe -Value @($p1List)
+    $p2 = Convert-ToStringArraySafe -Value @($p2List)
+
+    $core = ''
+    if (@($p0).Count -gt 0) { $core = [string]$p0[0] }
+    elseif (@($p1).Count -gt 0) { $core = [string]$p1[0] }
+    elseif ($ResolvedMode -in @('REPO', 'ZIP')) { $core = [string]"Combined source + live audit succeeded for $ResolvedMode mode." }
+    else { $core = [string]'Live URL audit succeeded for URL mode.' }
+
+    $packageTargets = Convert-ToObjectArraySafe -Value (Safe-Get -Object $remediationPackage -Key 'primary_targets' -Default @())
+    $primaryTargets = @($packageTargets | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique | Select-Object -First 5)
     $packageName = [string](Safe-Get -Object $remediationPackage -Key 'package_name' -Default 'MIXED_RECOVERY_PACKAGE')
-    if ($packageTargetCount -gt 0) {
-        $targetPreview = (@($packageTargetsArray | Select-Object -First 3)) -join ', '
-        $doNext.Add([string]"Execute $packageName first on routes: $targetPreview.")
+    if (@($primaryTargets).Count -gt 0) {
+        $targetPreview = (@($primaryTargets | Select-Object -First 3)) -join ', '
+        $doNextList.Add([string]"Execute $packageName first on routes: $targetPreview.")
     }
     else {
-        $doNext.Add([string]"Execute $packageName first.")
+        $doNextList.Add([string]"Execute $packageName first.")
     }
-    $doNext.Add([string](Safe-Get -Object $remediationPackage -Key 'why_first' -Default 'Fix the highest repeated blocker cluster before secondary optimization.'))
-    $doNext.Add([string]"Success check: $([string](Safe-Get -Object $remediationPackage -Key 'success_check' -Default 'Rerun SITE_AUDITOR and verify quality blocker counts are reduced.'))")
+    $doNextList.Add([string](Safe-Get -Object $remediationPackage -Key 'why_first' -Default 'Fix the highest repeated blocker cluster before secondary optimization.'))
+    $doNextList.Add([string]"Success check: $([string](Safe-Get -Object $remediationPackage -Key 'success_check' -Default 'Rerun SITE_AUDITOR and verify quality blocker counts are reduced.'))")
+
+    $doNext = Convert-ToStringArraySafe -Value @($doNextList)
+    $doNext = @($doNext | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Select-Object -First 3)
+    if (@($doNext).Count -eq 0) {
+        $doNext = @(
+            'Review top P0 issue and fix it directly',
+            'Apply fix to affected page/component',
+            'Re-run audit to verify resolution'
+        )
+    }
 
     $looksClean =
         ($emptyRoutes -eq 0) -and
@@ -3062,91 +3057,20 @@ function Build-DecisionLayer {
         ($weakCtaRoutes -eq 0) -and
         ($deadEndRoutes -eq 0) -and
         ($contaminatedRoutes -eq 0) -and
-        $LiveLayer.enabled -and
-        $LiveLayer.ok -and
+        [bool](Safe-Get -Object $normalizedLiveLayer -Key 'enabled' -Default $false) -and
+        [bool](Safe-Get -Object $normalizedLiveLayer -Key 'ok' -Default $false) -and
         ($pageQualityStatus -eq 'EVALUATED')
     $suspiciouslyClean = $looksClean -and ($contradictionTotal -gt 0)
     $cleanStateLabel = if ($suspiciouslyClean) { 'SUSPICIOUSLY_CLEAN' } elseif ($looksClean) { 'CLEAN' } else { 'NOT_CLEAN' }
 
-    $decision = @{
-        core_problem = $core
-        p0 = @($p0)
-        p1 = @($p1)
-        p2 = @($p2)
-        do_next = @($doNext | Select-Object -First 3)
-        site_diagnosis = $siteDiagnosis
-        maturity_readiness = $maturityReadiness
-        auditor_baseline = $auditorBaseline
-        remediation_package = $remediationPackage
-        product_closeout = $productCloseout
-        contradiction_summary = $contradictionSummary
-        clean_state = $cleanStateLabel
-    }
+    $productCloseoutNode = Normalize-ProductCloseout -Value $productCloseout
+    $productCloseoutNode.class = [string](Safe-Get -Object $productCloseoutNode -Key 'class' -Default 'BLOCKED_BY_UNKNOWN')
+    $productCloseoutNode.reason = [string](Safe-Get -Object $productCloseoutNode -Key 'reason' -Default 'Product closeout classification was not generated.')
+    $productCloseoutNode.confidence = [string](Safe-Get -Object $productCloseoutNode -Key 'confidence' -Default 'low')
+    $productCloseoutNode.checks = Convert-ToObjectArraySafe -Value (Safe-Get -Object $productCloseoutNode -Key 'checks' -Default @())
+    $productCloseoutNode.evidence = Convert-ToStringArraySafe -Value (Safe-Get -Object $productCloseoutNode -Key 'evidence' -Default @())
 
-    function Normalize-ToArrayOrEmpty {
-        param([object]$Value)
-
-        if ($null -eq $Value) { return @() }
-        if ($Value -is [System.Collections.IDictionary] -or $Value -is [PSCustomObject]) { return @($Value) }
-        if ($Value -is [System.Collections.IEnumerable] -and -not ($Value -is [string])) { return @($Value) }
-        return @($Value)
-    }
-
-    function Normalize-ToTextOrEmpty {
-        param([object]$Value)
-
-        if ($null -eq $Value) { return '' }
-        if ($Value -is [string]) { return [string]$Value }
-        if ($Value -is [System.Collections.IDictionary] -or $Value -is [PSCustomObject]) {
-            return [string]($Value | ConvertTo-Json -Depth 8 -Compress)
-        }
-        if ($Value -is [System.Collections.IEnumerable] -and -not ($Value -is [string])) {
-            $items = Convert-ToStringArraySafe -Value $Value
-            if ($items.Count -le 0) { return '' }
-            return [string](@($items) -join ' | ')
-        }
-        return [string]$Value
-    }
-
-    # DECISION_BUILD final contract lock: deterministic text/array output types before packaging.
-    $decision.core_problem = Normalize-ToTextOrEmpty (Safe-Get -Object $decision -Key 'core_problem' -Default $core)
-    $decision.clean_state = Normalize-ToTextOrEmpty (Safe-Get -Object $decision -Key 'clean_state' -Default $cleanStateLabel)
-    $decision.inputs = Convert-ToStringArraySafe -Value (Normalize-ToArrayOrEmpty (Safe-Get -Object $decision -Key 'inputs' -Default @($normalizedMissingInputs)))
-    $decision.p0 = Convert-ToStringArraySafe -Value (Normalize-ToArrayOrEmpty (Safe-Get -Object $decision -Key 'p0' -Default @()))
-    $decision.p1 = Convert-ToStringArraySafe -Value (Normalize-ToArrayOrEmpty (Safe-Get -Object $decision -Key 'p1' -Default @()))
-    $decision.p2 = Convert-ToStringArraySafe -Value (Normalize-ToArrayOrEmpty (Safe-Get -Object $decision -Key 'p2' -Default @()))
-    $decision.do_next = Convert-ToStringArraySafe -Value (Normalize-ToArrayOrEmpty (Safe-Get -Object $decision -Key 'do_next' -Default @()))
-    $decision.problems = Convert-ToStringArraySafe -Value (Normalize-ToArrayOrEmpty (Safe-Get -Object $decision -Key 'problems' -Default $decision.p0))
-    $decision.next_actions = Convert-ToStringArraySafe -Value (Normalize-ToArrayOrEmpty (Safe-Get -Object $decision -Key 'next_actions' -Default $decision.do_next))
-
-    $doNext = @($decision.do_next | Where-Object { $_ -ne $null -and $_ -ne "" })
-    $weakDoNext = @($doNext | Where-Object {
-        $stepText = [string]$_
-        $trimmedStep = $stepText.Trim()
-        [string]::IsNullOrWhiteSpace($trimmedStep) -or $trimmedStep -match '^(?i)(improve|analyze)\b'
-    })
-    $doNextCount = @($doNext).Count
-    $weakDoNextCount = @($weakDoNext).Count
-    if ($doNextCount -eq 0 -or $weakDoNextCount -gt 0) {
-        $doNext = @(
-            "Review top P0 issue and fix it directly",
-            "Apply fix to affected page/component",
-            "Re-run audit to verify resolution"
-        )
-    }
-    if (@($doNext).Count -gt 3) {
-        $doNext = $doNext[0..2]
-    }
-    $decision.do_next = Convert-ToStringArraySafe -Value $doNext
-    $decision.next_actions = Convert-ToStringArraySafe -Value $decision.do_next
-
-    $productCloseoutNode = Normalize-ProductCloseout -Value (Safe-Get -Object $decision -Key 'product_closeout' -Default $null)
-    $productCloseoutNode.class = Normalize-ToTextOrEmpty (Safe-Get -Object $productCloseoutNode -Key 'class' -Default 'BLOCKED_BY_UNKNOWN')
-    $productCloseoutNode.reason = Normalize-ToTextOrEmpty (Safe-Get -Object $productCloseoutNode -Key 'reason' -Default 'Product closeout classification was not generated.')
-    $productCloseoutNode.checks = Normalize-ToArrayOrEmpty (Safe-Get -Object $productCloseoutNode -Key 'checks' -Default @())
-    $productCloseoutNode.evidence = Convert-ToStringArraySafe -Value (Normalize-ToArrayOrEmpty (Safe-Get -Object $productCloseoutNode -Key 'evidence' -Default @()))
-    if ($productCloseoutNode.class -eq 'BLOCKED_BY_UNKNOWN' -and
-        $productCloseoutNode.reason -eq 'Product closeout classification was not generated.') {
+    if ($productCloseoutNode.class -eq 'BLOCKED_BY_UNKNOWN' -and $productCloseoutNode.reason -eq 'Product closeout classification was not generated.') {
         $productCloseoutNode.reason = 'Product closeout classification was not generated; emitted deterministic diagnostic payload.'
         $productCloseoutNode.checks = @(
             [ordered]@{
@@ -3156,11 +3080,28 @@ function Build-DecisionLayer {
             }
         )
         $productCloseoutNode.evidence = @(
-            "diagnostic=closeout_classification_unavailable",
+            'diagnostic=closeout_classification_unavailable',
             "candidate_final_status=$candidateFinalStatus"
         )
     }
-    $decision.product_closeout = $productCloseoutNode
+
+    $decision = [ordered]@{
+        core_problem = [string]$core
+        inputs = @($normalizedMissingInputs)
+        p0 = @($p0)
+        p1 = @($p1)
+        p2 = @($p2)
+        problems = @($p0)
+        do_next = @($doNext)
+        next_actions = @($doNext)
+        site_diagnosis = $siteDiagnosis
+        maturity_readiness = $maturityReadiness
+        auditor_baseline = $auditorBaseline
+        remediation_package = $remediationPackage
+        product_closeout = $productCloseoutNode
+        contradiction_summary = $contradictionSummary
+        clean_state = [string]$cleanStateLabel
+    }
 
     return $decision
 }

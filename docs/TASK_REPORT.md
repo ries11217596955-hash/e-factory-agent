@@ -1,9 +1,9 @@
 ## Summary
-- Stabilized `statusSource` resolution in fallback/report forensics functions and removed parse-breaking inline insertion in param blocks.
-- Locked `product_status` to string contract and preserved structured status data in `product_status_detail`.
-- Unified product status policy so run `FinalStatus` no longer remaps decision/output status.
-- Normalized fallback `audit_result` contract to include deterministic `product_status`, `product_status_detail`, and `product_closeout` objects.
-- Kept scope limited to report/output/final-status behavior only.
+- Rebuilt `Build-DecisionLayer` with deterministic shape normalization for list/text/object contracts in the decision-core path.
+- Repaired `Build-ProductCloseoutClassification` to normalize inbound decision fields and emit strict output shapes (`checks` object array, `evidence` string array).
+- Tightened `Convert-ToProductStatus` to consume normalized closeout data and return only the required ordered status fields.
+- Preserved existing report/output layer behavior and avoided changes outside the decision-core trio.
+- Kept runtime semantics outside the trio unchanged while removing ambiguous mixed-shape branching in DECISION_BUILD.
 
 ## Changed files
 - agents/gh_batch/site_auditor_cloud/agent.ps1
@@ -14,8 +14,8 @@
 
 ## Current entrypoints/paths
 - Entry script remains `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Output/report paths remain under `agents/gh_batch/site_auditor_cloud/reports` and `agents/gh_batch/site_auditor_cloud/outbox`.
+- Decision-core changes are limited to `Build-DecisionLayer`, `Build-ProductCloseoutClassification`, and `Convert-ToProductStatus`.
 
 ## Risks/blockers
-- Local environment does not include `pwsh`/`powershell`, so parser execution validation could not be run directly.
-- Functional rerun validation requires runtime dependencies and target inputs not executed in this pass.
+- `pwsh` is unavailable in this container, so full runtime execution of the DECISION_BUILD pipeline could not be performed here.
+- Runtime outcomes (stage advancement and populated source/live/page_quality data) require execution in the target environment with real inputs.
