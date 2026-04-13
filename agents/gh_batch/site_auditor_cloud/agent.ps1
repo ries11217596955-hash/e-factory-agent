@@ -3576,6 +3576,12 @@ function Get-FallbackTruthEvidence {
         [string]$AuditResultPath,
         [string]$FailureReason,
         [string]$CurrentStage,
+        if ($null -ne $productStatusRaw) {
+    $statusSource = $productStatusRaw
+}
+else {
+    $statusSource = $productStatusDetail
+}
         [string]$LastSuccessStage
     )
 
