@@ -3745,7 +3745,7 @@ function Write-RunForensicsReports {
         source_status = $sourceStatus
         live_status = $liveStatus
         page_quality_status = $pageQualityStatus
-        product_status = Get-ProductStatusString -ProductStatus (if ($null -ne $productStatusRaw) { $productStatusRaw } else { $productStatusDetail }) -Default 'UNKNOWN'
+                product_status = Get-ProductStatusString -ProductStatus $statusSource -Default 'UNKNOWN'
         product_reason = [string](Safe-Get -Object $productStatusDetail -Key 'reason' -Default 'none')
         repo_summary_status = if ([string]::IsNullOrWhiteSpace($repoSummaryStatus)) { 'UNKNOWN' } else { $repoSummaryStatus }
         failure_stage = $failedStage
