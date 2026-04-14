@@ -3093,6 +3093,7 @@ function Build-DecisionLayer {
         $activeExpression = '$warningList.Add($warningText)'
         $warningList.Add($warningText)
     }
+
     foreach ($warningText in $warningList) {
         $activeOperationLabel = 'warnings/step06/add_p1'
         $activeExpression = '$p1List.Add([string]$warningText)'
