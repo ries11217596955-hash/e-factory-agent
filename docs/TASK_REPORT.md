@@ -1,9 +1,9 @@
 ## Summary
-- Added fail-safe DECISION_BUILD fallback reporting so `reports/RUN_REPORT.txt` and `reports/11A_EXECUTIVE_SUMMARY.txt` are emitted even when the primary operator contract is not formed.
-- Expanded fallback human-readable report content to include all minimum operator fields (mode, status, stages, blocker, pre-failure progress, incomplete work, next technical move, and truth files).
-- Updated fallback artifact manifest generation to include both human report artifacts alongside existing truth/output files.
-- Added a DECISION_BUILD-specific post-check that backfills `11A_EXECUTIVE_SUMMARY.txt` if still missing after fallback contract enforcement.
-- Kept changes limited to report emission / fallback output path in `agent.ps1`.
+- Replaced the `DECISION_BUILD/Build-DecisionLayer/array/materialize/warnings` boundary with explicit deterministic materialization to `[string[]]`.
+- Kept the existing normalization step (`Convert-ToDecisionWarningStringArray`) and added a hard boundary variable (`$warningsArray`) immediately after it is consumed at the materialization node.
+- Updated warning iteration to run only over `$warningsArray`, ensuring stable `foreach` behavior across `null`, singleton, `List[string]`, `object[]`, and object-like inputs after normalization.
+- Preserved list semantics by keeping `p1` population via scalar string conversion and `List[string].Add(...)` only (no `+=` and no mutation of the incoming warnings collection).
+- Updated decision payload to expose `warnings` from the deterministic `[string[]]` boundary.
 
 ## Changed files
 - agents/gh_batch/site_auditor_cloud/agent.ps1
@@ -14,8 +14,8 @@
 
 ## Current entrypoints/paths
 - Entrypoint remains `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Only `Ensure-OutputContract` fallback/human report emission behavior was changed.
+- Changed scope was limited to the `Build-DecisionLayer` warnings boundary (`array/materialize/warnings`) and task reporting.
 
 ## Risks/blockers
 - `pwsh` is not available in this container, so runtime execution validation for this PowerShell path could not be run locally.
-- Functional verification for DECISION_BUILD fail-path behavior should be completed in an environment with PowerShell available.
+- Functional rerun verification for `DECISION_BUILD` should be completed in an environment with PowerShell available to confirm progression beyond the previous warnings materialization blocker.
