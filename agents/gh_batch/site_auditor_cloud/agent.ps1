@@ -703,6 +703,35 @@ function Convert-ToStringKeyDictionarySafe {
     return $normalized
 }
 
+function Convert-ToHashtableSafe {
+    param([object]$Value)
+
+    if ($null -eq $Value) { return @{} }
+
+    if ($Value -is [System.Collections.IDictionary]) {
+        $normalized = [ordered]@{}
+        foreach ($entry in @($Value.GetEnumerator())) {
+            $keyText = [string](Safe-Get -Object $entry -Key 'Key' -Default '')
+            if ([string]::IsNullOrWhiteSpace($keyText)) { continue }
+            $normalized[$keyText] = Safe-Get -Object $entry -Key 'Value' -Default $null
+        }
+        return $normalized
+    }
+
+    if ($Value -is [PSCustomObject]) {
+        $normalized = [ordered]@{}
+        foreach ($prop in @($Value.PSObject.Properties)) {
+            if ($null -eq $prop) { continue }
+            $keyText = [string]$prop.Name
+            if ([string]::IsNullOrWhiteSpace($keyText)) { continue }
+            $normalized[$keyText] = $prop.Value
+        }
+        return $normalized
+    }
+
+    return @{}
+}
+
 function Normalize-ProductCloseout {
     param([object]$Value)
 
