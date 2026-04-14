@@ -4356,6 +4356,7 @@ function Ensure-OutputContract {
 
     Ensure-Dir $outboxDir
     Ensure-Dir $reportsDir
+    $isDecisionBuildFailure = (($FinalStatus -in @('FAIL', 'PARTIAL')) -and ([string]$currentStage -eq 'DECISION_BUILD'))
 
     $auditResultPath = Join-Path $reportsDir 'audit_result.json'
     if (-not (Test-Path $auditResultPath -PathType Leaf)) {
@@ -4435,6 +4436,8 @@ function Ensure-OutputContract {
             artifact_manifest_summary = [ordered]@{
                 artifacts = @(
                     [ordered]@{ path = 'reports/audit_result.json'; artifact_type = 'truth_audit'; purpose = 'Primary structured source/live/decision truth.'; priority_for_operator = 'high' },
+                    [ordered]@{ path = 'reports/RUN_REPORT.txt'; artifact_type = 'run_report_text'; purpose = 'Top-level operator-ready forensic report.'; priority_for_operator = 'high' },
+                    [ordered]@{ path = 'reports/11A_EXECUTIVE_SUMMARY.txt'; artifact_type = 'summary'; purpose = 'Human executive summary.'; priority_for_operator = 'high' },
                     [ordered]@{ path = 'outbox/REPORT.txt'; artifact_type = 'operator_report'; purpose = 'Legacy operator summary output.'; priority_for_operator = 'medium' }
                 )
                 primary_truth_sources = @($primaryTruthSources)
@@ -4442,6 +4445,19 @@ function Ensure-OutputContract {
             next_technical_move = $fallbackNextMove
         }
         Write-JsonFile -Path $runReportJsonPath -Data $fallbackContract
+        $fallbackWorkedStages = Convert-ToObjectArraySafe -Value (Safe-Get -Object $fallbackTruth -Key 'confirmed_passing_stages' -Default @())
+        $workedBeforeFailure = if (@($fallbackWorkedStages).Count -gt 0) {
+            @($fallbackWorkedStages) -join ', '
+        }
+        else {
+            'No confirmed passing stages were recorded before failure.'
+        }
+        $fallbackDidNotComplete = if ($isDecisionBuildFailure) {
+            'DECISION_BUILD materialization, operator output contract assembly, and downstream summary generation.'
+        }
+        else {
+            "Stage '$([string](Safe-Get -Object $fallbackTruth -Key 'failure_stage' -Default $currentStage))' and downstream operator output generation."
+        }
         Write-TextFile -Path (Join-Path $reportsDir 'RUN_REPORT.txt') -Lines @(
             'RUN STATUS',
             "- run_id: $runId",
@@ -4453,8 +4469,30 @@ function Ensure-OutputContract {
             'EXECUTIVE SUMMARY',
             'Fallback run report generated because primary operator report contract was missing.',
             '',
+            'FAILSAFE OPERATOR REPORT',
+            "- MODE: $ResolvedMode",
+            "- FINAL STATUS: $FinalStatus",
+            "- FINAL STAGE: $currentStage",
+            "- LAST SUCCESS STAGE: $lastSuccessStage",
+            "- EXACT BLOCKER: $([string](Safe-Get -Object $fallbackTruth -Key 'blocker' -Default 'Unknown fallback failure.'))",
+            "- WHAT WORKED BEFORE FAILURE: $workedBeforeFailure",
+            "- WHAT DID NOT COMPLETE: $fallbackDidNotComplete",
+            "- ONE NEXT TECHNICAL MOVE: $fallbackNextMove",
+            "- AVAILABLE TRUTH FILES: $((@($primaryTruthSources) -join ', '))",
+            '',
             'NEXT TECHNICAL MOVE',
             $fallbackNextMove
+        )
+        Write-TextFile -Path (Join-Path $reportsDir '11A_EXECUTIVE_SUMMARY.txt') -Lines @(
+            "MODE: $ResolvedMode",
+            "FINAL STATUS: $FinalStatus",
+            "FINAL STAGE: $currentStage",
+            "LAST SUCCESS STAGE: $lastSuccessStage",
+            "EXACT BLOCKER: $([string](Safe-Get -Object $fallbackTruth -Key 'blocker' -Default 'Unknown fallback failure.'))",
+            "WHAT WORKED BEFORE FAILURE: $workedBeforeFailure",
+            "WHAT DID NOT COMPLETE: $fallbackDidNotComplete",
+            "ONE NEXT TECHNICAL MOVE: $fallbackNextMove",
+            "AVAILABLE TRUTH FILES: $((@($primaryTruthSources) -join ', '))"
         )
         Write-JsonFile -Path (Join-Path $reportsDir 'ARTIFACT_MANIFEST.json') -Data ([ordered]@{
             run_id = $runId
@@ -4462,6 +4500,8 @@ function Ensure-OutputContract {
             final_status = $FinalStatus
             artifacts = @(
                 [ordered]@{ path = 'reports/audit_result.json'; artifact_type = 'truth_audit'; purpose = 'Primary structured source/live/decision truth.'; priority_for_operator = 'high' },
+                [ordered]@{ path = 'reports/RUN_REPORT.txt'; artifact_type = 'run_report_text'; purpose = 'Top-level operator-ready forensic report.'; priority_for_operator = 'high' },
+                [ordered]@{ path = 'reports/11A_EXECUTIVE_SUMMARY.txt'; artifact_type = 'summary'; purpose = 'Human executive summary.'; priority_for_operator = 'high' },
                 [ordered]@{ path = 'outbox/REPORT.txt'; artifact_type = 'operator_report'; purpose = 'Legacy operator summary output.'; priority_for_operator = 'medium' }
             )
         })
@@ -4484,6 +4524,28 @@ function Ensure-OutputContract {
         }
         else {
             Write-JsonFile -Path (Join-Path $reportsDir 'SUCCESS_SUMMARY.json') -Data $fallbackSummary
+        }
+    }
+
+    if ($isDecisionBuildFailure) {
+        $summaryPath = Join-Path $reportsDir '11A_EXECUTIVE_SUMMARY.txt'
+        if (-not (Test-Path $summaryPath -PathType Leaf)) {
+            $fallbackTruth = Get-FallbackTruthEvidence -AuditResultPath $auditResultPath -FailureReason $FailureReason -CurrentStage $currentStage -LastSuccessStage $lastSuccessStage
+            $fallbackNextMove = "Inspect failed node '$([string](Safe-Get -Object $fallbackTruth -Key 'failure_stage' -Default $currentStage))' and remediate the blocker before rerun."
+            $fallbackWorkedStages = Convert-ToObjectArraySafe -Value (Safe-Get -Object $fallbackTruth -Key 'confirmed_passing_stages' -Default @())
+            $workedBeforeFailure = if (@($fallbackWorkedStages).Count -gt 0) { @($fallbackWorkedStages) -join ', ' } else { 'No confirmed passing stages were recorded before failure.' }
+            $primaryTruthSources = Convert-ToObjectArraySafe -Value (Safe-Get -Object $fallbackTruth -Key 'primary_truth_sources' -Default @('reports/audit_result.json'))
+            Write-TextFile -Path $summaryPath -Lines @(
+                "MODE: $ResolvedMode",
+                "FINAL STATUS: $FinalStatus",
+                "FINAL STAGE: $currentStage",
+                "LAST SUCCESS STAGE: $lastSuccessStage",
+                "EXACT BLOCKER: $([string](Safe-Get -Object $fallbackTruth -Key 'blocker' -Default 'Unknown fallback failure.'))",
+                "WHAT WORKED BEFORE FAILURE: $workedBeforeFailure",
+                'WHAT DID NOT COMPLETE: DECISION_BUILD materialization, operator output contract assembly, and downstream summary generation.',
+                "ONE NEXT TECHNICAL MOVE: $fallbackNextMove",
+                "AVAILABLE TRUTH FILES: $((@($primaryTruthSources) -join ', '))"
+            )
         }
     }
 
