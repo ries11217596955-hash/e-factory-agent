@@ -2746,12 +2746,28 @@ function Build-ProductCloseoutClassification {
         [hashtable]$RemediationPackage
     )
 
-    $normalizedSourceLayer = Convert-ToHashtableSafe -Value $SourceLayer
-    $normalizedLiveLayer = Convert-ToHashtableSafe -Value $LiveLayer
-    $normalizedContradictionSummary = Convert-ToHashtableSafe -Value $ContradictionSummary
-    $normalizedSiteDiagnosis = Convert-ToHashtableSafe -Value $SiteDiagnosis
-    $normalizedMaturityReadiness = Convert-ToHashtableSafe -Value $MaturityReadiness
-    $normalizedRemediationPackage = Convert-ToHashtableSafe -Value $RemediationPackage
+    $activeOperationLabel = 'initialize'
+    $activeExpression = ''
+
+    try {
+        $activeOperationLabel = 'normalize/source_layer'
+        $activeExpression = 'Convert-ToHashtableSafe -Value $SourceLayer'
+        $normalizedSourceLayer = Convert-ToHashtableSafe -Value $SourceLayer
+        $activeOperationLabel = 'normalize/live_layer'
+        $activeExpression = 'Convert-ToHashtableSafe -Value $LiveLayer'
+        $normalizedLiveLayer = Convert-ToHashtableSafe -Value $LiveLayer
+        $activeOperationLabel = 'normalize/contradiction_summary'
+        $activeExpression = 'Convert-ToHashtableSafe -Value $ContradictionSummary'
+        $normalizedContradictionSummary = Convert-ToHashtableSafe -Value $ContradictionSummary
+        $activeOperationLabel = 'normalize/site_diagnosis'
+        $activeExpression = 'Convert-ToHashtableSafe -Value $SiteDiagnosis'
+        $normalizedSiteDiagnosis = Convert-ToHashtableSafe -Value $SiteDiagnosis
+        $activeOperationLabel = 'normalize/maturity_readiness'
+        $activeExpression = 'Convert-ToHashtableSafe -Value $MaturityReadiness'
+        $normalizedMaturityReadiness = Convert-ToHashtableSafe -Value $MaturityReadiness
+        $activeOperationLabel = 'normalize/remediation_package'
+        $activeExpression = 'Convert-ToHashtableSafe -Value $RemediationPackage'
+        $normalizedRemediationPackage = Convert-ToHashtableSafe -Value $RemediationPackage
 
     $liveSummary = Convert-ToHashtableSafe -Value (Safe-Get -Object $normalizedLiveLayer -Key 'summary' -Default @{})
     $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
@@ -2818,14 +2834,22 @@ function Build-ProductCloseoutClassification {
         $confidence = 'low'
     }
 
-    $checks = New-Object System.Collections.Generic.List[object]
-    foreach ($entry in @($checksByName.GetEnumerator())) {
-        $checkItem = [ordered]@{
-            name = [string]$entry.Key
-            status = [string]$entry.Value
+        $activeOperationLabel = 'list/materialize/checks_enumerator'
+        $activeExpression = '@($checksByName.GetEnumerator())'
+        $checksEntries = @($checksByName.GetEnumerator())
+
+        $activeOperationLabel = 'list/create/checks'
+        $activeExpression = 'New-Object System.Collections.Generic.List[object]'
+        $checks = New-Object System.Collections.Generic.List[object]
+        foreach ($entry in @($checksEntries)) {
+            $checkItem = [ordered]@{
+                name = [string]$entry.Key
+                status = [string]$entry.Value
+            }
+            $activeOperationLabel = 'list/add/checks_item'
+            $activeExpression = '$checks.Add($checkItem)'
+            $checks.Add($checkItem)
         }
-        $checks.Add($checkItem)
-    }
 
     $reasonText = 'Deterministic closeout checks passed for baseline operator use.'
     if (-not [string]::IsNullOrWhiteSpace($failedKey)) {
@@ -2838,12 +2862,22 @@ function Build-ProductCloseoutClassification {
         [string]"site_diagnosis=$diagnosisClass maturity=$maturityClass contradiction_shape=$contradictionHasCoreShape"
     )
 
-    return @{
-        class = [string]$classification
-        reason = [string]$reasonText
-        confidence = [string]$confidence
-        checks = @($checks)
-        evidence = @($evidence)
+        $activeOperationLabel = 'assemble/final_closeout_object'
+        $activeExpression = '@{ class=...; reason=...; confidence=...; checks=...; evidence=... }'
+        return @{
+            class = [string]$classification
+            reason = [string]$reasonText
+            confidence = [string]$confidence
+            checks = @($checks)
+            evidence = @($evidence)
+        }
+    }
+    catch {
+        Set-DecisionForensics -FunctionName 'Build-ProductCloseoutClassification' -ActivePhase 'DECISION_BUILD' -ActiveOperationLabel $activeOperationLabel -ActiveExpression $activeExpression -LeftOperand $FinalStatus -RightOperand $normalizedRemediationPackage -StackHintIfAvailable $_.ScriptStackTrace -AdditionalContext ([ordered]@{
+            error_message = [string]$_.Exception.Message
+            failure_kind = 'product_closeout_classification_instrumented_boundary'
+        })
+        throw
     }
 }
 
@@ -2853,33 +2887,55 @@ function Convert-ToProductStatus {
         [string]$FinalStatus
     )
 
-    $normalizedInput = Convert-ToHashtableSafe -Value $Decision
-    $rawCloseout = Safe-Get -Object $normalizedInput -Key 'product_closeout' -Default $null
-    if ($null -eq $rawCloseout) {
-        $rawCloseout = $normalizedInput
+    $activeOperationLabel = 'initialize'
+    $activeExpression = ''
+
+    try {
+        $activeOperationLabel = 'normalize/decision'
+        $activeExpression = 'Convert-ToHashtableSafe -Value $Decision'
+        $normalizedInput = Convert-ToHashtableSafe -Value $Decision
+        $activeOperationLabel = 'normalize/raw_closeout'
+        $activeExpression = 'Safe-Get -Object $normalizedInput -Key product_closeout'
+        $rawCloseout = Safe-Get -Object $normalizedInput -Key 'product_closeout' -Default $null
+        if ($null -eq $rawCloseout) {
+            $rawCloseout = $normalizedInput
+        }
+
+        $activeOperationLabel = 'normalize/closeout_shape'
+        $activeExpression = 'Convert-ToHashtableSafe -Value (Normalize-ProductCloseout -Value $rawCloseout)'
+        $normalizedCloseout = Convert-ToHashtableSafe -Value (Normalize-ProductCloseout -Value $rawCloseout)
+        $activeOperationLabel = 'cast/string_fields'
+        $activeExpression = 'class/reason/confidence string extraction'
+        $closeoutClass = [string](Safe-Get -Object $normalizedCloseout -Key 'class' -Default 'BLOCKED_BY_UNKNOWN')
+        $reason = [string](Safe-Get -Object $normalizedCloseout -Key 'reason' -Default 'Product closeout classification was not generated.')
+        $confidence = [string](Safe-Get -Object $normalizedCloseout -Key 'confidence' -Default 'low')
+
+        if ($confidence -notin @('high', 'medium', 'low')) { $confidence = 'low' }
+
+        $status = 'FAIL'
+        if ($closeoutClass -eq 'PRODUCT_READY_BASELINE') {
+            $status = 'SUCCESS'
+        }
+        elseif (-not [string]::IsNullOrWhiteSpace($reason)) {
+            $status = 'NEEDS_FIX'
+        }
+
+        $activeOperationLabel = 'assemble/final_product_status'
+        $activeExpression = '[ordered]@{ status=... }'
+        return [ordered]@{
+            status = [string]$status
+            reason = [string]$reason
+            confidence = [string]$confidence
+            source_closeout_class = [string]$closeoutClass
+            run_status = [string]$FinalStatus
+        }
     }
-
-    $normalizedCloseout = Convert-ToHashtableSafe -Value (Normalize-ProductCloseout -Value $rawCloseout)
-    $closeoutClass = [string](Safe-Get -Object $normalizedCloseout -Key 'class' -Default 'BLOCKED_BY_UNKNOWN')
-    $reason = [string](Safe-Get -Object $normalizedCloseout -Key 'reason' -Default 'Product closeout classification was not generated.')
-    $confidence = [string](Safe-Get -Object $normalizedCloseout -Key 'confidence' -Default 'low')
-
-    if ($confidence -notin @('high', 'medium', 'low')) { $confidence = 'low' }
-
-    $status = 'FAIL'
-    if ($closeoutClass -eq 'PRODUCT_READY_BASELINE') {
-        $status = 'SUCCESS'
-    }
-    elseif (-not [string]::IsNullOrWhiteSpace($reason)) {
-        $status = 'NEEDS_FIX'
-    }
-
-    return [ordered]@{
-        status = [string]$status
-        reason = [string]$reason
-        confidence = [string]$confidence
-        source_closeout_class = [string]$closeoutClass
-        run_status = [string]$FinalStatus
+    catch {
+        Set-DecisionForensics -FunctionName 'Convert-ToProductStatus' -ActivePhase 'DECISION_BUILD' -ActiveOperationLabel $activeOperationLabel -ActiveExpression $activeExpression -LeftOperand $Decision -RightOperand $FinalStatus -StackHintIfAvailable $_.ScriptStackTrace -AdditionalContext ([ordered]@{
+            error_message = [string]$_.Exception.Message
+            failure_kind = 'product_status_conversion_instrumented_boundary'
+        })
+        throw
     }
 }
 
@@ -2892,9 +2948,21 @@ function Build-DecisionLayer {
         [System.Collections.Generic.List[string]]$Warnings
     )
 
+    $activeOperationLabel = 'initialize'
+    $activeExpression = ''
+
+    try {
+    $activeOperationLabel = 'normalize/source_layer'
+    $activeExpression = 'Convert-ToHashtableSafe -Value $SourceLayer'
     $normalizedSourceLayer = Convert-ToHashtableSafe -Value $SourceLayer
+    $activeOperationLabel = 'normalize/live_layer'
+    $activeExpression = 'Convert-ToHashtableSafe -Value $LiveLayer'
     $normalizedLiveLayer = Convert-ToHashtableSafe -Value $LiveLayer
+    $activeOperationLabel = 'normalize/missing_inputs_array'
+    $activeExpression = 'Convert-ToStringArraySafe -Value $MissingInputs'
     $normalizedMissingInputs = Convert-ToStringArraySafe -Value $MissingInputs
+    $activeOperationLabel = 'normalize/warnings_array'
+    $activeExpression = 'Convert-ToStringArraySafe -Value $Warnings'
     $normalizedWarnings = Convert-ToStringArraySafe -Value $Warnings
 
     $p0List = New-Object System.Collections.Generic.List[string]
@@ -2902,29 +2970,45 @@ function Build-DecisionLayer {
     $p2List = New-Object System.Collections.Generic.List[string]
     $doNextList = New-Object System.Collections.Generic.List[string]
 
-    foreach ($missing in @($normalizedMissingInputs)) {
+    $activeOperationLabel = 'array/materialize/missing_inputs'
+    $activeExpression = '@($normalizedMissingInputs)'
+    $missingInputsArray = @($normalizedMissingInputs)
+    foreach ($missing in @($missingInputsArray)) {
         $missingText = [string]$missing
         if ([string]::IsNullOrWhiteSpace($missingText)) { continue }
         if ([string]::Equals($missingText, 'primary_targets', [System.StringComparison]::OrdinalIgnoreCase)) {
+            $activeOperationLabel = 'list/add/p1_missing_optional_primary_targets'
+            $activeExpression = '$p1List.Add(...)'
             $p1List.Add([string]'Missing optional input: primary_targets')
             continue
         }
+        $activeOperationLabel = 'list/add/p0_missing_required_input'
+        $activeExpression = '$p0List.Add(...)'
         $p0List.Add([string]"Missing required input: $missingText")
     }
 
     if ($ResolvedMode -in @('REPO', 'ZIP') -and [bool](Safe-Get -Object $normalizedSourceLayer -Key 'required' -Default $false)) {
         if (-not [bool](Safe-Get -Object $normalizedSourceLayer -Key 'enabled' -Default $false) -or -not [bool](Safe-Get -Object $normalizedSourceLayer -Key 'ok' -Default $false)) {
+            $activeOperationLabel = 'list/add/p0_source_audit_failure'
+            $activeExpression = '$p0List.Add(...)'
             $p0List.Add([string]"Source audit failure in $ResolvedMode mode.")
         }
     }
 
     if ([bool](Safe-Get -Object $normalizedLiveLayer -Key 'required' -Default $false) -and (-not [bool](Safe-Get -Object $normalizedLiveLayer -Key 'enabled' -Default $false) -or -not [bool](Safe-Get -Object $normalizedLiveLayer -Key 'ok' -Default $false))) {
+        $activeOperationLabel = 'list/add/p0_live_audit_failure'
+        $activeExpression = '$p0List.Add(...)'
         $p0List.Add([string]"Live audit failure in $ResolvedMode mode.")
     }
 
-    foreach ($warning in @($normalizedWarnings)) {
+    $activeOperationLabel = 'array/materialize/warnings'
+    $activeExpression = '@($normalizedWarnings)'
+    $warningsArray = @($normalizedWarnings)
+    foreach ($warning in @($warningsArray)) {
         $warningText = [string]$warning
         if ([string]::IsNullOrWhiteSpace($warningText)) { continue }
+        $activeOperationLabel = 'list/add/p1_warning'
+        $activeExpression = '$p1List.Add(...)'
         $p1List.Add([string]$warningText)
     }
 
@@ -2995,8 +3079,12 @@ function Build-DecisionLayer {
 
     if ($contradictionTotal -gt 0) {
         $classCounts = Convert-ToHashtableSafe -Value (Safe-Get -Object $contradictionSummary -Key 'class_counts' -Default @{})
+        $activeOperationLabel = 'list/create/ranked_classes'
+        $activeExpression = 'New-Object System.Collections.Generic.List[object]'
         $rankedClasses = New-Object System.Collections.Generic.List[object]
         foreach ($className in @($classCounts.Keys)) {
+            $activeOperationLabel = 'list/add/ranked_class_entry'
+            $activeExpression = '$rankedClasses.Add(...)'
             $rankedClasses.Add([ordered]@{ class = [string]$className; count = [int]$classCounts[$className] })
         }
         $topClassText = @($rankedClasses | Sort-Object -Property @{Expression = 'count'; Descending = $true }, @{Expression = 'class'; Descending = $false } | Select-Object -First 3 | ForEach-Object { "$(($_.class))=$(($_.count))" }) -join ', '
@@ -3007,6 +3095,8 @@ function Build-DecisionLayer {
     $blockingMissingInputs = @($normalizedMissingInputs | Where-Object { $_ -ne $null -and -not [string]::Equals([string]$_, 'primary_targets', [System.StringComparison]::OrdinalIgnoreCase) })
 
     $candidateFinalStatus = 'PASS'
+    $activeOperationLabel = 'count/check/blocking_missing_inputs'
+    $activeExpression = '@($blockingMissingInputs).Count -gt 0'
     if (@($blockingMissingInputs).Count -gt 0 -or ([bool](Safe-Get -Object $normalizedSourceLayer -Key 'required' -Default $false) -and (-not [bool](Safe-Get -Object $normalizedSourceLayer -Key 'enabled' -Default $false) -or -not [bool](Safe-Get -Object $normalizedSourceLayer -Key 'ok' -Default $false))) -or ([bool](Safe-Get -Object $normalizedLiveLayer -Key 'required' -Default $false) -and (-not [bool](Safe-Get -Object $normalizedLiveLayer -Key 'enabled' -Default $false) -or -not [bool](Safe-Get -Object $normalizedLiveLayer -Key 'ok' -Default $false)))) {
         $candidateFinalStatus = 'FAIL'
     }
@@ -3031,18 +3121,30 @@ function Build-DecisionLayer {
     $packageTargets = Convert-ToObjectArraySafe -Value (Safe-Get -Object $remediationPackage -Key 'primary_targets' -Default @())
     $primaryTargets = @($packageTargets | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique | Select-Object -First 5)
     $packageName = [string](Safe-Get -Object $remediationPackage -Key 'package_name' -Default 'MIXED_RECOVERY_PACKAGE')
+    $activeOperationLabel = 'count/check/primary_targets'
+    $activeExpression = '@($primaryTargets).Count -gt 0'
     if (@($primaryTargets).Count -gt 0) {
         $targetPreview = (@($primaryTargets | Select-Object -First 3)) -join ', '
+        $activeOperationLabel = 'list/add/do_next_primary_targets'
+        $activeExpression = '$doNextList.Add(...)'
         $doNextList.Add([string]"Execute $packageName first on routes: $targetPreview.")
     }
     else {
+        $activeOperationLabel = 'list/add/do_next_package_only'
+        $activeExpression = '$doNextList.Add(...)'
         $doNextList.Add([string]"Execute $packageName first.")
     }
+    $activeOperationLabel = 'list/add/do_next_why_first'
+    $activeExpression = '$doNextList.Add(...)'
     $doNextList.Add([string](Safe-Get -Object $remediationPackage -Key 'why_first' -Default 'Fix the highest repeated blocker cluster before secondary optimization.'))
+    $activeOperationLabel = 'list/add/do_next_success_check'
+    $activeExpression = '$doNextList.Add(...)'
     $doNextList.Add([string]"Success check: $([string](Safe-Get -Object $remediationPackage -Key 'success_check' -Default 'Rerun SITE_AUDITOR and verify quality blocker counts are reduced.'))")
 
     $doNext = Convert-ToStringArraySafe -Value @($doNextList)
     $doNext = @($doNext | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Select-Object -First 3)
+    $activeOperationLabel = 'count/check/do_next_empty'
+    $activeExpression = '@($doNext).Count -eq 0'
     if (@($doNext).Count -eq 0) {
         $doNext = @(
             'Review top P0 issue and fix it directly',
@@ -3085,6 +3187,8 @@ function Build-DecisionLayer {
         )
     }
 
+    $activeOperationLabel = 'assemble/final_decision_object'
+    $activeExpression = '[ordered]@{ core_problem=... }'
     $decision = [ordered]@{
         core_problem = [string]$core
         inputs = @($normalizedMissingInputs)
@@ -3104,6 +3208,15 @@ function Build-DecisionLayer {
     }
 
     return $decision
+    }
+    catch {
+        Set-DecisionForensics -FunctionName 'Build-DecisionLayer' -ActivePhase 'DECISION_BUILD' -ActiveOperationLabel $activeOperationLabel -ActiveExpression $activeExpression -LeftOperand $SourceLayer -RightOperand $LiveLayer -StackHintIfAvailable $_.ScriptStackTrace -AdditionalContext ([ordered]@{
+            error_message = [string]$_.Exception.Message
+            resolved_mode = [string]$ResolvedMode
+            failure_kind = 'decision_layer_instrumented_boundary'
+        })
+        throw
+    }
 }
 
 function Build-MetaAuditBriefLines {
@@ -3684,6 +3797,7 @@ function Write-RunForensicsReports {
         'reports/ARTIFACT_MANIFEST.json' = @{ type = 'artifact_manifest'; purpose = 'Artifact inventory with priorities and purposes.'; priority = 'high' }
         'reports/FAILURE_SUMMARY.json' = @{ type = 'failure_summary'; purpose = 'Structured fail/partial summary for automation.'; priority = 'high' }
         'reports/SUCCESS_SUMMARY.json' = @{ type = 'success_summary'; purpose = 'Structured success summary for automation.'; priority = 'medium' }
+        'reports/decision_debug.json' = @{ type = 'decision_debug'; purpose = 'DECISION_BUILD forensic boundary details for exact failing node recovery.'; priority = 'high' }
     }
 
     foreach ($path in (Convert-ToObjectArrayOrEmpty -Value $reportFiles)) {
@@ -3715,6 +3829,19 @@ function Write-RunForensicsReports {
         $dfOperation = [string](Safe-Get -Object $global:DecisionForensics -Key 'activeOperationLabel' -Default '')
         if (-not [string]::IsNullOrWhiteSpace($dfFunction) -or -not [string]::IsNullOrWhiteSpace($dfOperation)) {
             $decisionBuildFailedNode = "DECISION_BUILD/$dfFunction/$dfOperation".TrimEnd('/')
+        }
+
+        $decisionDebugPath = Join-Path $reportsDir 'decision_debug.json'
+        Write-JsonFile -Path $decisionDebugPath -Data ([ordered]@{
+            run_id = $runId
+            generated_at = $RunFinishedAt
+            final_status = $FinalStatus
+            final_stage = $CurrentStage
+            decision_build_failed_node = $decisionBuildFailedNode
+            decision_forensics = $global:DecisionForensics
+        })
+        if (-not ($reportFiles.Contains('reports/decision_debug.json'))) {
+            $reportFiles.Add('reports/decision_debug.json')
         }
     }
 
