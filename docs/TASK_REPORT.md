@@ -1,9 +1,9 @@
 ## Summary
-- Replaced `Convert-ToDecisionWarningStringArray` with a strict boundary implementation that only emits a flat list of non-empty strings.
-- Removed dictionary/`PSCustomObject`-specific branching to prevent unstable structured outputs from leaking downstream.
-- Added safe scalar fallback in `catch` so non-enumerable inputs still normalize into string-array form.
-- Preserved null/whitespace filtering so warnings remain clean and enumerable for downstream stages.
-- Kept scope limited to warning-helper contract hardening requested in `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- Instrumented only the `warnings/step02/direct_safe_walk` path in `Build-DecisionLayer` to emit granular runtime labels for enumerate/cast/add and fallback cast/add.
+- Preserved existing entry label `warnings/step02/direct_safe_walk` and added `step02a`..`step02e` checkpoints exactly as requested.
+- Added a `normalizedWarningsType` snapshot and wired it into `Set-DecisionForensics` additional context as `normalized_warnings_type`.
+- Kept helper logic, I/O boundaries, and unrelated file regions unchanged.
+- Goal is to force `FAILURE_SUMMARY.json` to point at one concrete `step02*` operation instead of a generic label.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -13,9 +13,9 @@
 - None.
 
 ## Current entrypoints/paths
-- Script entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Normalization boundary updated at `Convert-ToDecisionWarningStringArray` to guarantee an enumerable string-array shaped warning payload.
+- Script entrypoint remains `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- Targeted instrumentation path remains inside `Build-DecisionLayer` warnings handling block: `warnings/step02/direct_safe_walk`.
 
 ## Risks/blockers
-- `return @($result.ToArray())` enforces enumerable output, but PowerShell may type it as `object[]` rather than declared `[string[]]`; downstream consumers that require strict .NET type checks should validate runtime behavior.
-- If `warnings-step02` still fails, failure is likely upstream input-shape/type inconsistency (input layer), not helper output structure.
+- If failure label remains generic after this change, runtime may be executing a different script/version than the edited file.
+- No functional fix was applied; only diagnostic granularity was increased for the specified warnings path.

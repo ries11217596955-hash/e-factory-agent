@@ -3025,6 +3025,7 @@ function Build-DecisionLayer {
     $activeOperationLabel = 'normalize/warnings_array'
     $activeExpression = 'Convert-ToDecisionWarningStringArray -Value $Warnings'
     $normalizedWarnings = Convert-ToDecisionWarningStringArray -Value $Warnings
+    $normalizedWarningsType = if ($null -eq $normalizedWarnings) { 'NULL' } else { [string]$normalizedWarnings.GetType().FullName }
 
     $p0List = New-Object System.Collections.Generic.List[string]
     $p1List = New-Object System.Collections.Generic.List[string]
@@ -3071,26 +3072,32 @@ function Build-DecisionLayer {
     if ($null -ne $normalizedWarnings) {
 
         try {
+            $activeOperationLabel = 'warnings/step02a/enumerate_normalized'
+            $activeExpression = 'foreach ($warning in $normalizedWarnings)'
             foreach ($warning in $normalizedWarnings) {
 
                 if ($null -eq $warning) { continue }
 
-                $activeOperationLabel = 'warnings/step03/cast_to_string'
+                $activeOperationLabel = 'warnings/step02b/cast_item'
                 $activeExpression = '[string]$warning'
                 $warningText = [string]$warning
 
                 if ([string]::IsNullOrWhiteSpace($warningText)) { continue }
 
-                $activeOperationLabel = 'warnings/step04/add_warningList'
+                $activeOperationLabel = 'warnings/step02c/add_to_warningList'
                 $activeExpression = '$warningList.Add($warningText)'
                 $warningList.Add($warningText)
             }
         }
         catch {
             # fallback если не enumerable
+            $activeOperationLabel = 'warnings/step02d/fallback_cast'
+            $activeExpression = '[string]$normalizedWarnings'
             $warningText = [string]$normalizedWarnings
 
             if (-not [string]::IsNullOrWhiteSpace($warningText)) {
+                $activeOperationLabel = 'warnings/step02e/fallback_add'
+                $activeExpression = '$warningList.Add($warningText)'
                 $warningList.Add($warningText)
             }
         }
@@ -3304,7 +3311,7 @@ function Build-DecisionLayer {
         Set-DecisionForensics -FunctionName 'Build-DecisionLayer' -ActivePhase 'DECISION_BUILD' -ActiveOperationLabel $activeOperationLabel -ActiveExpression $activeExpression -LeftOperand $SourceLayer -RightOperand $LiveLayer -StackHintIfAvailable $_.ScriptStackTrace -AdditionalContext ([ordered]@{
             error_message = [string]$_.Exception.Message
             resolved_mode = [string]$ResolvedMode
-            normalized_warnings_type = if ($null -eq $normalizedWarnings) { 'NULL' } else { [string]$normalizedWarnings.GetType().FullName }
+            normalized_warnings_type = $normalizedWarningsType
             failure_kind = 'decision_layer_instrumented_boundary'
         })
         throw
