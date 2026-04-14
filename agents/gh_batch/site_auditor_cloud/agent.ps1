@@ -3072,21 +3072,21 @@ function Build-DecisionLayer {
     $activeOperationLabel = 'warnings/step01/enter'
     $activeExpression = '$normalizedWarnings'
     $warningList = New-Object System.Collections.Generic.List[string]
-    $activeOperationLabel = 'warnings/step02/force_array_conversion'
-    $activeExpression = '[System.Collections.ArrayList]::new() + $normalizedWarnings'
+    $activeOperationLabel = 'warnings/step02/manual_safe_walk'
+    $activeExpression = 'manual safe iteration over $normalizedWarnings'
 
-    $warningItems = @()
+    $warningItems = New-Object System.Collections.Generic.List[object]
 
-    if ($null -eq $normalizedWarnings) {
-        $warningItems = @()
-    }
-    else {
+    if ($null -ne $normalizedWarnings) {
+
         try {
-            $warningItems = [System.Collections.ArrayList]::new()
-            $null = $warningItems.AddRange($normalizedWarnings)
+            foreach ($item in $normalizedWarnings) {
+                $warningItems.Add($item)
+            }
         }
         catch {
-            $warningItems = @([string]$normalizedWarnings)
+            # если это НЕ enumerable
+            $warningItems.Add($normalizedWarnings)
         }
     }
 
