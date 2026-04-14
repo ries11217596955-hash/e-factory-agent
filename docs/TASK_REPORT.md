@@ -1,9 +1,9 @@
 ## Summary
-- Hardened `Build-DecisionLayer` warnings materialization so warnings are always normalized to `string[]` before downstream processing.
-- Updated the `Build-DecisionLayer` warnings parameter contract to accept incoming mixed types and coerce safely via `Convert-ToStringSafe`.
-- Added explicit null handling for warnings (`$warnings = @()` when null) before normalization.
-- Added final string enforcement pass to prevent mixed-type warning payloads.
-- Kept all changes scoped to Build-DecisionLayer logic and task reporting only.
+- Enforced `Build-DecisionLayer` warnings final materialization as a pure `string[]` immediately before decision return.
+- Added a defensive non-array guard (`if ($warnings -isnot [System.Array]) { $warnings = @($warnings) }`) in `Build-DecisionLayer`.
+- Added null-safe final casting for every warning entry (`$null` becomes `''`, all others become `[string]`).
+- Materialized `warnings` on the final decision object using array syntax (`warnings = @($warnings)`).
+- Kept scope limited to `Build-DecisionLayer` and task reporting.
 
 ## Changed files
 - agents/gh_batch/site_auditor_cloud/agent.ps1
@@ -13,9 +13,9 @@
 - None.
 
 ## Current entrypoints/paths
-- Entry script remains `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Decision-core changes are limited to `Build-DecisionLayer` warnings normalization flow.
+- Entrypoint remains `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- Only `Build-DecisionLayer` warning normalization/materialization path was changed.
 
 ## Risks/blockers
-- `pwsh` is unavailable in this container, so end-to-end DECISION_BUILD execution could not be validated here.
-- Runtime outcomes still depend on executing the agent in the target environment with real input payloads.
+- `pwsh` is not available in this container, so runtime execution validation for this PowerShell path could not be run locally.
+- Functional verification should be completed in an environment with PowerShell available.

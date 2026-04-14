@@ -2991,13 +2991,19 @@ function Build-DecisionLayer {
     $activeExpression = 'Convert-ToStringArraySafe -Value $MissingInputs'
     $normalizedMissingInputs = Convert-ToStringArraySafe -Value $MissingInputs
     $activeOperationLabel = 'normalize/warnings_array'
-    $activeExpression = '$warnings = @($Warnings)'
-    $warnings = @($Warnings)
+    $activeExpression = '$warnings = $Warnings'
+    $warnings = $Warnings
+    if ($warnings -isnot [System.Array]) {
+        $warnings = @($warnings)
+    }
+    else {
+        $warnings = @($warnings)
+    }
     if ($null -eq $warnings) {
         $warnings = @()
     }
     $warnings = @($warnings | ForEach-Object { [string](Convert-ToStringSafe $_) })
-    $warnings = @($warnings | ForEach-Object { [string]$_ })
+    $warnings = @($warnings | ForEach-Object { if ($null -eq $_) { '' } else { [string]$_ } })
     $activeExpression = 'Convert-ToStringArraySafe -Value $warnings'
     $normalizedWarnings = Convert-ToStringArraySafe -Value $warnings
 
@@ -3223,11 +3229,24 @@ function Build-DecisionLayer {
         )
     }
 
+    $activeOperationLabel = 'normalize/final_warnings_array'
+    $activeExpression = '$warnings = @($warnings | ForEach-Object { if ($null -eq $_) { "" } else { [string]$_ } })'
+    if ($warnings -isnot [System.Array]) {
+        $warnings = @($warnings)
+    }
+    $warnings = @(
+        $warnings | ForEach-Object {
+            if ($null -eq $_) { '' }
+            else { [string]$_ }
+        }
+    )
+
     $activeOperationLabel = 'assemble/final_decision_object'
     $activeExpression = '[ordered]@{ core_problem=... }'
     $decision = [ordered]@{
         core_problem = [string]$core
         inputs = @($normalizedMissingInputs)
+        warnings = @($warnings)
         p0 = @($p0)
         p1 = @($p1)
         p2 = @($p2)
