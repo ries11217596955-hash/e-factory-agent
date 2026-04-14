@@ -3070,8 +3070,9 @@ function Build-DecisionLayer {
     }
 
     $activeOperationLabel = 'array/materialize/warnings'
-    $activeExpression = '$normalizedWarnings'
-    foreach ($warning in $normalizedWarnings) {
+    $activeExpression = '[string[]]@($normalizedWarnings)'
+    $warningsArray = [string[]]@($normalizedWarnings)
+    foreach ($warning in $warningsArray) {
         $warningText = [string]$warning
         if ([string]::IsNullOrWhiteSpace($warningText)) { continue }
         $activeOperationLabel = 'list/add/p1_warning'
@@ -3259,7 +3260,7 @@ function Build-DecisionLayer {
     $decision = [ordered]@{
         core_problem = [string]$core
         inputs = @($normalizedMissingInputs)
-        warnings = $normalizedWarnings
+        warnings = $warningsArray
         p0 = @($p0)
         p1 = @($p1)
         p2 = @($p2)
