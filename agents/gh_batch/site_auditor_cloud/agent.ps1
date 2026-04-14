@@ -3013,7 +3013,7 @@ function Build-DecisionLayer {
         [hashtable]$SourceLayer,
         [hashtable]$LiveLayer,
         [string[]]$MissingInputs,
-        [object[]]$Warnings
+        [object]$Warnings
     )
 
     $activeOperationLabel = 'initialize'
@@ -3070,27 +3070,15 @@ function Build-DecisionLayer {
     }
 
     $activeOperationLabel = 'array/materialize/warnings'
-    $activeExpression = 'warnings forced rebuild to List[string] from raw $Warnings input'
-    $warningsArray = New-Object System.Collections.Generic.List[string]
-
-    if ($null -ne $Warnings) {
-
-        if ($Warnings -is [System.Collections.IEnumerable] -and
-            -not ($Warnings -is [string])) {
-
-            foreach ($w in $Warnings) {
-                if ($null -ne $w) {
-                    $warningsArray.Add([string]$w)
-                }
-            }
-
-        } else {
-            $warningsArray.Add([string]$Warnings)
-        }
-    }
-    foreach ($warning in $warningsArray) {
+    $activeExpression = 'rebuild normalized warnings into local List[string]'
+    $warningList = New-Object System.Collections.Generic.List[string]
+    foreach ($warning in @($normalizedWarnings)) {
+        if ($null -eq $warning) { continue }
         $warningText = [string]$warning
         if ([string]::IsNullOrWhiteSpace($warningText)) { continue }
+        $warningList.Add($warningText)
+    }
+    foreach ($warningText in $warningList) {
         $activeOperationLabel = 'list/add/p1_warning'
         $activeExpression = '$p1List.Add(...)'
         $p1List.Add([string]$warningText)
@@ -3276,7 +3264,7 @@ function Build-DecisionLayer {
     $decision = [ordered]@{
         core_problem = [string]$core
         inputs = @($normalizedMissingInputs)
-        warnings = [string[]]@($warningsArray)
+        warnings = @($warningList.ToArray())
         p0 = @($p0)
         p1 = @($p1)
         p2 = @($p2)
@@ -4646,11 +4634,11 @@ try {
     $sourceLayer = New-SourceLayer -Overrides $sourceLayer
     $liveLayer = New-LiveLayer -Overrides $liveLayer
 
-    foreach ($lw in @($liveLayer.warnings)) { $warnings.Add($lw) }
+    $warningsForDecision = Convert-ToDecisionWarningStringArray -Value (Safe-Get -Object $liveLayer -Key 'warnings' -Default @())
 
     $lastSuccessStage = 'INPUT_VALIDATION'
     $currentStage = 'DECISION_BUILD'
-    $decision = Build-DecisionLayer -ResolvedMode $resolvedMode -SourceLayer $sourceLayer -LiveLayer $liveLayer -MissingInputs @($missingInputs) -Warnings $warnings
+    $decision = Build-DecisionLayer -ResolvedMode $resolvedMode -SourceLayer $sourceLayer -LiveLayer $liveLayer -MissingInputs @($missingInputs) -Warnings $warningsForDecision
     $lastSuccessStage = 'DECISION_BUILD'
     if ($liveLayer.enabled -and ($liveLayer.summary -is [System.Collections.IDictionary])) {
         $liveLayer.summary.contradiction_summary = Safe-Get -Object $decision -Key 'contradiction_summary' -Default @{}
