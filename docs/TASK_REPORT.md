@@ -1,9 +1,9 @@
 ## Summary
-- Implemented a forced warnings rebuild in `Build-DecisionLayer` so materialization now reconstructs warnings from raw `$Warnings` and does not rely on helper output at this boundary.
-- Added an explicit `List[string]` rebuild block that handles `null`, scalar, and enumerable inputs while excluding string-as-enumerable behavior.
-- Ensured each non-null warning item is cast to `[string]` before insertion, preventing mixed/object payloads from leaking through.
-- Kept warning propagation to `p1` unchanged except that it now iterates over the rebuilt warnings container.
-- Ensured final decision payload returns warnings as a clean `string[]` via explicit cast materialization.
+- Repaired DECISION_BUILD warnings input boundary by creating canonical `$warningsForDecision` with `Convert-ToDecisionWarningStringArray` from `liveLayer.warnings` before calling `Build-DecisionLayer`.
+- Updated `Build-DecisionLayer` warnings contract from `[object[]]` to `[object]` so transport is accepted as-is and normalized once internally.
+- Replaced direct warnings materialization from raw `$Warnings` with a local `List[string]` rebuild from `@($normalizedWarnings)` under `array/materialize/warnings`.
+- Enforced warnings propagation to P1 exclusively from the local `warningList` (no direct foreach over `$normalizedWarnings` beyond local rebuild).
+- Hardened decision output boundary so `decision.warnings` now leaves `Build-DecisionLayer` as canonical `string[]` via `@($warningList.ToArray())`.
 
 ## Changed files
 - agents/gh_batch/site_auditor_cloud/agent.ps1
@@ -14,7 +14,7 @@
 
 ## Current entrypoints/paths
 - Entrypoint remains `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Scope of this task was limited to `Build-DecisionLayer` warnings materialization and required reporting update.
+- Scope remained limited to warnings contour handling around DECISION_BUILD input normalization, materialization, and output emission.
 
 ## Risks/blockers
-- `pwsh` runtime validation was not executed in this container, so end-to-end functional verification of this PowerShell path is pending environment-level execution.
+- End-to-end runtime validation for the ZIP execution path was not run in this environment, so confirmation against the exact historical blocker string depends on downstream execution of the patched script.
