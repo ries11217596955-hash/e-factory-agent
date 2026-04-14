@@ -3081,13 +3081,21 @@ function Build-DecisionLayer {
     elseif ($normalizedWarnings -is [string]) {
         $warningItems = @([string]$normalizedWarnings)
     }
-    elseif ($normalizedWarnings -is [System.Collections.IEnumerable]) {
-        $warningItems = $normalizedWarnings
-    }
     else {
-        $warningItems = @([string]$normalizedWarnings)
+        $activeOperationLabel = 'warnings/step02e/check_enumerable'
+        $activeExpression = '$normalizedWarnings -is [System.Collections.IEnumerable]'
+        if ($normalizedWarnings -is [System.Collections.IEnumerable]) {
+            $activeOperationLabel = 'warnings/step02f/assign_enumerable_direct'
+            $activeExpression = '$warningItems = $normalizedWarnings'
+            $warningItems = $normalizedWarnings
+        }
+        else {
+            $warningItems = @([string]$normalizedWarnings)
+        }
     }
 
+    $activeOperationLabel = 'warnings/step02g/enumerate_warningItems'
+    $activeExpression = 'foreach ($warning in $warningItems)'
     foreach ($warning in $warningItems) {
         if ($null -eq $warning) { continue }
 
@@ -3309,6 +3317,7 @@ function Build-DecisionLayer {
         Set-DecisionForensics -FunctionName 'Build-DecisionLayer' -ActivePhase 'DECISION_BUILD' -ActiveOperationLabel $activeOperationLabel -ActiveExpression $activeExpression -LeftOperand $SourceLayer -RightOperand $LiveLayer -StackHintIfAvailable $_.ScriptStackTrace -AdditionalContext ([ordered]@{
             error_message = [string]$_.Exception.Message
             resolved_mode = [string]$ResolvedMode
+            normalized_warnings_type = if ($null -eq $normalizedWarnings) { 'NULL' } else { [string]$normalizedWarnings.GetType().FullName }
             failure_kind = 'decision_layer_instrumented_boundary'
         })
         throw
