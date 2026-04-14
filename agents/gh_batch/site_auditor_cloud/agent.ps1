@@ -3072,9 +3072,9 @@ function Build-DecisionLayer {
     $activeOperationLabel = 'warnings/step01/enter'
     $activeExpression = '$normalizedWarnings'
     $warningList = New-Object System.Collections.Generic.List[string]
-    $activeOperationLabel = 'warnings/step02/normalize_for_enumeration'
-    $activeExpression = 'Convert-ToStringArraySafe -Value $normalizedWarnings'
-    $warningItems = Convert-ToStringArraySafe -Value $normalizedWarnings
+    $activeOperationLabel = 'warnings/step02/use_normalized_direct'
+    $activeExpression = '[string[]]$normalizedWarnings'
+    [string[]]$warningItems = $normalizedWarnings
 
     foreach ($warning in $warningItems) {
         if ($null -eq $warning) { continue }
