@@ -3072,45 +3072,29 @@ function Build-DecisionLayer {
     $activeOperationLabel = 'warnings/step01/enter'
     $activeExpression = '$normalizedWarnings'
     $warningList = New-Object System.Collections.Generic.List[string]
-    $activeOperationLabel = 'warnings/step02/runtime_shape_branch'
-    $activeExpression = '$normalizedWarnings runtime-shape dispatch'
+    $activeOperationLabel = 'warnings/step02/count_normalized'
+    $activeExpression = '$normalizedWarnings.Length'
+    $warningCount = if ($null -eq $normalizedWarnings) { 0 } else { $normalizedWarnings.Length }
 
-    if ($null -eq $normalizedWarnings) {
-        $warningItems = @()
-    }
-    elseif ($normalizedWarnings -is [string]) {
-        $warningItems = @([string]$normalizedWarnings)
-    }
-    else {
-        $activeOperationLabel = 'warnings/step02e/check_enumerable'
-        $activeExpression = '$normalizedWarnings -is [System.Collections.IEnumerable]'
-        if ($normalizedWarnings -is [System.Collections.IEnumerable]) {
-            $activeOperationLabel = 'warnings/step02f/assign_enumerable_direct'
-            $activeExpression = '$warningItems = $normalizedWarnings'
-            $warningItems = $normalizedWarnings
-        }
-        else {
-            $warningItems = @([string]$normalizedWarnings)
-        }
-    }
+    for ($i = 0; $i -lt $warningCount; $i++) {
+        $activeOperationLabel = 'warnings/step03/read_normalized_by_index'
+        $activeExpression = '$normalizedWarnings[$i]'
+        $warning = $normalizedWarnings[$i]
 
-    $activeOperationLabel = 'warnings/step02g/enumerate_warningItems'
-    $activeExpression = 'foreach ($warning in $warningItems)'
-    foreach ($warning in $warningItems) {
         if ($null -eq $warning) { continue }
 
-        $activeOperationLabel = 'warnings/step03/cast_to_string'
+        $activeOperationLabel = 'warnings/step04/cast_to_string'
         $activeExpression = '[string]$warning'
         $warningText = [string]$warning
 
         if ([string]::IsNullOrWhiteSpace($warningText)) { continue }
 
-        $activeOperationLabel = 'warnings/step04/add_warningList'
+        $activeOperationLabel = 'warnings/step05/add_warningList'
         $activeExpression = '$warningList.Add($warningText)'
         $warningList.Add($warningText)
     }
     foreach ($warningText in $warningList) {
-        $activeOperationLabel = 'warnings/step05/add_p1'
+        $activeOperationLabel = 'warnings/step06/add_p1'
         $activeExpression = '$p1List.Add([string]$warningText)'
         $p1List.Add([string]$warningText)
     }
