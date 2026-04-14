@@ -1,9 +1,9 @@
 ## Summary
-- Локализована enumerable-ветка в `Build-DecisionLayer` step02 через микро-инструментацию `step02e/step02f/step02g` без изменения остального контура warnings.
-- Сохранены исходные входные маркеры step02: `warnings/step02/runtime_shape_branch` и `$normalizedWarnings runtime-shape dispatch`.
-- Null/string/fallback ветки не дробились и логика step03/step04/step05 не изменялась.
-- В `catch` блока `Build-DecisionLayer` добавлен `normalized_warnings_type` в `AdditionalContext`.
-- Изменения ограничены целевым файлом и отчётом задачи.
+- Удалена промежуточная ветка runtime-shape для warnings в `Build-DecisionLayer`.
+- Полностью убраны `$warningItems` и этапы `warnings/step02/runtime_shape_branch`, `step02e`, `step02f`, `step02g`.
+- Добавлен индексный проход по `normalizedWarnings` через `warningCount` и `for`.
+- Обновлены operation labels до нового контура: `step02/count_normalized` → `step03/read_normalized_by_index` → `step04/cast_to_string` → `step05/add_warningList` → `step06/add_p1`.
+- `Convert-ToDecisionWarningStringArray`, input boundary и output boundary не изменялись.
 
 ## Changed files
 - agents/gh_batch/site_auditor_cloud/agent.ps1
@@ -14,16 +14,14 @@
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Step02 root preserved: `warnings/step02/runtime_shape_branch`.
-- Enumerable micro-points added:
-  - `warnings/step02e/check_enumerable`
-  - `warnings/step02f/assign_enumerable_direct`
-  - `warnings/step02g/enumerate_warningItems`
-- Downstream warnings flow preserved:
-  - `warnings/step03/cast_to_string`
-  - `warnings/step04/add_warningList`
-  - `warnings/step05/add_p1`
+- Warnings pipeline in `Build-DecisionLayer` now uses direct index-based iteration over `normalizedWarnings` without transport variable.
+- Active warning instrumentation labels now:
+  - `warnings/step02/count_normalized`
+  - `warnings/step03/read_normalized_by_index`
+  - `warnings/step04/cast_to_string`
+  - `warnings/step05/add_warningList`
+  - `warnings/step06/add_p1`
 
 ## Risks/blockers
-- Требуется следующий runtime прогон для подтверждения, что `FAILURE_SUMMARY.json` падает в `step02e|step02f|step02g`, а не на общем `warnings/step02/runtime_shape_branch`.
-- Если рантайм-контур остаётся старым, failure label может не смениться несмотря на внесённую микро-инструментацию.
+- Требуется следующий runtime прогон ZIP для подтверждения, что blocker `warnings/step02g/enumerate_warningItems` больше не возникает.
+- Если останется прежний exact blocker (`same failed_stage + same failed_node + same error text`), значит в рантайме исполняется старый артефакт, а не текущий патч.
