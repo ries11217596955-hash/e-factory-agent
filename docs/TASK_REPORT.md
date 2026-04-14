@@ -1,9 +1,9 @@
 ## Summary
-- Rebuilt `Build-DecisionLayer` with deterministic shape normalization for list/text/object contracts in the decision-core path.
-- Repaired `Build-ProductCloseoutClassification` to normalize inbound decision fields and emit strict output shapes (`checks` object array, `evidence` string array).
-- Tightened `Convert-ToProductStatus` to consume normalized closeout data and return only the required ordered status fields.
-- Preserved existing report/output layer behavior and avoided changes outside the decision-core trio.
-- Kept runtime semantics outside the trio unchanged while removing ambiguous mixed-shape branching in DECISION_BUILD.
+- Hardened `Build-DecisionLayer` warnings materialization so warnings are always normalized to `string[]` before downstream processing.
+- Updated the `Build-DecisionLayer` warnings parameter contract to accept incoming mixed types and coerce safely via `Convert-ToStringSafe`.
+- Added explicit null handling for warnings (`$warnings = @()` when null) before normalization.
+- Added final string enforcement pass to prevent mixed-type warning payloads.
+- Kept all changes scoped to Build-DecisionLayer logic and task reporting only.
 
 ## Changed files
 - agents/gh_batch/site_auditor_cloud/agent.ps1
@@ -14,8 +14,8 @@
 
 ## Current entrypoints/paths
 - Entry script remains `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Decision-core changes are limited to `Build-DecisionLayer`, `Build-ProductCloseoutClassification`, and `Convert-ToProductStatus`.
+- Decision-core changes are limited to `Build-DecisionLayer` warnings normalization flow.
 
 ## Risks/blockers
-- `pwsh` is unavailable in this container, so full runtime execution of the DECISION_BUILD pipeline could not be performed here.
-- Runtime outcomes (stage advancement and populated source/live/page_quality data) require execution in the target environment with real inputs.
+- `pwsh` is unavailable in this container, so end-to-end DECISION_BUILD execution could not be validated here.
+- Runtime outcomes still depend on executing the agent in the target environment with real input payloads.

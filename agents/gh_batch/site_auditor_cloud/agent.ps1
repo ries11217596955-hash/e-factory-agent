@@ -2974,7 +2974,7 @@ function Build-DecisionLayer {
         [hashtable]$SourceLayer,
         [hashtable]$LiveLayer,
         [string[]]$MissingInputs,
-        [System.Collections.Generic.List[string]]$Warnings
+        [object[]]$Warnings
     )
 
     $activeOperationLabel = 'initialize'
@@ -2991,8 +2991,15 @@ function Build-DecisionLayer {
     $activeExpression = 'Convert-ToStringArraySafe -Value $MissingInputs'
     $normalizedMissingInputs = Convert-ToStringArraySafe -Value $MissingInputs
     $activeOperationLabel = 'normalize/warnings_array'
-    $activeExpression = 'Convert-ToStringArraySafe -Value $Warnings'
-    $normalizedWarnings = Convert-ToStringArraySafe -Value $Warnings
+    $activeExpression = '$warnings = @($Warnings)'
+    $warnings = @($Warnings)
+    if ($null -eq $warnings) {
+        $warnings = @()
+    }
+    $warnings = @($warnings | ForEach-Object { [string](Convert-ToStringSafe $_) })
+    $warnings = @($warnings | ForEach-Object { [string]$_ })
+    $activeExpression = 'Convert-ToStringArraySafe -Value $warnings'
+    $normalizedWarnings = Convert-ToStringArraySafe -Value $warnings
 
     $p0List = New-Object System.Collections.Generic.List[string]
     $p1List = New-Object System.Collections.Generic.List[string]
