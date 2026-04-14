@@ -1,9 +1,9 @@
 ## Summary
-- Replaced the `DECISION_BUILD/Build-DecisionLayer/array/materialize/warnings` boundary with explicit deterministic materialization to `[string[]]`.
-- Kept the existing normalization step (`Convert-ToDecisionWarningStringArray`) and added a hard boundary variable (`$warningsArray`) immediately after it is consumed at the materialization node.
-- Updated warning iteration to run only over `$warningsArray`, ensuring stable `foreach` behavior across `null`, singleton, `List[string]`, `object[]`, and object-like inputs after normalization.
-- Preserved list semantics by keeping `p1` population via scalar string conversion and `List[string].Add(...)` only (no `+=` and no mutation of the incoming warnings collection).
-- Updated decision payload to expose `warnings` from the deterministic `[string[]]` boundary.
+- Implemented a forced warnings rebuild in `Build-DecisionLayer` so materialization now reconstructs warnings from raw `$Warnings` and does not rely on helper output at this boundary.
+- Added an explicit `List[string]` rebuild block that handles `null`, scalar, and enumerable inputs while excluding string-as-enumerable behavior.
+- Ensured each non-null warning item is cast to `[string]` before insertion, preventing mixed/object payloads from leaking through.
+- Kept warning propagation to `p1` unchanged except that it now iterates over the rebuilt warnings container.
+- Ensured final decision payload returns warnings as a clean `string[]` via explicit cast materialization.
 
 ## Changed files
 - agents/gh_batch/site_auditor_cloud/agent.ps1
@@ -14,8 +14,7 @@
 
 ## Current entrypoints/paths
 - Entrypoint remains `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Changed scope was limited to the `Build-DecisionLayer` warnings boundary (`array/materialize/warnings`) and task reporting.
+- Scope of this task was limited to `Build-DecisionLayer` warnings materialization and required reporting update.
 
 ## Risks/blockers
-- `pwsh` is not available in this container, so runtime execution validation for this PowerShell path could not be run locally.
-- Functional rerun verification for `DECISION_BUILD` should be completed in an environment with PowerShell available to confirm progression beyond the previous warnings materialization blocker.
+- `pwsh` runtime validation was not executed in this container, so end-to-end functional verification of this PowerShell path is pending environment-level execution.

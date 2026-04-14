@@ -3070,8 +3070,24 @@ function Build-DecisionLayer {
     }
 
     $activeOperationLabel = 'array/materialize/warnings'
-    $activeExpression = '[string[]]@($normalizedWarnings)'
-    $warningsArray = [string[]]@($normalizedWarnings)
+    $activeExpression = 'warnings forced rebuild to List[string] from raw $Warnings input'
+    $warningsArray = New-Object System.Collections.Generic.List[string]
+
+    if ($null -ne $Warnings) {
+
+        if ($Warnings -is [System.Collections.IEnumerable] -and
+            -not ($Warnings -is [string])) {
+
+            foreach ($w in $Warnings) {
+                if ($null -ne $w) {
+                    $warningsArray.Add([string]$w)
+                }
+            }
+
+        } else {
+            $warningsArray.Add([string]$Warnings)
+        }
+    }
     foreach ($warning in $warningsArray) {
         $warningText = [string]$warning
         if ([string]::IsNullOrWhiteSpace($warningText)) { continue }
@@ -3260,7 +3276,7 @@ function Build-DecisionLayer {
     $decision = [ordered]@{
         core_problem = [string]$core
         inputs = @($normalizedMissingInputs)
-        warnings = $warningsArray
+        warnings = [string[]]@($warningsArray)
         p0 = @($p0)
         p1 = @($p1)
         p2 = @($p2)
