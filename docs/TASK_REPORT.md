@@ -1,9 +1,9 @@
 ## Summary
-- Repaired DECISION_BUILD warnings input boundary by creating canonical `$warningsForDecision` with `Convert-ToDecisionWarningStringArray` from `liveLayer.warnings` before calling `Build-DecisionLayer`.
-- Updated `Build-DecisionLayer` warnings contract from `[object[]]` to `[object]` so transport is accepted as-is and normalized once internally.
-- Replaced direct warnings materialization from raw `$Warnings` with a local `List[string]` rebuild from `@($normalizedWarnings)` under `array/materialize/warnings`.
-- Enforced warnings propagation to P1 exclusively from the local `warningList` (no direct foreach over `$normalizedWarnings` beyond local rebuild).
-- Hardened decision output boundary so `decision.warnings` now leaves `Build-DecisionLayer` as canonical `string[]` via `@($warningList.ToArray())`.
+- Added micro-forensics instrumentation in `Build-DecisionLayer` warnings node to replace the single `array/materialize/warnings` runtime label with five step-specific labels.
+- Inserted step-level `activeOperationLabel` and `activeExpression` markers exactly before warnings-enter, warnings-enumeration, string cast, warningList add, and p1 add statements.
+- Kept scope limited to the DECISION_BUILD warnings contour in `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- No repair logic, shape fixes, helper rewrites, or cross-layer/source/live changes were introduced.
+- Objective is forensic pinpointing of the exact failing statement in next `FAILURE_SUMMARY.json`.
 
 ## Changed files
 - agents/gh_batch/site_auditor_cloud/agent.ps1
@@ -14,7 +14,8 @@
 
 ## Current entrypoints/paths
 - Entrypoint remains `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Scope remained limited to warnings contour handling around DECISION_BUILD input normalization, materialization, and output emission.
+- Instrumentation scope is only `Build-DecisionLayer` warnings node in DECISION_BUILD.
 
 ## Risks/blockers
-- End-to-end runtime validation for the ZIP execution path was not run in this environment, so confirmation against the exact historical blocker string depends on downstream execution of the patched script.
+- Runtime confirmation requires the next ZIP execution to verify that failure labels now surface as one of the new `warnings/stepXX/...` markers.
+- If runtime still reports legacy `array/materialize/warnings`, active runtime contour may differ from edited path.
