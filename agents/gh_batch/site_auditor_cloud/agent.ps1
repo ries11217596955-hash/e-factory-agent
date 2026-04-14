@@ -3075,21 +3075,31 @@ function Build-DecisionLayer {
     $activeOperationLabel = 'warnings/step02/manual_safe_walk'
     $activeExpression = 'manual safe iteration over $normalizedWarnings'
 
+    $activeOperationLabel = 'warnings/step02a/create_warningItems_list'
+    $activeExpression = 'New-Object System.Collections.Generic.List[object]'
     $warningItems = New-Object System.Collections.Generic.List[object]
 
     if ($null -ne $normalizedWarnings) {
 
         try {
+            $activeOperationLabel = 'warnings/step02b/enumerate_normalizedWarnings'
+            $activeExpression = 'foreach ($item in $normalizedWarnings)'
             foreach ($item in $normalizedWarnings) {
+                $activeOperationLabel = 'warnings/step02c/add_item_to_warningItems'
+                $activeExpression = '$warningItems.Add($item)'
                 $warningItems.Add($item)
             }
         }
         catch {
             # если это НЕ enumerable
+            $activeOperationLabel = 'warnings/step02d/add_fallback_scalar'
+            $activeExpression = '$warningItems.Add($normalizedWarnings)'
             $warningItems.Add($normalizedWarnings)
         }
     }
 
+    $activeOperationLabel = 'warnings/step02e/enumerate_warningItems'
+    $activeExpression = 'foreach ($warning in $warningItems)'
     foreach ($warning in $warningItems) {
 
         if ($null -eq $warning) { continue }
