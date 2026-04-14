@@ -688,40 +688,33 @@ function Convert-ToStringArraySafe {
 function Convert-ToDecisionWarningStringArray {
     param([object]$Value)
 
-    if ($null -eq $Value) { return @() }
+    $result = New-Object System.Collections.Generic.List[string]
 
-    $items = @($Value)
-    $out = New-Object System.Collections.Generic.List[string]
+    if ($null -eq $Value) {
+        return @()
+    }
 
-    foreach ($item in $items) {
-        if ($null -eq $item) { continue }
+    try {
+        foreach ($item in $Value) {
 
-        if ($item -is [string]) {
-            if (-not [string]::IsNullOrWhiteSpace($item)) {
-                $out.Add([string]$item)
-            }
-            continue
+            if ($null -eq $item) { continue }
+
+            $text = [string]$item
+
+            if ([string]::IsNullOrWhiteSpace($text)) { continue }
+
+            $result.Add($text)
         }
+    }
+    catch {
+        $text = [string]$Value
 
-        if ($item -is [System.Collections.IDictionary] -or $item -is [PSCustomObject]) {
-            try {
-                $json = $item | ConvertTo-Json -Depth 6 -Compress
-                if (-not [string]::IsNullOrWhiteSpace($json)) {
-                    $out.Add([string]$json)
-                }
-            } catch {
-                $out.Add([string]$item)
-            }
-            continue
-        }
-
-        $text = [string]$item
         if (-not [string]::IsNullOrWhiteSpace($text)) {
-            $out.Add($text)
+            $result.Add($text)
         }
     }
 
-    return [string[]]$out.ToArray()
+    return @($result.ToArray())
 }
 
 function Convert-ToStringKeyDictionarySafe {
