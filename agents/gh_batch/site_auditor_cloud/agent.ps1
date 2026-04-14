@@ -3072,9 +3072,21 @@ function Build-DecisionLayer {
     $activeOperationLabel = 'warnings/step01/enter'
     $activeExpression = '$normalizedWarnings'
     $warningList = New-Object System.Collections.Generic.List[string]
-    $activeOperationLabel = 'warnings/step02/use_normalized_direct'
-    $activeExpression = '[string[]]$normalizedWarnings'
-    [string[]]$warningItems = $normalizedWarnings
+    $activeOperationLabel = 'warnings/step02/runtime_shape_branch'
+    $activeExpression = '$normalizedWarnings runtime-shape dispatch'
+
+    if ($null -eq $normalizedWarnings) {
+        $warningItems = @()
+    }
+    elseif ($normalizedWarnings -is [string]) {
+        $warningItems = @([string]$normalizedWarnings)
+    }
+    elseif ($normalizedWarnings -is [System.Collections.IEnumerable]) {
+        $warningItems = $normalizedWarnings
+    }
+    else {
+        $warningItems = @([string]$normalizedWarnings)
+    }
 
     foreach ($warning in $warningItems) {
         if ($null -eq $warning) { continue }
