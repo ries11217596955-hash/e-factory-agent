@@ -1,6 +1,8 @@
 ## Summary
-- Replaced warnings normalization counting logic in `Build-DecisionLayer` from `.Length`-based indexing to safe array-wrapped enumeration (`@($normalizedWarnings)`), preventing failures when the input is not guaranteed to expose `.Length`.
-- Removed index-based access (`$normalizedWarnings[$i]`) from the warning ingestion loop and preserved the downstream `foreach ($warningText in $warningList)` flow unchanged.
+- Updated warning normalization in `Build-DecisionLayer` to force conversion into a concrete collection before enumeration.
+- Replaced the `warnings/step02/safe_enumeration` node with `warnings/step02/force_array_conversion` and switched expression tracking to `[System.Collections.ArrayList]::new() + $normalizedWarnings`.
+- Removed direct `@($normalizedWarnings)` enumeration from this node and added guarded conversion logic with fallback to a single string item.
+- Preserved existing helper usage and input/output boundaries.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -11,9 +13,9 @@
 
 ## Current entrypoints/paths
 - Entry point unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- Decision build path unchanged: `Build-DecisionLayer` in `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- Target path updated: `warnings/step02/force_array_conversion` inside decision warning processing flow.
 
 ## Risks/blockers
-- Expected blocker `warnings/step02/count_normalized` should be eliminated after this patch.
-- If a new blocker appears, it should now surface at `warnings/step03/cast_to_string` or `warnings/step04/add_warningList`.
-- If the same failure node still appears, the patch may not be deployed/applied in runtime context.
+- Expected blocker `warnings/step02/safe_enumeration` should be removed.
+- A new downstream blocker would indicate this node now executes and control progressed.
+- If `failed_stage` + `failed_node` remains unchanged, runtime likely did not pick up the patch.
