@@ -685,6 +685,45 @@ function Convert-ToStringArraySafe {
     return [string[]]$normalized.ToArray()
 }
 
+function Convert-ToDecisionWarningStringArray {
+    param([object]$Value)
+
+    if ($null -eq $Value) { return @() }
+
+    $items = @($Value)
+    $out = New-Object System.Collections.Generic.List[string]
+
+    foreach ($item in $items) {
+        if ($null -eq $item) { continue }
+
+        if ($item -is [string]) {
+            if (-not [string]::IsNullOrWhiteSpace($item)) {
+                $out.Add([string]$item)
+            }
+            continue
+        }
+
+        if ($item -is [System.Collections.IDictionary] -or $item -is [PSCustomObject]) {
+            try {
+                $json = $item | ConvertTo-Json -Depth 6 -Compress
+                if (-not [string]::IsNullOrWhiteSpace($json)) {
+                    $out.Add([string]$json)
+                }
+            } catch {
+                $out.Add([string]$item)
+            }
+            continue
+        }
+
+        $text = [string]$item
+        if (-not [string]::IsNullOrWhiteSpace($text)) {
+            $out.Add($text)
+        }
+    }
+
+    return [string[]]$out.ToArray()
+}
+
 function Convert-ToStringKeyDictionarySafe {
     param(
         [object]$Value
@@ -2991,21 +3030,8 @@ function Build-DecisionLayer {
     $activeExpression = 'Convert-ToStringArraySafe -Value $MissingInputs'
     $normalizedMissingInputs = Convert-ToStringArraySafe -Value $MissingInputs
     $activeOperationLabel = 'normalize/warnings_array'
-    $activeExpression = '$warnings = $Warnings'
-    $warnings = $Warnings
-    if ($warnings -isnot [System.Array]) {
-        $warnings = @($warnings)
-    }
-    else {
-        $warnings = @($warnings)
-    }
-    if ($null -eq $warnings) {
-        $warnings = @()
-    }
-    $warnings = @($warnings | ForEach-Object { [string](Convert-ToStringSafe $_) })
-    $warnings = @($warnings | ForEach-Object { if ($null -eq $_) { '' } else { [string]$_ } })
-    $activeExpression = 'Convert-ToStringArraySafe -Value $warnings'
-    $normalizedWarnings = Convert-ToStringArraySafe -Value $warnings
+    $activeExpression = 'Convert-ToDecisionWarningStringArray -Value $Warnings'
+    $normalizedWarnings = Convert-ToDecisionWarningStringArray -Value $Warnings
 
     $p0List = New-Object System.Collections.Generic.List[string]
     $p1List = New-Object System.Collections.Generic.List[string]
@@ -3044,9 +3070,8 @@ function Build-DecisionLayer {
     }
 
     $activeOperationLabel = 'array/materialize/warnings'
-    $activeExpression = '@($normalizedWarnings)'
-    $warningsArray = @($normalizedWarnings)
-    foreach ($warning in @($warningsArray)) {
+    $activeExpression = '$normalizedWarnings'
+    foreach ($warning in $normalizedWarnings) {
         $warningText = [string]$warning
         if ([string]::IsNullOrWhiteSpace($warningText)) { continue }
         $activeOperationLabel = 'list/add/p1_warning'
@@ -3229,24 +3254,12 @@ function Build-DecisionLayer {
         )
     }
 
-    $activeOperationLabel = 'normalize/final_warnings_array'
-    $activeExpression = '$warnings = @($warnings | ForEach-Object { if ($null -eq $_) { "" } else { [string]$_ } })'
-    if ($warnings -isnot [System.Array]) {
-        $warnings = @($warnings)
-    }
-    $warnings = @(
-        $warnings | ForEach-Object {
-            if ($null -eq $_) { '' }
-            else { [string]$_ }
-        }
-    )
-
     $activeOperationLabel = 'assemble/final_decision_object'
     $activeExpression = '[ordered]@{ core_problem=... }'
     $decision = [ordered]@{
         core_problem = [string]$core
         inputs = @($normalizedMissingInputs)
-        warnings = @($warnings)
+        warnings = $normalizedWarnings
         p0 = @($p0)
         p1 = @($p1)
         p2 = @($p2)
