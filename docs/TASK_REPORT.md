@@ -1,9 +1,9 @@
 ## Summary
-- Fixed warnings enumeration crash point in `Build-DecisionLayer` by replacing unsafe `@($normalizedWarnings)` enumeration with safe pre-normalization.
-- Updated node label from `warnings/step02/enumerate_normalized` to `warnings/step02/normalize_for_enumeration` and set expression to `Convert-ToStringArraySafe -Value $normalizedWarnings`.
-- Added `$warningItems = Convert-ToStringArraySafe -Value $normalizedWarnings` and iterated over `$warningItems`.
-- Preserved existing step03/step04/step05 instrumentation and list population behavior.
-- Scope remained limited to requested target node and task report update only.
+- Removed redundant warnings re-normalization in `Build-DecisionLayer` step02 to prevent the crash at `warnings/step02/normalize_for_enumeration`.
+- Replaced step02 instrumentation label with `warnings/step02/use_normalized_direct`.
+- Replaced step02 expression with direct cast expression `[string[]]$normalizedWarnings`.
+- Switched enumeration source to `[string[]]$warningItems = $normalizedWarnings`.
+- Preserved step03/step04/step05 instrumentation and warning list population flow unchanged.
 
 ## Changed files
 - agents/gh_batch/site_auditor_cloud/agent.ps1
@@ -14,8 +14,9 @@
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Modified path: `DECISION_BUILD/Build-DecisionLayer/warnings/step02/*`.
+- Updated decision node path: `DECISION_BUILD/Build-DecisionLayer/warnings/step02/use_normalized_direct`.
 
 ## Risks/blockers
-- Validation depends on next ZIP runtime execution to confirm blocker at `warnings/step02/enumerate_normalized` is removed.
-- If the exact same blocker remains, active runtime may still be executing older artifact/code path.
+- Runtime validation still required on next ZIP artifact to confirm the previous blocker no longer appears.
+- If the same exact blocker (`warnings/step02/normalize_for_enumeration` with same error text) appears again, runtime likely executed stale code.
+- A new blocker at `warnings/step02/use_normalized_direct` or step03/step04/step05 would indicate progress to a new failure point.
