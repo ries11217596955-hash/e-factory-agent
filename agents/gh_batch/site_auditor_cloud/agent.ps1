@@ -3069,18 +3069,24 @@ function Build-DecisionLayer {
         $p0List.Add([string]"Live audit failure in $ResolvedMode mode.")
     }
 
-    $activeOperationLabel = 'array/materialize/warnings'
-    $activeExpression = 'rebuild normalized warnings into local List[string]'
+    $activeOperationLabel = 'warnings/step01/enter'
+    $activeExpression = '$normalizedWarnings'
     $warningList = New-Object System.Collections.Generic.List[string]
+    $activeOperationLabel = 'warnings/step02/enumerate_normalized'
+    $activeExpression = '@($normalizedWarnings)'
     foreach ($warning in @($normalizedWarnings)) {
         if ($null -eq $warning) { continue }
+        $activeOperationLabel = 'warnings/step03/cast_to_string'
+        $activeExpression = '[string]$warning'
         $warningText = [string]$warning
         if ([string]::IsNullOrWhiteSpace($warningText)) { continue }
+        $activeOperationLabel = 'warnings/step04/add_warningList'
+        $activeExpression = '$warningList.Add($warningText)'
         $warningList.Add($warningText)
     }
     foreach ($warningText in $warningList) {
-        $activeOperationLabel = 'list/add/p1_warning'
-        $activeExpression = '$p1List.Add(...)'
+        $activeOperationLabel = 'warnings/step05/add_p1'
+        $activeExpression = '$p1List.Add([string]$warningText)'
         $p1List.Add([string]$warningText)
     }
 
