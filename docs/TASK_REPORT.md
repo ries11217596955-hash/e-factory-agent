@@ -1,7 +1,9 @@
 ## Summary
-- Added micro-split instrumentation labels inside `warnings/step02/manual_safe_walk` to isolate the exact failing statement in `Build-DecisionLayer`.
-- Kept the original step02 context label/expression and inserted statement-level checkpoints `step02a` through `step02e` exactly at list creation, source enumeration, item add, fallback scalar add, and warning-items enumeration.
-- Did not change helper functions, input/output boundaries, or logic in step03/step04/step06.
+- Removed the intermediate `$warningItems` container from warning normalization in `Build-DecisionLayer`.
+- Replaced the two-phase collect-then-enumerate flow with a direct safe walk over `$normalizedWarnings`.
+- Added direct-step instrumentation label `warnings/step02/direct_safe_walk` and preserved downstream warning casting/add behavior.
+- Kept helper usage and input/output boundaries unchanged.
+- Applied scalar fallback in `catch` for non-enumerable warning payloads without creating intermediate containers.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -12,14 +14,13 @@
 
 ## Current entrypoints/paths
 - Entry point unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Active instrumentation path now includes:
-  - `warnings/step02/manual_safe_walk`
-  - `warnings/step02a/create_warningItems_list`
-  - `warnings/step02b/enumerate_normalizedWarnings`
-  - `warnings/step02c/add_item_to_warningItems`
-  - `warnings/step02d/add_fallback_scalar`
-  - `warnings/step02e/enumerate_warningItems`
+- Warning processing path now includes:
+  - `warnings/step01/enter`
+  - `warnings/step02/direct_safe_walk`
+  - `warnings/step03/cast_to_string`
+  - `warnings/step04/add_warningList`
+  - `warnings/step06/add_p1`
 
 ## Risks/blockers
-- Runtime verification is still required: a fresh `FAILURE_SUMMARY.json` must show one of `step02a`..`step02e` for precise localization.
-- If failure still reports only `warnings/step02/manual_safe_walk`, runtime likely executed stale code or instrumentation path was not loaded.
+- Runtime verification is required to confirm blocker `warnings/step02e/enumerate_warningItems` is gone in new runs.
+- If the same blocker still appears, runtime likely executed stale script or deployment did not refresh.
