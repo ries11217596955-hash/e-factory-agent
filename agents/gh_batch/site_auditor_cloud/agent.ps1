@@ -4084,7 +4084,7 @@ function Write-OperatorOutputs {
     }
     $AuditResult.decision = [ordered]@{
         stage = $decisionStage
-        core_problem = (($decisionCore -replace \"`r\", ' ') -replace \"`n\", ' ').Trim()
+        core_problem = (($decisionCore -replace "`r", ' ') -replace "`n", ' ').Trim()
         p0 = @($decisionP0 | Select-Object -Unique)
         do_next = [ordered]@{
             now = @($doNextNow | Select-Object -Unique)
@@ -4210,13 +4210,13 @@ function Write-OperatorOutputs {
         $decisionCore,
         '',
         'P0:',
-        $((@($decisionP0) -join \"`n\")),
+        $((@($decisionP0) -join "`n")),
         '',
         'DO NOW:',
-        $((@($doNextNow) -join \"`n\")),
+        $((@($doNextNow) -join "`n")),
         '',
         'DO AFTER:',
-        $((@($doNextAfter) -join \"`n\"))
+        $((@($doNextAfter) -join "`n"))
     )
     $summaryPath = Join-Path $outboxDir '11A_EXECUTIVE_SUMMARY.txt'
     Write-TextFile -Path $summaryPath -Lines $summaryLines
