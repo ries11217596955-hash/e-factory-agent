@@ -1,27 +1,22 @@
 ## Summary
-- Pivoted workflow validation to contract-first execution checks in `Validate agent result`.
-- Removed workflow failure conditions tied to audit outcomes (`overall=FAIL`, `status=PARTIAL`).
-- Added runtime-only failure detection via `status=RUNTIME_FAIL`.
-- Added informational logging for each discovered `report.json` including `overall`, `status`, and file path.
-- Preserved existing workflow structure and non-validation steps; no agent/runtime logic files were changed.
+- Added a `decision_summary` layer to `report.json` in `site_auditor_cloud` output generation.
+- Preserved existing `report.json` fields (`overall`, `status`, `timestamp`) and appended only the new decision block.
+- Implemented minimal stage classification logic: `STRUCTURE`, `PRODUCT`, `GROWTH`, otherwise `UNKNOWN`.
+- Mapped summary priorities (`p0`, `p1`, `p2`) and `next_actions` directly from the existing decision layer.
+- Kept pipeline/workflow/validation untouched; change is limited to report enrichment in agent output assembly.
 
 ## Changed files
-- `.github/workflows/site-auditor-fixed-list.yml`
+- `agents/gh_batch/site_auditor_cloud/agent.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
-- None.
+None.
 
 ## Current entrypoints/paths
-- Workflow entrypoint unchanged: `.github/workflows/site-auditor-fixed-list.yml` (`site-auditor-fixed-list` job `site-audit`).
-- Validation still scans report artifacts under:
-  - `agents/gh_batch/site_auditor_cloud/audit_bundle`
-  - `agents/gh_batch/site_auditor_cloud/outbox`
-  - `agents/gh_batch/site_auditor_cloud/reports`
-- Failure conditions now represent execution/contract failures only:
-  - missing `report.json`
-  - `status=RUNTIME_FAIL` in any `report.json`
+- Agent entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- Report output path unchanged: `agents/gh_batch/site_auditor_cloud/reports/report.json`.
+- Existing decision and audit pipelines are unchanged; only final report serialization now appends `decision_summary`.
 
 ## Risks/blockers
-- Parsing `overall` and `status` for info logs uses grep/sed on JSON text and assumes standard key/value formatting.
-- Full behavior confirmation requires CI run in GitHub Actions because this environment does not execute the workflow runner context.
+- Stage classification thresholds are intentionally minimal (`empty_routes >= 2` for `STRUCTURE`) and may need tuning after production feedback.
+- `GROWTH` stage requires strict healthy signals (`page_quality_status=EVALUATED` plus zero blocker counters); borderline healthy sites may remain `UNKNOWN`.
