@@ -4602,31 +4602,38 @@ function Ensure-OutputContract {
         }
     }
 
-    $operatorDir = Join-Path $base "outbox"
+    $reportPath = Join-Path $base 'reports\audit_result.json'
+    if (Test-Path $reportPath -PathType Leaf) {
+        $audit = Get-Content $reportPath | ConvertFrom-Json
 
-    if (-not (Test-Path $operatorDir)) {
-        New-Item -ItemType Directory -Path $operatorDir -Force | Out-Null
+        $operatorDir = Join-Path $base 'outbox'
+        if (-not (Test-Path $operatorDir)) {
+            New-Item -ItemType Directory -Path $operatorDir -Force | Out-Null
+        }
+
+        $p0 = @()
+        if ([int](Safe-Get -Object $audit -Key 'content_empty_routes' -Default 0) -gt 0) {
+            $p0 += 'Fix empty pages'
+        }
+        if ([int](Safe-Get -Object $audit -Key 'visual_health_score' -Default 0) -lt 50) {
+            $p0 += 'Fix layout / UI issues'
+        }
+        if ($p0.Count -eq 0) {
+            $p0 += 'Improve content depth'
+        }
+        $p0 | Out-File (Join-Path $operatorDir '00_PRIORITY_ACTIONS.txt')
+
+@"
+Empty routes: $([int](Safe-Get -Object $audit -Key 'content_empty_routes' -Default 0))
+Visual score: $([int](Safe-Get -Object $audit -Key 'visual_health_score' -Default 0))
+"@ | Out-File (Join-Path $operatorDir '01_TOP_ISSUES.txt')
+
+@"
+Site is not ready for production.
+Main issue: insufficient usable content.
+Immediate action required.
+"@ | Out-File (Join-Path $operatorDir '11A_EXECUTIVE_SUMMARY.txt')
     }
-
-@"
-P0 ACTIONS:
-- Fix empty pages
-- Add real content
-- Remove UI contamination
-"@ | Out-File (Join-Path $operatorDir "00_PRIORITY_ACTIONS.txt")
-
-@"
-TOP ISSUES:
-- Empty routes detected
-- No content depth
-- Weak page structure
-"@ | Out-File (Join-Path $operatorDir "01_TOP_ISSUES.txt")
-
-@"
-EXECUTIVE SUMMARY:
-Site is not production-ready.
-Main issue: lack of real content and usable pages.
-"@ | Out-File (Join-Path $operatorDir "11A_EXECUTIVE_SUMMARY.txt")
 
     $doneOk = Join-Path $outboxDir 'DONE.ok'
     $doneFail = Join-Path $outboxDir 'DONE.fail'
