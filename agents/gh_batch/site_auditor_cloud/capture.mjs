@@ -6,6 +6,12 @@ const ROUTES = ['/', '/hubs/', '/tools/', '/start-here/', '/search/'];
 const BASE = process.env.BASE_URL || 'https://automation-kb.pages.dev';
 const REPORTS_DIR = path.resolve(process.env.REPORTS_DIR || path.join(process.cwd(), 'reports'));
 const SCREEN_DIR = path.join(REPORTS_DIR, 'screenshots');
+const VIEWPORT = { width: 1440, height: 1200 };
+const CAPTURE_POSITIONS = [
+  { key: 'top', ratio: 0 },
+  { key: 'mid', ratio: 0.5 },
+  { key: 'bottom', ratio: 1 },
+];
 
 function ensureDir(p) {
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
@@ -30,11 +36,45 @@ function categorizeRoute(route) {
   return 'CONTENT';
 }
 
-async function scrollStep(page, position) {
-  await page.evaluate((pos) => {
-    const h = Math.max(document.body?.scrollHeight || 0, document.documentElement?.scrollHeight || 0, 1);
-    window.scrollTo(0, h * pos);
-  }, position);
+async function waitForPageStability(page) {
+  await page.waitForLoadState('domcontentloaded', { timeout: 30000 });
+
+  try {
+    await page.waitForLoadState('networkidle', { timeout: 4000 });
+  } catch {
+    // best effort only
+  }
+
+  try {
+    await page.evaluate(async () => {
+      if (!document.fonts || !document.fonts.ready) return;
+      const timeout = new Promise((resolve) => setTimeout(resolve, 2500));
+      await Promise.race([document.fonts.ready, timeout]);
+    });
+  } catch {
+    // best effort only
+  }
+
+  try {
+    await page.evaluate(async () => {
+      const imgs = Array.from(document.images || []);
+      const timeout = new Promise((resolve) => setTimeout(resolve, 2500));
+      const loaded = Promise.all(
+        imgs.map((img) => {
+          if (img.complete) return Promise.resolve();
+          return new Promise((resolve) => {
+            const done = () => resolve();
+            img.addEventListener('load', done, { once: true });
+            img.addEventListener('error', done, { once: true });
+          });
+        }),
+      );
+      await Promise.race([loaded, timeout]);
+    });
+  } catch {
+    // best effort only
+  }
+
   await delay(500);
 }
 
@@ -78,50 +118,135 @@ async function extract(page) {
   });
 }
 
-async function safeShot(page, route, posLabel) {
+async function scrollToRatio(page, ratio) {
+  await page.evaluate((targetRatio) => {
+    const bodyHeight = document.body?.scrollHeight || 0;
+    const htmlHeight = document.documentElement?.scrollHeight || 0;
+    const viewport = window.innerHeight || 1;
+    const totalHeight = Math.max(bodyHeight, htmlHeight, viewport);
+    const maxScrollY = Math.max(totalHeight - viewport, 0);
+    const targetY = Math.round(maxScrollY * targetRatio);
+    window.scrollTo(0, targetY);
+  }, ratio);
+  await delay(250);
+}
+
+async function safeShot(page, route, posLabel, fullPage = false) {
   const fileName = `${slug(route)}_${posLabel}.png`;
   const filePath = path.join(SCREEN_DIR, fileName);
-  await page.screenshot({ path: filePath, fullPage: false });
+  await page.screenshot({ path: filePath, fullPage });
   return `screenshots/${fileName}`;
+}
+
+function detectIssueClasses(status, metrics) {
+  const sample = `${metrics.visibleTextSample || ''} ${metrics.title || ''}`.toLowerCase();
+  const classes = [];
+
+  if (Number(status) >= 400 || metrics.bodyTextLength <= 80) {
+    classes.push('EMPTY_OR_NEAR_EMPTY_PAGE');
+  }
+  if (Number(status) >= 500 || sample.includes('{{') || sample.includes('{%') || sample.includes('undefined')) {
+    classes.push('BROKEN_RENDER_OR_TEMPLATE_LEAKAGE');
+  }
+  if ((metrics.contaminationFlags || []).length > 0) {
+    classes.push('OVERLAY_OR_UI_CONTAMINATION');
+  }
+  if ((!metrics.hasMain && !metrics.hasArticle) || metrics.h1Count === 0) {
+    classes.push('DUPLICATE_SHELL_OR_MISSING_CRITICAL_BLOCK');
+  }
+  if (metrics.bodyTextLength > 0 && metrics.links === 0 && metrics.images === 0 && metrics.buttonCount === 0) {
+    classes.push('SEVERE_LAYOUT_BREAK');
+  }
+
+  return Array.from(new Set(classes));
+}
+
+async function captureIssueEvidence(page, route, issueClass, deterministicRefs) {
+  const evidence = [];
+  try {
+    evidence.push(await safeShot(page, route, `issue_${issueClass.toLowerCase()}`));
+  } catch {
+    try {
+      evidence.push(await safeShot(page, route, `issue_${issueClass.toLowerCase()}_fullpage`, true));
+    } catch {
+      // leave empty; caller can enforce fail path
+    }
+  }
+
+  if (evidence.length === 0 && deterministicRefs.length > 0) {
+    evidence.push(...deterministicRefs.slice(0, 1));
+  }
+  return evidence;
 }
 
 async function processRoute(browser, route) {
   const url = new URL(route, BASE).toString();
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1200 } });
-  const shots = [];
+  const page = await browser.newPage({ viewport: VIEWPORT });
+  const screenshotMap = { top: '', mid: '', bottom: '' };
 
   try {
     const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await delay(1500);
+    await waitForPageStability(page);
 
-    await scrollStep(page, 0);
-    shots.push(await safeShot(page, route, 'top'));
-    await scrollStep(page, 0.5);
-    shots.push(await safeShot(page, route, 'mid'));
-    await scrollStep(page, 1);
-    shots.push(await safeShot(page, route, 'bot'));
+    for (const position of CAPTURE_POSITIONS) {
+      await scrollToRatio(page, position.ratio);
+      screenshotMap[position.key] = await safeShot(page, route, position.key);
+    }
 
+    const deterministicRefs = CAPTURE_POSITIONS.map((p) => screenshotMap[p.key]).filter(Boolean);
     const metrics = await extract(page);
+    const status = response ? response.status() : 0;
+    const issueClasses = detectIssueClasses(status, metrics);
+    const issues = [];
+    const issueShots = [];
+
+    for (const issueClass of issueClasses) {
+      const evidence = await captureIssueEvidence(page, route, issueClass, deterministicRefs);
+      issueShots.push(...evidence);
+      issues.push({
+        class: issueClass,
+        requires_visual_proof: true,
+        evidence_refs: Array.from(new Set(evidence)),
+      });
+    }
+
     return {
       url,
       route_path: route,
       routeCategory: categorizeRoute(route),
-      status: response ? response.status() : 0,
-      screenshotCount: shots.length,
-      screenshots: shots,
-      captureProfile: 'TRIPLE_SCROLL',
+      status,
+      screenshotCount: deterministicRefs.length + issueShots.length,
+      screenshots: deterministicRefs,
+      screenshot_map: screenshotMap,
+      issue_screenshots: Array.from(new Set(issueShots)),
+      issues,
+      captureProfile: 'DETERMINISTIC_TOP_MID_BOTTOM_V1',
+      viewport_policy: `${VIEWPORT.width}x${VIEWPORT.height}`,
       ...metrics,
     };
   } catch (err) {
+    const fallbackShots = [];
+    try {
+      fallbackShots.push(await safeShot(page, route, 'failure_fullpage', true));
+    } catch {
+      // best effort only
+    }
+
     return {
       url,
       route_path: route,
       routeCategory: categorizeRoute(route),
       status: 'error',
       error: String(err?.message || err),
-      screenshotCount: shots.length,
-      screenshots: shots,
-      captureProfile: 'TRIPLE_SCROLL',
+      screenshotCount: fallbackShots.length,
+      screenshots: fallbackShots,
+      screenshot_map: { top: '', mid: '', bottom: '' },
+      issue_screenshots: fallbackShots,
+      issues: fallbackShots.length > 0
+        ? [{ class: 'BROKEN_RENDER_OR_TEMPLATE_LEAKAGE', requires_visual_proof: true, evidence_refs: fallbackShots }]
+        : [{ class: 'BROKEN_RENDER_OR_TEMPLATE_LEAKAGE', requires_visual_proof: true, evidence_refs: [] }],
+      captureProfile: 'DETERMINISTIC_TOP_MID_BOTTOM_V1',
+      viewport_policy: `${VIEWPORT.width}x${VIEWPORT.height}`,
       title: '',
       bodyTextLength: 0,
       links: 0,
