@@ -4602,11 +4602,51 @@ function Ensure-OutputContract {
     }
 
     $reportOutputPath = Join-Path $base 'reports/report.json'
+    $decisionNextActions = Convert-ToStringArraySafe -Value (Safe-Get -Object $Decision -Key 'next_actions' -Default (Safe-Get -Object $Decision -Key 'do_next' -Default @()))
+    $decisionP0 = Convert-ToStringArraySafe -Value (Safe-Get -Object $Decision -Key 'p0' -Default @())
+    $decisionP1 = Convert-ToStringArraySafe -Value (Safe-Get -Object $Decision -Key 'p1' -Default @())
+    $decisionP2 = Convert-ToStringArraySafe -Value (Safe-Get -Object $Decision -Key 'p2' -Default @())
+    $liveSummary = Convert-ToHashtableSafe -Value (Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'live' -Default @{}) -Key 'summary' -Default @{})
+    $emptyRoutes = Convert-ToIntSafe -Value (Safe-Get -Object $liveSummary -Key 'empty_routes' -Default 0) -Default 0
+    $thinRoutes = Convert-ToIntSafe -Value (Safe-Get -Object $liveSummary -Key 'thin_routes' -Default 0) -Default 0
+    $weakCtaRoutes = Convert-ToIntSafe -Value (Safe-Get -Object $liveSummary -Key 'weak_cta_routes' -Default 0) -Default 0
+    $deadEndRoutes = Convert-ToIntSafe -Value (Safe-Get -Object $liveSummary -Key 'dead_end_routes' -Default 0) -Default 0
+    $contaminatedRoutes = Convert-ToIntSafe -Value (Safe-Get -Object $liveSummary -Key 'contaminated_routes' -Default 0) -Default 0
+    $conversionRoutes = [int]($weakCtaRoutes + $deadEndRoutes)
+    $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
+    $totalSampledRoutes = Convert-ToIntSafe -Value (Safe-Get -Object $liveSummary -Key 'total_routes' -Default 0) -Default 0
+
+    $decisionSummary = [ordered]@{
+        site_stage = 'UNKNOWN'
+        core_problem = ''
+        p0 = @($decisionP0)
+        p1 = @($decisionP1)
+        p2 = @($decisionP2)
+        next_actions = @($decisionNextActions | Select-Object -First 5)
+    }
+
+    if ($emptyRoutes -ge 2) {
+        $decisionSummary.site_stage = 'STRUCTURE'
+        $decisionSummary.core_problem = 'Site has empty or non-functional pages'
+    }
+    elseif (($thinRoutes -gt 0 -or $conversionRoutes -gt 0) -and $emptyRoutes -lt 2) {
+        $decisionSummary.site_stage = 'PRODUCT'
+        $decisionSummary.core_problem = [string](Safe-Get -Object $Decision -Key 'core_problem' -Default 'Site has content but product messaging/conversion quality is weak.')
+    }
+    elseif ($totalSampledRoutes -gt 0 -and $emptyRoutes -eq 0 -and $thinRoutes -eq 0 -and $conversionRoutes -eq 0 -and $contaminatedRoutes -eq 0 -and $pageQualityStatus -eq 'EVALUATED') {
+        $decisionSummary.site_stage = 'GROWTH'
+        $decisionSummary.core_problem = [string](Safe-Get -Object $Decision -Key 'core_problem' -Default 'Structure and content are present; focus on growth optimization.')
+    }
+    else {
+        $decisionSummary.core_problem = [string](Safe-Get -Object $Decision -Key 'core_problem' -Default '')
+    }
+
     $reportObject = [ordered]@{
         overall = [string]$FinalStatus
         status = if ([string]$FinalStatus -eq 'PASS') { 'OK' } else { 'FAIL' }
         timestamp = (Get-Date).ToString('o')
     }
+    $reportObject.decision_summary = $decisionSummary
     $reportObject | ConvertTo-Json -Depth 5 | Out-File -FilePath $reportOutputPath -Encoding utf8
 }
 
