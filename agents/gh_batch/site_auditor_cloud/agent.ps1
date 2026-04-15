@@ -14,6 +14,8 @@ else {
 }
 
 Write-Host "OUTPUT BASE: $base"
+Write-Host "DEBUG BASE PATH: $base"
+Write-Host "DEBUG PWD: $(Get-Location)"
 
 $outboxDir = Join-Path $base 'outbox'
 $reportsDir = Join-Path $base 'reports'
@@ -4390,6 +4392,10 @@ function Write-OperatorOutputs {
 
     $reportPath = Join-Path $outboxDir 'REPORT.txt'
     Write-TextFile -Path $reportPath -Lines $reportLines
+    Write-Host "DEBUG REPORT PATH: $reportPath"
+    Test-Path $reportPath | ForEach-Object {
+        Write-Host "DEBUG REPORT EXISTS: $_"
+    }
 
     Write-RunForensicsReports -ResolvedMode $ResolvedMode -FinalStatus $FinalStatus -AuditResult $AuditResult -Decision $Decision -FailureReason $FailureReason -CurrentStage $CurrentStage -LastSuccessStage $LastSuccessStage -RunFinishedAt $RunFinishedAt
 }
