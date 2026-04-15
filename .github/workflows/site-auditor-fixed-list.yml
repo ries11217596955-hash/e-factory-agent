@@ -145,7 +145,7 @@ jobs:
             exit 1
           fi
 
-          runtime_failed=0
+          execution_fail=0
 
           for report_file in "${report_files[@]}"; do
             echo "INFO: Found report artifact: $report_file"
@@ -164,22 +164,20 @@ jobs:
                 fi
                 ;;
               *RUN_REPORT.json)
-                runtime_status=$(sed -n 's/.*"final_status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$report_file" | head -n 1)
-                if [ -n "$runtime_status" ]; then
-                  echo "INFO: RUN_REPORT runtime status: $runtime_status ($report_file)"
-                  if [ "$runtime_status" = "FAIL" ]; then
-                    echo "ERROR: RUN_REPORT runtime failed in $report_file"
-                    runtime_failed=1
-                  fi
-                else
-                  echo "INFO: RUN_REPORT runtime status visibility unavailable (no final_status field parsed) ($report_file)"
+                if grep -q '"status"[[:space:]]*:[[:space:]]*"RUNTIME_FAIL"' "$report_file"; then
+                  echo "ERROR: Runtime failure in $report_file (status=RUNTIME_FAIL)"
+                  execution_fail=1
+                fi
+                if grep -q '"execution"[[:space:]]*:[[:space:]]*"CRASH"' "$report_file"; then
+                  echo "ERROR: Runtime crash in $report_file (execution=CRASH)"
+                  execution_fail=1
                 fi
                 ;;
             esac
           done
 
-          if [ "$runtime_failed" -gt 0 ]; then
+          if [ "$execution_fail" -gt 0 ]; then
             exit 1
           fi
 
-          echo "PASS: Agent report artifacts detected and runtime status validated."
+          echo "PASS: Agent executed successfully (audit results may contain FAIL findings)"
