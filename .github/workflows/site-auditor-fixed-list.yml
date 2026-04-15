@@ -104,6 +104,7 @@ jobs:
       - name: Debug tree
         if: always()
         run: |
+          pwd
           ls -R agents/gh_batch/site_auditor_cloud || true
           ls -R target_repo || true
 

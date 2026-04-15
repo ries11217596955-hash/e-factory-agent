@@ -1,23 +1,28 @@
 ## Summary
-- Performed a pure rollback to the last known green SITE_AUDITOR contour at commit `6f2a668`.
-- Restored `agents/gh_batch/site_auditor_cloud/agent.ps1` to the exact historical state from that commit.
-- Restored `.github/workflows/site-auditor-fixed-list.yml` to the exact historical state from that commit.
-- Removed later report/finalize and decision-summary experiments by reverting the agent file wholesale to the selected green contour.
-- No new logic or refactor was introduced.
+- Added explicit debug prints in `agent.ps1` for base path and current working directory at startup.
+- Added explicit debug prints after report file write to show resolved report path and existence check result.
+- Added explicit `pwd` output in workflow debug step immediately after bundle/single-mode execution phase.
+- Kept operational logic unchanged (no edits to finalize/decision/warnings flow).
+- Updated this task report for `TASK_ID: SITE_AUDITOR_AGENT__ALIGN_WORKDIR_AND_REPORT_PATH`.
 
 ## Changed files
-- `agents/gh_batch/site_auditor_cloud/agent.ps1` (restored from `6f2a668`)
-- `.github/workflows/site-auditor-fixed-list.yml` (restored from `6f2a668`)
+- `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- `.github/workflows/site-auditor-fixed-list.yml`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 None.
 
 ## Current entrypoints/paths
-- SITE_AUDITOR entrypoint: `agents/gh_batch/site_auditor_cloud/agent.ps1` (rolled back to `6f2a668`).
-- SITE_AUDITOR CI workflow: `.github/workflows/site-auditor-fixed-list.yml` (rolled back to `6f2a668`).
-- Report contract path remains `reports/report.json` as produced by the restored agent contour.
+- Agent entrypoint remains `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- Workflow entrypoint remains `.github/workflows/site-auditor-fixed-list.yml`.
+- Debug path evidence now includes:
+  - `DEBUG BASE PATH: ...`
+  - `DEBUG PWD: ...`
+  - `DEBUG REPORT PATH: ...`
+  - `DEBUG REPORT EXISTS: ...`
+  - workflow `pwd` and `ls -R agents/gh_batch/site_auditor_cloud`
 
 ## Risks/blockers
-- The environment here cannot execute GitHub-hosted CI workflows, so end-to-end green status must be confirmed in GitHub Actions after push.
-- "Last known green" is inferred from repository history and rollback intent; no direct remote CI API was available in this container.
+- This environment cannot run GitHub Actions jobs, so real runtime values for working directory and output path must be confirmed from workflow logs in GitHub.
+- The requested wording references `report.json`, while current script debug hook is attached to the existing `$reportPath` write point (`outbox/REPORT.txt`) to avoid logic changes.
