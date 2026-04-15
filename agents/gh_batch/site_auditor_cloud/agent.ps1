@@ -1,4 +1,4 @@
-param(
+paramparam(
     [string]$MODE = 'REPO'
 )
 
