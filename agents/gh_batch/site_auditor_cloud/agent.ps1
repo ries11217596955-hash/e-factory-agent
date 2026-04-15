@@ -3066,41 +3066,17 @@ function Build-DecisionLayer {
     $activeOperationLabel = 'warnings/step01/enter'
     $activeExpression = '$normalizedWarnings'
     $warningList = New-Object System.Collections.Generic.List[string]
-    $activeOperationLabel = 'warnings/step02/safe_single_pass'
+    $activeOperationLabel = 'warnings/step02/safe_scalar_only'
     $activeExpression = '$normalizedWarnings'
 
-    if ($null -eq $normalizedWarnings) {
-        # nothing
-    }
-    elseif ($normalizedWarnings -is [System.Collections.IEnumerable] -and -not ($normalizedWarnings -is [string])) {
+    if ($null -ne $normalizedWarnings) {
 
-        $activeOperationLabel = 'warnings/step02a/enumerate_normalized'
-        $activeExpression = 'foreach ($warning in $normalizedWarnings)'
-        foreach ($warning in $normalizedWarnings) {
-
-            if ($null -eq $warning) { continue }
-
-            $activeOperationLabel = 'warnings/step03/cast_to_string'
-            $activeExpression = '[string]$warning'
-            $warningText = [string]$warning
-
-            if ([string]::IsNullOrWhiteSpace($warningText)) { continue }
-
-            $activeOperationLabel = 'warnings/step04/add_warningList'
-            $activeExpression = '$warningList.Add($warningText)'
-            $warningList.Add($warningText)
-        }
-
-    }
-    else {
-
-        $activeOperationLabel = 'warnings/step02b/single_value_path'
-        $activeExpression = '[string]$normalizedWarnings'
-
+        # treat as single scalar ONLY
         $warningText = [string]$normalizedWarnings
 
         if (-not [string]::IsNullOrWhiteSpace($warningText)) {
-            $activeOperationLabel = 'warnings/step04/add_warningList'
+
+            $activeOperationLabel = 'warnings/step03/add_scalar_warning'
             $activeExpression = '$warningList.Add($warningText)'
             $warningList.Add($warningText)
         }
