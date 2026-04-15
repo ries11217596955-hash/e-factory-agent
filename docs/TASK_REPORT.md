@@ -1,11 +1,12 @@
 ## Summary
-- Root cause classified as **missing RUN_REPORT writer + wrong output root** in `run_bundle.ps1`.
-- Normalized bundle SSOT output to `reports/` by making the bundle root canonical and writing all bundle-level outputs there.
-- Added an explicit RUN_REPORT writer (`Write-RunReportJson`) and integrated it into success and failure writing paths.
-- Added a strict pre-validation guard that auto-generates fallback `reports/RUN_REPORT.json` when missing.
-- Added a dedicated validation stage that validates only `reports/RUN_REPORT.json` and removed legacy forced `report.json` copy behavior.
+- Root cause classified as **created but not copied + copied to wrong place + validator ignored absence** for screenshot packaging.
+- Restored canonical packaging contract by collecting runtime screenshots from `repo/reports/screenshots` and writing them into final bundle root `screenshots/`.
+- Added visual artifact contract accounting (`screenshots_expected`, `screenshots_packaged`, `screenshots_missing`) and persisted it into both `RUN_REPORT.json` and `audit_result.json`.
+- Enforced failure behavior: when visual audit is active and screenshots are missing/unpackaged, bundle status is forced to `FAIL` with explicit visual contract error.
+- Updated artifact metadata to reference canonical packaged screenshot root (`screenshots`) instead of runtime-only `reports/screenshots`.
 
 ## Changed files
+- `agents/gh_batch/site_auditor_cloud/agent.ps1`
 - `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 - `docs/TASK_REPORT.md`
 
@@ -14,10 +15,11 @@ None.
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
-- Canonical validation/report root: `agents/gh_batch/site_auditor_cloud/reports/`
-- Canonical required contract artifact: `agents/gh_batch/site_auditor_cloud/reports/RUN_REPORT.json`
-- Legacy debug mirror remains available: `agents/gh_batch/site_auditor_cloud/audit_bundle/` (non-SSOT)
+- Runtime screenshot producer remains: `agents/gh_batch/site_auditor_cloud/capture.mjs` → `reports/screenshots/*.png`
+- Canonical packaged screenshot root (new contract): `agents/gh_batch/site_auditor_cloud/screenshots/`
+- Canonical run report path remains: `agents/gh_batch/site_auditor_cloud/reports/RUN_REPORT.json`
+- Legacy mirror remains available: `agents/gh_batch/site_auditor_cloud/audit_bundle/`
 
 ## Risks/blockers
 - Runtime execution test is blocked because PowerShell (`pwsh`/`powershell`) is not installed in this environment.
-- Negative-path behavior was validated by code-path inspection and guard placement, not by executing full PowerShell pipeline locally.
+- End-to-end ZIP validation is blocked by missing PowerShell runtime; validation here is static/code-path inspection only.

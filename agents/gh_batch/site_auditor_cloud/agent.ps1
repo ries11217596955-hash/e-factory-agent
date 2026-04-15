@@ -4103,7 +4103,7 @@ function Write-OperatorOutputs {
     $AuditResult.artifacts = [ordered]@{
         reports = @('reports/audit_result.json', 'reports/RUN_REPORT.json')
         outbox = @('outbox/11A_EXECUTIVE_SUMMARY.txt', 'outbox/00_PRIORITY_ACTIONS.txt', 'outbox/01_TOP_ISSUES.txt')
-        screenshots_dir = 'reports/screenshots'
+        screenshots_dir = 'screenshots'
     }
 
     $liveLayer = Safe-Get -Object $AuditResult -Key 'live' -Default @{}
