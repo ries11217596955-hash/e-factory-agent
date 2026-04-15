@@ -565,7 +565,7 @@ function Invoke-AssemblyStage {
 
     $repoScreenshotManifest = Get-RepoScreenshotManifest
     $repoArtifacts = @()
-    foreach ($item in $repoScreenshotManifest) {
+    foreach ($item in @($repoScreenshotManifest)) {
         $repoArtifacts += [string]$item.relative_path
     }
 
@@ -963,7 +963,7 @@ function New-ReportLines {
         $repoArtifacts = @($Assembled.bundle_status.repo.artifacts)
     }
 
-    if ($repoArtifacts.Count -eq 0) {
+    if (@($repoArtifacts).Count -eq 0) {
         $lines.Add('No screenshots captured')
     }
     else {
@@ -988,8 +988,14 @@ function Invoke-WritingStage {
     Ensure-Directory -Path $packagedScreenshotsRoot
 
     $repoScreenshotManifest = Get-RepoScreenshotManifest
-    foreach ($artifact in $repoScreenshotManifest) {
-        $destinationPath = Join-Path $PSScriptRoot $artifact.relative_path
+    foreach ($artifact in @($repoScreenshotManifest)) {
+        $relativePath = $artifact.relative_path
+        if ($relativePath -is [System.Array]) {
+            Add-ExecutionLog 'WARNING: relative_path was array, normalized'
+            $relativePath = $relativePath[0]
+        }
+        $relativePath = [string]$relativePath
+        $destinationPath = Join-Path $PSScriptRoot $relativePath
         $destinationDirectory = Split-Path -Path $destinationPath -Parent
         Ensure-Directory -Path $destinationDirectory
         Copy-Item -Path $artifact.source -Destination $destinationPath -Force -ErrorAction SilentlyContinue
@@ -999,7 +1005,7 @@ function Invoke-WritingStage {
         $Assembled.bundle_status.repo = [ordered]@{}
     }
     $Assembled.bundle_status.repo.artifacts = @()
-    foreach ($item in $repoScreenshotManifest) {
+    foreach ($item in @($repoScreenshotManifest)) {
         $Assembled.bundle_status.repo.artifacts += [string]$item.relative_path
     }
     $visualContract = Get-VisualArtifactContract -ScreenshotManifest $repoScreenshotManifest
