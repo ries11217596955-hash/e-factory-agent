@@ -4611,28 +4611,62 @@ function Ensure-OutputContract {
             New-Item -ItemType Directory -Path $operatorDir -Force | Out-Null
         }
 
-        $p0 = @()
-        if ([int](Safe-Get -Object $audit -Key 'content_empty_routes' -Default 0) -gt 0) {
-            $p0 += 'Fix empty pages'
+        $decision = @{
+            site_stage = ""
+            core_problem = ""
+            p0 = @()
+            do_next = @()
         }
-        if ([int](Safe-Get -Object $audit -Key 'visual_health_score' -Default 0) -lt 50) {
-            $p0 += 'Fix layout / UI issues'
-        }
-        if ($p0.Count -eq 0) {
-            $p0 += 'Improve content depth'
-        }
-        $p0 | Out-File (Join-Path $operatorDir '00_PRIORITY_ACTIONS.txt')
 
-@"
-Empty routes: $([int](Safe-Get -Object $audit -Key 'content_empty_routes' -Default 0))
-Visual score: $([int](Safe-Get -Object $audit -Key 'visual_health_score' -Default 0))
-"@ | Out-File (Join-Path $operatorDir '01_TOP_ISSUES.txt')
+        # --- STAGE ---
+        if ($audit.content_empty_routes -gt 5) {
+            $decision.site_stage = "STRUCTURE"
+        } elseif ($audit.visual_health_score -lt 60) {
+            $decision.site_stage = "PRODUCT"
+        } else {
+            $decision.site_stage = "GROWTH"
+        }
 
+        # --- CORE PROBLEM ---
+        if ($audit.content_empty_routes -gt 5) {
+            $decision.core_problem = "Site has empty or non-functional pages"
+        } elseif ($audit.visual_health_score -lt 60) {
+            $decision.core_problem = "Site has weak content and UX quality"
+        } else {
+            $decision.core_problem = "Site lacks traffic and monetization layers"
+        }
+
+        # --- P0 ---
+        if ($audit.content_empty_routes -gt 0) {
+            $decision.p0 += "Fix empty pages"
+        }
+        if ($audit.visual_health_score -lt 60) {
+            $decision.p0 += "Improve content and layout quality"
+        }
+        if ($decision.p0.Count -gt 3) {
+            $decision.p0 = $decision.p0[0..2]
+        }
+
+        # --- DO NEXT ---
+        $decision.do_next = @(
+            "Fix all empty pages",
+            "Add real content to top pages",
+            "Ensure each page has clear user action"
+        )
+
+        # EXEC SUMMARY
 @"
-Site is not ready for production.
-Main issue: insufficient usable content.
-Immediate action required.
-"@ | Out-File (Join-Path $operatorDir '11A_EXECUTIVE_SUMMARY.txt')
+STAGE: $($decision.site_stage)
+
+CORE PROBLEM:
+$($decision.core_problem)
+
+P0:
+$(($decision.p0 -join "`n"))
+
+DO NEXT:
+$(($decision.do_next -join "`n"))
+"@ | Out-File (Join-Path $operatorDir "11A_EXECUTIVE_SUMMARY.txt")
     }
 
     $doneOk = Join-Path $outboxDir 'DONE.ok'
