@@ -288,10 +288,10 @@ function Get-BundleLogicalStatus {
 
 function Get-RepoScreenshotManifest {
     $repoRoot = Join-Path $bundleRoot 'repo'
-    $canonicalSourceRoot = Join-Path (Join-Path $repoRoot 'reports') 'screenshots'
+    $canonicalSourceRoot = Join-Path (Join-Path (if ($repoRoot -is [System.Array]) { [string]$repoRoot[0] } else { [string]$repoRoot }) 'reports') 'screenshots'
     $sourceRoots = @($canonicalSourceRoot)
     $fallbackSourceRoots = @(
-        Join-Path $repoRoot 'reports',
+        Join-Path (if ($repoRoot -is [System.Array]) { [string]$repoRoot[0] } else { [string]$repoRoot }) 'reports',
         Join-Path $repoRoot 'outbox'
     )
 
@@ -628,8 +628,8 @@ function Get-JsonIfPresent {
 
 function Get-RepoEvidence {
     $repoRoot = Join-Path $bundleRoot 'repo'
-    $reportsDir = Join-Path $repoRoot 'reports'
-    $outboxDir = Join-Path $repoRoot 'outbox'
+    $reportsDir = Join-Path (if ($repoRoot -is [System.Array]) { [string]$repoRoot[0] } else { [string]$repoRoot }) 'reports'
+    $outboxDir = Join-Path (if ($repoRoot -is [System.Array]) { [string]$repoRoot[0] } else { [string]$repoRoot }) 'outbox'
 
     $auditResultPath = Join-Path $reportsDir 'audit_result.json'
     $runManifestPath = Join-Path $reportsDir 'run_manifest.json'
@@ -754,8 +754,8 @@ function New-OperatorReportData {
     param($Assembled)
 
     $repoRoot = Join-Path $bundleRoot 'repo'
-    $reportsDir = Join-Path $repoRoot 'reports'
-    $outboxDir = Join-Path $repoRoot 'outbox'
+    $reportsDir = Join-Path (if ($repoRoot -is [System.Array]) { [string]$repoRoot[0] } else { [string]$repoRoot }) 'reports'
+    $outboxDir = Join-Path (if ($repoRoot -is [System.Array]) { [string]$repoRoot[0] } else { [string]$repoRoot }) 'outbox'
 
     $reportLines = Get-FileLinesIfPresent -Path (Join-Path $outboxDir 'REPORT.txt')
     $priorityLines = Get-ListItemsFromLines -Lines (Get-FileLinesIfPresent -Path (Join-Path $reportsDir '00_PRIORITY_ACTIONS.txt'))
@@ -995,7 +995,7 @@ function Invoke-WritingStage {
             $relativePath = $relativePath[0]
         }
         $relativePath = [string]$relativePath
-        $destinationPath = Join-Path $bundleRoot $relativePath
+        $destinationPath = Join-Path (if ($bundleRoot -is [System.Array]) { [string]$bundleRoot[0] } else { [string]$bundleRoot }) $relativePath
         $destinationDirectory = Split-Path -Path $destinationPath -Parent
         Ensure-Directory -Path $destinationDirectory
         Copy-Item -Path $artifact.source -Destination $destinationPath -Force -ErrorAction SilentlyContinue
