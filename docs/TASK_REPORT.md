@@ -1,9 +1,9 @@
 ## Summary
-- Tightened executive decision output in `SITE_AUDITOR_AGENT` to enforce one-line `CORE PROBLEM`, a `P0` list capped at 3 items, and exactly 3 `DO NEXT` actions.
-- Updated decision phrasing for hard-decision mode to remove soft/long wording and keep outputs immediately actionable.
-- Added deterministic numbering for `P0` and `DO NEXT` in `11A_EXECUTIVE_SUMMARY.txt`.
-- Kept scope limited to decision output shaping only; no pipeline/workflow/runtime flow changes.
-- Preserved existing entrypoint and audit input contract.
+- Reworked the decision/output block in `site_auditor_cloud` to enforce the requested hard `CORE PROBLEM` rule based on `content_empty_routes` and `visual_health_score`.
+- Replaced P0 generation with the requested filtered rule set (no hard cap), plus de-duplication and empty-line filtering.
+- Split follow-up actions into `DO NEXT NOW` and `DO NEXT AFTER` with deterministic, actionable items and anti-noise filtering.
+- Replaced executive summary format in `outbox/11A_EXECUTIVE_SUMMARY.txt` with the strict stage/core/P0/now/after template.
+- Added operator outbox artifacts `outbox/00_PRIORITY_ACTIONS.txt` and `outbox/01_TOP_ISSUES.txt` from the same decision layer.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -14,9 +14,12 @@ None.
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Audit input unchanged: `reports/audit_result.json` (read-only input consumed by existing flow).
-- Operator summary output unchanged path: `outbox/11A_EXECUTIVE_SUMMARY.txt`.
+- Decision input unchanged: `reports/audit_result.json`.
+- Operator outputs now include:
+  - `outbox/00_PRIORITY_ACTIONS.txt`
+  - `outbox/01_TOP_ISSUES.txt`
+  - `outbox/11A_EXECUTIVE_SUMMARY.txt`
 
 ## Risks/blockers
-- If incoming audit data does not trigger `P0` sources, fallback keeps one deterministic action in summary `P0` block.
-- Hard slicing of `DO NEXT` assumes at least 3 static actions remain defined in this block.
+- When both `content_empty_routes` and low `visual_health_score` conditions are false, `P0` can be empty by design (per requested rules).
+- This change only updates decision/operator text outputs; it does not alter audit collection or scoring behavior.
