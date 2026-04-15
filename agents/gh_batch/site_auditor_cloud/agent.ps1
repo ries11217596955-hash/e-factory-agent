@@ -3066,40 +3066,43 @@ function Build-DecisionLayer {
     $activeOperationLabel = 'warnings/step01/enter'
     $activeExpression = '$normalizedWarnings'
     $warningList = New-Object System.Collections.Generic.List[string]
-    $activeOperationLabel = 'warnings/step02/direct_safe_walk'
-    $activeExpression = 'direct safe iteration over $normalizedWarnings'
+    $activeOperationLabel = 'warnings/step02/safe_single_pass'
+    $activeExpression = '$normalizedWarnings'
 
-    if ($null -ne $normalizedWarnings) {
+    if ($null -eq $normalizedWarnings) {
+        # nothing
+    }
+    elseif ($normalizedWarnings -is [System.Collections.IEnumerable] -and -not ($normalizedWarnings -is [string])) {
 
-        try {
-            $activeOperationLabel = 'warnings/step02a/enumerate_normalized'
-            $activeExpression = 'foreach ($warning in $normalizedWarnings)'
-            foreach ($warning in $normalizedWarnings) {
+        $activeOperationLabel = 'warnings/step02a/enumerate_normalized'
+        $activeExpression = 'foreach ($warning in $normalizedWarnings)'
+        foreach ($warning in $normalizedWarnings) {
 
-                if ($null -eq $warning) { continue }
+            if ($null -eq $warning) { continue }
 
-                $activeOperationLabel = 'warnings/step02b/cast_item'
-                $activeExpression = '[string]$warning'
-                $warningText = [string]$warning
+            $activeOperationLabel = 'warnings/step03/cast_to_string'
+            $activeExpression = '[string]$warning'
+            $warningText = [string]$warning
 
-                if ([string]::IsNullOrWhiteSpace($warningText)) { continue }
+            if ([string]::IsNullOrWhiteSpace($warningText)) { continue }
 
-                $activeOperationLabel = 'warnings/step02c/add_to_warningList'
-                $activeExpression = '$warningList.Add($warningText)'
-                $warningList.Add($warningText)
-            }
+            $activeOperationLabel = 'warnings/step04/add_warningList'
+            $activeExpression = '$warningList.Add($warningText)'
+            $warningList.Add($warningText)
         }
-        catch {
-            # fallback если не enumerable
-            $activeOperationLabel = 'warnings/step02d/fallback_cast'
-            $activeExpression = '[string]$normalizedWarnings'
-            $warningText = [string]$normalizedWarnings
 
-            if (-not [string]::IsNullOrWhiteSpace($warningText)) {
-                $activeOperationLabel = 'warnings/step02e/fallback_add'
-                $activeExpression = '$warningList.Add($warningText)'
-                $warningList.Add($warningText)
-            }
+    }
+    else {
+
+        $activeOperationLabel = 'warnings/step02b/single_value_path'
+        $activeExpression = '[string]$normalizedWarnings'
+
+        $warningText = [string]$normalizedWarnings
+
+        if (-not [string]::IsNullOrWhiteSpace($warningText)) {
+            $activeOperationLabel = 'warnings/step04/add_warningList'
+            $activeExpression = '$warningList.Add($warningText)'
+            $warningList.Add($warningText)
         }
     }
 

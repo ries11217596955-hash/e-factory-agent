@@ -1,9 +1,9 @@
 ## Summary
-- Instrumented only the `warnings/step02/direct_safe_walk` path in `Build-DecisionLayer` to emit granular runtime labels for enumerate/cast/add and fallback cast/add.
-- Preserved existing entry label `warnings/step02/direct_safe_walk` and added `step02a`..`step02e` checkpoints exactly as requested.
-- Added a `normalizedWarningsType` snapshot and wired it into `Set-DecisionForensics` additional context as `normalized_warnings_type`.
-- Kept helper logic, I/O boundaries, and unrelated file regions unchanged.
-- Goal is to force `FAILURE_SUMMARY.json` to point at one concrete `step02*` operation instead of a generic label.
+- Fixed warnings normalization handling in `Build-DecisionLayer` to avoid direct `foreach` over non-enumerable `$normalizedWarnings`.
+- Replaced `try/catch`-based fallback with explicit type-guarded branching for null, enumerable (excluding string), and single-value cases.
+- Added runtime operation labels matching requested pathing: `warnings/step02/safe_single_pass`, `warnings/step02a/enumerate_normalized`, `warnings/step02b/single_value_path`, `warnings/step03/cast_to_string`, `warnings/step04/add_warningList`.
+- Preserved helper behavior and input/output boundaries; no helper functions or external interfaces were modified.
+- Change is minimal and scoped strictly to the warnings normalization block in the requested target file.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -14,8 +14,8 @@
 
 ## Current entrypoints/paths
 - Script entrypoint remains `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Targeted instrumentation path remains inside `Build-DecisionLayer` warnings handling block: `warnings/step02/direct_safe_walk`.
+- Updated path inside `Build-DecisionLayer` warnings flow now uses guarded single-pass logic starting at `warnings/step02/safe_single_pass`.
 
 ## Risks/blockers
-- If failure label remains generic after this change, runtime may be executing a different script/version than the edited file.
-- No functional fix was applied; only diagnostic granularity was increased for the specified warnings path.
+- Validation still depends on runtime picking up this updated script version; if blocker node does not change, deployment/runtime sync may be stale.
+- If another blocker appears after `warnings/step02a/enumerate_normalized` is resolved, that is expected as the next real failure node.
