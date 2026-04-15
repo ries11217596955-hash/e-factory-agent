@@ -4600,6 +4600,14 @@ function Ensure-OutputContract {
     else {
         New-Item -ItemType File -Path $doneFail -Force | Out-Null
     }
+
+    $reportOutputPath = Join-Path $base 'reports/report.json'
+    $reportObject = [ordered]@{
+        overall = [string]$FinalStatus
+        status = if ([string]$FinalStatus -eq 'PASS') { 'OK' } else { 'FAIL' }
+        timestamp = (Get-Date).ToString('o')
+    }
+    $reportObject | ConvertTo-Json -Depth 5 | Out-File -FilePath $reportOutputPath -Encoding utf8
 }
 
 $resolvedMode = $MODE.ToUpperInvariant()
