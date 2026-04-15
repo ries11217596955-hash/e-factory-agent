@@ -114,9 +114,20 @@ jobs:
         with:
           name: site-auditor-bundle-output
           path: |
-            agents/gh_batch/site_auditor_cloud/audit_bundle/**
-            agents/gh_batch/site_auditor_cloud/outbox/**
-            agents/gh_batch/site_auditor_cloud/reports/**
+            agents/gh_batch/site_auditor_cloud/reports/RUN_REPORT.json
+            agents/gh_batch/site_auditor_cloud/reports/audit_result.json
+            agents/gh_batch/site_auditor_cloud/reports/REPORT.txt
+            agents/gh_batch/site_auditor_cloud/reports/00_PRIORITY_ACTIONS.txt
+            agents/gh_batch/site_auditor_cloud/reports/01_TOP_ISSUES.txt
+            agents/gh_batch/site_auditor_cloud/reports/11A_EXECUTIVE_SUMMARY.txt
+            agents/gh_batch/site_auditor_cloud/reports/12A_META_AUDIT_BRIEF.txt
+            agents/gh_batch/site_auditor_cloud/reports/ARTIFACT_MANIFEST.json
+            agents/gh_batch/site_auditor_cloud/reports/FAILURE_SUMMARY.json
+            agents/gh_batch/site_auditor_cloud/reports/RUN_DIAGNOSTIC.json
+            agents/gh_batch/site_auditor_cloud/reports/EXECUTION_LOG.txt
+            agents/gh_batch/site_auditor_cloud/reports/visual_manifest.json
+            agents/gh_batch/site_auditor_cloud/reports/route_normalization_trace.json
+            agents/gh_batch/site_auditor_cloud/reports/screenshots/**
           if-no-files-found: error
 
       - name: Validate agent result
