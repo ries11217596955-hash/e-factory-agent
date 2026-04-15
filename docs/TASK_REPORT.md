@@ -1,9 +1,9 @@
 ## Summary
-- Added a `decision_summary` layer to `report.json` in `site_auditor_cloud` output generation.
-- Preserved existing `report.json` fields (`overall`, `status`, `timestamp`) and appended only the new decision block.
-- Implemented minimal stage classification logic: `STRUCTURE`, `PRODUCT`, `GROWTH`, otherwise `UNKNOWN`.
-- Mapped summary priorities (`p0`, `p1`, `p2`) and `next_actions` directly from the existing decision layer.
-- Kept pipeline/workflow/validation untouched; change is limited to report enrichment in agent output assembly.
+- Restored strict `report.json` write contract in `site_auditor_cloud` finalization block.
+- Ensured `reportObject` is created before conditional `decision_summary` attachment.
+- Added null-guard before serialization: throws if `reportObject` is null before write.
+- Forced final write target to `Join-Path $base 'reports\report.json'`.
+- Increased final report serialization depth to `ConvertTo-Json -Depth 10` for decision payload safety.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -13,10 +13,10 @@
 None.
 
 ## Current entrypoints/paths
-- Agent entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Report output path unchanged: `agents/gh_batch/site_auditor_cloud/reports/report.json`.
-- Existing decision and audit pipelines are unchanged; only final report serialization now appends `decision_summary`.
+- Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- Final report write path: `Join-Path $base 'reports\report.json'`.
+- Final report writer contract: `$reportObject | ConvertTo-Json -Depth 10 | Out-File -FilePath $reportOutputPath -Encoding utf8`.
 
 ## Risks/blockers
-- Stage classification thresholds are intentionally minimal (`empty_routes >= 2` for `STRUCTURE`) and may need tuning after production feedback.
-- `GROWTH` stage requires strict healthy signals (`page_quality_status=EVALUATED` plus zero blocker counters); borderline healthy sites may remain `UNKNOWN`.
+- No workflow/pipeline/validation/decision-helper logic was changed.
+- Validation run was not executed in this environment; CI should confirm end-to-end report contract behavior.

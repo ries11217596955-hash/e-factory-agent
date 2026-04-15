@@ -4601,7 +4601,7 @@ function Ensure-OutputContract {
         New-Item -ItemType File -Path $doneFail -Force | Out-Null
     }
 
-    $reportOutputPath = Join-Path $base 'reports/report.json'
+    $reportOutputPath = Join-Path $base 'reports\report.json'
     $decisionNextActions = Convert-ToStringArraySafe -Value (Safe-Get -Object $Decision -Key 'next_actions' -Default (Safe-Get -Object $Decision -Key 'do_next' -Default @()))
     $decisionP0 = Convert-ToStringArraySafe -Value (Safe-Get -Object $Decision -Key 'p0' -Default @())
     $decisionP1 = Convert-ToStringArraySafe -Value (Safe-Get -Object $Decision -Key 'p1' -Default @())
@@ -4646,8 +4646,13 @@ function Ensure-OutputContract {
         status = if ([string]$FinalStatus -eq 'PASS') { 'OK' } else { 'FAIL' }
         timestamp = (Get-Date).ToString('o')
     }
-    $reportObject.decision_summary = $decisionSummary
-    $reportObject | ConvertTo-Json -Depth 5 | Out-File -FilePath $reportOutputPath -Encoding utf8
+    if ($null -ne $reportObject) {
+        $reportObject.decision_summary = $decisionSummary
+    }
+    if ($null -eq $reportObject) {
+        throw "reportObject is null before write"
+    }
+    $reportObject | ConvertTo-Json -Depth 10 | Out-File -FilePath $reportOutputPath -Encoding utf8
 }
 
 $resolvedMode = $MODE.ToUpperInvariant()
