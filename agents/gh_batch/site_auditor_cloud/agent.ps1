@@ -1,4 +1,4 @@
-paramparam(
+param(
     [string]$MODE = 'REPO'
 )
 
@@ -34,7 +34,6 @@ $global:RouteNormalizationAggregateTrace = @()
 $global:PageQualityForensics = $null
 $global:DecisionForensics = $null
 $reportFiles = New-Object System.Collections.Generic.List[string]
-$script:reportObject = $null
 
 function Get-DebugValueSample {
     param(
@@ -3067,36 +3066,43 @@ function Build-DecisionLayer {
     $activeOperationLabel = 'warnings/step01/enter'
     $activeExpression = '$normalizedWarnings'
     $warningList = New-Object System.Collections.Generic.List[string]
-    $activeOperationLabel = 'warnings/step02/safe_enum_with_guard'
+    $activeOperationLabel = 'warnings/step02/safe_single_pass'
     $activeExpression = '$normalizedWarnings'
 
-    if ($null -ne $normalizedWarnings) {
+    if ($null -eq $normalizedWarnings) {
+        # nothing
+    }
+    elseif ($normalizedWarnings -is [System.Collections.IEnumerable] -and -not ($normalizedWarnings -is [string])) {
 
-        if ($normalizedWarnings -is [System.Collections.IEnumerable] -and -not ($normalizedWarnings -is [string])) {
+        $activeOperationLabel = 'warnings/step02a/enumerate_normalized'
+        $activeExpression = 'foreach ($warning in $normalizedWarnings)'
+        foreach ($warning in $normalizedWarnings) {
 
-            foreach ($warning in $normalizedWarnings) {
+            if ($null -eq $warning) { continue }
 
-                if ($null -eq $warning) { continue }
+            $activeOperationLabel = 'warnings/step03/cast_to_string'
+            $activeExpression = '[string]$warning'
+            $warningText = [string]$warning
 
-                $activeOperationLabel = 'warnings/step03/cast_to_string'
-                $warningText = [string]$warning
+            if ([string]::IsNullOrWhiteSpace($warningText)) { continue }
 
-                if ([string]::IsNullOrWhiteSpace($warningText)) { continue }
-
-                $activeOperationLabel = 'warnings/step04/add_warningList'
-                $warningList.Add($warningText)
-            }
-
+            $activeOperationLabel = 'warnings/step04/add_warningList'
+            $activeExpression = '$warningList.Add($warningText)'
+            $warningList.Add($warningText)
         }
-        else {
 
-            $activeOperationLabel = 'warnings/step02b/single_value_path'
+    }
+    else {
 
-            $warningText = [string]$normalizedWarnings
+        $activeOperationLabel = 'warnings/step02b/single_value_path'
+        $activeExpression = '[string]$normalizedWarnings'
 
-            if (-not [string]::IsNullOrWhiteSpace($warningText)) {
-                $warningList.Add($warningText)
-            }
+        $warningText = [string]$normalizedWarnings
+
+        if (-not [string]::IsNullOrWhiteSpace($warningText)) {
+            $activeOperationLabel = 'warnings/step04/add_warningList'
+            $activeExpression = '$warningList.Add($warningText)'
+            $warningList.Add($warningText)
         }
     }
 
@@ -4601,58 +4607,6 @@ function Ensure-OutputContract {
     else {
         New-Item -ItemType File -Path $doneFail -Force | Out-Null
     }
-
-    $decisionNextActions = Convert-ToStringArraySafe -Value (Safe-Get -Object $Decision -Key 'next_actions' -Default (Safe-Get -Object $Decision -Key 'do_next' -Default @()))
-    $decisionP0 = Convert-ToStringArraySafe -Value (Safe-Get -Object $Decision -Key 'p0' -Default @())
-    $decisionP1 = Convert-ToStringArraySafe -Value (Safe-Get -Object $Decision -Key 'p1' -Default @())
-    $decisionP2 = Convert-ToStringArraySafe -Value (Safe-Get -Object $Decision -Key 'p2' -Default @())
-    $liveSummary = Convert-ToHashtableSafe -Value (Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'live' -Default @{}) -Key 'summary' -Default @{})
-    $emptyRoutes = Convert-ToIntSafe -Value (Safe-Get -Object $liveSummary -Key 'empty_routes' -Default 0) -Default 0
-    $thinRoutes = Convert-ToIntSafe -Value (Safe-Get -Object $liveSummary -Key 'thin_routes' -Default 0) -Default 0
-    $weakCtaRoutes = Convert-ToIntSafe -Value (Safe-Get -Object $liveSummary -Key 'weak_cta_routes' -Default 0) -Default 0
-    $deadEndRoutes = Convert-ToIntSafe -Value (Safe-Get -Object $liveSummary -Key 'dead_end_routes' -Default 0) -Default 0
-    $contaminatedRoutes = Convert-ToIntSafe -Value (Safe-Get -Object $liveSummary -Key 'contaminated_routes' -Default 0) -Default 0
-    $conversionRoutes = [int]($weakCtaRoutes + $deadEndRoutes)
-    $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
-    $totalSampledRoutes = Convert-ToIntSafe -Value (Safe-Get -Object $liveSummary -Key 'total_routes' -Default 0) -Default 0
-
-    $decisionSummary = [ordered]@{
-        site_stage = 'UNKNOWN'
-        core_problem = ''
-        p0 = @($decisionP0)
-        p1 = @($decisionP1)
-        p2 = @($decisionP2)
-        next_actions = @($decisionNextActions | Select-Object -First 5)
-    }
-
-    if ($emptyRoutes -ge 2) {
-        $decisionSummary.site_stage = 'STRUCTURE'
-        $decisionSummary.core_problem = 'Site has empty or non-functional pages'
-    }
-    elseif (($thinRoutes -gt 0 -or $conversionRoutes -gt 0) -and $emptyRoutes -lt 2) {
-        $decisionSummary.site_stage = 'PRODUCT'
-        $decisionSummary.core_problem = [string](Safe-Get -Object $Decision -Key 'core_problem' -Default 'Site has content but product messaging/conversion quality is weak.')
-    }
-    elseif ($totalSampledRoutes -gt 0 -and $emptyRoutes -eq 0 -and $thinRoutes -eq 0 -and $conversionRoutes -eq 0 -and $contaminatedRoutes -eq 0 -and $pageQualityStatus -eq 'EVALUATED') {
-        $decisionSummary.site_stage = 'GROWTH'
-        $decisionSummary.core_problem = [string](Safe-Get -Object $Decision -Key 'core_problem' -Default 'Structure and content are present; focus on growth optimization.')
-    }
-    else {
-        $decisionSummary.core_problem = [string](Safe-Get -Object $Decision -Key 'core_problem' -Default '')
-    }
-
-    $reportObject = [ordered]@{
-        overall = [string]$FinalStatus
-        status = if ([string]$FinalStatus -eq 'PASS') { 'OK' } else { 'FAIL' }
-        timestamp = (Get-Date).ToString('o')
-    }
-    if ($null -ne $reportObject) {
-        $reportObject.decision_summary = $decisionSummary
-    }
-    if ($null -eq $reportObject) {
-        throw "reportObject is null before write"
-    }
-    $script:reportObject = $reportObject
 }
 
 $resolvedMode = $MODE.ToUpperInvariant()
@@ -4865,8 +4819,6 @@ finally {
     Ensure-OutputContract -ResolvedMode $resolvedMode -FinalStatus $status -FailureReason $failureReason
 }
 
-Finalize-Report -ReportObject $reportObject -BasePath $base
-
 if ($status -eq 'PASS' -and $null -eq $global:AuditError) {
     Write-Host "SITE_AUDITOR completed successfully. Artifacts: $outboxDir ; $reportsDir"
     exit 0
@@ -4874,34 +4826,3 @@ if ($status -eq 'PASS' -and $null -eq $global:AuditError) {
 
 Write-Host "SITE_AUDITOR failed. Artifacts: $outboxDir ; $reportsDir"
 exit 1
-
-function Finalize-Report {
-    param(
-        [object]$ReportObject,
-        [string]$BasePath
-    )
-
-    try {
-        if ($null -eq $ReportObject) {
-            $ReportObject = @{
-                overall = "RUNTIME_FAIL"
-                status  = "NO_REPORT_OBJECT"
-                timestamp = (Get-Date).ToString("o")
-            }
-        }
-
-        $reportDir = Join-Path $BasePath "reports"
-        if (-not (Test-Path $reportDir)) {
-            New-Item -ItemType Directory -Path $reportDir -Force | Out-Null
-        }
-
-        $reportPath = Join-Path $reportDir "report.json"
-
-        $ReportObject | ConvertTo-Json -Depth 10 | Out-File -FilePath $reportPath -Encoding utf8
-
-        Write-Host "FINALIZE: report.json written to $reportPath"
-    }
-    catch {
-        Write-Host "FINALIZE ERROR: $($_.Exception.Message)"
-    }
-}
