@@ -289,13 +289,11 @@ function Get-BundleLogicalStatus {
 function Get-RepoScreenshotManifest {
     $repoRoot = Join-Path $bundleRoot 'repo'
     $repoRootSafe = if ($repoRoot -is [System.Array]) { [string]$repoRoot[0] } else { [string]$repoRoot }
-$canonicalSourceRoot = Join-Path (Join-Path $repoRootSafe 'reports') 'screenshots'
+    $canonicalSourceRoot = Join-Path (Join-Path $repoRootSafe 'reports') 'screenshots'
     $sourceRoots = @($canonicalSourceRoot)
     $fallbackSourceRoots = @(
-        $repoRootSafe = if ($repoRoot -is [System.Array]) { [string]$repoRoot[0] } else { [string]$repoRoot }
-
-Join-Path $repoRootSafe 'reports',
-Join-Path $repoRootSafe 'outbox'
+        (Join-Path $repoRootSafe 'reports'),
+        (Join-Path $repoRootSafe 'outbox')
     )
 
     $manifest = New-Object System.Collections.Generic.List[object]
@@ -632,9 +630,8 @@ function Get-JsonIfPresent {
 function Get-RepoEvidence {
     $repoRoot = Join-Path $bundleRoot 'repo'
     $repoRootSafe = if ($repoRoot -is [System.Array]) { [string]$repoRoot[0] } else { [string]$repoRoot }
-
-$reportsDir = Join-Path $repoRootSafe 'reports'
-$outboxDir  = Join-Path $repoRootSafe 'outbox'
+    $reportsDir = Join-Path $repoRootSafe 'reports'
+    $outboxDir  = Join-Path $repoRootSafe 'outbox'
 
     $auditResultPath = Join-Path $reportsDir 'audit_result.json'
     $runManifestPath = Join-Path $reportsDir 'run_manifest.json'
@@ -760,9 +757,8 @@ function New-OperatorReportData {
 
     $repoRoot = Join-Path $bundleRoot 'repo'
     $repoRootSafe = if ($repoRoot -is [System.Array]) { [string]$repoRoot[0] } else { [string]$repoRoot }
-
-$reportsDir = Join-Path $repoRootSafe 'reports'
-$outboxDir  = Join-Path $repoRootSafe 'outbox'
+    $reportsDir = Join-Path $repoRootSafe 'reports'
+    $outboxDir  = Join-Path $repoRootSafe 'outbox'
 
     $reportLines = Get-FileLinesIfPresent -Path (Join-Path $outboxDir 'REPORT.txt')
     $priorityLines = Get-ListItemsFromLines -Lines (Get-FileLinesIfPresent -Path (Join-Path $reportsDir '00_PRIORITY_ACTIONS.txt'))
@@ -1003,7 +999,7 @@ function Invoke-WritingStage {
         }
         $relativePath = [string]$relativePath
         $bundleRootSafe = if ($bundleRoot -is [System.Array]) { [string]$bundleRoot[0] } else { [string]$bundleRoot }
-$destinationPath = Join-Path $bundleRootSafe $relativePath
+        $destinationPath = Join-Path $bundleRootSafe $relativePath
         $destinationDirectory = Split-Path -Path $destinationPath -Parent
         Ensure-Directory -Path $destinationDirectory
         Copy-Item -Path $artifact.source -Destination $destinationPath -Force -ErrorAction SilentlyContinue
