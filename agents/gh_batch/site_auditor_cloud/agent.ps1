@@ -750,7 +750,7 @@ function Convert-ToStringKeyDictionarySafe {
     if (-not ($Value -is [System.Collections.IDictionary])) { return $Value }
 
     $normalized = [ordered]@{}
-    foreach ($entry in @($Value.GetEnumerator())) {
+    foreach ($entry in @($Value.GetEnumerator() | Where-Object { $_ -ne $null })) {
         $keyText = [string](Safe-Get -Object $entry -Key 'Key' -Default '')
         if ([string]::IsNullOrWhiteSpace($keyText)) { continue }
         $normalized[$keyText] = Safe-Get -Object $entry -Key 'Value' -Default $null
@@ -763,8 +763,10 @@ function Convert-ToHashtableSafe {
     param([object]$Value)
 
     if ($null -eq $Value) { return @{} }
-
-    if ($Value -is [System.Collections.IDictionary]) {
+if (-not ($Value -is [System.Collections.IDictionary] -or $Value -is [PSCustomObject])) {
+    Write-Host "[WARN] Convert-ToHashtableSafe fallback triggered. Type: $($Value.GetType().FullName)"
+}
+    if ($Value -is [System.Collections.IDictionary] -and $Value.Count -gt 0) {
         $normalized = [ordered]@{}
         foreach ($entry in @($Value.GetEnumerator())) {
             $keyText = [string](Safe-Get -Object $entry -Key 'Key' -Default '')
@@ -785,7 +787,7 @@ function Convert-ToHashtableSafe {
         return $normalized
     }
 
-    return @{}
+    return @{ __raw = $Value }
 }
 
 function Normalize-ProductCloseout {
