@@ -34,6 +34,7 @@ $global:RouteNormalizationAggregateTrace = @()
 $global:PageQualityForensics = $null
 $global:DecisionForensics = $null
 $reportFiles = New-Object System.Collections.Generic.List[string]
+$script:reportObject = $null
 
 function Get-DebugValueSample {
     param(
@@ -4601,7 +4602,6 @@ function Ensure-OutputContract {
         New-Item -ItemType File -Path $doneFail -Force | Out-Null
     }
 
-    $reportOutputPath = Join-Path $base 'reports\report.json'
     $decisionNextActions = Convert-ToStringArraySafe -Value (Safe-Get -Object $Decision -Key 'next_actions' -Default (Safe-Get -Object $Decision -Key 'do_next' -Default @()))
     $decisionP0 = Convert-ToStringArraySafe -Value (Safe-Get -Object $Decision -Key 'p0' -Default @())
     $decisionP1 = Convert-ToStringArraySafe -Value (Safe-Get -Object $Decision -Key 'p1' -Default @())
@@ -4652,7 +4652,7 @@ function Ensure-OutputContract {
     if ($null -eq $reportObject) {
         throw "reportObject is null before write"
     }
-    $reportObject | ConvertTo-Json -Depth 10 | Out-File -FilePath $reportOutputPath -Encoding utf8
+    $script:reportObject = $reportObject
 }
 
 $resolvedMode = $MODE.ToUpperInvariant()
@@ -4865,6 +4865,8 @@ finally {
     Ensure-OutputContract -ResolvedMode $resolvedMode -FinalStatus $status -FailureReason $failureReason
 }
 
+Finalize-Report -ReportObject $reportObject -BasePath $base
+
 if ($status -eq 'PASS' -and $null -eq $global:AuditError) {
     Write-Host "SITE_AUDITOR completed successfully. Artifacts: $outboxDir ; $reportsDir"
     exit 0
@@ -4872,3 +4874,34 @@ if ($status -eq 'PASS' -and $null -eq $global:AuditError) {
 
 Write-Host "SITE_AUDITOR failed. Artifacts: $outboxDir ; $reportsDir"
 exit 1
+
+function Finalize-Report {
+    param(
+        [object]$ReportObject,
+        [string]$BasePath
+    )
+
+    try {
+        if ($null -eq $ReportObject) {
+            $ReportObject = @{
+                overall = "RUNTIME_FAIL"
+                status  = "NO_REPORT_OBJECT"
+                timestamp = (Get-Date).ToString("o")
+            }
+        }
+
+        $reportDir = Join-Path $BasePath "reports"
+        if (-not (Test-Path $reportDir)) {
+            New-Item -ItemType Directory -Path $reportDir -Force | Out-Null
+        }
+
+        $reportPath = Join-Path $reportDir "report.json"
+
+        $ReportObject | ConvertTo-Json -Depth 10 | Out-File -FilePath $reportPath -Encoding utf8
+
+        Write-Host "FINALIZE: report.json written to $reportPath"
+    }
+    catch {
+        Write-Host "FINALIZE ERROR: $($_.Exception.Message)"
+    }
+}

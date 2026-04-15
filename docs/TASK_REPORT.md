@@ -1,9 +1,9 @@
 ## Summary
-- Restored strict `report.json` write contract in `site_auditor_cloud` finalization block.
-- Ensured `reportObject` is created before conditional `decision_summary` attachment.
-- Added null-guard before serialization: throws if `reportObject` is null before write.
-- Forced final write target to `Join-Path $base 'reports\report.json'`.
-- Increased final report serialization depth to `ConvertTo-Json -Depth 10` for decision payload safety.
+- Introduced `Finalize-Report` as the single, guaranteed writer for `reports/report.json`.
+- Moved final `reportObject` handling to script scope so report data survives any upstream branch.
+- Removed mid-flow `report.json` write from `Write-OperatorOutputs` to enforce single write point.
+- Added unconditional `Finalize-Report -ReportObject $reportObject -BasePath $base` invocation after `finally`.
+- Preserved existing workflow, validation, and decision logic while making report persistence fail-safe.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -14,9 +14,9 @@ None.
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Final report write path: `Join-Path $base 'reports\report.json'`.
-- Final report writer contract: `$reportObject | ConvertTo-Json -Depth 10 | Out-File -FilePath $reportOutputPath -Encoding utf8`.
+- Final report write path: `Join-Path $BasePath 'reports/report.json'` inside `Finalize-Report`.
+- Single write contract: only `Finalize-Report` writes `report.json`, invoked once at script end.
 
 ## Risks/blockers
-- No workflow/pipeline/validation/decision-helper logic was changed.
-- Validation run was not executed in this environment; CI should confirm end-to-end report contract behavior.
+- No workflow, validation criteria, or decision-building behavior was changed.
+- Local CI workflow was not executed in this environment; GitHub Actions should verify `Upload reports` and `Validate agent result`.
