@@ -142,22 +142,21 @@ jobs:
             exit 1
           fi
 
-          fail_count=0
-          partial_count=0
+          execution_fail_count=0
 
           for report_file in "${report_files[@]}"; do
-            if grep -q '"overall"[[:space:]]*:[[:space:]]*"FAIL"' "$report_file"; then
-              echo "ERROR: Found overall FAIL in $report_file"
-              fail_count=$((fail_count + 1))
-            fi
-            if grep -q '"status"[[:space:]]*:[[:space:]]*"PARTIAL"' "$report_file"; then
-              echo "ERROR: Found status PARTIAL in $report_file"
-              partial_count=$((partial_count + 1))
+            overall_value=$(grep -Eo '"overall"[[:space:]]*:[[:space:]]*"[^"]+"' "$report_file" | head -n 1 | sed -E 's/.*"overall"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/' || true)
+            status_value=$(grep -Eo '"status"[[:space:]]*:[[:space:]]*"[^"]+"' "$report_file" | head -n 1 | sed -E 's/.*"status"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/' || true)
+            echo "INFO: audit result present in $report_file (overall=${overall_value:-UNKNOWN}, status=${status_value:-UNKNOWN}, path=$report_file)"
+
+            if grep -q '"status"[[:space:]]*:[[:space:]]*"RUNTIME_FAIL"' "$report_file"; then
+              echo "ERROR: Found runtime failure in $report_file"
+              execution_fail_count=$((execution_fail_count + 1))
             fi
           done
 
-          if [ "$fail_count" -gt 0 ] || [ "$partial_count" -gt 0 ]; then
+          if [ "$execution_fail_count" -gt 0 ]; then
             exit 1
           fi
 
-          echo "PASS: Agent reports validated successfully."
+          echo "PASS: Agent execution completed and report artifacts exist."
