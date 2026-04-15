@@ -658,6 +658,28 @@ function Normalize-ToArray {
     return @($x)
 }
 
+function Normalize-CollectionShape {
+    param([object]$Value)
+
+    if ($null -eq $Value) { return @() }
+    if ($Value -is [System.Collections.IDictionary] -or $Value -is [PSCustomObject]) { return @($Value) }
+    return Convert-ToObjectArraySafe -Value $Value
+}
+
+function Add-UniqueString {
+    param(
+        [System.Collections.Generic.List[string]]$List,
+        [string]$Value
+    )
+
+    if ($null -eq $List) { return }
+    $text = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($text)) { return }
+    if (-not ($List.Contains($text))) {
+        $List.Add($text)
+    }
+}
+
 function Convert-ToStringArraySafe {
     param(
         [object]$Value
@@ -1664,6 +1686,20 @@ function Invoke-LiveAudit {
         $rollups = $routeDetailsAndRollups.rollups
         $patternSummary = Safe-Get -Object $routeDetailsAndRollups -Key 'pattern_summary' -Default @{}
         $coverageSummary = Build-EvidenceCoverageSummary -Routes $routes
+        $routesWithCanonicalCoverage = @($routes | Where-Object {
+                $shotMap = Safe-Get -Object $_ -Key 'screenshot_map' -Default @{}
+                -not [string]::IsNullOrWhiteSpace([string](Safe-Get -Object $shotMap -Key 'top' -Default '')) -and
+                -not [string]::IsNullOrWhiteSpace([string](Safe-Get -Object $shotMap -Key 'mid' -Default '')) -and
+                -not [string]::IsNullOrWhiteSpace([string](Safe-Get -Object $shotMap -Key 'bottom' -Default ''))
+            })
+        $issueScreenshotCount = [int](Safe-Get -Object $rollups -Key 'issue_screenshots' -Default 0)
+        $issuesMissingEvidence = [int](Safe-Get -Object $rollups -Key 'issues_missing_evidence' -Default 0)
+        $routesTotal = [int]@($routes).Count
+        $routesCaptured = [int]@($routesWithCanonicalCoverage).Count
+        $coverageScore = 0
+        if ($routesTotal -gt 0) {
+            $coverageScore = [int][Math]::Round((($routesCaptured / [double]$routesTotal) * 100), 0)
+        }
 
         $findings = New-Object System.Collections.Generic.List[string]
         $warnings = New-Object System.Collections.Generic.List[string]
@@ -1675,6 +1711,10 @@ function Invoke-LiveAudit {
         elseif ($droppedCount -gt 0) {
             $pageQualityStatus = 'PARTIAL'
             $warnings.Add("ROUTE_NORMALIZATION: dropped $droppedCount route entries due to incompatible shape.")
+        }
+        if ($issuesMissingEvidence -gt 0) {
+            $pageQualityStatus = 'PARTIAL'
+            $warnings.Add("ISSUE_EVIDENCE: $issuesMissingEvidence issue(s) are missing screenshot evidence references.")
         }
         foreach ($shapeWarning in $shapeWarnings) {
             $warnings.Add($shapeWarning)
@@ -1710,6 +1750,12 @@ function Invoke-LiveAudit {
                 raw_route_entries = [int](Safe-Get -Object $normalizedRoutesData -Key 'raw_count' -Default 0)
                 normalized_route_entries = @($routes).Count
                 dropped_route_entries = $droppedCount
+                visual_coverage = [ordered]@{
+                    routes_total = $routesTotal
+                    routes_captured = $routesCaptured
+                    issue_screenshots = $issueScreenshotCount
+                    coverage_score = $coverageScore
+                }
             }
             route_details = $routeDetails
             findings = @($findings)
@@ -2065,6 +2111,8 @@ function Build-PageQualityFindings {
         $weakCtaRoutes = 0
         $deadEndRoutes = 0
         $contaminatedRoutes = 0
+        $issueScreenshotCount = 0
+        $issuesMissingEvidence = 0
         $verdictCounts = @{}
 
         foreach ($route in @($routesInput)) {
@@ -2096,6 +2144,10 @@ function Build-PageQualityFindings {
             $uiContamination = @($contaminationFlags).Count -gt 0
             $primaryVerdict = Get-RoutePrimaryVerdict -Empty $empty -Thin $thin -WeakCta $weakCta -DeadEnd $deadEnd -UiContamination $uiContamination
             $routeContradictions = New-Object System.Collections.Generic.List[object]
+            $baseScreenshots = Convert-ToPageQualityStringArray -Value (Safe-Get -Object $route -Key 'screenshots' -Default @())
+            $issueScreenshots = Convert-ToPageQualityStringArray -Value (Safe-Get -Object $route -Key 'issue_screenshots' -Default @())
+            $screenshotEvidence = @($baseScreenshots + $issueScreenshots | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Select-Object -Unique)
+            $routeIssues = New-Object System.Collections.Generic.List[object]
 
             $operationLabel = 'PQ3_route_contradictions_build'
             $expression = 'Route contradiction candidate construction'
@@ -2121,6 +2173,47 @@ function Build-PageQualityFindings {
             if ($weakCta) { $weakCtaRoutes++ }
             if ($deadEnd) { $deadEndRoutes++ }
             if ($uiContamination) { $contaminatedRoutes++ }
+            if ($screenshotEvidence.Count -gt 0) { $issueScreenshotCount += $screenshotEvidence.Count }
+
+            if ($empty) {
+                $routeIssues.Add([ordered]@{
+                    class = 'EMPTY_OR_NEAR_EMPTY_PAGE'
+                    requires_visual_proof = $true
+                    evidence_refs = @($screenshotEvidence | Select-Object -First 2)
+                })
+            }
+            if ($uiContamination) {
+                $routeIssues.Add([ordered]@{
+                    class = 'OVERLAY_OR_UI_CONTAMINATION'
+                    requires_visual_proof = $true
+                    evidence_refs = @($screenshotEvidence | Select-Object -First 2)
+                })
+            }
+            if ((-not $hasMain) -and (-not $hasArticle)) {
+                $routeIssues.Add([ordered]@{
+                    class = 'DUPLICATE_SHELL_OR_MISSING_CRITICAL_BLOCK'
+                    requires_visual_proof = $true
+                    evidence_refs = @($screenshotEvidence | Select-Object -First 2)
+                })
+            }
+            if (($statusCode -ge 500) -or $normalizedText.Contains('{{') -or $normalizedText.Contains('{%')) {
+                $routeIssues.Add([ordered]@{
+                    class = 'BROKEN_RENDER_OR_TEMPLATE_LEAKAGE'
+                    requires_visual_proof = $true
+                    evidence_refs = @($screenshotEvidence | Select-Object -First 2)
+                })
+            }
+            if ((-not $empty) -and $links -eq 0 -and $images -eq 0 -and $buttonCount -eq 0) {
+                $routeIssues.Add([ordered]@{
+                    class = 'SEVERE_LAYOUT_BREAK'
+                    requires_visual_proof = $true
+                    evidence_refs = @($screenshotEvidence | Select-Object -First 2)
+                })
+            }
+            foreach ($issue in @($routeIssues)) {
+                $ev = Convert-ToPageQualityStringArray -Value (Safe-Get -Object $issue -Key 'evidence_refs' -Default @())
+                if ($ev.Count -eq 0) { $issuesMissingEvidence++ }
+            }
 
             if (-not $verdictCounts.ContainsKey($primaryVerdict)) {
                 $verdictCounts[$primaryVerdict] = 0
@@ -2256,6 +2349,9 @@ function Build-PageQualityFindings {
                 visibleTextSample = $visibleTextSample
                 contaminationFlags = $contaminationFlagsOutput
                 contradiction_candidates = $routeContradictionsOutput
+                screenshots = @($baseScreenshots)
+                issue_screenshots = @($issueScreenshots)
+                issues = @($routeIssues.ToArray())
             })
         }
 
@@ -2267,6 +2363,8 @@ function Build-PageQualityFindings {
             weak_cta_routes = [int]$weakCtaRoutes
             dead_end_routes = [int]$deadEndRoutes
             contaminated_routes = [int]$contaminatedRoutes
+            issue_screenshots = [int]$issueScreenshotCount
+            issues_missing_evidence = [int]$issuesMissingEvidence
             verdict_counts = $verdictCounts
         }
 
@@ -3011,316 +3109,139 @@ function Build-DecisionLayer {
         [object]$Warnings
     )
 
-    $activeOperationLabel = 'initialize'
-    $activeExpression = ''
-
-    try {
-    $activeOperationLabel = 'normalize/source_layer'
-    $activeExpression = 'Convert-ToHashtableSafe -Value $SourceLayer'
     $normalizedSourceLayer = Convert-ToHashtableSafe -Value $SourceLayer
-    $activeOperationLabel = 'normalize/live_layer'
-    $activeExpression = 'Convert-ToHashtableSafe -Value $LiveLayer'
     $normalizedLiveLayer = Convert-ToHashtableSafe -Value $LiveLayer
-    $activeOperationLabel = 'normalize/missing_inputs_array'
-    $activeExpression = 'Convert-ToStringArraySafe -Value $MissingInputs'
     $normalizedMissingInputs = Convert-ToStringArraySafe -Value $MissingInputs
-    $activeOperationLabel = 'normalize/warnings_array'
-    $activeExpression = 'Convert-ToDecisionWarningStringArray -Value $Warnings'
     $normalizedWarnings = Convert-ToDecisionWarningStringArray -Value $Warnings
-    $normalizedWarningsType = if ($null -eq $normalizedWarnings) { 'NULL' } else { [string]$normalizedWarnings.GetType().FullName }
+
+    $liveSummary = Convert-ToHashtableSafe -Value (Safe-Get -Object $normalizedLiveLayer -Key 'summary' -Default @{})
+    $routeDetails = Convert-ToObjectArraySafe -Value (Safe-Get -Object $normalizedLiveLayer -Key 'route_details' -Default @())
+    $sourceRequired = [bool](Safe-Get -Object $normalizedSourceLayer -Key 'required' -Default $false)
+    $sourceOk = [bool](Safe-Get -Object $normalizedSourceLayer -Key 'ok' -Default $false)
+    $liveRequired = [bool](Safe-Get -Object $normalizedLiveLayer -Key 'required' -Default $false)
+    $liveOk = [bool](Safe-Get -Object $normalizedLiveLayer -Key 'ok' -Default $false)
+
+    $emptyRoutes = [int](Safe-Get -Object $liveSummary -Key 'empty_routes' -Default 0)
+    $thinRoutes = [int](Safe-Get -Object $liveSummary -Key 'thin_routes' -Default 0)
+    $weakCtaRoutes = [int](Safe-Get -Object $liveSummary -Key 'weak_cta_routes' -Default 0)
+    $deadEndRoutes = [int](Safe-Get -Object $liveSummary -Key 'dead_end_routes' -Default 0)
+    $contaminatedRoutes = [int](Safe-Get -Object $liveSummary -Key 'contaminated_routes' -Default 0)
+
+    $issueClassCounts = @{}
+    foreach ($route in @($routeDetails)) {
+        $issues = Normalize-CollectionShape -Value (Safe-Get -Object $route -Key 'issues' -Default @())
+        foreach ($issue in @($issues)) {
+            $issueClass = [string](Safe-Get -Object $issue -Key 'class' -Default '')
+            if ([string]::IsNullOrWhiteSpace($issueClass)) { continue }
+            if (-not $issueClassCounts.ContainsKey($issueClass)) { $issueClassCounts[$issueClass] = 0 }
+            $issueClassCounts[$issueClass] = [int]$issueClassCounts[$issueClass] + 1
+        }
+    }
+
+    $missingInputCount = @($normalizedMissingInputs | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }).Count
+    $conversionWeak = [int]($weakCtaRoutes + $deadEndRoutes)
+
+    $stage = 'READY'
+    if ($missingInputCount -gt 0 -or ($sourceRequired -and -not $sourceOk) -or ($liveRequired -and -not $liveOk)) {
+        $stage = 'BROKEN'
+    }
+    elseif ($emptyRoutes -gt 0 -or [int](Safe-Get -Object $issueClassCounts -Key 'DUPLICATE_SHELL_OR_MISSING_CRITICAL_BLOCK' -Default 0) -gt 0 -or [int](Safe-Get -Object $issueClassCounts -Key 'SEVERE_LAYOUT_BREAK' -Default 0) -gt 0) {
+        $stage = 'STRUCTURE'
+    }
+    elseif ($thinRoutes -gt 0) {
+        $stage = 'CONTENT'
+    }
+    elseif ($contaminatedRoutes -gt 0 -or [int](Safe-Get -Object $issueClassCounts -Key 'OVERLAY_OR_UI_CONTAMINATION' -Default 0) -gt 0 -or [int](Safe-Get -Object $issueClassCounts -Key 'BROKEN_RENDER_OR_TEMPLATE_LEAKAGE' -Default 0) -gt 0) {
+        $stage = 'UX'
+    }
+    elseif ($conversionWeak -gt 0) {
+        $stage = 'CONVERSION'
+    }
+
+    $coreProblem = switch ($stage) {
+        'BROKEN' { 'Audit runtime or required inputs are broken, so reliable evaluation is blocked.' }
+        'STRUCTURE' { 'Core page structure is broken on key routes and blocks trustworthy delivery.' }
+        'CONTENT' { 'Pages are present but content depth is too thin for reliable usefulness.' }
+        'UX' { 'Visual trust and rendering quality are degraded by contamination or breakage.' }
+        'CONVERSION' { 'Decision and CTA paths are weak, reducing user progression.' }
+        default { 'No deterministic blockers detected across audited routes.' }
+    }
 
     $p0List = New-Object System.Collections.Generic.List[string]
-    $p1List = New-Object System.Collections.Generic.List[string]
-    $p2List = New-Object System.Collections.Generic.List[string]
-    $doNextList = New-Object System.Collections.Generic.List[string]
+    foreach ($missing in @($normalizedMissingInputs)) { Add-UniqueString -List $p0List -Value "Missing required input: $missing" }
+    if ($sourceRequired -and -not $sourceOk) { Add-UniqueString -List $p0List -Value "Source audit failed in $ResolvedMode mode." }
+    if ($liveRequired -and -not $liveOk) { Add-UniqueString -List $p0List -Value "Live audit failed in $ResolvedMode mode." }
+    if ($emptyRoutes -gt 0) { Add-UniqueString -List $p0List -Value "$emptyRoutes route(s) are empty or near-empty." }
+    if ($thinRoutes -gt 0) { Add-UniqueString -List $p0List -Value "$thinRoutes route(s) are thin-content." }
+    if ($contaminatedRoutes -gt 0) { Add-UniqueString -List $p0List -Value "$contaminatedRoutes route(s) show UI contamination." }
+    if ($conversionWeak -gt 0) { Add-UniqueString -List $p0List -Value "$conversionWeak route observations show weak CTA/dead-end behavior." }
 
-    $activeOperationLabel = 'array/materialize/missing_inputs'
-    $activeExpression = '@($normalizedMissingInputs)'
-    $missingInputsArray = @($normalizedMissingInputs)
-    foreach ($missing in @($missingInputsArray)) {
-        $missingText = [string]$missing
-        if ([string]::IsNullOrWhiteSpace($missingText)) { continue }
-        if ([string]::Equals($missingText, 'primary_targets', [System.StringComparison]::OrdinalIgnoreCase)) {
-            $activeOperationLabel = 'list/add/p1_missing_optional_primary_targets'
-            $activeExpression = '$p1List.Add(...)'
-            $p1List.Add([string]'Missing optional input: primary_targets')
-            continue
+    $nowList = New-Object System.Collections.Generic.List[string]
+    $afterList = New-Object System.Collections.Generic.List[string]
+    switch ($stage) {
+        'BROKEN' {
+            Add-UniqueString -List $nowList -Value 'Fix missing inputs/runtime failures and rerun the same mode.'
+            Add-UniqueString -List $nowList -Value 'Confirm required artifacts are regenerated before trusting status.'
+            Add-UniqueString -List $afterList -Value 'After runtime stability, rerun to classify structural/content blockers.'
         }
-        $activeOperationLabel = 'list/add/p0_missing_required_input'
-        $activeExpression = '$p0List.Add(...)'
-        $p0List.Add([string]"Missing required input: $missingText")
-    }
-
-    if ($ResolvedMode -in @('REPO', 'ZIP') -and [bool](Safe-Get -Object $normalizedSourceLayer -Key 'required' -Default $false)) {
-        if (-not [bool](Safe-Get -Object $normalizedSourceLayer -Key 'enabled' -Default $false) -or -not [bool](Safe-Get -Object $normalizedSourceLayer -Key 'ok' -Default $false)) {
-            $activeOperationLabel = 'list/add/p0_source_audit_failure'
-            $activeExpression = '$p0List.Add(...)'
-            $p0List.Add([string]"Source audit failure in $ResolvedMode mode.")
+        'STRUCTURE' {
+            Add-UniqueString -List $nowList -Value 'Repair empty/broken shell routes and missing critical blocks first.'
+            Add-UniqueString -List $nowList -Value 'Regenerate issue-bound screenshots for each structural blocker route.'
+            Add-UniqueString -List $afterList -Value 'Then improve content depth and UX consistency on repaired routes.'
         }
-    }
-
-    if ([bool](Safe-Get -Object $normalizedLiveLayer -Key 'required' -Default $false) -and (-not [bool](Safe-Get -Object $normalizedLiveLayer -Key 'enabled' -Default $false) -or -not [bool](Safe-Get -Object $normalizedLiveLayer -Key 'ok' -Default $false))) {
-        $activeOperationLabel = 'list/add/p0_live_audit_failure'
-        $activeExpression = '$p0List.Add(...)'
-        $p0List.Add([string]"Live audit failure in $ResolvedMode mode.")
-    }
-
-    $activeOperationLabel = 'warnings/step01/enter'
-    $activeExpression = '$normalizedWarnings'
-    $warningList = New-Object System.Collections.Generic.List[string]
-    $activeOperationLabel = 'warnings/step02/safe_single_pass'
-    $activeExpression = '$normalizedWarnings'
-
-    if ($null -eq $normalizedWarnings) {
-        # nothing
-    }
-    elseif ($normalizedWarnings -is [System.Collections.IEnumerable] -and -not ($normalizedWarnings -is [string])) {
-
-        $activeOperationLabel = 'warnings/step02a/enumerate_normalized'
-        $activeExpression = 'foreach ($warning in $normalizedWarnings)'
-        foreach ($warning in $normalizedWarnings) {
-
-            if ($null -eq $warning) { continue }
-
-            $activeOperationLabel = 'warnings/step03/cast_to_string'
-            $activeExpression = '[string]$warning'
-            $warningText = [string]$warning
-
-            if ([string]::IsNullOrWhiteSpace($warningText)) { continue }
-
-            $activeOperationLabel = 'warnings/step04/add_warningList'
-            $activeExpression = '$warningList.Add($warningText)'
-            $warningList.Add($warningText)
+        'CONTENT' {
+            Add-UniqueString -List $nowList -Value 'Expand thin routes with meaningful primary content and intent clarity.'
+            Add-UniqueString -List $afterList -Value 'Then refine UX polish and conversion flows.'
         }
-
-    }
-    else {
-
-        $activeOperationLabel = 'warnings/step02b/single_value_path'
-        $activeExpression = '[string]$normalizedWarnings'
-
-        $warningText = [string]$normalizedWarnings
-
-        if (-not [string]::IsNullOrWhiteSpace($warningText)) {
-            $activeOperationLabel = 'warnings/step04/add_warningList'
-            $activeExpression = '$warningList.Add($warningText)'
-            $warningList.Add($warningText)
+        'UX' {
+            Add-UniqueString -List $nowList -Value 'Remove contamination/overlay/render issues visible in evidence screenshots.'
+            Add-UniqueString -List $afterList -Value 'Then optimize conversion messaging and funnel progression.'
+        }
+        'CONVERSION' {
+            Add-UniqueString -List $nowList -Value 'Add clear CTAs and onward navigation on weak conversion routes.'
+            Add-UniqueString -List $afterList -Value 'Then run UX/content polish after conversion blockers are removed.'
+        }
+        default {
+            Add-UniqueString -List $nowList -Value 'Maintain current baseline and keep deterministic regression checks.'
+            Add-UniqueString -List $afterList -Value 'Plan next-layer growth experiments after baseline remains stable.'
         }
     }
 
-    foreach ($warningText in $warningList) {
-        $activeOperationLabel = 'warnings/step06/add_p1'
-        $activeExpression = '$p1List.Add([string]$warningText)'
-        $p1List.Add([string]$warningText)
-    }
+    foreach ($warning in @($normalizedWarnings)) { Add-UniqueString -List $afterList -Value $warning }
 
-    $sourceFindings = Convert-ToObjectArraySafe -Value (Safe-Get -Object $normalizedSourceLayer -Key 'findings' -Default @())
-    $sourceSummary = Convert-ToHashtableSafe -Value (Safe-Get -Object $normalizedSourceLayer -Key 'summary' -Default @{})
-    $sourceFileCount = [int](Safe-Get -Object $sourceSummary -Key 'file_count' -Default 0)
-    if ([bool](Safe-Get -Object $normalizedSourceLayer -Key 'enabled' -Default $false) -and $sourceFileCount -gt 0 -and @($sourceFindings).Count -eq 0) {
-        $p2List.Add([string]'Source structure baseline looks healthy from inventory scan.')
-    }
-
-    if ([bool](Safe-Get -Object $normalizedLiveLayer -Key 'enabled' -Default $false) -and [bool](Safe-Get -Object $normalizedLiveLayer -Key 'ok' -Default $false)) {
-        $p2List.Add([string]'Live route capture completed with healthy status codes and screenshots.')
-    }
-
-    $liveSummary = @{}
-    $patternSummary = @{}
-    $pageQualityStatus = 'NOT_EVALUATED'
-    $emptyRoutes = 0
-    $thinRoutes = 0
-    $weakCtaRoutes = 0
-    $deadEndRoutes = 0
-    $contaminatedRoutes = 0
-    $conversionRoutes = 0
-
-    if ([bool](Safe-Get -Object $normalizedLiveLayer -Key 'enabled' -Default $false)) {
-        $liveSummary = Convert-ToHashtableSafe -Value (Safe-Get -Object $normalizedLiveLayer -Key 'summary' -Default @{})
-        $patternSummary = Convert-ToHashtableSafe -Value (Safe-Get -Object $liveSummary -Key 'site_pattern_summary' -Default @{})
-        $emptyRoutes = [int](Safe-Get -Object $liveSummary -Key 'empty_routes' -Default 0)
-        $thinRoutes = [int](Safe-Get -Object $liveSummary -Key 'thin_routes' -Default 0)
-        $weakCtaRoutes = [int](Safe-Get -Object $liveSummary -Key 'weak_cta_routes' -Default 0)
-        $deadEndRoutes = [int](Safe-Get -Object $liveSummary -Key 'dead_end_routes' -Default 0)
-        $contaminatedRoutes = [int](Safe-Get -Object $liveSummary -Key 'contaminated_routes' -Default 0)
-        $conversionRoutes = [int]($weakCtaRoutes + $deadEndRoutes)
-        $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
-
-        if ($contaminatedRoutes -ge 2) { $p0List.Add([string]"Trust blocker: repeated contamination pattern across $contaminatedRoutes route(s).") }
-        elseif ($contaminatedRoutes -eq 1) { $p1List.Add([string]'Trust blocker: contamination markers detected on 1 route.') }
-
-        if ($emptyRoutes -ge 2) { $p0List.Add([string]"Coverage/content blocker: $emptyRoutes empty routes require primary-content restoration.") }
-        elseif ($emptyRoutes -eq 1) { $p1List.Add([string]'Coverage/content blocker: 1 empty route detected in live pages.') }
-
-        if ($thinRoutes -ge 2) { $p1List.Add([string]"Coverage/content blocker: repeated thin-content pattern on $thinRoutes route(s).") }
-        elseif ($thinRoutes -eq 1) { $p2List.Add([string]'Secondary optimization issue: 1 thin route could be strengthened.') }
-
-        if ($conversionRoutes -ge 3) { $p1List.Add([string]"Conversion blocker: weak decision/conversion paths across $conversionRoutes route observations.") }
-        elseif ($conversionRoutes -gt 0) { $p2List.Add([string]"Secondary optimization issue: conversion friction present on $conversionRoutes route observation(s).") }
-
-        if ($pageQualityStatus -eq 'PARTIAL') { $p1List.Add([string]'Page-quality evaluation is PARTIAL due to route normalization or merge issues.') }
-        if ($pageQualityStatus -eq 'NOT_EVALUATED') { $p0List.Add([string]'Page-quality evaluation is NOT_EVALUATED; live findings are incomplete.') }
-
-        if ($emptyRoutes -eq 0 -and $thinRoutes -eq 0 -and $weakCtaRoutes -eq 0 -and $deadEndRoutes -eq 0 -and $contaminatedRoutes -eq 0 -and [bool](Safe-Get -Object $normalizedLiveLayer -Key 'ok' -Default $false) -and $pageQualityStatus -eq 'EVALUATED') {
-            $p2List.Add([string]'No page-quality v1 concerns detected in sampled live routes.')
-        }
-
-        $dominantPattern = Safe-Get -Object $patternSummary -Key 'dominant_pattern' -Default $null
-        if ($null -ne $dominantPattern) {
-            $dominantPatternNode = Convert-ToHashtableSafe -Value $dominantPattern
-            $scope = [string](Safe-Get -Object $dominantPatternNode -Key 'scope' -Default 'ISOLATED')
-            $label = [string](Safe-Get -Object $dominantPatternNode -Key 'label' -Default 'route-quality pattern')
-            $count = [int](Safe-Get -Object $dominantPatternNode -Key 'routes_affected' -Default 0)
-            $p1List.Add([string]"Dominant $scope pattern: $label ($count route(s)).")
-        }
-    }
-
-    $contradictionSummary = Convert-ToHashtableSafe -Value (Build-ContradictionLayer -SourceLayer $normalizedSourceLayer -LiveLayer $normalizedLiveLayer -MissingInputs @($normalizedMissingInputs))
-    $contradictionTotal = [int](Safe-Get -Object $contradictionSummary -Key 'total_candidates' -Default 0)
-    $siteDiagnosis = Convert-ToHashtableSafe -Value (Build-SiteDiagnosisLayer -SourceLayer $normalizedSourceLayer -LiveLayer $normalizedLiveLayer -ContradictionSummary $contradictionSummary -MissingInputs @($normalizedMissingInputs))
-
-    if ($contradictionTotal -gt 0) {
-        $classCounts = Convert-ToHashtableSafe -Value (Safe-Get -Object $contradictionSummary -Key 'class_counts' -Default @{})
-        $activeOperationLabel = 'list/create/ranked_classes'
-        $activeExpression = 'New-Object System.Collections.Generic.List[object]'
-        $rankedClasses = New-Object System.Collections.Generic.List[object]
-        foreach ($className in @($classCounts.Keys)) {
-            $activeOperationLabel = 'list/add/ranked_class_entry'
-            $activeExpression = '$rankedClasses.Add(...)'
-            $rankedClasses.Add([ordered]@{ class = [string]$className; count = [int]$classCounts[$className] })
-        }
-        $topClassText = @($rankedClasses | Sort-Object -Property @{Expression = 'count'; Descending = $true }, @{Expression = 'class'; Descending = $false } | Select-Object -First 3 | ForEach-Object { "$(($_.class))=$(($_.count))" }) -join ', '
-        $p1List.Add([string]"Cross-layer contradiction candidates detected: $contradictionTotal total ($topClassText).")
-    }
-
-    $maturityReadiness = Convert-ToHashtableSafe -Value (Build-MaturityReadinessLayer -SourceLayer $normalizedSourceLayer -LiveLayer $normalizedLiveLayer -SiteDiagnosis $siteDiagnosis -ContradictionSummary $contradictionSummary -MissingInputs @($normalizedMissingInputs))
-    $blockingMissingInputs = @($normalizedMissingInputs | Where-Object { $_ -ne $null -and -not [string]::Equals([string]$_, 'primary_targets', [System.StringComparison]::OrdinalIgnoreCase) })
-
-    $candidateFinalStatus = 'PASS'
-    $activeOperationLabel = 'count/check/blocking_missing_inputs'
-    $activeExpression = '@($blockingMissingInputs).Count -gt 0'
-    if (@($blockingMissingInputs).Count -gt 0 -or ([bool](Safe-Get -Object $normalizedSourceLayer -Key 'required' -Default $false) -and (-not [bool](Safe-Get -Object $normalizedSourceLayer -Key 'enabled' -Default $false) -or -not [bool](Safe-Get -Object $normalizedSourceLayer -Key 'ok' -Default $false))) -or ([bool](Safe-Get -Object $normalizedLiveLayer -Key 'required' -Default $false) -and (-not [bool](Safe-Get -Object $normalizedLiveLayer -Key 'enabled' -Default $false) -or -not [bool](Safe-Get -Object $normalizedLiveLayer -Key 'ok' -Default $false)))) {
-        $candidateFinalStatus = 'FAIL'
-    }
-    elseif ($pageQualityStatus -eq 'PARTIAL') {
-        $candidateFinalStatus = 'PARTIAL'
-    }
-
-    $auditorBaseline = Build-AuditorBaselineCertification -FinalStatus $candidateFinalStatus -SourceLayer $normalizedSourceLayer -LiveLayer $normalizedLiveLayer -ContradictionSummary $contradictionSummary -SiteDiagnosis $siteDiagnosis -MaturityReadiness $maturityReadiness
-    $remediationPackage = Convert-ToHashtableSafe -Value (Build-PrimaryRemediationPackage -LiveLayer $normalizedLiveLayer -SiteDiagnosis $siteDiagnosis -ContradictionSummary $contradictionSummary)
-    $productCloseout = Normalize-ProductCloseout -Value (Build-ProductCloseoutClassification -FinalStatus $candidateFinalStatus -SourceLayer $normalizedSourceLayer -LiveLayer $normalizedLiveLayer -ContradictionSummary $contradictionSummary -SiteDiagnosis $siteDiagnosis -MaturityReadiness $maturityReadiness -RemediationPackage $remediationPackage)
-
-    $p0 = Convert-ToStringArraySafe -Value @($p0List)
-    $p1 = Convert-ToStringArraySafe -Value @($p1List)
-    $p2 = Convert-ToStringArraySafe -Value @($p2List)
-
-    $core = ''
-    if (@($p0).Count -gt 0) { $core = [string]$p0[0] }
-    elseif (@($p1).Count -gt 0) { $core = [string]$p1[0] }
-    elseif ($ResolvedMode -in @('REPO', 'ZIP')) { $core = [string]"Combined source + live audit succeeded for $ResolvedMode mode." }
-    else { $core = [string]'Live URL audit succeeded for URL mode.' }
-
-    $packageTargets = Convert-ToObjectArraySafe -Value (Safe-Get -Object $remediationPackage -Key 'primary_targets' -Default @())
-    $primaryTargets = @($packageTargets | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique | Select-Object -First 5)
-    $packageName = [string](Safe-Get -Object $remediationPackage -Key 'package_name' -Default 'MIXED_RECOVERY_PACKAGE')
-    $activeOperationLabel = 'count/check/primary_targets'
-    $activeExpression = '@($primaryTargets).Count -gt 0'
-    if (@($primaryTargets).Count -gt 0) {
-        $targetPreview = (@($primaryTargets | Select-Object -First 3)) -join ', '
-        $activeOperationLabel = 'list/add/do_next_primary_targets'
-        $activeExpression = '$doNextList.Add(...)'
-        $doNextList.Add([string]"Execute $packageName first on routes: $targetPreview.")
-    }
-    else {
-        $activeOperationLabel = 'list/add/do_next_package_only'
-        $activeExpression = '$doNextList.Add(...)'
-        $doNextList.Add([string]"Execute $packageName first.")
-    }
-    $activeOperationLabel = 'list/add/do_next_why_first'
-    $activeExpression = '$doNextList.Add(...)'
-    $doNextList.Add([string](Safe-Get -Object $remediationPackage -Key 'why_first' -Default 'Fix the highest repeated blocker cluster before secondary optimization.'))
-    $activeOperationLabel = 'list/add/do_next_success_check'
-    $activeExpression = '$doNextList.Add(...)'
-    $doNextList.Add([string]"Success check: $([string](Safe-Get -Object $remediationPackage -Key 'success_check' -Default 'Rerun SITE_AUDITOR and verify quality blocker counts are reduced.'))")
-
-    $doNext = Convert-ToStringArraySafe -Value @($doNextList)
-    $doNext = @($doNext | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Select-Object -First 3)
-    $activeOperationLabel = 'count/check/do_next_empty'
-    $activeExpression = '@($doNext).Count -eq 0'
-    if (@($doNext).Count -eq 0) {
-        $doNext = @(
-            'Review top P0 issue and fix it directly',
-            'Apply fix to affected page/component',
-            'Re-run audit to verify resolution'
-        )
-    }
-
-    $looksClean =
-        ($emptyRoutes -eq 0) -and
-        ($thinRoutes -eq 0) -and
-        ($weakCtaRoutes -eq 0) -and
-        ($deadEndRoutes -eq 0) -and
-        ($contaminatedRoutes -eq 0) -and
-        [bool](Safe-Get -Object $normalizedLiveLayer -Key 'enabled' -Default $false) -and
-        [bool](Safe-Get -Object $normalizedLiveLayer -Key 'ok' -Default $false) -and
-        ($pageQualityStatus -eq 'EVALUATED')
-    $suspiciouslyClean = $looksClean -and ($contradictionTotal -gt 0)
-    $cleanStateLabel = if ($suspiciouslyClean) { 'SUSPICIOUSLY_CLEAN' } elseif ($looksClean) { 'CLEAN' } else { 'NOT_CLEAN' }
-
-    $productCloseoutNode = Normalize-ProductCloseout -Value $productCloseout
-    $productCloseoutNode.class = [string](Safe-Get -Object $productCloseoutNode -Key 'class' -Default 'BLOCKED_BY_UNKNOWN')
-    $productCloseoutNode.reason = [string](Safe-Get -Object $productCloseoutNode -Key 'reason' -Default 'Product closeout classification was not generated.')
-    $productCloseoutNode.confidence = [string](Safe-Get -Object $productCloseoutNode -Key 'confidence' -Default 'low')
-    $productCloseoutNode.checks = Convert-ToObjectArraySafe -Value (Safe-Get -Object $productCloseoutNode -Key 'checks' -Default @())
-    $productCloseoutNode.evidence = Convert-ToStringArraySafe -Value (Safe-Get -Object $productCloseoutNode -Key 'evidence' -Default @())
-
-    if ($productCloseoutNode.class -eq 'BLOCKED_BY_UNKNOWN' -and $productCloseoutNode.reason -eq 'Product closeout classification was not generated.') {
-        $productCloseoutNode.reason = 'Product closeout classification was not generated; emitted deterministic diagnostic payload.'
-        $productCloseoutNode.checks = @(
-            [ordered]@{
-                name = 'closeout_classification'
-                status = 'FAIL'
-                detail = 'classification_not_generated'
-            }
-        )
-        $productCloseoutNode.evidence = @(
-            'diagnostic=closeout_classification_unavailable',
-            "candidate_final_status=$candidateFinalStatus"
-        )
-    }
-
-    $activeOperationLabel = 'assemble/final_decision_object'
-    $activeExpression = '[ordered]@{ core_problem=... }'
     $decision = [ordered]@{
-        core_problem = [string]$core
+        stage = $stage
+        core_problem = [string]$coreProblem
         inputs = @($normalizedMissingInputs)
-        warnings = @($warningList.ToArray())
-        p0 = @($p0)
-        p1 = @($p1)
-        p2 = @($p2)
-        problems = @($p0)
-        do_next = @($doNext)
-        next_actions = @($doNext)
-        site_diagnosis = $siteDiagnosis
-        maturity_readiness = $maturityReadiness
-        auditor_baseline = $auditorBaseline
-        remediation_package = $remediationPackage
-        product_closeout = $productCloseoutNode
-        contradiction_summary = $contradictionSummary
-        clean_state = [string]$cleanStateLabel
+        warnings = @($normalizedWarnings)
+        p0 = @($p0List.ToArray())
+        p1 = @()
+        p2 = @()
+        problems = @($p0List.ToArray())
+        do_next = @($nowList.ToArray())
+        next_actions = @($nowList.ToArray())
+        do_next_now = @($nowList.ToArray())
+        do_next_after = @($afterList.ToArray())
+        do_next_detail = [ordered]@{
+            now = @($nowList.ToArray())
+            after = @($afterList.ToArray())
+        }
+        site_diagnosis = @{}
+        maturity_readiness = @{}
+        auditor_baseline = @{}
+        remediation_package = @{}
+        product_closeout = Normalize-ProductCloseout -Value @{
+            class = if ($stage -eq 'READY') { 'READY' } else { 'BLOCKED' }
+            reason = $coreProblem
+            confidence = if ($stage -eq 'READY') { 'high' } else { 'medium' }
+            checks = @()
+            evidence = @("stage=$stage")
+        }
+        contradiction_summary = @{}
+        clean_state = if ($stage -eq 'READY') { 'CLEAN' } else { 'NOT_CLEAN' }
     }
 
     return $decision
-    }
-    catch {
-        Set-DecisionForensics -FunctionName 'Build-DecisionLayer' -ActivePhase 'DECISION_BUILD' -ActiveOperationLabel $activeOperationLabel -ActiveExpression $activeExpression -LeftOperand $SourceLayer -RightOperand $LiveLayer -StackHintIfAvailable $_.ScriptStackTrace -AdditionalContext ([ordered]@{
-            error_message = [string]$_.Exception.Message
-            resolved_mode = [string]$ResolvedMode
-            normalized_warnings_type = $normalizedWarningsType
-            failure_kind = 'decision_layer_instrumented_boundary'
-        })
-        throw
-    }
 }
 
 function Build-MetaAuditBriefLines {
@@ -3974,7 +3895,22 @@ function Write-RunForensicsReports {
         $targetValue = [string](Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'live' -Default @{}) -Key 'base_url' -Default 'UNKNOWN_TARGET')
     }
 
+    $steps = @(
+        [ordered]@{ name = 'INPUT_VALIDATION'; status = if ($LastSuccessStage -in @('INPUT_VALIDATION', 'DECISION_BUILD', 'OPERATOR_OUTPUT_CONTRACT', 'COMPLETE')) { 'PASS' } else { 'UNKNOWN' } },
+        [ordered]@{ name = 'DECISION_BUILD'; status = if ($LastSuccessStage -in @('DECISION_BUILD', 'OPERATOR_OUTPUT_CONTRACT', 'COMPLETE')) { 'PASS' } else { 'FAIL_OR_SKIPPED' } },
+        [ordered]@{ name = 'OPERATOR_OUTPUT_CONTRACT'; status = if ($CurrentStage -eq 'COMPLETE' -or $LastSuccessStage -eq 'OPERATOR_OUTPUT_CONTRACT') { 'PASS' } else { 'FAIL_OR_SKIPPED' } }
+    )
     $contract = [ordered]@{
+        schema_version = '2.0'
+        run_id = $runId
+        started_at = $runStartedAt
+        finished_at = $RunFinishedAt
+        target_type = $ResolvedMode
+        steps = $steps
+        final_status = $FinalStatus
+        failed_step = $failedStage
+        error_class = if ([string]::IsNullOrWhiteSpace($errorMessage)) { '' } else { 'RUNTIME_FAILURE' }
+        message = if ([string]::IsNullOrWhiteSpace($errorMessage)) { $executiveSummary } else { $errorMessage }
         run_status = [ordered]@{
             run_id = $runId
             target = $targetValue
@@ -4117,6 +4053,58 @@ function Write-OperatorOutputs {
     $AuditResult.product_status = [string]$productStatusText
     $AuditResult.product_status_detail = $productStatusDetail
     $AuditResult.product_closeout = $productCloseout
+    $liveSummary = Convert-ToHashtableSafe -Value (Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'live' -Default @{}) -Key 'summary' -Default @{})
+    $routeDetailsForCoverage = Convert-ToObjectArraySafe -Value (Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'live' -Default @{}) -Key 'route_details' -Default @())
+    $visualCoverage = Convert-ToHashtableSafe -Value (Safe-Get -Object $liveSummary -Key 'visual_coverage' -Default @{})
+    if (@($visualCoverage.Keys).Count -eq 0) {
+        $routesTotalLocal = [int]@($routeDetailsForCoverage).Count
+        $routesCapturedLocal = [int]@($routeDetailsForCoverage | Where-Object { [int](Safe-Get -Object $_ -Key 'screenshotCount' -Default 0) -ge 3 }).Count
+        $coverageScoreLocal = if ($routesTotalLocal -gt 0) { [int][Math]::Round((($routesCapturedLocal / [double]$routesTotalLocal) * 100), 0) } else { 0 }
+        $visualCoverage = [ordered]@{
+            routes_total = $routesTotalLocal
+            routes_captured = $routesCapturedLocal
+            issue_screenshots = [int](Safe-Get -Object $liveSummary -Key 'issue_screenshots' -Default 0)
+            coverage_score = $coverageScoreLocal
+        }
+    }
+    $decisionStage = [string](Safe-Get -Object $Decision -Key 'stage' -Default 'BROKEN')
+    $decisionCore = [string](Safe-Get -Object $Decision -Key 'core_problem' -Default 'Decision core problem was not generated.')
+    $decisionP0 = Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object $Decision -Key 'p0' -Default @())
+    $doNextNow = Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object $Decision -Key 'do_next_now' -Default (Safe-Get -Object $Decision -Key 'do_next' -Default @()))
+    $doNextAfter = Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object $Decision -Key 'do_next_after' -Default @())
+    $validatorPass = ($FinalStatus -ne 'FAIL')
+    $AuditResult.schema_version = '4.0'
+    $AuditResult.run_id = $runId
+    $AuditResult.target = if ([string]::IsNullOrWhiteSpace([string]$env:TARGET_REPO_PATH)) { [string]$env:BASE_URL } else { [string]$env:TARGET_REPO_PATH }
+    $AuditResult.runtime = [ordered]@{
+        status = $FinalStatus
+        validator_pass = [bool]$validatorPass
+        final_output_contract_pass = $false
+        diagnostic_or_result_present = $false
+    }
+    $AuditResult.decision = [ordered]@{
+        stage = $decisionStage
+        core_problem = (($decisionCore -replace \"`r\", ' ') -replace \"`n\", ' ').Trim()
+        p0 = @($decisionP0 | Select-Object -Unique)
+        do_next = [ordered]@{
+            now = @($doNextNow | Select-Object -Unique)
+            after = @($doNextAfter | Select-Object -Unique)
+        }
+    }
+    $AuditResult.visual_coverage = $visualCoverage
+    $AuditResult.facts = [ordered]@{
+        mode = $ResolvedMode
+        required_inputs = Normalize-CollectionShape -Value (Safe-Get -Object $AuditResult -Key 'required_inputs' -Default @())
+        total_routes = [int](Safe-Get -Object $liveSummary -Key 'total_routes' -Default 0)
+        empty_routes = [int](Safe-Get -Object $liveSummary -Key 'empty_routes' -Default 0)
+        thin_routes = [int](Safe-Get -Object $liveSummary -Key 'thin_routes' -Default 0)
+        contaminated_routes = [int](Safe-Get -Object $liveSummary -Key 'contaminated_routes' -Default 0)
+    }
+    $AuditResult.artifacts = [ordered]@{
+        reports = @('reports/audit_result.json', 'reports/RUN_REPORT.json')
+        outbox = @('outbox/11A_EXECUTIVE_SUMMARY.txt', 'outbox/00_PRIORITY_ACTIONS.txt', 'outbox/01_TOP_ISSUES.txt')
+        screenshots_dir = 'reports/screenshots'
+    }
 
     $liveLayer = Safe-Get -Object $AuditResult -Key 'live' -Default @{}
     $liveSummary = Safe-Get -Object $liveLayer -Key 'summary' -Default @{}
@@ -4200,13 +4188,13 @@ function Write-OperatorOutputs {
     Write-JsonFile -Path $howToFixPath -Data $howToFix
     $reportFiles.Add('reports/HOW_TO_FIX.json')
 
-    $priorityPath = Join-Path $reportsDir '00_PRIORITY_ACTIONS.txt'
+    $priorityPath = Join-Path $outboxDir '00_PRIORITY_ACTIONS.txt'
     Write-TextFile -Path $priorityPath -Lines $priorityActions
-    $reportFiles.Add('reports/00_PRIORITY_ACTIONS.txt')
+    $reportFiles.Add('outbox/00_PRIORITY_ACTIONS.txt')
 
-    $issuesPath = Join-Path $reportsDir '01_TOP_ISSUES.txt'
+    $issuesPath = Join-Path $outboxDir '01_TOP_ISSUES.txt'
     Write-TextFile -Path $issuesPath -Lines $topIssues
-    $reportFiles.Add('reports/01_TOP_ISSUES.txt')
+    $reportFiles.Add('outbox/01_TOP_ISSUES.txt')
 
     $sourceStatus = if (-not (Safe-Get -Object $AuditResult.source -Key 'enabled' -Default $false)) { 'OFF' } elseif (Safe-Get -Object $AuditResult.source -Key 'ok' -Default $false) { 'PASS' } else { 'FAIL' }
     $liveStatus = if (-not (Safe-Get -Object $AuditResult.live -Key 'enabled' -Default $false)) { 'OFF' } elseif (Safe-Get -Object $AuditResult.live -Key 'ok' -Default $false) { 'PASS' } else { 'FAIL' }
@@ -4216,93 +4204,23 @@ function Write-OperatorOutputs {
     $sourceEnabled = [bool](Safe-Get -Object $AuditResult.source -Key 'enabled' -Default $false)
 
     $summaryLines = @(
-        'SITE_AUDITOR EXECUTIVE SUMMARY',
-        "Mode: $ResolvedMode",
-        "Status: $FinalStatus",
-        "Required inputs: $requiredInputsLine",
-        "Source audit: $sourceStatus",
-        "Live audit: $liveStatus",
-        "Core problem: $($Decision.core_problem)",
-        "Generated: $timestamp",
-        'Primary evidence: reports/audit_result.json',
-        "Clean-state check: $([string](Safe-Get -Object $Decision -Key 'clean_state' -Default 'NOT_CLEAN'))",
-        "Site diagnosis: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}) -Key 'class' -Default 'UNKNOWN'))",
-        "Diagnosis reason: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}) -Key 'reason' -Default 'none'))",
-        "Diagnosis confidence: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}) -Key 'confidence' -Default 'LOW'))",
-        "Maturity/readiness: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'maturity_readiness' -Default @{}) -Key 'class' -Default 'NOT_READY'))",
-        "Maturity reason: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'maturity_readiness' -Default @{}) -Key 'reason' -Default 'none'))",
-        "Maturity confidence: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'maturity_readiness' -Default @{}) -Key 'confidence' -Default 'LOW'))",
-        "Auditor baseline: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'auditor_baseline' -Default @{}) -Key 'class' -Default 'BLOCKED_BY_UNKNOWN'))",
-        "Baseline reason: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'auditor_baseline' -Default @{}) -Key 'reason' -Default 'none'))",
-        "Baseline confidence: $([string](Safe-Get -Object (Safe-Get -Object $Decision -Key 'auditor_baseline' -Default @{}) -Key 'confidence' -Default 'LOW'))",
-        "Product closeout: $([string](Safe-Get -Object $productCloseout -Key 'class' -Default 'BLOCKED_BY_UNKNOWN'))",
-        "Product closeout reason: $([string](Safe-Get -Object $productCloseout -Key 'reason' -Default 'none'))",
-        "Primary remediation package: $packageName",
-        "Package goal: $packageGoal"
+        "STAGE: $decisionStage",
+        '',
+        'CORE PROBLEM:',
+        $decisionCore,
+        '',
+        'P0:',
+        $((@($decisionP0) -join \"`n\")),
+        '',
+        'DO NOW:',
+        $((@($doNextNow) -join \"`n\")),
+        '',
+        'DO AFTER:',
+        $((@($doNextAfter) -join \"`n\"))
     )
-    if ($packageTargets.Count -gt 0) {
-        $summaryLines += "Primary targets: $((@($packageTargets | Select-Object -First 5)) -join ', ')"
-    }
-    $summaryLines += "Why first: $([string](Safe-Get -Object $remediationPackage -Key 'why_first' -Default 'none'))"
-    $summaryLines += "Success check: $([string](Safe-Get -Object $remediationPackage -Key 'success_check' -Default 'none'))"
-    $liveSummary = Safe-Get -Object $AuditResult.live -Key 'summary' -Default @{}
-    if ([bool](Safe-Get -Object $AuditResult.live -Key 'enabled' -Default $false)) {
-        $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
-        $summaryLines += "Page quality status: $pageQualityStatus"
-        if ($pageQualityStatus -eq 'NOT_EVALUATED') {
-            $summaryLines += "- page quality rollup unavailable (stage: $([string](Safe-Get -Object $liveSummary -Key 'failure_stage' -Default 'unknown')))."
-        }
-        else {
-            $summaryLines += 'Page quality rollup:'
-            $summaryLines += "- empty routes: $([int](Safe-Get -Object $liveSummary -Key 'empty_routes' -Default 0))"
-            $summaryLines += "- thin routes: $([int](Safe-Get -Object $liveSummary -Key 'thin_routes' -Default 0))"
-            $summaryLines += "- weak CTA routes: $([int](Safe-Get -Object $liveSummary -Key 'weak_cta_routes' -Default 0))"
-            $summaryLines += "- dead-end routes: $([int](Safe-Get -Object $liveSummary -Key 'dead_end_routes' -Default 0))"
-            $summaryLines += "- contaminated routes: $([int](Safe-Get -Object $liveSummary -Key 'contaminated_routes' -Default 0))"
-            $patternSummary = Safe-Get -Object $liveSummary -Key 'site_pattern_summary' -Default @{}
-            $repeatedCount = [int](Safe-Get -Object $patternSummary -Key 'repeated_pattern_count' -Default 0)
-            $isolatedCount = [int](Safe-Get -Object $patternSummary -Key 'isolated_pattern_count' -Default 0)
-            $dominantPattern = Safe-Get -Object $patternSummary -Key 'dominant_pattern' -Default $null
-            $summaryLines += "- repeated site patterns: $repeatedCount"
-            $summaryLines += "- isolated issue patterns: $isolatedCount"
-            if ($null -ne $dominantPattern) {
-                $summaryLines += "- dominant pattern: $([string](Safe-Get -Object $dominantPattern -Key 'label' -Default 'unknown'))"
-            }
-            $contradictionSummary = Safe-Get -Object $liveSummary -Key 'contradiction_summary' -Default @{}
-            $contradictionTotal = [int](Safe-Get -Object $contradictionSummary -Key 'total_candidates' -Default 0)
-            $summaryLines += "- contradiction candidates: $contradictionTotal"
-            $evidenceCoverage = Safe-Get -Object $liveSummary -Key 'evidence_coverage' -Default @{}
-            $evidenceRichness = [string](Safe-Get -Object $evidenceCoverage -Key 'evidence_richness' -Default 'SPARSE')
-            $summaryLines += "- evidence richness: $evidenceRichness"
-            $routeCoverage = Safe-Get -Object $evidenceCoverage -Key 'route_coverage' -Default @{}
-            $summaryLines += "- route category coverage: $([int](Safe-Get -Object $routeCoverage -Key 'distinct_category_count' -Default 0))"
-            $screenshotCoverage = Safe-Get -Object $evidenceCoverage -Key 'screenshot_coverage' -Default @{}
-            $summaryLines += "- screenshot coverage full/partial/none: $([int](Safe-Get -Object $screenshotCoverage -Key 'full_routes' -Default 0))/$([int](Safe-Get -Object $screenshotCoverage -Key 'partial_routes' -Default 0))/$([int](Safe-Get -Object $screenshotCoverage -Key 'no_screenshot_routes' -Default 0))"
-            if ($contradictionTotal -gt 0) {
-                $classCounts = Safe-Get -Object $contradictionSummary -Key 'class_counts' -Default @{}
-                $topClasses = @(
-                    @($classCounts.Keys | Sort-Object | ForEach-Object { [ordered]@{ class = [string]$_; count = [int]$classCounts[$_] } }) |
-                        Sort-Object -Property @{Expression = 'count'; Descending = $true }, @{Expression = 'class'; Descending = $false } |
-                        Select-Object -First 3 |
-                        ForEach-Object { "$($_.class)=$($_.count)" }
-                ) -join ', '
-                $summaryLines += "- contradiction classes: $topClasses"
-                if ([string](Safe-Get -Object $Decision -Key 'clean_state' -Default 'NOT_CLEAN') -eq 'SUSPICIOUSLY_CLEAN') {
-                    $summaryLines += '- warning: summary appears clean but contradiction layer flagged cross-layer mismatches.'
-                }
-            }
-            $diagnosisEvidence = Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object (Safe-Get -Object $Decision -Key 'site_diagnosis' -Default @{}) -Key 'evidence' -Default @())
-            if ($diagnosisEvidence.Count -gt 0) {
-                $summaryLines += '- diagnosis evidence:'
-                foreach ($line in @($diagnosisEvidence | Select-Object -First 3)) {
-                    $summaryLines += "- $line"
-                }
-            }
-        }
-    }
-    $summaryPath = Join-Path $reportsDir '11A_EXECUTIVE_SUMMARY.txt'
+    $summaryPath = Join-Path $outboxDir '11A_EXECUTIVE_SUMMARY.txt'
     Write-TextFile -Path $summaryPath -Lines $summaryLines
-    $reportFiles.Add('reports/11A_EXECUTIVE_SUMMARY.txt')
+    $reportFiles.Add('outbox/11A_EXECUTIVE_SUMMARY.txt')
 
     $metaBriefPath = Join-Path $reportsDir '12A_META_AUDIT_BRIEF.txt'
     $metaBriefLines = Build-MetaAuditBriefLines -AuditResult $AuditResult -Decision $Decision -FinalStatus $FinalStatus
@@ -4602,109 +4520,67 @@ function Ensure-OutputContract {
         }
     }
 
-    $reportPath = Join-Path $base 'reports\audit_result.json'
-    if (Test-Path $reportPath -PathType Leaf) {
-        $audit = Get-Content $reportPath | ConvertFrom-Json
-
-        $operatorDir = Join-Path $base 'outbox'
-        if (-not (Test-Path $operatorDir)) {
-            New-Item -ItemType Directory -Path $operatorDir -Force | Out-Null
-        }
-
-        $decision = @{
-            site_stage = ""
-            core_problem = ""
-            p0 = @()
-        }
-
-        # --- STAGE ---
-        if ($audit.content_empty_routes -gt 5) {
-            $decision.site_stage = "STRUCTURE"
-        } elseif ($audit.visual_health_score -lt 60) {
-            $decision.site_stage = "PRODUCT"
-        } else {
-            $decision.site_stage = "GROWTH"
-        }
-
-        # --- CORE PROBLEM (hard rule) ---
-        $coreProblem = ""
-        if ($audit.content_empty_routes -gt 0) {
-            $coreProblem = "Site contains empty or non-functional pages"
-        } elseif ($audit.visual_health_score -lt 60) {
-            $coreProblem = "Site has weak content quality and user experience"
-        } else {
-            $coreProblem = "Site lacks growth and monetization structure"
-        }
-        $decision.core_problem = $coreProblem
-
-        # --- P0 (filtered, no hard limit) ---
-        $p0 = @()
-        if ($audit.content_empty_routes -gt 0) {
-            $p0 += "Fix all empty or placeholder pages"
-        }
-        if ($audit.visual_health_score -lt 60) {
-            $p0 += "Improve content depth and layout quality"
-        }
-        if ($audit.visual_health_score -lt 40) {
-            $p0 += "Fix major UI/UX and structure issues"
-        }
-        $p0 = @($p0 | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
-        $decision.p0 = @($p0)
-
-        # --- DO NEXT (structured, not limited) ---
-        $doNextNow = @()
-        $doNextAfter = @()
-
-        if ($audit.content_empty_routes -gt 0) {
-            $doNextNow += "Replace all empty pages with real content"
-            $doNextNow += "Ensure each page has a clear user purpose"
-        }
-
-        if ($audit.visual_health_score -lt 60) {
-            $doNextNow += "Improve layout and readability of top pages"
-        }
-
-        $doNextAfter += "Add internal linking between key pages"
-        $doNextAfter += "Introduce clear CTAs on all main pages"
-        $doNextAfter += "Prepare pages for SEO and traffic acquisition"
-
-        $doNextNow = @($doNextNow | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
-        $doNextAfter = @($doNextAfter | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
-
-        $priorityActionsOutboxPath = Join-Path $operatorDir '00_PRIORITY_ACTIONS.txt'
-        $priorityActionsOutbox = if ($p0.Count -gt 0) { @($p0) } else { @('Build growth and monetization foundations for primary pages') }
-        Write-TextFile -Path $priorityActionsOutboxPath -Lines $priorityActionsOutbox
-
-        $issuesOutboxPath = Join-Path $operatorDir '01_TOP_ISSUES.txt'
-        $topIssuesOutbox = @($coreProblem)
-        $topIssuesOutbox += @($p0)
-        $topIssuesOutbox = @($topIssuesOutbox | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Select-Object -Unique)
-        Write-TextFile -Path $issuesOutboxPath -Lines $topIssuesOutbox
-
-        # EXEC SUMMARY
-@"
-STAGE: $($decision.site_stage)
-
-CORE PROBLEM:
-$($coreProblem)
-
-P0:
-$((@($p0) -join "`n"))
-
-DO NEXT NOW:
-$((@($doNextNow) -join "`n"))
-
-DO NEXT AFTER:
-$((@($doNextAfter) -join "`n"))
-"@ | Out-File (Join-Path $operatorDir "11A_EXECUTIVE_SUMMARY.txt")
+    $requiredArtifacts = New-Object System.Collections.Generic.List[string]
+    $requiredArtifacts.Add((Join-Path $reportsDir 'audit_result.json'))
+    $requiredArtifacts.Add((Join-Path $reportsDir 'RUN_REPORT.json'))
+    $requiredArtifacts.Add((Join-Path $outboxDir '11A_EXECUTIVE_SUMMARY.txt'))
+    $requiredArtifacts.Add((Join-Path $outboxDir '00_PRIORITY_ACTIONS.txt'))
+    $requiredArtifacts.Add((Join-Path $outboxDir '01_TOP_ISSUES.txt'))
+    $visualActive = -not [string]::IsNullOrWhiteSpace([string]$env:BASE_URL)
+    if ($visualActive) {
+        $requiredArtifacts.Add((Join-Path $reportsDir 'screenshots'))
     }
+
+    $missingArtifacts = New-Object System.Collections.Generic.List[string]
+    foreach ($artifactPath in @($requiredArtifacts)) {
+        if (-not (Test-Path -Path $artifactPath)) {
+            $missingArtifacts.Add($artifactPath)
+        }
+    }
+
+    $auditResultNode = @{}
+    if (Test-Path -Path $auditResultPath -PathType Leaf) {
+        try { $auditResultNode = ConvertFrom-Json (Get-Content -Path $auditResultPath -Raw) -AsHashtable } catch { $auditResultNode = @{} }
+    }
+    if ($auditResultNode -isnot [System.Collections.IDictionary]) { $auditResultNode = @{} }
+    $runtimeNode = Convert-ToHashtableSafe -Value (Safe-Get -Object $auditResultNode -Key 'runtime' -Default @{})
+    $contractPass = ($missingArtifacts.Count -eq 0)
+    $runtimeNode.final_output_contract_pass = [bool]$contractPass
+    $runtimeNode.diagnostic_or_result_present = [bool]($contractPass -or (Test-Path -Path (Join-Path $reportsDir 'RUN_DIAGNOSTIC.txt') -PathType Leaf))
+    if (-not $contractPass) { $runtimeNode.status = 'FAIL' }
+    $auditResultNode.runtime = $runtimeNode
+    if (-not $contractPass) {
+        $auditResultNode.status = 'FAIL'
+        $diagnostic = [ordered]@{
+            failed_step = 'OUTPUT_CONTRACT_LOCK'
+            succeeded_before_fail = $lastSuccessStage
+            missing_or_broken_artifact = @($missingArtifacts)
+            exact_next_repair_direction = 'Generate missing required artifacts before PASS/READY; rerun SITE_AUDITOR after fixing output contract boundary.'
+        }
+        Write-JsonFile -Path (Join-Path $reportsDir 'RUN_DIAGNOSTIC.json') -Data $diagnostic
+        Write-TextFile -Path (Join-Path $reportsDir 'RUN_DIAGNOSTIC.txt') -Lines @(
+            "failed_step: $($diagnostic.failed_step)",
+            "succeeded_before_fail: $($diagnostic.succeeded_before_fail)",
+            "missing_or_broken_artifact: $((@($diagnostic.missing_or_broken_artifact) -join ', '))",
+            "exact_next_repair_direction: $($diagnostic.exact_next_repair_direction)"
+        )
+        if ($auditResultNode.decision -is [System.Collections.IDictionary] -and [string](Safe-Get -Object $auditResultNode.decision -Key 'stage' -Default '') -eq 'READY') {
+            $auditResultNode.decision.stage = 'BROKEN'
+            $auditResultNode.decision.core_problem = 'Final output contract is missing required artifacts; run is not READY.'
+        }
+        $script:status = 'FAIL'
+        if ($null -eq $global:AuditError) {
+            $global:AuditError = New-Object System.Exception("Output contract lock failed. Missing artifacts: $((@($missingArtifacts) -join ', '))")
+        }
+    }
+    Write-JsonFile -Path $auditResultPath -Data $auditResultNode
 
     $doneOk = Join-Path $outboxDir 'DONE.ok'
     $doneFail = Join-Path $outboxDir 'DONE.fail'
     if (Test-Path $doneOk) { Remove-Item $doneOk -Force }
     if (Test-Path $doneFail) { Remove-Item $doneFail -Force }
 
-    if ($FinalStatus -eq 'PASS' -and $null -eq $global:AuditError) {
+    if ($contractPass -and $FinalStatus -eq 'PASS' -and $null -eq $global:AuditError) {
         New-Item -ItemType File -Path $doneOk -Force | Out-Null
     }
     else {
