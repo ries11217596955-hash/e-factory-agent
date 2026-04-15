@@ -125,56 +125,31 @@ jobs:
         run: |
           set -euo pipefail
 
-          report_files=()
-          for report_dir in \
-            "agents/gh_batch/site_auditor_cloud/audit_bundle" \
-            "agents/gh_batch/site_auditor_cloud/outbox" \
-            "agents/gh_batch/site_auditor_cloud/reports"
-          do
-            if [ -d "$report_dir" ]; then
-              while IFS= read -r report_path; do
-                report_files+=("$report_path")
-              done < <(
-                find "$report_dir" -type f \( -name audit_result.json -o -name RUN_REPORT.json \)
-              )
-            fi
-          done
+          canonical_run_report="agents/gh_batch/site_auditor_cloud/reports/RUN_REPORT.json"
+          canonical_reports_dir="agents/gh_batch/site_auditor_cloud/reports"
+          echo "INFO: Validate agent result using canonical RUN_REPORT path: $canonical_run_report"
 
-          if [ "${#report_files[@]}" -eq 0 ]; then
-            echo "ERROR: No audit_result.json or RUN_REPORT.json found under expected report paths."
+          if [ ! -f "$canonical_run_report" ]; then
+            echo "ERROR: Missing canonical RUN_REPORT.json at $canonical_run_report"
+            echo "DEBUG: Directory listing for $canonical_reports_dir"
+            if [ -d "$canonical_reports_dir" ]; then
+              ls -la "$canonical_reports_dir" || true
+            else
+              echo "DEBUG: Directory does not exist: $canonical_reports_dir"
+            fi
             exit 1
           fi
 
           execution_fail=0
-
-          for report_file in "${report_files[@]}"; do
-            echo "INFO: Found report artifact: $report_file"
-
-            case "$report_file" in
-              *audit_result.json)
-                if grep -q '"status"[[:space:]]*:' "$report_file"; then
-                  audit_status=$(sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$report_file" | head -n 1)
-                  if [ -n "$audit_status" ]; then
-                    echo "INFO: audit_result status visibility: $audit_status ($report_file)"
-                  else
-                    echo "INFO: audit_result status visibility: status field present but not parsed ($report_file)"
-                  fi
-                else
-                  echo "INFO: audit_result status visibility: status field missing ($report_file)"
-                fi
-                ;;
-              *RUN_REPORT.json)
-                if grep -q '"status"[[:space:]]*:[[:space:]]*"RUNTIME_FAIL"' "$report_file"; then
-                  echo "ERROR: Runtime failure in $report_file (status=RUNTIME_FAIL)"
-                  execution_fail=1
-                fi
-                if grep -q '"execution"[[:space:]]*:[[:space:]]*"CRASH"' "$report_file"; then
-                  echo "ERROR: Runtime crash in $report_file (execution=CRASH)"
-                  execution_fail=1
-                fi
-                ;;
-            esac
-          done
+          echo "INFO: Found canonical report artifact: $canonical_run_report"
+          if grep -q '"status"[[:space:]]*:[[:space:]]*"RUNTIME_FAIL"' "$canonical_run_report"; then
+            echo "ERROR: Runtime failure in $canonical_run_report (status=RUNTIME_FAIL)"
+            execution_fail=1
+          fi
+          if grep -q '"execution"[[:space:]]*:[[:space:]]*"CRASH"' "$canonical_run_report"; then
+            echo "ERROR: Runtime crash in $canonical_run_report (execution=CRASH)"
+            execution_fail=1
+          fi
 
           if [ "$execution_fail" -gt 0 ]; then
             exit 1

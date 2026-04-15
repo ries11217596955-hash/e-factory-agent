@@ -995,11 +995,20 @@ function Invoke-WritingStage {
             $relativePath = $relativePath[0]
         }
         $relativePath = [string]$relativePath
-        $destinationPath = Join-Path $PSScriptRoot $relativePath
+        $destinationPath = Join-Path $bundleRoot $relativePath
         $destinationDirectory = Split-Path -Path $destinationPath -Parent
         Ensure-Directory -Path $destinationDirectory
         Copy-Item -Path $artifact.source -Destination $destinationPath -Force -ErrorAction SilentlyContinue
     }
+
+    $bundleScreenshotRoot = Join-Path $bundleRoot 'screenshots'
+    $bundleScreenshotCount = if (Test-Path -Path $bundleScreenshotRoot -PathType Container) {
+        @(Get-ChildItem -Path $bundleScreenshotRoot -File -Recurse -ErrorAction SilentlyContinue).Count
+    }
+    else {
+        0
+    }
+    Add-ExecutionLog "BUNDLE_SCREENSHOTS_PACKAGED root=$bundleScreenshotRoot count=$bundleScreenshotCount"
 
     if ($null -eq $Assembled.bundle_status.repo) {
         $Assembled.bundle_status.repo = [ordered]@{}
@@ -1038,6 +1047,7 @@ function Invoke-WritingStage {
             $runReportErrorClass = 'VISUAL_ARTIFACT_MISSING'
         }
         Write-RunReportJson -FinalStatus $runReportStatus -RunId 'bundle-run' -FailedStep $runReportFailedStep -ErrorClass $runReportErrorClass -Message 'RUN_REPORT generated after report assembly and before validation.' -VisualArtifacts $visualContract
+        Add-ExecutionLog "RUN_REPORT_POST_WRITE path=$runReportCanonicalPath exists=$(Test-Path -Path $runReportCanonicalPath -PathType Leaf)"
         $script:ExecutionLog | Out-File -FilePath $executionLogPath -Encoding utf8
     }
     catch {
