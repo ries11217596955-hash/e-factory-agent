@@ -1,30 +1,23 @@
 ## Summary
-- Hardened screenshot runtime/capture policy in `capture.mjs` with deterministic top/mid/bottom capture, fixed viewport, stable waits, and issue-triggered screenshot evidence with full-page fallback.
-- Added issue-bound visual evidence modeling into page-quality processing so high-severity issue classes carry screenshot evidence refs and missing evidence degrades page-quality status.
-- Replaced decision synthesis with a rule-first deterministic stage resolver (`BROKEN|STRUCTURE|CONTENT|UX|CONVERSION|READY`) plus one-line core problem and split `DO NEXT` (`now` vs `after`).
-- Locked output contract to required artifacts and added contract-gated PASS behavior, including `RUN_DIAGNOSTIC.{json,txt}` when required artifacts are missing.
-- Updated SSOT shaping in `reports/audit_result.json` to include schema/runtime/decision/facts/artifacts/visual_coverage fields and moved required operator text artifacts to `outbox/`.
+- Root cause classified as **missing RUN_REPORT writer + wrong output root** in `run_bundle.ps1`.
+- Normalized bundle SSOT output to `reports/` by making the bundle root canonical and writing all bundle-level outputs there.
+- Added an explicit RUN_REPORT writer (`Write-RunReportJson`) and integrated it into success and failure writing paths.
+- Added a strict pre-validation guard that auto-generates fallback `reports/RUN_REPORT.json` when missing.
+- Added a dedicated validation stage that validates only `reports/RUN_REPORT.json` and removed legacy forced `report.json` copy behavior.
 
 ## Changed files
-- `agents/gh_batch/site_auditor_cloud/capture.mjs`
-- `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 None.
 
 ## Current entrypoints/paths
-- Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- Live capture entry unchanged: `agents/gh_batch/site_auditor_cloud/capture.mjs`
-- SSOT outputs remain:
-  - `reports/audit_result.json`
-  - `reports/RUN_REPORT.json`
-- Required operator artifacts now enforced in `outbox/`:
-  - `outbox/11A_EXECUTIVE_SUMMARY.txt`
-  - `outbox/00_PRIORITY_ACTIONS.txt`
-  - `outbox/01_TOP_ISSUES.txt`
+- Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
+- Canonical validation/report root: `agents/gh_batch/site_auditor_cloud/reports/`
+- Canonical required contract artifact: `agents/gh_batch/site_auditor_cloud/reports/RUN_REPORT.json`
+- Legacy debug mirror remains available: `agents/gh_batch/site_auditor_cloud/audit_bundle/` (non-SSOT)
 
 ## Risks/blockers
-- PowerShell runtime syntax validation could not be executed locally because `pwsh` is unavailable in this environment.
-- The decision layer was intentionally simplified to deterministic rules for this batch; downstream consumers relying on legacy rich diagnosis fields may require follow-up compatibility tuning.
-- Contract lock now intentionally forces FAIL when required artifacts are missing; legacy flows that depended on optimistic PASS will no longer pass.
+- Runtime execution test is blocked because PowerShell (`pwsh`/`powershell`) is not installed in this environment.
+- Negative-path behavior was validated by code-path inspection and guard placement, not by executing full PowerShell pipeline locally.
