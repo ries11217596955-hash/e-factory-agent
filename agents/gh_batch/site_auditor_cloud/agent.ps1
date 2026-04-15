@@ -4627,34 +4627,44 @@ function Ensure-OutputContract {
             $decision.site_stage = "GROWTH"
         }
 
-        # --- CORE PROBLEM ---
+        # --- CORE PROBLEM (hard single-line) ---
         if ($audit.content_empty_routes -gt 5) {
-            $decision.core_problem = "Site has empty or non-functional pages"
+            $decision.core_problem = "Site has empty pages"
         } elseif ($audit.visual_health_score -lt 60) {
-            $decision.core_problem = "Site has weak content and UX quality"
+            $decision.core_problem = "Site has weak quality pages"
         } else {
-            $decision.core_problem = "Site lacks traffic and monetization layers"
+            $decision.core_problem = "Site has no growth-ready pages"
         }
 
-        # --- P0 ---
+        # --- P0 (hard limit: max 3) ---
         if ($audit.content_empty_routes -gt 0) {
             $decision.p0 += "Fix empty pages"
         }
         if ($audit.visual_health_score -lt 60) {
-            $decision.p0 += "Improve content and layout quality"
+            $decision.p0 += "Add content"
+        }
+        if ($audit.visual_health_score -lt 80) {
+            $decision.p0 += "Remove broken elements"
         }
         if ($decision.p0.Count -gt 3) {
             $decision.p0 = $decision.p0[0..2]
         }
 
-        # --- DO NEXT ---
+        # --- DO NEXT (strict: always top 3) ---
         $decision.do_next = @(
             "Fix all empty pages",
             "Add real content to top pages",
-            "Ensure each page has clear user action"
+            "Ensure each page has clear CTA"
         )
+        $decision.do_next = $decision.do_next[0..2]
 
         # EXEC SUMMARY
+        $p0Lines = if ($decision.p0.Count -gt 0) {
+            @($decision.p0 | ForEach-Object -Begin { $i = 0 } -Process { $i++; "$i. $_" }) -join "`n"
+        } else {
+            "1. Fix empty pages"
+        }
+        $doNextLines = @($decision.do_next | ForEach-Object -Begin { $i = 0 } -Process { $i++; "$i. $_" }) -join "`n"
 @"
 STAGE: $($decision.site_stage)
 
@@ -4662,10 +4672,10 @@ CORE PROBLEM:
 $($decision.core_problem)
 
 P0:
-$(($decision.p0 -join "`n"))
+$($p0Lines)
 
 DO NEXT:
-$(($decision.do_next -join "`n"))
+$($doNextLines)
 "@ | Out-File (Join-Path $operatorDir "11A_EXECUTIVE_SUMMARY.txt")
     }
 
