@@ -1,22 +1,28 @@
 ## Summary
-- Added a force-copy block to `run_bundle.ps1` to always place `report.json` at `agents/gh_batch/site_auditor_cloud/reports/report.json` when any nested `report.json` exists.
-- Created the root `reports` directory if it is missing before copy.
-- Implemented recursive search for `report.json` under bundle scope and copy of the first match to the root reports target.
-- Added explicit host output for both success (`FORCE COPY`) and no-report warning paths.
-- Updated this report for `TASK_ID: SITE_AUDITOR_AGENT__FORCE_REPORT_TO_ROOT_REPORTS`.
+- Updated the `Validate agent result` workflow step to discover real truth artifacts (`audit_result.json`, `RUN_REPORT.json`) across `audit_bundle`, `outbox`, and `reports` directories.
+- Removed dependency on `report.json` in validation so CI no longer fails solely because `report.json` is absent.
+- Added required artifact discovery logging for each found report file (`INFO: Found report artifact: ...`).
+- Added audit status visibility logging based on `audit_result.json` without using it as a fail gate.
+- Added runtime fail gating based on `RUN_REPORT.json` (`final_status == FAIL`), while allowing successful/partial runs to pass.
 
 ## Changed files
-- `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
+- `.github/workflows/site-auditor-fixed-list.yml`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 None.
 
 ## Current entrypoints/paths
-- Bundle entry script remains `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`.
-- Forced output target path is `agents/gh_batch/site_auditor_cloud/reports/report.json`.
-- Existing runtime flow, workflow files, and validation logic remain unchanged.
+- Workflow entry remains `.github/workflows/site-auditor-fixed-list.yml` job `site-audit`.
+- Validation now searches only these directories for truth artifacts:
+  - `agents/gh_batch/site_auditor_cloud/audit_bundle`
+  - `agents/gh_batch/site_auditor_cloud/outbox`
+  - `agents/gh_batch/site_auditor_cloud/reports`
+- Validation now treats these files as report truth artifacts:
+  - `audit_result.json`
+  - `RUN_REPORT.json`
 
 ## Risks/blockers
-- Recursive search uses the first `report.json` found under `$PSScriptRoot`; if multiple reports exist, selection order depends on filesystem enumeration.
-- GitHub Actions runtime verification is not executed in this environment; final confirmation should come from CI logs/artifacts.
+- Runtime status parsing in `RUN_REPORT.json` relies on a simple `sed` extraction of `final_status`; if the schema changes significantly, parsing may miss status visibility.
+- Multiple `RUN_REPORT.json` files are all evaluated; any one reporting `final_status: FAIL` fails the step by design.
+- Full CI behavior still requires GitHub Actions execution to confirm end-to-end artifact upload and validation in hosted runners.
