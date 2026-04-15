@@ -993,4 +993,27 @@ Write-Output $manifest_json | Out-File -FilePath $summaryPath -Encoding utf8
 Write-Output $manifest_json | Out-File -FilePath $bundleStatusPath -Encoding utf8
 Add-ExecutionLog 'MANIFEST_OUTPUT_JSON_OK'
 Write-Output $manifest_json
+
+# === FORCE REPORT TO ROOT ===
+$rootReportsDir = Join-Path $PSScriptRoot "reports"
+
+if (-not (Test-Path $rootReportsDir)) {
+    New-Item -ItemType Directory -Path $rootReportsDir -Force | Out-Null
+}
+
+# Найти любой report.json внутри bundle
+$foundReports = Get-ChildItem -Path $PSScriptRoot -Recurse -Filter "report.json" -ErrorAction SilentlyContinue
+
+if ($foundReports.Count -gt 0) {
+    $sourceReport = $foundReports[0].FullName
+    $targetReport = Join-Path $rootReportsDir "report.json"
+
+    Copy-Item -Path $sourceReport -Destination $targetReport -Force
+
+    Write-Host "FORCE COPY: report.json → $targetReport"
+}
+else {
+    Write-Host "WARNING: no report.json found to copy"
+}
+
 exit $exitCode

@@ -1,28 +1,22 @@
 ## Summary
-- Added explicit debug prints in `agent.ps1` for base path and current working directory at startup.
-- Added explicit debug prints after report file write to show resolved report path and existence check result.
-- Added explicit `pwd` output in workflow debug step immediately after bundle/single-mode execution phase.
-- Kept operational logic unchanged (no edits to finalize/decision/warnings flow).
-- Updated this task report for `TASK_ID: SITE_AUDITOR_AGENT__ALIGN_WORKDIR_AND_REPORT_PATH`.
+- Added a force-copy block to `run_bundle.ps1` to always place `report.json` at `agents/gh_batch/site_auditor_cloud/reports/report.json` when any nested `report.json` exists.
+- Created the root `reports` directory if it is missing before copy.
+- Implemented recursive search for `report.json` under bundle scope and copy of the first match to the root reports target.
+- Added explicit host output for both success (`FORCE COPY`) and no-report warning paths.
+- Updated this report for `TASK_ID: SITE_AUDITOR_AGENT__FORCE_REPORT_TO_ROOT_REPORTS`.
 
 ## Changed files
-- `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- `.github/workflows/site-auditor-fixed-list.yml`
+- `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 None.
 
 ## Current entrypoints/paths
-- Agent entrypoint remains `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Workflow entrypoint remains `.github/workflows/site-auditor-fixed-list.yml`.
-- Debug path evidence now includes:
-  - `DEBUG BASE PATH: ...`
-  - `DEBUG PWD: ...`
-  - `DEBUG REPORT PATH: ...`
-  - `DEBUG REPORT EXISTS: ...`
-  - workflow `pwd` and `ls -R agents/gh_batch/site_auditor_cloud`
+- Bundle entry script remains `agents/gh_batch/site_auditor_cloud/run_bundle.ps1`.
+- Forced output target path is `agents/gh_batch/site_auditor_cloud/reports/report.json`.
+- Existing runtime flow, workflow files, and validation logic remain unchanged.
 
 ## Risks/blockers
-- This environment cannot run GitHub Actions jobs, so real runtime values for working directory and output path must be confirmed from workflow logs in GitHub.
-- The requested wording references `report.json`, while current script debug hook is attached to the existing `$reportPath` write point (`outbox/REPORT.txt`) to avoid logic changes.
+- Recursive search uses the first `report.json` found under `$PSScriptRoot`; if multiple reports exist, selection order depends on filesystem enumeration.
+- GitHub Actions runtime verification is not executed in this environment; final confirmation should come from CI logs/artifacts.
