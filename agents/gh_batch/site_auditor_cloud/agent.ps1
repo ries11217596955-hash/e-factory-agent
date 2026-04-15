@@ -3066,19 +3066,36 @@ function Build-DecisionLayer {
     $activeOperationLabel = 'warnings/step01/enter'
     $activeExpression = '$normalizedWarnings'
     $warningList = New-Object System.Collections.Generic.List[string]
-    $activeOperationLabel = 'warnings/step02/safe_scalar_only'
+    $activeOperationLabel = 'warnings/step02/safe_enum_with_guard'
     $activeExpression = '$normalizedWarnings'
 
     if ($null -ne $normalizedWarnings) {
 
-        # treat as single scalar ONLY
-        $warningText = [string]$normalizedWarnings
+        if ($normalizedWarnings -is [System.Collections.IEnumerable] -and -not ($normalizedWarnings -is [string])) {
 
-        if (-not [string]::IsNullOrWhiteSpace($warningText)) {
+            foreach ($warning in $normalizedWarnings) {
 
-            $activeOperationLabel = 'warnings/step03/add_scalar_warning'
-            $activeExpression = '$warningList.Add($warningText)'
-            $warningList.Add($warningText)
+                if ($null -eq $warning) { continue }
+
+                $activeOperationLabel = 'warnings/step03/cast_to_string'
+                $warningText = [string]$warning
+
+                if ([string]::IsNullOrWhiteSpace($warningText)) { continue }
+
+                $activeOperationLabel = 'warnings/step04/add_warningList'
+                $warningList.Add($warningText)
+            }
+
+        }
+        else {
+
+            $activeOperationLabel = 'warnings/step02b/single_value_path'
+
+            $warningText = [string]$normalizedWarnings
+
+            if (-not [string]::IsNullOrWhiteSpace($warningText)) {
+                $warningList.Add($warningText)
+            }
         }
     }
 
