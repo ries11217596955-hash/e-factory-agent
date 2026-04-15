@@ -4615,7 +4615,6 @@ function Ensure-OutputContract {
             site_stage = ""
             core_problem = ""
             p0 = @()
-            do_next = @()
         }
 
         # --- STAGE ---
@@ -4627,55 +4626,76 @@ function Ensure-OutputContract {
             $decision.site_stage = "GROWTH"
         }
 
-        # --- CORE PROBLEM (hard single-line) ---
-        if ($audit.content_empty_routes -gt 5) {
-            $decision.core_problem = "Site has empty pages"
-        } elseif ($audit.visual_health_score -lt 60) {
-            $decision.core_problem = "Site has weak quality pages"
-        } else {
-            $decision.core_problem = "Site has no growth-ready pages"
-        }
-
-        # --- P0 (hard limit: max 3) ---
+        # --- CORE PROBLEM (hard rule) ---
+        $coreProblem = ""
         if ($audit.content_empty_routes -gt 0) {
-            $decision.p0 += "Fix empty pages"
+            $coreProblem = "Site contains empty or non-functional pages"
+        } elseif ($audit.visual_health_score -lt 60) {
+            $coreProblem = "Site has weak content quality and user experience"
+        } else {
+            $coreProblem = "Site lacks growth and monetization structure"
+        }
+        $decision.core_problem = $coreProblem
+
+        # --- P0 (filtered, no hard limit) ---
+        $p0 = @()
+        if ($audit.content_empty_routes -gt 0) {
+            $p0 += "Fix all empty or placeholder pages"
         }
         if ($audit.visual_health_score -lt 60) {
-            $decision.p0 += "Add content"
+            $p0 += "Improve content depth and layout quality"
         }
-        if ($audit.visual_health_score -lt 80) {
-            $decision.p0 += "Remove broken elements"
+        if ($audit.visual_health_score -lt 40) {
+            $p0 += "Fix major UI/UX and structure issues"
         }
-        if ($decision.p0.Count -gt 3) {
-            $decision.p0 = $decision.p0[0..2]
+        $p0 = @($p0 | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
+        $decision.p0 = @($p0)
+
+        # --- DO NEXT (structured, not limited) ---
+        $doNextNow = @()
+        $doNextAfter = @()
+
+        if ($audit.content_empty_routes -gt 0) {
+            $doNextNow += "Replace all empty pages with real content"
+            $doNextNow += "Ensure each page has a clear user purpose"
         }
 
-        # --- DO NEXT (strict: always top 3) ---
-        $decision.do_next = @(
-            "Fix all empty pages",
-            "Add real content to top pages",
-            "Ensure each page has clear CTA"
-        )
-        $decision.do_next = $decision.do_next[0..2]
+        if ($audit.visual_health_score -lt 60) {
+            $doNextNow += "Improve layout and readability of top pages"
+        }
+
+        $doNextAfter += "Add internal linking between key pages"
+        $doNextAfter += "Introduce clear CTAs on all main pages"
+        $doNextAfter += "Prepare pages for SEO and traffic acquisition"
+
+        $doNextNow = @($doNextNow | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
+        $doNextAfter = @($doNextAfter | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
+
+        $priorityActionsOutboxPath = Join-Path $operatorDir '00_PRIORITY_ACTIONS.txt'
+        $priorityActionsOutbox = if ($p0.Count -gt 0) { @($p0) } else { @('Build growth and monetization foundations for primary pages') }
+        Write-TextFile -Path $priorityActionsOutboxPath -Lines $priorityActionsOutbox
+
+        $issuesOutboxPath = Join-Path $operatorDir '01_TOP_ISSUES.txt'
+        $topIssuesOutbox = @($coreProblem)
+        $topIssuesOutbox += @($p0)
+        $topIssuesOutbox = @($topIssuesOutbox | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Select-Object -Unique)
+        Write-TextFile -Path $issuesOutboxPath -Lines $topIssuesOutbox
 
         # EXEC SUMMARY
-        $p0Lines = if ($decision.p0.Count -gt 0) {
-            @($decision.p0 | ForEach-Object -Begin { $i = 0 } -Process { $i++; "$i. $_" }) -join "`n"
-        } else {
-            "1. Fix empty pages"
-        }
-        $doNextLines = @($decision.do_next | ForEach-Object -Begin { $i = 0 } -Process { $i++; "$i. $_" }) -join "`n"
 @"
 STAGE: $($decision.site_stage)
 
 CORE PROBLEM:
-$($decision.core_problem)
+$($coreProblem)
 
 P0:
-$($p0Lines)
+$((@($p0) -join "`n"))
 
-DO NEXT:
-$($doNextLines)
+DO NEXT NOW:
+$((@($doNextNow) -join "`n"))
+
+DO NEXT AFTER:
+$((@($doNextAfter) -join "`n"))
 "@ | Out-File (Join-Path $operatorDir "11A_EXECUTIVE_SUMMARY.txt")
     }
 
