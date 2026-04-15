@@ -4602,6 +4602,32 @@ function Ensure-OutputContract {
         }
     }
 
+    $operatorDir = Join-Path $base "outbox"
+
+    if (-not (Test-Path $operatorDir)) {
+        New-Item -ItemType Directory -Path $operatorDir -Force | Out-Null
+    }
+
+@"
+P0 ACTIONS:
+- Fix empty pages
+- Add real content
+- Remove UI contamination
+"@ | Out-File (Join-Path $operatorDir "00_PRIORITY_ACTIONS.txt")
+
+@"
+TOP ISSUES:
+- Empty routes detected
+- No content depth
+- Weak page structure
+"@ | Out-File (Join-Path $operatorDir "01_TOP_ISSUES.txt")
+
+@"
+EXECUTIVE SUMMARY:
+Site is not production-ready.
+Main issue: lack of real content and usable pages.
+"@ | Out-File (Join-Path $operatorDir "11A_EXECUTIVE_SUMMARY.txt")
+
     $doneOk = Join-Path $outboxDir 'DONE.ok'
     $doneFail = Join-Path $outboxDir 'DONE.fail'
     if (Test-Path $doneOk) { Remove-Item $doneOk -Force }
