@@ -1,15 +1,13 @@
-print("RUN CONTROL OK")
 import argparse
-from pathlib import Path
-import json
-import shutil
 import importlib
+import json
+from pathlib import Path
 
 NEXT = {
     "brief": "script",
     "script": "video",
     "video": "audit",
-    "audit": None,
+    "audit": None
 }
 
 def read_json(p):
@@ -18,64 +16,42 @@ def read_json(p):
 def write_json(p, d):
     p.write_text(json.dumps(d, indent=2))
 
-def reset(job_dir):
-    for d in ["outputs", "reports", "logs"]:
-        p = job_dir / d
-        if p.exists():
-            shutil.rmtree(p)
-        p.mkdir(parents=True)
-
-    state = {
-        "job_id": job_dir.name,
-        "stage": "brief",
-        "status": "pending",
-        "verdict": None,
-        "error": None,
-        "history": []
-    }
-    write_json(job_dir / "state.json", state)
-    return state
-
 def run_stage(job_dir, stage, state):
     mod = importlib.import_module(f"stages.{stage}")
     return mod.run(str(job_dir), state)
 
-def process(job_dir, restart):
-    state = reset(job_dir) if restart else read_json(job_dir/"state.json")
+def process(job_dir):
+    state_path = job_dir / "state.json"
+    state = read_json(state_path)
 
     while state["stage"]:
         stage = state["stage"]
-
         result = run_stage(job_dir, stage, state)
 
         if stage == "audit":
-            verdict = result.get("verdict")
-            state["verdict"] = verdict
+            state["verdict"] = result.get("verdict")
 
-            if verdict == "FAIL":
+            if state["verdict"] == "FAIL":
                 state["status"] = "fail"
-                write_json(job_dir/"state.json", state)
+                write_json(state_path, state)
                 return
 
-            if verdict == "HOLD":
+            if state["verdict"] == "HOLD":
                 state["status"] = "hold"
-                write_json(job_dir/"state.json", state)
+                write_json(state_path, state)
                 return
+
+            print("DECISION: READY FOR PUBLISH")
 
         state["stage"] = NEXT[stage]
-        state["status"] = "pending"
-        write_json(job_dir/"state.json", state)
-
-    return
+        write_json(state_path, state)
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--job-dir", required=True)
-    parser.add_argument("--restart", action="store_true")
-
     args = parser.parse_args()
 
-    process(Path(args.job_dir), args.restart)
+    process(Path(args.job_dir))
 
 if __name__ == "__main__":
     main()
