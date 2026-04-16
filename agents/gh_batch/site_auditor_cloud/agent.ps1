@@ -4281,13 +4281,6 @@ function Write-RunForensicsReports {
         }
         executive_summary = $executiveSummary
         key_evidence_excerpts = $evidence
-        # --- VISUAL TRUTH LOCK ---
-        if ($visualCoverageNode -and $visualCoverageNode.ContainsKey("screenshots_packaged")) {
-            if ($visualCoverageNode["screenshots_packaged"] -gt 0) {
-                $auditResultNode["visual_coverage"] = $visualCoverageNode
-            }
-        }
-
         visual_artifacts = [ordered]@{
             visual_audit_active = [bool](Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'visual_coverage' -Default @{}) -Key 'visual_audit_active' -Default $false)
             screenshots_packaged = [int](Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'visual_coverage' -Default @{}) -Key 'screenshots_packaged' -Default 0)
@@ -4870,13 +4863,6 @@ function Ensure-OutputContract {
                 failure_node = [string](Safe-Get -Object $fallbackTruth -Key 'failure_node' -Default $currentStage)
                 blocker = [string](Safe-Get -Object $fallbackTruth -Key 'blocker' -Default 'Unknown fallback failure.')
             }
-        # --- VISUAL TRUTH LOCK ---
-        if ($visualCoverageNode -and $visualCoverageNode.ContainsKey("screenshots_packaged")) {
-            if ($visualCoverageNode["screenshots_packaged"] -gt 0) {
-                $auditResultNode["visual_coverage"] = $visualCoverageNode
-            }
-        }
-
             visual_artifacts = [ordered]@{
                 visual_audit_active = [bool](Safe-Get -Object $visualCoverageNode -Key 'visual_audit_active' -Default $false)
                 screenshots_packaged = [int](Safe-Get -Object $visualCoverageNode -Key 'screenshots_packaged' -Default 0)
