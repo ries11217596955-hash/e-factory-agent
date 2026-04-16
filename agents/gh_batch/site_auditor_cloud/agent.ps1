@@ -3150,6 +3150,158 @@ function Get-DecisionRepairHint {
 }
 
 
+function Write-SelfRepairArtifacts {
+    param(
+        [string]$ResolvedMode,
+        [string]$FinalStatus,
+        [string]$FailureReason,
+        [string]$CurrentStage,
+        [string]$LastSuccessStage
+    )
+
+    Ensure-Dir $reportsDir
+    Ensure-Dir $outboxDir
+
+    $auditResultPath = Join-Path $reportsDir 'audit_result.json'
+    $runReportPath = Join-Path $reportsDir 'RUN_REPORT.json'
+
+    $auditResultNode = @{}
+    if (Test-Path $auditResultPath -PathType Leaf) {
+        try {
+            $parsedAudit = Get-Content -Path $auditResultPath -Raw | ConvertFrom-Json -Depth 64 -AsHashtable
+            if ($parsedAudit -is [System.Collections.IDictionary]) {
+                $auditResultNode = $parsedAudit
+            }
+        }
+        catch {
+            $auditResultNode = @{}
+        }
+    }
+
+    $runReportNode = @{}
+    if (Test-Path $runReportPath -PathType Leaf) {
+        try {
+            $parsedRunReport = Get-Content -Path $runReportPath -Raw | ConvertFrom-Json -Depth 64 -AsHashtable
+            if ($parsedRunReport -is [System.Collections.IDictionary]) {
+                $runReportNode = $parsedRunReport
+            }
+        }
+        catch {
+            $runReportNode = @{}
+        }
+    }
+
+    $decisionNode = Convert-ToHashtableSafe -Value (Safe-Get -Object $auditResultNode -Key 'decision' -Default @{})
+    $repairHint = Convert-ToHashtableSafe -Value (Safe-Get -Object $decisionNode -Key 'repair_hint' -Default @{})
+    if (@($repairHint.Keys).Count -eq 0) {
+        $repairHint = [ordered]@{
+            target_file = 'agents/gh_batch/site_auditor_cloud/agent.ps1'
+            broken_block = if ([string]::IsNullOrWhiteSpace([string]$CurrentStage)) { 'UNKNOWN_BLOCK' } else { [string]$CurrentStage }
+            reason = if ([string]::IsNullOrWhiteSpace([string]$FailureReason)) { 'No explicit failure reason captured.' } else { [string]$FailureReason }
+            next_action = if ($FinalStatus -eq 'PASS') { 'No repair action required.' } else { "Inspect stage '$CurrentStage', update the target block, then rerun the same mode." }
+            failed_stage = if ([string]::IsNullOrWhiteSpace([string]$CurrentStage)) { 'UNKNOWN_STAGE' } else { [string]$CurrentStage }
+            mode = [string]$ResolvedMode
+            missing_inputs = @()
+            priority_routes = @()
+        }
+    }
+
+    $priorityRoutes = Convert-ToStringArraySafe -Value (Safe-Get -Object $repairHint -Key 'priority_routes' -Default @())
+    $coreProblem = [string](Safe-Get -Object $decisionNode -Key 'core_problem' -Default '')
+    if ([string]::IsNullOrWhiteSpace($coreProblem)) {
+        $coreProblem = [string](Safe-Get -Object $repairHint -Key 'reason' -Default 'Repair reason unavailable.')
+    }
+
+    $failedNode = [string](Safe-Get -Object (Safe-Get -Object $runReportNode -Key 'key_evidence_excerpts' -Default @{}) -Key 'decision_build_failed_node' -Default '')
+    if ([string]::IsNullOrWhiteSpace($failedNode)) {
+        $failedNode = [string](Safe-Get -Object (Safe-Get -Object $runReportNode -Key 'key_evidence_excerpts' -Default @{}) -Key 'failure_node' -Default '')
+    }
+    if ([string]::IsNullOrWhiteSpace($failedNode)) { $failedNode = [string]$CurrentStage }
+
+    $loopState = if ($FinalStatus -eq 'PASS') { 'STABLE' } elseif ($FinalStatus -eq 'PARTIAL') { 'READY_FOR_REPAIR_PASS' } else { 'REPAIR_REQUIRED' }
+    $canPrepareRepairPack = ($FinalStatus -ne 'PASS')
+    $canApplyPatchDirectly = $false
+
+    $selfRepairPlan = [ordered]@{
+        schema_version = '1.0'
+        run_id = $runId
+        generated_at = (Get-Date).ToString('o')
+        mode = [string]$ResolvedMode
+        final_status = [string]$FinalStatus
+        loop_state = $loopState
+        can_prepare_repair_pack = [bool]$canPrepareRepairPack
+        can_apply_patch_directly = [bool]$canApplyPatchDirectly
+        failed_node = $failedNode
+        last_success_stage = [string]$LastSuccessStage
+        core_problem = $coreProblem
+        repair_hint = $repairHint
+        repair_contract = [ordered]@{
+            task_id = "SELF_REPAIR_$($runId)"
+            objective = if ($FinalStatus -eq 'PASS') { 'Keep current baseline stable.' } else { "Repair failing node '$failedNode' and rerun the same mode." }
+            input = [ordered]@{
+                target_file = [string](Safe-Get -Object $repairHint -Key 'target_file' -Default 'agents/gh_batch/site_auditor_cloud/agent.ps1')
+                broken_block = [string](Safe-Get -Object $repairHint -Key 'broken_block' -Default 'UNKNOWN_BLOCK')
+                reason = [string](Safe-Get -Object $repairHint -Key 'reason' -Default $coreProblem)
+                priority_routes = @($priorityRoutes | Select-Object -First 5)
+            }
+            output = [ordered]@{
+                expected_change = if ($FinalStatus -eq 'PASS') { 'No patch required.' } else { 'Updated target block and a new rerun artifact set with lower severity or PASS.' }
+                validation = if ($FinalStatus -eq 'PASS') { 'Maintain PASS state.' } else { 'Workflow rerun must remove or downgrade the current failed node.' }
+                fail_mode = if ($FinalStatus -eq 'PASS') { 'Regression detected on next run.' } else { 'Failed node remains unchanged after rerun.' }
+            }
+        }
+    }
+
+    $selfRepairContext = [ordered]@{
+        mode = [string]$ResolvedMode
+        final_status = [string]$FinalStatus
+        failure_reason = if ([string]::IsNullOrWhiteSpace([string]$FailureReason)) { '' } else { [string]$FailureReason }
+        current_stage = [string]$CurrentStage
+        last_success_stage = [string]$LastSuccessStage
+        audit_result_path = 'reports/audit_result.json'
+        run_report_path = 'reports/RUN_REPORT.json'
+        truth_sources = @(
+            'reports/audit_result.json',
+            'reports/RUN_REPORT.json',
+            'reports/FAILURE_SUMMARY.json',
+            'reports/visual_manifest.json'
+        )
+    }
+
+    Write-JsonFile -Path (Join-Path $reportsDir 'SELF_REPAIR_PLAN.json') -Data $selfRepairPlan
+    Write-JsonFile -Path (Join-Path $reportsDir 'SELF_REPAIR_CONTEXT.json') -Data $selfRepairContext
+
+    $nextText = if ($FinalStatus -eq 'PASS') {
+        'Run is stable. Keep monitoring and rerun only after meaningful changes.'
+    }
+    else {
+        [string](Safe-Get -Object $repairHint -Key 'next_action' -Default "Inspect '$failedNode', patch the target block, then rerun.")
+    }
+
+    $targetFileText = [string](Safe-Get -Object $repairHint -Key 'target_file' -Default 'agents/gh_batch/site_auditor_cloud/agent.ps1')
+    $brokenBlockText = [string](Safe-Get -Object $repairHint -Key 'broken_block' -Default 'UNKNOWN_BLOCK')
+    $reasonText = [string](Safe-Get -Object $repairHint -Key 'reason' -Default $coreProblem)
+
+    Write-TextFile -Path (Join-Path $outboxDir '20_SELF_REPAIR_NEXT.txt') -Lines @(
+        "MODE: $ResolvedMode",
+        "FINAL STATUS: $FinalStatus",
+        "LOOP STATE: $loopState",
+        "TARGET FILE: $targetFileText",
+        "BROKEN BLOCK: $brokenBlockText",
+        "FAILED NODE: $failedNode",
+        "REASON: $reasonText",
+        "NEXT ACTION: $nextText",
+        "PRIORITY ROUTES: $((@($priorityRoutes | Select-Object -First 5) -join ', '))",
+        "SELF REPAIR PLAN: reports/SELF_REPAIR_PLAN.json",
+        "SELF REPAIR CONTEXT: reports/SELF_REPAIR_CONTEXT.json"
+    )
+
+    if (-not ($reportFiles.Contains('reports/SELF_REPAIR_PLAN.json'))) { $reportFiles.Add('reports/SELF_REPAIR_PLAN.json') }
+    if (-not ($reportFiles.Contains('reports/SELF_REPAIR_CONTEXT.json'))) { $reportFiles.Add('reports/SELF_REPAIR_CONTEXT.json') }
+    if (-not ($reportFiles.Contains('outbox/20_SELF_REPAIR_NEXT.txt'))) { $reportFiles.Add('outbox/20_SELF_REPAIR_NEXT.txt') }
+}
+
+
 function Build-DecisionLayer {
     param(
         [string]$ResolvedMode,
@@ -4745,6 +4897,8 @@ function Ensure-OutputContract {
         }
     }
     Write-JsonFile -Path $auditResultPath -Data $auditResultNode
+
+    Write-SelfRepairArtifacts -ResolvedMode $ResolvedMode -FinalStatus $FinalStatus -FailureReason $FailureReason -CurrentStage $currentStage -LastSuccessStage $lastSuccessStage
 
     $doneOk = Join-Path $outboxDir 'DONE.ok'
     $doneFail = Join-Path $outboxDir 'DONE.fail'
