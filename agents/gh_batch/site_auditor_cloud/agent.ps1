@@ -5120,16 +5120,24 @@ try {
     $lastSuccessStage = 'DECISION_BUILD'
     if ($liveLayer.enabled) {
         $contradictionSummaryNode = Safe-Get -Object $decision -Key 'contradiction_summary' -Default @{}
-        if ($liveLayer.summary -is [System.Collections.IDictionary]) {
-            $liveLayer.summary['contradiction_summary'] = $contradictionSummaryNode
+        $liveSummary = $liveLayer.summary
+
+        if ($liveSummary -is [System.Collections.IDictionary]) {
+            $liveSummary['contradiction_summary'] = $contradictionSummaryNode
         }
-        elseif ($liveLayer.summary -is [PSCustomObject]) {
-            if ($null -ne $liveLayer.summary.PSObject.Properties['contradiction_summary']) {
-                $liveLayer.summary.contradiction_summary = $contradictionSummaryNode
+        elseif ($liveSummary -is [PSCustomObject]) {
+            if ($null -ne $liveSummary.PSObject.Properties['contradiction_summary']) {
+                $liveSummary.contradiction_summary = $contradictionSummaryNode
             }
             else {
-                $liveLayer.summary | Add-Member -NotePropertyName 'contradiction_summary' -NotePropertyValue $contradictionSummaryNode -Force
+                $liveSummary | Add-Member -NotePropertyName 'contradiction_summary' -NotePropertyValue $contradictionSummaryNode -Force
             }
+        }
+        else {
+            $liveSummary = @{
+                contradiction_summary = $contradictionSummaryNode
+            }
+            $liveLayer.summary = $liveSummary
         }
     }
 

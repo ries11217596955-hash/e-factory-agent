@@ -1,9 +1,9 @@
 ## Summary
-- Performed a forensic, single-file audit of `agents/gh_batch/site_auditor_cloud/agent.ps1` focused on the `DECISION_BUILD` failure `Argument types do not match`.
-- Identified the strongest failing line cluster at the decision writeback into `$liveLayer.summary`.
-- Applied a minimal patch to switch dictionary writeback to indexer syntax and add a guarded PSCustomObject path.
-- Verified that legacy `DECISION BUILDER v1/v2` blocks are located after unconditional `exit` statements and are not on the runtime path.
-- Kept scope bounded to the target agent file plus this task report.
+- Performed a targeted systemic bug hunt for all write operations to `$liveLayer.summary` in `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- Enumerated and classified each write location (dot notation, indexer notation, and `Add-Member`) in the decision writeback block.
+- Identified the primary crash-risk cluster as the contradiction summary writeback during `DECISION_BUILD`.
+- Applied a surgical hardening patch at the writeback site to include an explicit fallback for unexpected summary object types.
+- Kept scope limited to the requested PowerShell file and this task report.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -14,8 +14,8 @@
 
 ## Current entrypoints/paths
 - Entrypoint audited: `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- Decision stage path: main try/catch around `Build-DecisionLayer` and subsequent live summary writeback.
+- Affected execution path: main `try` block at `DECISION_BUILD`, immediately after `Build-DecisionLayer` when writing `contradiction_summary` into the live layer summary node.
 
 ## Risks/blockers
-- Could not execute PowerShell runtime validation in this container because `pwsh` is not installed.
-- Patch is intentionally narrow and does not remove legacy dead code blocks after `exit` to avoid broad refactor.
+- No runtime PowerShell execution verification was performed in this environment; analysis and validation were static (source inspection + targeted search).
+- Fallback branch initializes a minimal hashtable summary if the live summary is neither `IDictionary` nor `PSCustomObject`; this is intentionally narrow to avoid broad refactor.
