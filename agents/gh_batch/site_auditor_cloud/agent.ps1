@@ -3242,12 +3242,13 @@ function Write-SelfRepairArtifacts {
                 target_file = [string](Safe-Get -Object $repairHint -Key 'target_file' -Default 'agents/gh_batch/site_auditor_cloud/agent.ps1')
                 broken_block = [string](Safe-Get -Object $repairHint -Key 'broken_block' -Default 'UNKNOWN_BLOCK')
                 reason = [string](Safe-Get -Object $repairHint -Key 'reason' -Default $coreProblem)
+                next_action = [string](Safe-Get -Object $repairHint -Key 'next_action' -Default '')
                 priority_routes = @($priorityRoutes | Select-Object -First 5)
             }
             output = [ordered]@{
-                expected_change = if ($FinalStatus -eq 'PASS') { 'No patch required.' } else { 'Updated target block and a new rerun artifact set with lower severity or PASS.' }
-                validation = if ($FinalStatus -eq 'PASS') { 'Maintain PASS state.' } else { 'Workflow rerun must remove or downgrade the current failed node.' }
-                fail_mode = if ($FinalStatus -eq 'PASS') { 'Regression detected on next run.' } else { 'Failed node remains unchanged after rerun.' }
+                expected_change = [string](Safe-Get -Object $repairHint -Key 'expected_change' -Default 'Updated target block and a new rerun artifact set with lower severity or PASS.')
+                validation = [string](Safe-Get -Object $repairHint -Key 'validation' -Default 'Workflow rerun must remove or downgrade the current failed node.')
+                fail_mode = [string](Safe-Get -Object $repairHint -Key 'fail_mode' -Default 'Failed node remains unchanged after rerun.')
             }
         }
     }
@@ -3302,65 +3303,93 @@ function Write-SelfRepairArtifacts {
 }
 
 
+
 function Build-DecisionLayer {
     param(
         [string]$ResolvedMode,
         [hashtable]$SourceLayer,
         [hashtable]$LiveLayer,
         [string[]]$MissingInputs,
-        [object]$Warnings
+        [string[]]$Warnings
     )
 
     $normalizedSourceLayer = Convert-ToHashtableSafe -Value $SourceLayer
     $normalizedLiveLayer = Convert-ToHashtableSafe -Value $LiveLayer
-    $normalizedMissingInputs = Convert-ToStringArraySafe -Value $MissingInputs
-    $normalizedWarnings = Convert-ToDecisionWarningStringArray -Value $Warnings
-
     $liveSummary = Convert-ToHashtableSafe -Value (Safe-Get -Object $normalizedLiveLayer -Key 'summary' -Default @{})
-    $routeDetails = Convert-ToObjectArraySafe -Value (Safe-Get -Object $normalizedLiveLayer -Key 'route_details' -Default @())
+    $routes = Convert-ToObjectArraySafe -Value (Safe-Get -Object $normalizedLiveLayer -Key 'route_details' -Default @())
+    $normalizedWarnings = Convert-ToStringArraySafe -Value $Warnings
+    $normalizedMissingInputs = Convert-ToStringArraySafe -Value $MissingInputs
+
     $sourceRequired = [bool](Safe-Get -Object $normalizedSourceLayer -Key 'required' -Default $false)
     $sourceOk = [bool](Safe-Get -Object $normalizedSourceLayer -Key 'ok' -Default $false)
     $liveRequired = [bool](Safe-Get -Object $normalizedLiveLayer -Key 'required' -Default $false)
     $liveOk = [bool](Safe-Get -Object $normalizedLiveLayer -Key 'ok' -Default $false)
 
-    $totalRoutes = [int]@($routeDetails).Count
     $emptyRoutes = [int](Safe-Get -Object $liveSummary -Key 'empty_routes' -Default 0)
     $thinRoutes = [int](Safe-Get -Object $liveSummary -Key 'thin_routes' -Default 0)
+    $contaminatedRoutes = [int](Safe-Get -Object $liveSummary -Key 'contaminated_routes' -Default 0)
     $weakCtaRoutes = [int](Safe-Get -Object $liveSummary -Key 'weak_cta_routes' -Default 0)
     $deadEndRoutes = [int](Safe-Get -Object $liveSummary -Key 'dead_end_routes' -Default 0)
-    $contaminatedRoutes = [int](Safe-Get -Object $liveSummary -Key 'contaminated_routes' -Default 0)
+    $totalRoutes = [int](Safe-Get -Object $liveSummary -Key 'total_routes' -Default 0)
     $screenshotCount = [int](Safe-Get -Object $liveSummary -Key 'screenshot_count' -Default 0)
-    $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
-    if ([string]::IsNullOrWhiteSpace($pageQualityStatus)) { $pageQualityStatus = 'NOT_EVALUATED' }
-
-    $issueClassCounts = @{}
+    $routesWithEvidence = 0
     $priorityRouteCandidates = New-Object System.Collections.Generic.List[object]
-    foreach ($route in @($routeDetails)) {
-        $issues = Normalize-CollectionShape -Value (Safe-Get -Object $route -Key 'issues' -Default @())
-        foreach ($issue in @($issues)) {
-            $issueClass = [string](Safe-Get -Object $issue -Key 'class' -Default '')
-            if ([string]::IsNullOrWhiteSpace($issueClass)) { continue }
-            if (-not $issueClassCounts.ContainsKey($issueClass)) { $issueClassCounts[$issueClass] = 0 }
-            $issueClassCounts[$issueClass] = [int]$issueClassCounts[$issueClass] + 1
+
+    foreach ($route in @($routes)) {
+        $routeNode = Convert-ToHashtableSafe -Value $route
+        $routePath = [string](Safe-Get -Object $routeNode -Key 'route_path' -Default (Safe-Get -Object $routeNode -Key 'url' -Default ''))
+        if ([string]::IsNullOrWhiteSpace($routePath)) { $routePath = '(unknown-route)' }
+
+        $pageFlags = Convert-ToHashtableSafe -Value (Safe-Get -Object $routeNode -Key 'page_flags' -Default @{})
+        $issues = Convert-ToObjectArraySafe -Value (Safe-Get -Object $routeNode -Key 'issues' -Default @())
+        $routeScreenshotCount = [int](Safe-Get -Object $routeNode -Key 'screenshotCount' -Default 0)
+        if ($routeScreenshotCount -le 0) {
+            $routeScreenshotCount = @(Convert-ToObjectArraySafe -Value (Safe-Get -Object $routeNode -Key 'screenshots' -Default @())).Count
+            $routeScreenshotCount += @(Convert-ToObjectArraySafe -Value (Safe-Get -Object $routeNode -Key 'issue_screenshots' -Default @())).Count
+        }
+        if ($routeScreenshotCount -gt 0) {
+            $routesWithEvidence++
+            $screenshotCount += $routeScreenshotCount
         }
 
-        $routePath = [string](Safe-Get -Object $route -Key 'route_path' -Default '')
-        if ([string]::IsNullOrWhiteSpace($routePath)) { continue }
-        $pageFlags = Convert-ToHashtableSafe -Value (Safe-Get -Object $route -Key 'page_flags' -Default @{})
-        $severity = 0
-        if ([bool](Safe-Get -Object $pageFlags -Key 'empty' -Default $false)) { $severity += 9 }
-        if ([bool](Safe-Get -Object $pageFlags -Key 'ui_contamination' -Default $false)) { $severity += 7 }
-        if ([bool](Safe-Get -Object $pageFlags -Key 'thin' -Default $false)) { $severity += 5 }
-        if ([bool](Safe-Get -Object $pageFlags -Key 'weak_cta' -Default $false)) { $severity += 4 }
-        if ([bool](Safe-Get -Object $pageFlags -Key 'dead_end' -Default $false)) { $severity += 4 }
-        $statusCode = [int](Safe-Get -Object $route -Key 'status' -Default 0)
-        if ($statusCode -eq 0 -or $statusCode -ge 400) { $severity += 3 }
-        if ($severity -gt 0) {
-            $priorityRouteCandidates.Add([ordered]@{
-                route_path = $routePath
-                severity = $severity
-            })
+        $isEmpty = [bool](Safe-Get -Object $pageFlags -Key 'empty' -Default $false)
+        $isThin = [bool](Safe-Get -Object $pageFlags -Key 'thin' -Default $false)
+        $isContaminated = [bool](Safe-Get -Object $pageFlags -Key 'ui_contamination' -Default $false)
+        $isWeakCta = [bool](Safe-Get -Object $pageFlags -Key 'weak_cta' -Default $false)
+        $isDeadEnd = [bool](Safe-Get -Object $pageFlags -Key 'dead_end' -Default $false)
+
+        foreach ($issue in @($issues)) {
+            $issueNode = Convert-ToHashtableSafe -Value $issue
+            $issueClass = [string](Safe-Get -Object $issueNode -Key 'class' -Default '')
+            if ($issueClass -eq 'OVERLAY_OR_UI_CONTAMINATION' -or $issueClass -eq 'BROKEN_RENDER_OR_TEMPLATE_LEAKAGE') { $isContaminated = $true }
+            if ($issueClass -eq 'EMPTY_ROUTE' -or $issueClass -eq 'DUPLICATE_SHELL_OR_MISSING_CRITICAL_BLOCK') { $isEmpty = $true }
         }
+
+        if ($isEmpty) { $emptyRoutes++ }
+        if ($isThin) { $thinRoutes++ }
+        if ($isContaminated) { $contaminatedRoutes++ }
+        if ($isWeakCta) { $weakCtaRoutes++ }
+        if ($isDeadEnd) { $deadEndRoutes++ }
+
+        $severity = 0
+        if ($isEmpty) { $severity += 100 }
+        if ($isContaminated) { $severity += 70 }
+        if ($isThin) { $severity += 50 }
+        if ($isWeakCta) { $severity += 30 }
+        if ($isDeadEnd) { $severity += 30 }
+        if ($routeScreenshotCount -gt 0) { $severity += 5 }
+
+        if ($severity -gt 0) {
+            $priorityRouteCandidates.Add([pscustomobject]@{ route_path = $routePath; severity = $severity })
+        }
+    }
+
+    if ($totalRoutes -le 0) { $totalRoutes = @($routes).Count }
+    $visualManifestPresent = [bool](Safe-Get -Object $liveSummary -Key 'visual_manifest_present' -Default $false)
+    $visualAuditActive = ($visualManifestPresent -or $screenshotCount -gt 0 -or $routesWithEvidence -gt 0)
+    $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default '')
+    if ([string]::IsNullOrWhiteSpace($pageQualityStatus)) {
+        $pageQualityStatus = if ($totalRoutes -gt 0) { 'EVALUATED' } else { 'NOT_EVALUATED' }
     }
 
     $priorityRoutes = @(
@@ -3370,17 +3399,18 @@ function Build-DecisionLayer {
             ForEach-Object { [string]$_.route_path }
     )
 
-    $missingInputCount = @($normalizedMissingInputs | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }).Count
     $conversionWeak = [int]($weakCtaRoutes + $deadEndRoutes)
-
     $stage = 'READY'
-    if ($missingInputCount -gt 0 -or ($sourceRequired -and -not $sourceOk) -or ($liveRequired -and -not $liveOk) -or $pageQualityStatus -eq 'NOT_EVALUATED' -or ($liveRequired -and $totalRoutes -eq 0)) {
+    if (@($normalizedMissingInputs).Count -gt 0 -or ($sourceRequired -and -not $sourceOk) -or ($liveRequired -and -not $liveOk) -or ($liveRequired -and $totalRoutes -le 0)) {
         $stage = 'BROKEN'
     }
-    elseif ($emptyRoutes -gt 0 -or [int](Safe-Get -Object $issueClassCounts -Key 'DUPLICATE_SHELL_OR_MISSING_CRITICAL_BLOCK' -Default 0) -gt 0 -or [int](Safe-Get -Object $issueClassCounts -Key 'SEVERE_LAYOUT_BREAK' -Default 0) -gt 0) {
+    elseif (-not $visualAuditActive -and $liveRequired) {
+        $stage = 'BROKEN'
+    }
+    elseif ($emptyRoutes -gt 0) {
         $stage = 'STRUCTURE'
     }
-    elseif ($contaminatedRoutes -gt 0 -or [int](Safe-Get -Object $issueClassCounts -Key 'OVERLAY_OR_UI_CONTAMINATION' -Default 0) -gt 0 -or [int](Safe-Get -Object $issueClassCounts -Key 'BROKEN_RENDER_OR_TEMPLATE_LEAKAGE' -Default 0) -gt 0) {
+    elseif ($contaminatedRoutes -gt 0) {
         $stage = 'UX'
     }
     elseif ($thinRoutes -gt 0) {
@@ -3391,24 +3421,35 @@ function Build-DecisionLayer {
     }
 
     $coreProblem = switch ($stage) {
-        'BROKEN' { "Audit evidence is incomplete or degraded (page_quality_status=$pageQualityStatus, routes=$totalRoutes, screenshots=$screenshotCount)." }
-        'STRUCTURE' { "$emptyRoutes route(s) are empty or structurally broken, so core page delivery is unreliable." }
-        'UX' { "$contaminatedRoutes route(s) show trust/render contamination that weakens credibility." }
-        'CONTENT' { "$thinRoutes route(s) are structurally present but too thin to be useful." }
-        'CONVERSION' { "$conversionWeak route observations show weak CTA or dead-end user flow." }
+        'BROKEN' {
+            if (-not $visualAuditActive -and $liveRequired) {
+                'Visual evidence is missing or not being surfaced truthfully, so the run cannot be trusted.'
+            }
+            elseif (@($normalizedMissingInputs).Count -gt 0) {
+                "Required inputs are missing, so the auditor cannot produce trustworthy output."
+            }
+            else {
+                "Audit execution did not reach a trustworthy evidence state (routes=$totalRoutes, page_quality_status=$pageQualityStatus)."
+            }
+        }
+        'STRUCTURE' { "$emptyRoutes route(s) are empty or structurally broken, so page delivery is unreliable." }
+        'UX' { "$contaminatedRoutes route(s) show visual contamination or render leakage that breaks trust." }
+        'CONTENT' { "$thinRoutes route(s) exist but are too thin to help a user decide or act." }
+        'CONVERSION' { "$conversionWeak route observations show weak CTA or dead-end progression." }
         default { 'No deterministic blocker remains across the audited route sample.' }
     }
 
     $p0List = New-Object System.Collections.Generic.List[string]
-    foreach ($missing in @($normalizedMissingInputs)) { Add-UniqueString -List $p0List -Value "Missing required input: $missing" }
-    if ($stage -eq 'BROKEN' -and $pageQualityStatus -eq 'NOT_EVALUATED') {
-        Add-UniqueString -List $p0List -Value "Page-quality evaluation did not complete (status=$pageQualityStatus)."
+    foreach ($missing in @($normalizedMissingInputs)) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$missing)) {
+            Add-UniqueString -List $p0List -Value ("Missing required input: " + [string]$missing)
+        }
+    }
+    if ($stage -eq 'BROKEN' -and -not $visualAuditActive -and $liveRequired) {
+        Add-UniqueString -List $p0List -Value 'Visual truth is missing: no manifest/screenshot evidence was surfaced into final truth.'
     }
     if ($stage -eq 'STRUCTURE' -and $emptyRoutes -gt 0) {
-        Add-UniqueString -List $p0List -Value "$emptyRoutes route(s) are empty or near-empty."
-    }
-    if ($stage -eq 'STRUCTURE' -and @($priorityRoutes).Count -gt 0) {
-        Add-UniqueString -List $p0List -Value "Highest-risk structure routes: $((@($priorityRoutes) | Select-Object -First 3) -join ', ')."
+        Add-UniqueString -List $p0List -Value "$emptyRoutes route(s) are empty or structurally broken."
     }
     if ($stage -eq 'UX' -and $contaminatedRoutes -gt 0) {
         Add-UniqueString -List $p0List -Value "$contaminatedRoutes route(s) show UI contamination or render leakage."
@@ -3419,10 +3460,8 @@ function Build-DecisionLayer {
     if ($stage -eq 'CONVERSION' -and $conversionWeak -gt 0) {
         Add-UniqueString -List $p0List -Value "$conversionWeak route observations show weak CTA/dead-end progression."
     }
-    if (@($normalizedWarnings).Count -gt 0 -and $p0List.Count -lt 5) {
-        foreach ($warning in @($normalizedWarnings | Select-Object -First 3)) {
-            Add-UniqueString -List $p0List -Value [string]$warning
-        }
+    if (@($priorityRoutes).Count -gt 0 -and $stage -ne 'READY') {
+        Add-UniqueString -List $p0List -Value ("Priority routes: " + ((@($priorityRoutes) | Select-Object -First 3) -join ', '))
     }
     if ($p0List.Count -eq 0 -and $stage -eq 'READY') {
         Add-UniqueString -List $p0List -Value 'No deterministic blocker detected in this run.'
@@ -3432,67 +3471,95 @@ function Build-DecisionLayer {
     $afterList = New-Object System.Collections.Generic.List[string]
     switch ($stage) {
         'BROKEN' {
-            Add-UniqueString -List $nowList -Value 'Fix the missing input or failed runtime node, then rerun the same mode.'
-            Add-UniqueString -List $nowList -Value 'Confirm audit_result.json and visual evidence are regenerated before trusting summaries.'
-            Add-UniqueString -List $afterList -Value 'After runtime stability, classify structure/content/conversion blockers.'
+            Add-UniqueString -List $nowList -Value 'Repair the failed truth/runtime boundary, then rerun the same mode.'
+            Add-UniqueString -List $nowList -Value 'Trust artifacts over booleans: manifest and screenshots must be reflected in audit_result and summaries.'
+            Add-UniqueString -List $afterList -Value 'After truth is stable, classify the dominant site blocker again.'
         }
         'STRUCTURE' {
             Add-UniqueString -List $nowList -Value 'Repair empty or broken shell routes before any optimization work.'
-            Add-UniqueString -List $nowList -Value 'Use screenshots to verify each repaired route now renders as a real page.'
-            Add-UniqueString -List $afterList -Value 'After structure is fixed, expand thin content and tighten conversion paths.'
+            Add-UniqueString -List $nowList -Value 'Use screenshots to verify each repaired route renders as a real page.'
+            Add-UniqueString -List $afterList -Value 'After structure is fixed, deepen content and tighten conversion paths.'
         }
         'UX' {
-            Add-UniqueString -List $nowList -Value 'Remove overlays, render leakage, or contamination visible in evidence screenshots.'
-            Add-UniqueString -List $afterList -Value 'After trust issues are removed, improve content depth and CTA clarity.'
+            Add-UniqueString -List $nowList -Value 'Remove overlays, template leakage, or other visual contamination on priority routes.'
+            Add-UniqueString -List $afterList -Value 'After trust is restored, improve content depth and CTA clarity.'
         }
         'CONTENT' {
-            Add-UniqueString -List $nowList -Value 'Expand thin routes with primary intent, useful body copy, and clear route purpose.'
+            Add-UniqueString -List $nowList -Value 'Expand thin routes with direct answer, useful body copy, and clear route purpose.'
             Add-UniqueString -List $afterList -Value 'After content depth improves, tighten CTA and onward navigation.'
         }
         'CONVERSION' {
             Add-UniqueString -List $nowList -Value 'Add clear CTA and onward navigation on weak decision routes.'
-            Add-UniqueString -List $afterList -Value 'After conversion blockers are removed, tune UX polish and evidence coverage.'
+            Add-UniqueString -List $afterList -Value 'After conversion blockers are removed, polish UX and maintain evidence coverage.'
         }
         default {
-            Add-UniqueString -List $nowList -Value 'Keep the current baseline and rerun after major site changes.'
-            Add-UniqueString -List $afterList -Value 'Use screenshots to monitor regression instead of expanding scope immediately.'
+            Add-UniqueString -List $nowList -Value 'Keep the current baseline and rerun after meaningful site changes.'
+            Add-UniqueString -List $afterList -Value 'Monitor regression through screenshots and route deltas.'
         }
     }
 
-    $contradictionSummary = @{}
-    $siteDiagnosis = @{}
-    $maturityReadiness = @{}
-    $auditorBaseline = @{}
-    $remediationPackage = @{}
+    foreach ($warning in @($normalizedWarnings | Select-Object -First 3)) {
+        if ($p0List.Count -ge 5) { break }
+        Add-UniqueString -List $p0List -Value [string]$warning
+    }
+
+    $contradictionSummary = [ordered]@{
+        class = if ($visualAuditActive) { 'ARTIFACT_TRUTH_ACTIVE' } else { 'TRUTH_GAP' }
+        total_candidates = 0
+        candidates = @()
+        class_counts = @{}
+        artifact_truth = [ordered]@{
+            visual_audit_active = [bool]$visualAuditActive
+            screenshot_count = [int]$screenshotCount
+            routes_with_evidence = [int]$routesWithEvidence
+        }
+    }
+
+    $siteDiagnosis = [ordered]@{
+        class = switch ($stage) {
+            'STRUCTURE' { 'STRUCTURE_BLOCKED' }
+            'UX' { 'TRUST_BLOCKED' }
+            'CONTENT' { 'CONTENT_BLOCKED' }
+            'CONVERSION' { 'CONVERSION_BLOCKED' }
+            'READY' { 'BASELINE_USABLE' }
+            default { 'BROKEN_SYSTEM' }
+        }
+        reason = $coreProblem
+        confidence = if ($stage -eq 'READY') { 'high' } else { 'medium' }
+        evidence = @(
+            "stage=$stage",
+            "routes=$totalRoutes",
+            "screenshots=$screenshotCount"
+        )
+    }
+
+    $maturityReadiness = [ordered]@{
+        class = if ($stage -eq 'READY') { 'READY_BASELINE' } else { 'NOT_READY' }
+        reason = if ($stage -eq 'READY') { 'Current sampled routes show no deterministic blocker.' } else { $coreProblem }
+        confidence = if ($stage -eq 'READY') { 'high' } else { 'medium' }
+        evidence = @("stage=$stage")
+    }
+
+    $auditorBaseline = [ordered]@{
+        class = if ($stage -eq 'BROKEN') { 'OUTPUT_NOT_TRUSTWORTHY' } else { 'OUTPUT_USABLE_WITH_LIMITS' }
+        reason = if ($stage -eq 'BROKEN') { 'Truth/decision output is not yet trustworthy.' } else { 'Artifacts are usable for operator decision-making.' }
+        confidence = if ($stage -eq 'BROKEN') { 'medium' } else { 'high' }
+    }
+
+    $remediationPackage = [ordered]@{
+        owner = 'SITE_AUDITOR_AGENT'
+        primary_goal = if ($stage -eq 'READY') { 'Maintain current baseline.' } else { 'Remove dominant blocker and rerun.' }
+        priority_routes = @($priorityRoutes)
+        do_next_now = @($nowList.ToArray() | Select-Object -Unique)
+        do_next_after = @($afterList.ToArray() | Select-Object -Unique)
+    }
+
     $productCloseout = Normalize-ProductCloseout -Value @{
         class = if ($stage -eq 'READY') { 'PRODUCT_READY_BASELINE' } else { 'BLOCKED_BY_PRIMARY_ISSUE' }
         reason = $coreProblem
         confidence = if ($stage -eq 'READY') { 'high' } else { 'medium' }
         checks = @()
-        evidence = @("stage=$stage")
-    }
-
-    try {
-        $contradictionSummary = Build-ContradictionLayer -SourceLayer $normalizedSourceLayer -LiveLayer $normalizedLiveLayer -MissingInputs $normalizedMissingInputs
-        $siteDiagnosis = Build-SiteDiagnosisLayer -SourceLayer $normalizedSourceLayer -LiveLayer $normalizedLiveLayer -ContradictionSummary $contradictionSummary -MissingInputs $normalizedMissingInputs
-        $maturityReadiness = Build-MaturityReadinessLayer -SourceLayer $normalizedSourceLayer -LiveLayer $normalizedLiveLayer -SiteDiagnosis $siteDiagnosis -ContradictionSummary $contradictionSummary -MissingInputs $normalizedMissingInputs
-        $remediationPackage = Build-PrimaryRemediationPackage -LiveLayer $normalizedLiveLayer -SiteDiagnosis $siteDiagnosis -ContradictionSummary $contradictionSummary
-        $productCloseout = Build-ProductCloseoutClassification -FinalStatus (if ($stage -eq 'READY') { 'PASS' } else { 'PARTIAL' }) -SourceLayer $normalizedSourceLayer -LiveLayer $normalizedLiveLayer -ContradictionSummary $contradictionSummary -SiteDiagnosis $siteDiagnosis -MaturityReadiness $maturityReadiness -RemediationPackage $remediationPackage
-        $auditorBaseline = Build-AuditorBaselineCertification -FinalStatus (if ($stage -eq 'READY') { 'PASS' } else { 'PARTIAL' }) -SourceLayer $normalizedSourceLayer -LiveLayer $normalizedLiveLayer -ContradictionSummary $contradictionSummary -SiteDiagnosis $siteDiagnosis -MaturityReadiness $maturityReadiness
-    }
-    catch {
-        $helperFailure = $_.Exception.Message
-        if ([string]::IsNullOrWhiteSpace($helperFailure)) { $helperFailure = 'Decision helper failure.' }
-        Add-UniqueString -List $afterList -Value "Decision helper degraded: $helperFailure"
-        if (@($priorityRoutes).Count -gt 0) {
-            Add-UniqueString -List $afterList -Value "Use screenshot-first review on: $((@($priorityRoutes) | Select-Object -First 3) -join ', ')."
-        }
-        if ($null -eq $global:DecisionForensics) {
-            Set-DecisionForensics -FunctionName 'Build-DecisionLayer' -ActivePhase 'DECISION_BUILD' -ActiveOperationLabel 'HELPER_LAYER' -ActiveExpression 'Build-* helper chain' -LeftOperand $normalizedLiveLayer -RightOperand $normalizedSourceLayer -StackHintIfAvailable $_.ScriptStackTrace -AdditionalContext ([ordered]@{
-                error_message = $helperFailure
-                helper_chain = 'Build-ContradictionLayer -> Build-SiteDiagnosisLayer -> Build-MaturityReadinessLayer -> Build-PrimaryRemediationPackage -> Build-ProductCloseoutClassification'
-            })
-        }
+        evidence = @("stage=$stage", "routes=$totalRoutes", "screenshots=$screenshotCount")
     }
 
     $repairHint = Get-DecisionRepairHint -Stage $stage -CoreProblem $coreProblem -PriorityRoutes $priorityRoutes -ResolvedMode $ResolvedMode -MissingInputs $normalizedMissingInputs -LiveSummary $liveSummary
@@ -3500,7 +3567,6 @@ function Build-DecisionLayer {
     $decision = [ordered]@{
         stage = [string]$stage
         core_problem = [string]$coreProblem
-        inputs = @($normalizedMissingInputs)
         warnings = @($normalizedWarnings)
         p0 = @($p0List.ToArray() | Select-Object -Unique)
         p1 = @()
@@ -3516,12 +3582,12 @@ function Build-DecisionLayer {
         }
         repair_hint = $repairHint
         priority_routes = @($priorityRoutes)
-        site_diagnosis = Convert-ToHashtableSafe -Value $siteDiagnosis
-        maturity_readiness = Convert-ToHashtableSafe -Value $maturityReadiness
-        auditor_baseline = Convert-ToHashtableSafe -Value $auditorBaseline
-        remediation_package = Convert-ToHashtableSafe -Value $remediationPackage
-        product_closeout = Normalize-ProductCloseout -Value $productCloseout
-        contradiction_summary = Convert-ToHashtableSafe -Value $contradictionSummary
+        site_diagnosis = $siteDiagnosis
+        maturity_readiness = $maturityReadiness
+        auditor_baseline = $auditorBaseline
+        remediation_package = $remediationPackage
+        product_closeout = $productCloseout
+        contradiction_summary = $contradictionSummary
         clean_state = if ($stage -eq 'READY') { 'CLEAN' } else { 'NOT_CLEAN' }
     }
 
@@ -4391,19 +4457,34 @@ function Write-OperatorOutputs {
     $routeDetailsForVisualTruth = Convert-ToObjectArraySafe -Value (Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'live' -Default @{}) -Key 'route_details' -Default @())
     $visualManifestPath = Join-Path $reportsDir 'visual_manifest.json'
     $packagedScreenshotDir = Join-Path $reportsDir 'screenshots'
+    $legacyScreenshotDir = Join-Path $base 'screenshots'
     $capturedScreenshotCount = 0
     if (Test-Path -Path $packagedScreenshotDir -PathType Container) {
-        $capturedScreenshotCount = @(Get-ChildItem -Path $packagedScreenshotDir -Filter '*.png' -File -Recurse -ErrorAction SilentlyContinue).Count
+        $capturedScreenshotCount += @(Get-ChildItem -Path $packagedScreenshotDir -Include *.png,*.jpg,*.jpeg,*.webp -File -Recurse -ErrorAction SilentlyContinue).Count
     }
-    if ($capturedScreenshotCount -le 0) {
-        foreach ($routeItem in @($routeDetailsForVisualTruth)) {
-            $capturedScreenshotCount += [int](Safe-Get -Object $routeItem -Key 'screenshotCount' -Default 0)
+    if (Test-Path -Path $legacyScreenshotDir -PathType Container) {
+        $capturedScreenshotCount += @(Get-ChildItem -Path $legacyScreenshotDir -Include *.png,*.jpg,*.jpeg,*.webp -File -Recurse -ErrorAction SilentlyContinue).Count
+    }
+
+    $routesWithEvidence = 0
+    foreach ($routeItem in @($routeDetailsForVisualTruth)) {
+        $routeNode = Convert-ToHashtableSafe -Value $routeItem
+        $routeScreenshotCount = [int](Safe-Get -Object $routeNode -Key 'screenshotCount' -Default 0)
+        if ($routeScreenshotCount -le 0) {
+            $routeScreenshotCount = @(Convert-ToObjectArraySafe -Value (Safe-Get -Object $routeNode -Key 'screenshots' -Default @())).Count
+            $routeScreenshotCount += @(Convert-ToObjectArraySafe -Value (Safe-Get -Object $routeNode -Key 'issue_screenshots' -Default @())).Count
+        }
+        if ($routeScreenshotCount -gt 0) {
+            $routesWithEvidence++
+            $capturedScreenshotCount += $routeScreenshotCount
         }
     }
-    $visualAuditActive = ((Test-Path -Path $visualManifestPath -PathType Leaf) -or ($capturedScreenshotCount -gt 0) -or (@($routeDetailsForVisualTruth).Count -gt 0))
+
+    $capturedScreenshotCount = [int][Math]::Max(0, $capturedScreenshotCount)
+    $visualAuditActive = ((Test-Path -Path $visualManifestPath -PathType Leaf) -or ($capturedScreenshotCount -gt 0) -or ($routesWithEvidence -gt 0))
     $visualCoverage['visual_audit_active'] = [bool]$visualAuditActive
     $visualCoverage['screenshots_packaged'] = [int]$capturedScreenshotCount
-    $visualCoverage['routes_with_evidence'] = [int]@($routeDetailsForVisualTruth | Where-Object { [int](Safe-Get -Object $_ -Key 'screenshotCount' -Default 0) -gt 0 }).Count
+    $visualCoverage['routes_with_evidence'] = [int]$routesWithEvidence
     $AuditResult['visual_coverage'] = $visualCoverage
     $AuditResult['facts'] = [ordered]@{
         mode = $ResolvedMode
