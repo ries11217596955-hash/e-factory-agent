@@ -4809,6 +4809,36 @@ function Ensure-OutputContract {
             priority_routes = @()
         }
 
+        $visualCoverageNode = Safe-Get -Object $auditResultNode -Key 'visual_coverage' -Default @{}
+        if (-not ($visualCoverageNode -is [System.Collections.IDictionary])) {
+            $visualCoverageNode = @{}
+        }
+
+        $visualManifestPath = Join-Path $reportsDir 'visual_manifest.json'
+        $visualAuditActive = [bool](Safe-Get -Object $visualCoverageNode -Key 'visual_audit_active' -Default $false)
+        if ((-not $visualAuditActive) -and (Test-Path $visualManifestPath -PathType Leaf)) {
+            try {
+                $manifestRaw = Get-Content -Path $visualManifestPath -Raw
+                $manifestData = $manifestRaw | ConvertFrom-Json -Depth 64
+                $manifestItems = Convert-ToObjectArraySafe -Value $manifestData
+                if (@($manifestItems).Count -gt 0) {
+                    $manifestRouteCount = @($manifestItems).Count
+                    $manifestScreenshotCount = 0
+                    foreach ($manifestItem in @($manifestItems)) {
+                        $manifestScreenshotCount += [int](Safe-Get -Object $manifestItem -Key 'screenshotCount' -Default 0)
+                    }
+                    $visualCoverageNode = [ordered]@{
+                        visual_audit_active = $true
+                        screenshots_packaged = [int]$manifestScreenshotCount
+                        routes_with_evidence = [int]$manifestRouteCount
+                    }
+                }
+            }
+            catch {
+                Write-Host "VISUAL_MANIFEST_FALLBACK_PARSE_FAIL: $($_.Exception.Message)"
+            }
+        }
+
         $fallbackContract = [ordered]@{
             run_status = [ordered]@{
                 run_id = $runId
@@ -4834,10 +4864,10 @@ function Ensure-OutputContract {
                 blocker = [string](Safe-Get -Object $fallbackTruth -Key 'blocker' -Default 'Unknown fallback failure.')
             }
             visual_artifacts = [ordered]@{
-                visual_audit_active = [bool](Safe-Get -Object (Safe-Get -Object $auditResultNode -Key 'visual_coverage' -Default @{}) -Key 'visual_audit_active' -Default $false)
-                screenshots_packaged = [int](Safe-Get -Object (Safe-Get -Object $auditResultNode -Key 'visual_coverage' -Default @{}) -Key 'screenshots_packaged' -Default 0)
-                routes_with_evidence = [int](Safe-Get -Object (Safe-Get -Object $auditResultNode -Key 'visual_coverage' -Default @{}) -Key 'routes_with_evidence' -Default 0)
-                status = if ([bool](Safe-Get -Object (Safe-Get -Object $auditResultNode -Key 'visual_coverage' -Default @{}) -Key 'visual_audit_active' -Default $false)) { 'PASS' } else { 'FAIL' }
+                visual_audit_active = [bool](Safe-Get -Object $visualCoverageNode -Key 'visual_audit_active' -Default $false)
+                screenshots_packaged = [int](Safe-Get -Object $visualCoverageNode -Key 'screenshots_packaged' -Default 0)
+                routes_with_evidence = [int](Safe-Get -Object $visualCoverageNode -Key 'routes_with_evidence' -Default 0)
+                status = if ([bool](Safe-Get -Object $visualCoverageNode -Key 'visual_audit_active' -Default $false)) { 'PASS' } else { 'FAIL' }
             }
             repair_hint = $repairHint
             artifact_manifest_summary = [ordered]@{
