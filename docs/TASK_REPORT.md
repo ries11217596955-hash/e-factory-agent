@@ -1,22 +1,21 @@
 ## Summary
-- Repaired parser-breaking JSON-style escaped quotes in the decision serialization block of `agent.ps1`.
-- Fixed `core_problem` newline/carriage-return normalization strings to valid PowerShell string syntax.
-- Fixed newline join expressions for `P0`, `DO NOW`, and `DO AFTER` summary sections to valid PowerShell string syntax.
-- Verified there are no remaining `\"` escape sequences in `agent.ps1`.
-- Kept scope minimal to syntax repair only; no behavior redesign.
+- Performed a forensic, single-file audit of `agents/gh_batch/site_auditor_cloud/agent.ps1` focused on the `DECISION_BUILD` failure `Argument types do not match`.
+- Identified the strongest failing line cluster at the decision writeback into `$liveLayer.summary`.
+- Applied a minimal patch to switch dictionary writeback to indexer syntax and add a guarded PSCustomObject path.
+- Verified that legacy `DECISION BUILDER v1/v2` blocks are located after unconditional `exit` statements and are not on the runtime path.
+- Kept scope bounded to the target agent file plus this task report.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
-None.
+- None.
 
 ## Current entrypoints/paths
-- Agent entrypoint remains `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Decision object construction and executive summary generation now use valid PowerShell quote syntax in the same existing block.
-- No workflow, deployment, or runtime entrypoint paths were changed.
+- Entrypoint audited: `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- Decision stage path: main try/catch around `Build-DecisionLayer` and subsequent live summary writeback.
 
 ## Risks/blockers
-- PowerShell runtime (`pwsh`/`powershell`) is unavailable in this container, so parser validation could not be executed locally.
-- Validation was limited to static scan confirming no remaining `\"` escape patterns in `agent.ps1`.
+- Could not execute PowerShell runtime validation in this container because `pwsh` is not installed.
+- Patch is intentionally narrow and does not remove legacy dead code blocks after `exit` to avoid broad refactor.
