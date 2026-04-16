@@ -1478,11 +1478,11 @@ function Normalize-AuditResult {
         $AuditResult = @{}
     }
 
-    $AuditResult.source = New-SourceLayer -Overrides (Safe-Get -Object $AuditResult -Key 'source' -Default @{})
-    $AuditResult.live = New-LiveLayer -Overrides (Safe-Get -Object $AuditResult -Key 'live' -Default @{})
+    $AuditResult['source'] = New-SourceLayer -Overrides (Safe-Get -Object $AuditResult -Key 'source' -Default @{})
+    $AuditResult['live'] = New-LiveLayer -Overrides (Safe-Get -Object $AuditResult -Key 'live' -Default @{})
 
-    if (-not $AuditResult.ContainsKey('required_inputs') -or $null -eq $AuditResult.required_inputs) {
-        $AuditResult.required_inputs = @()
+    if (-not $AuditResult.ContainsKey('required_inputs') -or $null -eq $AuditResult['required_inputs']) {
+        $AuditResult['required_inputs'] = @()
     }
 
     return $AuditResult
@@ -4052,9 +4052,9 @@ function Write-OperatorOutputs {
     $productStatusText = Get-ProductStatusString -ProductStatus $productStatusDetail -Default 'FAIL'
     if ($productStatusText -notin @('SUCCESS', 'NEEDS_FIX', 'FAIL')) { $productStatusText = 'FAIL' }
 
-    $AuditResult.product_status = [string]$productStatusText
-    $AuditResult.product_status_detail = $productStatusDetail
-    $AuditResult.product_closeout = $productCloseout
+    $AuditResult['product_status'] = [string]$productStatusText
+    $AuditResult['product_status_detail'] = $productStatusDetail
+    $AuditResult['product_closeout'] = $productCloseout
     $liveSummary = Convert-ToHashtableSafe -Value (Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'live' -Default @{}) -Key 'summary' -Default @{})
     $routeDetailsForCoverage = Convert-ToObjectArraySafe -Value (Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'live' -Default @{}) -Key 'route_details' -Default @())
     $visualCoverage = Convert-ToHashtableSafe -Value (Safe-Get -Object $liveSummary -Key 'visual_coverage' -Default @{})
@@ -4075,16 +4075,16 @@ function Write-OperatorOutputs {
     $doNextNow = Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object $Decision -Key 'do_next_now' -Default (Safe-Get -Object $Decision -Key 'do_next' -Default @()))
     $doNextAfter = Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object $Decision -Key 'do_next_after' -Default @())
     $validatorPass = ($FinalStatus -ne 'FAIL')
-    $AuditResult.schema_version = '4.0'
-    $AuditResult.run_id = $runId
-    $AuditResult.target = if ([string]::IsNullOrWhiteSpace([string]$env:TARGET_REPO_PATH)) { [string]$env:BASE_URL } else { [string]$env:TARGET_REPO_PATH }
-    $AuditResult.runtime = [ordered]@{
+    $AuditResult['schema_version'] = '4.0'
+    $AuditResult['run_id'] = $runId
+    $AuditResult['target'] = if ([string]::IsNullOrWhiteSpace([string]$env:TARGET_REPO_PATH)) { [string]$env:BASE_URL } else { [string]$env:TARGET_REPO_PATH }
+    $AuditResult['runtime'] = [ordered]@{
         status = $FinalStatus
         validator_pass = [bool]$validatorPass
         final_output_contract_pass = $false
         diagnostic_or_result_present = $false
     }
-    $AuditResult.decision = [ordered]@{
+    $AuditResult['decision'] = [ordered]@{
         stage = $decisionStage
         core_problem = (($decisionCore -replace "`r", ' ') -replace "`n", ' ').Trim()
         p0 = @($decisionP0 | Select-Object -Unique)
@@ -4093,8 +4093,8 @@ function Write-OperatorOutputs {
             after = @($doNextAfter | Select-Object -Unique)
         }
     }
-    $AuditResult.visual_coverage = $visualCoverage
-    $AuditResult.facts = [ordered]@{
+    $AuditResult['visual_coverage'] = $visualCoverage
+    $AuditResult['facts'] = [ordered]@{
         mode = $ResolvedMode
         required_inputs = Normalize-CollectionShape -Value (Safe-Get -Object $AuditResult -Key 'required_inputs' -Default @())
         total_routes = [int](Safe-Get -Object $liveSummary -Key 'total_routes' -Default 0)
@@ -4102,7 +4102,7 @@ function Write-OperatorOutputs {
         thin_routes = [int](Safe-Get -Object $liveSummary -Key 'thin_routes' -Default 0)
         contaminated_routes = [int](Safe-Get -Object $liveSummary -Key 'contaminated_routes' -Default 0)
     }
-    $AuditResult.artifacts = [ordered]@{
+    $AuditResult['artifacts'] = [ordered]@{
         reports = @('reports/audit_result.json', 'reports/RUN_REPORT.json')
         outbox = @('outbox/11A_EXECUTIVE_SUMMARY.txt', 'outbox/00_PRIORITY_ACTIONS.txt', 'outbox/01_TOP_ISSUES.txt')
         screenshots_dir = 'screenshots'
@@ -4121,11 +4121,11 @@ function Write-OperatorOutputs {
             $liveWarnings = @($liveWarnings + $degradedWarning)
         }
         $liveLayer.warnings = $liveWarnings
-        $AuditResult.live = $liveLayer
+        $AuditResult['live'] = $liveLayer
     }
 
-    if ($AuditResult.decision -is [System.Collections.IDictionary]) {
-        $AuditResult.decision.product_closeout = $productCloseout
+    if ($AuditResult['decision'] -is [System.Collections.IDictionary]) {
+        $AuditResult['decision']['product_closeout'] = $productCloseout
     }
 
     $auditResultPath = Join-Path $reportsDir 'audit_result.json'
@@ -4198,12 +4198,12 @@ function Write-OperatorOutputs {
     Write-TextFile -Path $issuesPath -Lines $topIssues
     $reportFiles.Add('outbox/01_TOP_ISSUES.txt')
 
-    $sourceStatus = if (-not (Safe-Get -Object $AuditResult.source -Key 'enabled' -Default $false)) { 'OFF' } elseif (Safe-Get -Object $AuditResult.source -Key 'ok' -Default $false) { 'PASS' } else { 'FAIL' }
-    $liveStatus = if (-not (Safe-Get -Object $AuditResult.live -Key 'enabled' -Default $false)) { 'OFF' } elseif (Safe-Get -Object $AuditResult.live -Key 'ok' -Default $false) { 'PASS' } else { 'FAIL' }
+    $sourceStatus = if (-not (Safe-Get -Object $AuditResult['source'] -Key 'enabled' -Default $false)) { 'OFF' } elseif (Safe-Get -Object $AuditResult['source'] -Key 'ok' -Default $false) { 'PASS' } else { 'FAIL' }
+    $liveStatus = if (-not (Safe-Get -Object $AuditResult['live'] -Key 'enabled' -Default $false)) { 'OFF' } elseif (Safe-Get -Object $AuditResult['live'] -Key 'ok' -Default $false) { 'PASS' } else { 'FAIL' }
     $requiredInputs = Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object $AuditResult -Key 'required_inputs' -Default @())
     $requiredInputsLine = if ($requiredInputs.Count -gt 0) { $requiredInputs -join ', ' } else { 'Not required for this mode.' }
-    $repoRoot = Safe-Get -Object $AuditResult.source -Key 'root' -Default $null
-    $sourceEnabled = [bool](Safe-Get -Object $AuditResult.source -Key 'enabled' -Default $false)
+    $repoRoot = Safe-Get -Object $AuditResult['source'] -Key 'root' -Default $null
+    $sourceEnabled = [bool](Safe-Get -Object $AuditResult['source'] -Key 'enabled' -Default $false)
 
     $summaryLines = @(
         "STAGE: $decisionStage",
