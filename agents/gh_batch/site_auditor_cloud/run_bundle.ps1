@@ -283,18 +283,16 @@ function Get-BundleLogicalStatus {
         return 'PARTIAL'
     }
 
-    return 'OK'
-}
-
-function Get-RepoScreenshotManifest {
     $repoRoot = Join-Path $bundleRoot 'repo'
-    $repoRootSafe = if ($repoRoot -is [System.Array]) { [string]$repoRoot[0] } else { [string]$repoRoot }
-    $canonicalSourceRoot = Join-Path (Join-Path $repoRootSafe 'reports') 'screenshots'
-    $sourceRoots = @($canonicalSourceRoot)
-    $fallbackSourceRoots = @(
-        (Join-Path $repoRootSafe 'reports'),
-        (Join-Path $repoRootSafe 'outbox')
-    )
+$repoRootSafe = if ($repoRoot -is [System.Array]) { [string]$repoRoot[0] } else { [string]$repoRoot }
+
+$canonicalSourceRoot = Join-Path (Join-Path $repoRootSafe 'reports') 'screenshots'
+$sourceRoots = @($canonicalSourceRoot)
+
+$fallbackSourceRoots = @(
+    (Join-Path $repoRootSafe 'reports')
+    (Join-Path $repoRootSafe 'outbox')
+)
 
     $manifest = New-Object System.Collections.Generic.List[object]
     $canonicalKeys = @{}
