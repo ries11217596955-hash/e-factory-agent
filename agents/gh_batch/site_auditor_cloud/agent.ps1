@@ -5125,7 +5125,7 @@ try {
         }
         elseif ($liveLayer.summary -is [PSCustomObject]) {
             if ($null -ne $liveLayer.summary.PSObject.Properties['contradiction_summary']) {
-                $liveLayer.summary.contradiction_summary = $contradictionSummaryNode
+                $liveLayer.summary['contradiction_summary'] = $contradictionSummaryNode
             }
             else {
                 $liveLayer.summary | Add-Member -NotePropertyName 'contradiction_summary' -NotePropertyValue $contradictionSummaryNode -Force
