@@ -5297,3 +5297,40 @@ try {
 catch {
     Write-Host "DECISION_LOCK_FAIL"
 }
+
+# --- DECISION BUILDER v1 ---
+try {
+    if ($runReport -and $runReport.visual_artifacts) {
+
+        $va = $runReport.visual_artifacts
+        $decision = @{}
+
+        if ($va.screenshots_packaged -gt 0) {
+
+            $decision["CORE_PROBLEM"] = "Detected structural and UX issues based on visual audit evidence"
+
+            $p0 = @()
+
+            if ($va.routes_with_evidence -gt 0) {
+                $p0 += "Multiple pages contain visible UX/content issues"
+            }
+
+            if ($va.screenshots_packaged -gt 10) {
+                $p0 += "Issues appear across multiple sections of the site"
+            }
+
+            $decision["P0"] = $p0
+
+            $decision["DO_NEXT"] = @(
+                "Review screenshots and identify broken or empty sections",
+                "Fix content gaps on affected pages",
+                "Add clear CTA blocks on main pages"
+            )
+        }
+
+        $runReport["decision"] = $decision
+    }
+}
+catch {
+    Write-Host "DECISION_BUILDER_FAIL"
+}
