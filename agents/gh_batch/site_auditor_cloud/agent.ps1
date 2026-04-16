@@ -5334,3 +5334,49 @@ try {
 catch {
     Write-Host "DECISION_BUILDER_FAIL"
 }
+
+# --- DECISION BUILDER v2 (signal-based) ---
+try {
+    if ($auditResultNode) {
+
+        $decision = @{}
+        $p0 = @()
+
+        $visual = $auditResultNode["visual_coverage"]
+        $content = $auditResultNode["content_analysis"]
+
+        if ($visual -and $visual.screenshots_packaged -gt 0) {
+
+            $decision["CORE_PROBLEM"] = "Site has visible UX/content issues confirmed by audit signals"
+
+            if ($content -and $content.empty_routes -gt 0) {
+                $p0 += "Some pages are empty or lack meaningful content"
+            }
+
+            if ($visual.contamination_flags) {
+                $p0 += "UI contamination elements detected (e.g. 'Built with', debug overlays)"
+            }
+
+            if ($visual.routes_with_evidence -gt 3) {
+                $p0 += "Issues affect multiple pages across the site"
+            }
+
+            if ($p0.Count -eq 0) {
+                $p0 += "General UX issues detected but require manual review"
+            }
+
+            $decision["P0"] = $p0
+
+            $decision["DO_NEXT"] = @(
+                "Fix empty or low-content pages",
+                "Remove UI contamination elements",
+                "Improve structure and clarity of key pages"
+            )
+        }
+
+        $runReport["decision"] = $decision
+    }
+}
+catch {
+    Write-Host "DECISION_BUILDER_V2_FAIL"
+}
