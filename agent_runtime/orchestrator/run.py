@@ -1,3 +1,4 @@
+print("RUN CONTROL OK")
 import argparse
 from pathlib import Path
 import json
