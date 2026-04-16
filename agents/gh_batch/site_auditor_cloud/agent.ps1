@@ -3309,8 +3309,8 @@ function Build-DecisionLayer {
         [string]$ResolvedMode,
         [hashtable]$SourceLayer,
         [hashtable]$LiveLayer,
-        [string[]]$MissingInputs,
-        [string[]]$Warnings
+        [object]$MissingInputs,
+        [object]$Warnings
     )
 
     $normalizedSourceLayer = Convert-ToHashtableSafe -Value $SourceLayer
@@ -3459,6 +3459,12 @@ function Build-DecisionLayer {
     }
     if ($stage -eq 'CONVERSION' -and $conversionWeak -gt 0) {
         Add-UniqueString -List $p0List -Value "$conversionWeak route observations show weak CTA/dead-end progression."
+    }
+    if ($visualAuditActive -and $contaminatedRoutes -gt 0) {
+        Add-UniqueString -List $p0List -Value "$contaminatedRoutes route(s) have visual contamination backed by screenshot evidence."
+    }
+    if ($visualAuditActive -and $routesWithEvidence -gt 0) {
+        Add-UniqueString -List $p0List -Value "Visual evidence active on $routesWithEvidence route(s); final truth must reflect artifact reality."
     }
     if (@($priorityRoutes).Count -gt 0 -and $stage -ne 'READY') {
         Add-UniqueString -List $p0List -Value ("Priority routes: " + ((@($priorityRoutes) | Select-Object -First 3) -join ', '))
@@ -4275,6 +4281,12 @@ function Write-RunForensicsReports {
         }
         executive_summary = $executiveSummary
         key_evidence_excerpts = $evidence
+        visual_artifacts = [ordered]@{
+            visual_audit_active = [bool](Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'visual_coverage' -Default @{}) -Key 'visual_audit_active' -Default $false)
+            screenshots_packaged = [int](Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'visual_coverage' -Default @{}) -Key 'screenshots_packaged' -Default 0)
+            routes_with_evidence = [int](Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'visual_coverage' -Default @{}) -Key 'routes_with_evidence' -Default 0)
+            status = if ([bool](Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'visual_coverage' -Default @{}) -Key 'visual_audit_active' -Default $false)) { 'PASS' } else { 'FAIL' }
+        }
         repair_hint = $repairHint
         artifact_manifest_summary = [ordered]@{
             artifacts = @($artifactItems)
@@ -4551,6 +4563,7 @@ function Write-OperatorOutputs {
         $topIssues = @("Primary remediation package: $packageName — $packageGoal") + @($topIssues)
     }
     if ((Normalize-ToArray $topIssues).Count -eq 0) { $topIssues = @($decisionP2) }
+    if ((Normalize-ToArray $topIssues).Count -eq 0 -and $FinalStatus -eq 'FAIL') { $topIssues = @($decisionP0) }
     if ((Normalize-ToArray $topIssues).Count -eq 0) { $topIssues = @('No major issues detected from collected source/live evidence.') }
 
     $priorityActions = New-Object System.Collections.Generic.List[string]
@@ -4807,6 +4820,12 @@ function Ensure-OutputContract {
                 failure_node = [string](Safe-Get -Object $fallbackTruth -Key 'failure_node' -Default $currentStage)
                 blocker = [string](Safe-Get -Object $fallbackTruth -Key 'blocker' -Default 'Unknown fallback failure.')
             }
+            visual_artifacts = [ordered]@{
+                visual_audit_active = [bool](Safe-Get -Object (Safe-Get -Object $auditResultNode -Key 'visual_coverage' -Default @{}) -Key 'visual_audit_active' -Default $false)
+                screenshots_packaged = [int](Safe-Get -Object (Safe-Get -Object $auditResultNode -Key 'visual_coverage' -Default @{}) -Key 'screenshots_packaged' -Default 0)
+                routes_with_evidence = [int](Safe-Get -Object (Safe-Get -Object $auditResultNode -Key 'visual_coverage' -Default @{}) -Key 'routes_with_evidence' -Default 0)
+                status = if ([bool](Safe-Get -Object (Safe-Get -Object $auditResultNode -Key 'visual_coverage' -Default @{}) -Key 'visual_audit_active' -Default $false)) { 'PASS' } else { 'FAIL' }
+            }
             repair_hint = $repairHint
             artifact_manifest_summary = [ordered]@{
                 artifacts = @(
@@ -4968,9 +4987,11 @@ function Ensure-OutputContract {
             "missing_or_broken_artifact: $((@($diagnostic.missing_or_broken_artifact) -join ', '))",
             "exact_next_repair_direction: $($diagnostic.exact_next_repair_direction)"
         )
-        if ($auditResultNode.decision -is [System.Collections.IDictionary] -and [string](Safe-Get -Object $auditResultNode.decision -Key 'stage' -Default '') -eq 'READY') {
-            $auditResultNode.decision.stage = 'BROKEN'
-            $auditResultNode.decision.core_problem = 'Final output contract is missing required artifacts; run is not READY.'
+        $auditDecisionNode = Convert-ToHashtableSafe -Value (Safe-Get -Object $auditResultNode -Key 'decision' -Default @{})
+        if (($auditDecisionNode -is [System.Collections.IDictionary]) -and [string](Safe-Get -Object $auditDecisionNode -Key 'stage' -Default '') -eq 'READY') {
+            $auditDecisionNode['stage'] = 'BROKEN'
+            $auditDecisionNode['core_problem'] = 'Final output contract is missing required artifacts; run is not READY.'
+            $auditResultNode['decision'] = $auditDecisionNode
         }
         $script:status = 'FAIL'
         if ($null -eq $global:AuditError) {
