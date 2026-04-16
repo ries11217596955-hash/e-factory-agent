@@ -5118,8 +5118,19 @@ try {
     $currentStage = 'DECISION_BUILD'
     $decision = Build-DecisionLayer -ResolvedMode $resolvedMode -SourceLayer $sourceLayer -LiveLayer $liveLayer -MissingInputs @($missingInputs) -Warnings $warningsForDecision
     $lastSuccessStage = 'DECISION_BUILD'
-    if ($liveLayer.enabled -and ($liveLayer.summary -is [System.Collections.IDictionary])) {
-        $liveLayer.summary.contradiction_summary = Safe-Get -Object $decision -Key 'contradiction_summary' -Default @{}
+    if ($liveLayer.enabled) {
+        $contradictionSummaryNode = Safe-Get -Object $decision -Key 'contradiction_summary' -Default @{}
+        if ($liveLayer.summary -is [System.Collections.IDictionary]) {
+            $liveLayer.summary['contradiction_summary'] = $contradictionSummaryNode
+        }
+        elseif ($liveLayer.summary -is [PSCustomObject]) {
+            if ($null -ne $liveLayer.summary.PSObject.Properties['contradiction_summary']) {
+                $liveLayer.summary.contradiction_summary = $contradictionSummaryNode
+            }
+            else {
+                $liveLayer.summary | Add-Member -NotePropertyName 'contradiction_summary' -NotePropertyValue $contradictionSummaryNode -Force
+            }
+        }
     }
 
     $blockingMissingInputs = @($missingInputs | Where-Object { $_ -ne $null -and -not [string]::Equals([string]$_, 'primary_targets', [System.StringComparison]::OrdinalIgnoreCase) })
