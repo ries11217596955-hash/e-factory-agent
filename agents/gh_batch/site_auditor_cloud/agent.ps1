@@ -4550,9 +4550,9 @@ function Ensure-OutputContract {
     $runtimeNode.final_output_contract_pass = [bool]$contractPass
     $runtimeNode.diagnostic_or_result_present = [bool]($contractPass -or (Test-Path -Path (Join-Path $reportsDir 'RUN_DIAGNOSTIC.txt') -PathType Leaf))
     if (-not $contractPass) { $runtimeNode.status = 'FAIL' }
-    $auditResultNode.runtime = $runtimeNode
+    $auditResultNode['runtime'] = $runtimeNode
     if (-not $contractPass) {
-        $auditResultNode.status = 'FAIL'
+        $auditResultNode['status'] = 'FAIL'
         $diagnostic = [ordered]@{
             failed_step = 'OUTPUT_CONTRACT_LOCK'
             succeeded_before_fail = $lastSuccessStage
@@ -4566,9 +4566,9 @@ function Ensure-OutputContract {
             "missing_or_broken_artifact: $((@($diagnostic.missing_or_broken_artifact) -join ', '))",
             "exact_next_repair_direction: $($diagnostic.exact_next_repair_direction)"
         )
-        if ($auditResultNode.decision -is [System.Collections.IDictionary] -and [string](Safe-Get -Object $auditResultNode.decision -Key 'stage' -Default '') -eq 'READY') {
-            $auditResultNode.decision.stage = 'BROKEN'
-            $auditResultNode.decision.core_problem = 'Final output contract is missing required artifacts; run is not READY.'
+        if ($auditResultNode.ContainsKey('decision') -and $auditResultNode['decision'] -is [System.Collections.IDictionary] -and [string](Safe-Get -Object $auditResultNode['decision'] -Key 'stage' -Default '') -eq 'READY') {
+            $auditResultNode['decision']['stage'] = 'BROKEN'
+            $auditResultNode['decision']['core_problem'] = 'Final output contract is missing required artifacts; run is not READY.'
         }
         $script:status = 'FAIL'
         if ($null -eq $global:AuditError) {
