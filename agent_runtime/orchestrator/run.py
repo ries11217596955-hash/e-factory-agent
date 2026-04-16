@@ -315,6 +315,15 @@ def process_job(job_dir: Path) -> int:
             state["status"] = "fail"
             state["error"] = str(exc)
 
+            crash_report = {
+                "stage": current_stage,
+                "status": "fail",
+                "error": str(exc),
+                "ts": utc_now(),
+                "traceback": traceback.format_exc(),
+            }
+            write_json(job_dir / "reports" / f"{current_stage}_crash_report.json", crash_report)
+
             append_history(
                 state,
                 "stage_exception",
