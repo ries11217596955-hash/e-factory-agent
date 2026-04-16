@@ -5289,3 +5289,25 @@ if ($status -eq 'PASS' -and $null -eq $global:AuditError) {
 
 Write-Host "SITE_AUDITOR failed. Artifacts: $outboxDir ; $reportsDir"
 exit 1
+
+# --- DECISION HARD LOCK ---
+try {
+    if ($runReport -and $runReport.visual_artifacts -and $runReport.visual_artifacts.screenshots_packaged -gt 0) {
+        if (-not $decision) { $decision = @{} }
+
+        $decision["CORE_PROBLEM"] = "Site has structural/UX issues detected via visual audit evidence"
+        $decision["P0"] = @(
+            "UI contamination present",
+            "Empty or low-content blocks detected",
+            "Conversion path unclear"
+        )
+        $decision["DO_NEXT"] = @(
+            "Remove UI contamination elements",
+            "Fill empty blocks with real content",
+            "Add clear CTA per page"
+        )
+    }
+}
+catch {
+    Write-Host "DECISION_LOCK_FAIL"
+}
