@@ -4283,9 +4283,14 @@ function Write-RunForensicsReports {
         key_evidence_excerpts = $evidence
         visual_artifacts = [ordered]@{
             visual_audit_active = [bool](Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'visual_coverage' -Default @{}) -Key 'visual_audit_active' -Default $false)
+            screenshots_expected = [int](Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'visual_coverage' -Default @{}) -Key 'screenshots_expected' -Default 0)
             screenshots_packaged = [int](Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'visual_coverage' -Default @{}) -Key 'screenshots_packaged' -Default 0)
+            screenshots_missing = [int](Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'visual_coverage' -Default @{}) -Key 'screenshots_missing' -Default 0)
             routes_with_evidence = [int](Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'visual_coverage' -Default @{}) -Key 'routes_with_evidence' -Default 0)
-            status = if ([bool](Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'visual_coverage' -Default @{}) -Key 'visual_audit_active' -Default $false)) { 'PASS' } else { 'FAIL' }
+            expected_paths = @(Convert-ToObjectArraySafe -Value (Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'visual_coverage' -Default @{}) -Key 'expected_paths' -Default @()))
+            packaged_paths = @(Convert-ToObjectArraySafe -Value (Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'visual_coverage' -Default @{}) -Key 'packaged_paths' -Default @()))
+            missing_paths = @(Convert-ToObjectArraySafe -Value (Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'visual_coverage' -Default @{}) -Key 'missing_paths' -Default @()))
+            status = [string](Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'visual_coverage' -Default @{}) -Key 'status' -Default (if ([bool](Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'visual_coverage' -Default @{}) -Key 'visual_audit_active' -Default $false)) { 'PASS' } else { 'FAIL' }))
         }
         repair_hint = $repairHint
         artifact_manifest_summary = [ordered]@{
@@ -4788,6 +4793,14 @@ function Ensure-OutputContract {
         if (@($primaryTruthSources).Count -le 0) {
             $primaryTruthSources = @('reports/audit_result.json')
         }
+        $fallbackAuditResultNode = @{}
+        $fallbackAuditResultPath = Join-Path $reportsDir 'audit_result.json'
+        if (Test-Path -Path $fallbackAuditResultPath -PathType Leaf) {
+            try { $fallbackAuditResultNode = ConvertFrom-Json (Get-Content -Path $fallbackAuditResultPath -Raw) -AsHashtable } catch { $fallbackAuditResultNode = @{} }
+        }
+        if ($fallbackAuditResultNode -isnot [System.Collections.IDictionary]) { $fallbackAuditResultNode = @{} }
+        $fallbackVisualCoverage = Convert-ToHashtableSafe -Value (Safe-Get -Object $fallbackAuditResultNode -Key 'visual_coverage' -Default @{})
+        $fallbackDecisionNode = Convert-ToHashtableSafe -Value (Safe-Get -Object $fallbackAuditResultNode -Key 'decision' -Default @{})
         $repairHint = [ordered]@{
             target_file = 'agents/gh_batch/site_auditor_cloud/agent.ps1'
             broken_block = [string](Safe-Get -Object $fallbackTruth -Key 'failure_stage' -Default $currentStage)
@@ -4821,10 +4834,15 @@ function Ensure-OutputContract {
                 blocker = [string](Safe-Get -Object $fallbackTruth -Key 'blocker' -Default 'Unknown fallback failure.')
             }
             visual_artifacts = [ordered]@{
-                visual_audit_active = [bool](Safe-Get -Object (Safe-Get -Object $auditResultNode -Key 'visual_coverage' -Default @{}) -Key 'visual_audit_active' -Default $false)
-                screenshots_packaged = [int](Safe-Get -Object (Safe-Get -Object $auditResultNode -Key 'visual_coverage' -Default @{}) -Key 'screenshots_packaged' -Default 0)
-                routes_with_evidence = [int](Safe-Get -Object (Safe-Get -Object $auditResultNode -Key 'visual_coverage' -Default @{}) -Key 'routes_with_evidence' -Default 0)
-                status = if ([bool](Safe-Get -Object (Safe-Get -Object $auditResultNode -Key 'visual_coverage' -Default @{}) -Key 'visual_audit_active' -Default $false)) { 'PASS' } else { 'FAIL' }
+                visual_audit_active = [bool](Safe-Get -Object $fallbackVisualCoverage -Key 'visual_audit_active' -Default $false)
+                screenshots_expected = [int](Safe-Get -Object $fallbackVisualCoverage -Key 'screenshots_expected' -Default 0)
+                screenshots_packaged = [int](Safe-Get -Object $fallbackVisualCoverage -Key 'screenshots_packaged' -Default 0)
+                screenshots_missing = [int](Safe-Get -Object $fallbackVisualCoverage -Key 'screenshots_missing' -Default 0)
+                routes_with_evidence = [int](Safe-Get -Object $fallbackVisualCoverage -Key 'routes_with_evidence' -Default 0)
+                expected_paths = @(Convert-ToObjectArraySafe -Value (Safe-Get -Object $fallbackVisualCoverage -Key 'expected_paths' -Default @()))
+                packaged_paths = @(Convert-ToObjectArraySafe -Value (Safe-Get -Object $fallbackVisualCoverage -Key 'packaged_paths' -Default @()))
+                missing_paths = @(Convert-ToObjectArraySafe -Value (Safe-Get -Object $fallbackVisualCoverage -Key 'missing_paths' -Default @()))
+                status = [string](Safe-Get -Object $fallbackVisualCoverage -Key 'status' -Default (if ([bool](Safe-Get -Object $fallbackVisualCoverage -Key 'visual_audit_active' -Default $false)) { 'PASS' } else { 'FAIL' }))
             }
             repair_hint = $repairHint
             artifact_manifest_summary = [ordered]@{
@@ -4877,16 +4895,26 @@ function Ensure-OutputContract {
             'NEXT TECHNICAL MOVE',
             $fallbackNextMove
         )
+        $fallbackDecisionStage = [string](Safe-Get -Object $fallbackDecisionNode -Key 'stage' -Default 'BROKEN')
+        $fallbackDecisionCore = [string](Safe-Get -Object $fallbackDecisionNode -Key 'core_problem' -Default ([string](Safe-Get -Object $fallbackTruth -Key 'blocker' -Default 'Unknown fallback failure.')))
+        $fallbackDecisionP0 = @(Convert-ToObjectArraySafe -Value (Safe-Get -Object $fallbackDecisionNode -Key 'p0' -Default @()))
+        $fallbackDecisionDoNext = Convert-ToHashtableSafe -Value (Safe-Get -Object $fallbackDecisionNode -Key 'do_next' -Default @{})
+        $fallbackDecisionDoNow = @(Convert-ToObjectArraySafe -Value (Safe-Get -Object $fallbackDecisionDoNext -Key 'now' -Default @($fallbackNextMove)))
+        $fallbackDecisionDoAfter = @(Convert-ToObjectArraySafe -Value (Safe-Get -Object $fallbackDecisionDoNext -Key 'after' -Default @()))
         Write-TextFile -Path (Join-Path $reportsDir '11A_EXECUTIVE_SUMMARY.txt') -Lines @(
-            "MODE: $ResolvedMode",
-            "FINAL STATUS: $FinalStatus",
-            "FINAL STAGE: $currentStage",
-            "LAST SUCCESS STAGE: $lastSuccessStage",
-            "EXACT BLOCKER: $([string](Safe-Get -Object $fallbackTruth -Key 'blocker' -Default 'Unknown fallback failure.'))",
-            "WHAT WORKED BEFORE FAILURE: $workedBeforeFailure",
-            "WHAT DID NOT COMPLETE: $fallbackDidNotComplete",
-            "ONE NEXT TECHNICAL MOVE: $fallbackNextMove",
-            "AVAILABLE TRUTH FILES: $((@($primaryTruthSources) -join ', '))"
+            "STAGE: $fallbackDecisionStage",
+            '',
+            'CORE PROBLEM:',
+            $fallbackDecisionCore,
+            '',
+            'P0:',
+            $((@($fallbackDecisionP0) -join "`n")),
+            '',
+            'DO NOW:',
+            $((@($fallbackDecisionDoNow) -join "`n")),
+            '',
+            'DO AFTER:',
+            $((@($fallbackDecisionDoAfter) -join "`n"))
         )
         Write-JsonFile -Path (Join-Path $reportsDir 'ARTIFACT_MANIFEST.json') -Data ([ordered]@{
             run_id = $runId
