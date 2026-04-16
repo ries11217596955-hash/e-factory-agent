@@ -4542,6 +4542,14 @@ function Ensure-OutputContract {
         if (@($primaryTruthSources).Count -le 0) {
             $primaryTruthSources = @('reports/audit_result.json')
         }
+        $repairHint = [ordered]@{
+            target_file = 'agents/gh_batch/site_auditor_cloud/agent.ps1'
+            broken_block = [string](Safe-Get -Object $fallbackTruth -Key 'failure_stage' -Default $currentStage)
+            reason = [string](Safe-Get -Object $fallbackTruth -Key 'blocker' -Default 'Unknown fallback failure.')
+            next_action = $fallbackNextMove
+            priority_routes = @()
+        }
+
         $fallbackContract = [ordered]@{
             run_status = [ordered]@{
                 run_id = $runId
@@ -4567,7 +4575,7 @@ function Ensure-OutputContract {
                 blocker = [string](Safe-Get -Object $fallbackTruth -Key 'blocker' -Default 'Unknown fallback failure.')
             }
             repair_hint = $repairHint
-        artifact_manifest_summary = [ordered]@{
+            artifact_manifest_summary = [ordered]@{
                 artifacts = @(
                     [ordered]@{ path = 'reports/audit_result.json'; artifact_type = 'truth_audit'; purpose = 'Primary structured source/live/decision truth.'; priority_for_operator = 'high' },
                     [ordered]@{ path = 'reports/RUN_REPORT.txt'; artifact_type = 'run_report_text'; purpose = 'Top-level operator-ready forensic report.'; priority_for_operator = 'high' },
