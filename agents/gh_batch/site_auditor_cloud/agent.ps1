@@ -4776,6 +4776,19 @@ function Ensure-OutputContract {
 
 
     $runReportJsonPath = Join-Path $reportsDir 'RUN_REPORT.json'
+    $auditResultNode = @{}
+    if (Test-Path $auditResultPath -PathType Leaf) {
+        try {
+            $parsedAuditResultNode = Get-Content -Path $auditResultPath -Raw | ConvertFrom-Json -Depth 64 -AsHashtable
+            if ($parsedAuditResultNode -is [System.Collections.IDictionary]) {
+                $auditResultNode = $parsedAuditResultNode
+            }
+        }
+        catch {
+            $auditResultNode = @{}
+        }
+    }
+
     if (-not (Test-Path $runReportJsonPath -PathType Leaf)) {
         $fallbackTruth = Get-FallbackTruthEvidence -AuditResultPath $auditResultPath -FailureReason $FailureReason -CurrentStage $currentStage -LastSuccessStage $lastSuccessStage
         $fallbackNextMove = if ($FinalStatus -eq 'PASS') {
