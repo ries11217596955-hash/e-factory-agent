@@ -1,5 +1,5 @@
 ## Summary
-Executed task `SA_CONVERT_TO_OBJECT_ARRAY_OR_EMPTY_FALLBACK_SAFE_WRAP_003` with single-function scope in `agents/gh_batch/site_auditor_cloud/agent.ps1`. Updated only the final fallback return in `Convert-ToObjectArrayOrEmpty` to a safe `try/catch` wrapper so runtime `@($Value)` casting exceptions fall back to `,$Value`.
+Executed task `SA_CONVERT_TO_OBJECT_ARRAY_OBJECT_BLOCK_FIX_004` with minimal scope. In `Convert-ToObjectArrayOrEmpty`, replaced the dictionary/pscustomobject return wrapper from `@($Value)` to `,$Value` to safely create a single-element array without triggering argument type mismatch exceptions.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -9,11 +9,12 @@ Executed task `SA_CONVERT_TO_OBJECT_ARRAY_OR_EMPTY_FALLBACK_SAFE_WRAP_003` with 
 - None.
 
 ## Current entrypoints/paths
-- Verified helper location: `agents/gh_batch/site_auditor_cloud/agent.ps1` (`Convert-ToObjectArrayOrEmpty`).
-- Applied fallback-only change at the function tail:
-  - `try { return @($Value) } catch { return ,$Value }`
-- No changes were made to conditions, enumerable logic, entrypoints, workflows, or protected infrastructure paths.
+- Updated helper block only in: `agents/gh_batch/site_auditor_cloud/agent.ps1` (`Convert-ToObjectArrayOrEmpty`, object/dictionary condition block).
+- Left all other conditions untouched.
+- Left `IEnumerable` block untouched.
+- Left fallback block untouched.
+- No changes made to workflows, deployment config, routing/entrypoints, runtime logic, or packaging/install logic.
 
 ## Risks/blockers
-- Low risk: behavioral change is constrained to previously failing fallback path only.
+- Low risk: one-line deterministic change in a single conditional branch.
 - No blockers.

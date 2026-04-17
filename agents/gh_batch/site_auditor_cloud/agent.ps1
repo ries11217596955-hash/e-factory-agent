@@ -4227,7 +4227,7 @@ function Convert-ToObjectArrayOrEmpty {
     }
 
     if ($Value -is [System.Collections.IDictionary] -or $Value -is [pscustomobject]) {
-        return @($Value)
+        return ,$Value
     }
 
     if ($Value -is [System.Collections.IEnumerable]) {
