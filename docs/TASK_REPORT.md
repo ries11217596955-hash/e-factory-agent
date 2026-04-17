@@ -1,5 +1,5 @@
 ## Summary
-Implemented `SA_DONEXT_ARRAY_SHAPE_FIX_002` by coercing `$doNextItems` to a deterministic array shape boundary in `Write-OperatorOutputs`, preserving top-3 selection while preventing scalar-vs-array Count failures.
+Implemented `SA_VISUAL_ARTIFACTS_STATUS_PRECOMPUTE_001` by precomputing `visual_coverage` normalization and deterministic `visual_artifacts.status` values before contract assembly, removing the inline conditional from the ordered hashtable entry that was triggering runtime type mismatch behavior.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -10,7 +10,7 @@ Implemented `SA_DONEXT_ARRAY_SHAPE_FIX_002` by coercing `$doNextItems` to a dete
 
 ## Current entrypoints/paths
 - Agent execution path: `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- Updated boundary block: `$doNextItems` assignment and Count fallback in `Write-OperatorOutputs` (`Decision.do_next` top-3 extraction path)
+- Updated output assembly block: precomputed `$visualCoverageNode`, `$visualAuditActiveFlag`, and `$visualArtifactsStatus` used by `visual_artifacts` in `Write-OperatorOutputs`
 
 ## Risks/blockers
 - No end-to-end PowerShell run was executed in this environment, so runtime confirmation should be completed in the next pipeline/agent execution.

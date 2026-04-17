@@ -4438,6 +4438,10 @@ function Write-RunForensicsReports {
         [ordered]@{ name = 'DECISION_BUILD'; status = if ($LastSuccessStage -in @('DECISION_BUILD', 'OPERATOR_OUTPUT_CONTRACT', 'COMPLETE')) { 'PASS' } else { 'FAIL_OR_SKIPPED' } },
         [ordered]@{ name = 'OPERATOR_OUTPUT_CONTRACT'; status = if ($CurrentStage -eq 'COMPLETE' -or $LastSuccessStage -eq 'OPERATOR_OUTPUT_CONTRACT') { 'PASS' } else { 'FAIL_OR_SKIPPED' } }
     )
+    $visualCoverageNode = Convert-ToHashtableSafe -Value (Safe-Get -Object $AuditResult -Key 'visual_coverage' -Default @{})
+    $visualAuditActiveFlag = [bool](Safe-Get -Object $visualCoverageNode -Key 'visual_audit_active' -Default $false)
+    $visualArtifactsStatus = if ($visualAuditActiveFlag) { 'PASS' } else { 'FAIL' }
+
     $contract = [ordered]@{
         schema_version = '2.0'
         run_id = $runId
@@ -4462,10 +4466,10 @@ function Write-RunForensicsReports {
         executive_summary = $executiveSummary
         key_evidence_excerpts = $evidence
         visual_artifacts = [ordered]@{
-            visual_audit_active = [bool](Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'visual_coverage' -Default @{}) -Key 'visual_audit_active' -Default $false)
-            screenshots_packaged = [int](Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'visual_coverage' -Default @{}) -Key 'screenshots_packaged' -Default 0)
-            routes_with_evidence = [int](Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'visual_coverage' -Default @{}) -Key 'routes_with_evidence' -Default 0)
-            status = if ([bool](Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'visual_coverage' -Default @{}) -Key 'visual_audit_active' -Default $false)) { 'PASS' } else { 'FAIL' }
+            visual_audit_active = [bool]$visualAuditActiveFlag
+            screenshots_packaged = [int](Safe-Get -Object $visualCoverageNode -Key 'screenshots_packaged' -Default 0)
+            routes_with_evidence = [int](Safe-Get -Object $visualCoverageNode -Key 'routes_with_evidence' -Default 0)
+            status = [string]$visualArtifactsStatus
         }
         repair_hint = $repairHint
         artifact_manifest_summary = [ordered]@{
