@@ -1,5 +1,5 @@
 ## Summary
-Completed the scored-routes hardening pass in `Build-MetaAuditBriefLines` by replacing generic-list route accumulation with deterministic array/object construction, removing fragile outer array coercion, and re-sanitizing per-item reasons before suspicious-route line joins.
+Completed `SA_RUN_FORENSICS_HARDENING_PASS_002` by hardening `Write-RunForensicsReports` into a deterministic payload-builder. Stabilized artifact manifest inputs, precomputed scalar/array payload values, and removed late coercion/count hazards so output contracts are assembled only from normalized values.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -9,11 +9,16 @@ Completed the scored-routes hardening pass in `Build-MetaAuditBriefLines` by rep
 - None.
 
 ## Current entrypoints/paths
-- Scoped function touched: `Build-MetaAuditBriefLines` in `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- Scored-route flow covered:
-  - `$scoredRoutes` deterministic array assembly
-  - `$suspiciousRouteLines` reason sanitization and join safety
-  - sorted scored-routes downstream usage for worst-route selection
+- Scoped function touched: `Write-RunForensicsReports` in `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- Hardening details:
+  - Stabilized collections:
+    - Built `$artifactItemsSafe` once from normalized hashtable nodes.
+    - Built `$primaryTruthSafe` only from `$artifactItemsSafe`.
+    - Built `$confirmedPassingStagesSafe` as a deterministic string array.
+  - Replaced late coercions:
+    - Replaced late `@($artifactItems).Count` with `$artifactItemsSafe.Count`.
+    - Replaced downstream raw/mixed collection loops with safe arrays (`$artifactItemsSafe`, `$primaryTruthSafe`, `$confirmedPassingStagesSafe`).
+    - Built `artifact_manifest_summary`, `run_status`, and `key_evidence_excerpts` maps from precomputed scalars/arrays.
 
 ## Risks/blockers
-- No end-to-end runtime validation was executed in this environment; confirmation that execution now proceeds beyond meta-brief generation should be performed in the operator pipeline run.
+- End-to-end execution of the full agent workflow was not run in this environment, so final validation that the next runtime failure (if any) occurs outside `Write-RunForensicsReports` must be confirmed in pipeline execution.
