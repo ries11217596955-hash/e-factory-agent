@@ -48,10 +48,11 @@ jobs:
       - name: Verify agent path in repo root
         shell: pwsh
         run: |
-          Write-Host "REPO_ROOT_CONTENT:"
-          ls -R agents/gh_batch/site_auditor_cloud/
-          git log -1
-          cat agents/gh_batch/site_auditor_cloud/agent.ps1 | head -n 20
+          Write-Host "AGENT_PATH_EXISTS=$((Test-Path 'agents/gh_batch/site_auditor_cloud/agent.ps1'))"
+          Write-Host "LAST_COMMIT:"
+          git log -1 --oneline
+          Write-Host "AGENT_HEAD_MARKERS:"
+          Select-String -Path 'agents/gh_batch/site_auditor_cloud/agent.ps1' -Pattern 'AGENT_VERSION=V5_FINAL_FIX','DECISION_BUILD_STAMP' -SimpleMatch
 
       - name: Checkout target repo for REPO-bound executions (bundle + manual REPO single-mode)
         if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.execution_path == 'BUNDLE' || (inputs.execution_path == 'SINGLE_MODE' && inputs.audit_mode == 'REPO')))
