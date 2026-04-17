@@ -1,9 +1,8 @@
 ## Summary
-- Applied the requested PowerShell return fix in `Build-DecisionLayer` by replacing the invalid cast return with a direct return.
-- Kept the existing normalization layer intact.
-- Did not modify broader `Build-DecisionLayer` decision logic beyond the single return-line replacement.
+Implemented execution-truth enforcement updates so the workflow proves it is running the latest committed `agent.ps1` and emits a fixed version marker in logs.
 
 ## Changed files
+- `.github/workflows/site-auditor-fixed-list.yml`
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
 - `docs/TASK_REPORT.md`
 
@@ -11,9 +10,8 @@
 - None.
 
 ## Current entrypoints/paths
-- Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Modified scope: final return statement in `Build-DecisionLayer` only.
+- Workflow entrypoint: `.github/workflows/site-auditor-fixed-list.yml`
+- Agent script path executed by workflow: `agents/gh_batch/site_auditor_cloud/agent.ps1`
 
 ## Risks/blockers
-- No blockers identified.
-- Runtime validation of the full agent flow was not executed in this environment.
+- No runtime verification was executed in this environment; confirmation of log markers requires a GitHub Actions run on this branch/PR.
