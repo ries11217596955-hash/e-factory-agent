@@ -1,5 +1,5 @@
 ## Summary
-Implemented `SA_PRODUCT_CLOSEOUT_CHECKS_FLATTEN_002` by flattening `Normalize-ProductCloseoutForOutput` check normalization so `$checks` is now a string array, eliminating nested ordered hashtables that were causing argument type mismatch errors.
+Implemented `SA_DONEXT_ARRAY_SHAPE_FIX_001` by replacing the `$doNextItems` fallback/output assembly coercion with deterministic array handling via `Convert-ToObjectArrayOrEmpty`, and updated the associated Count gate to avoid scalar-vs-array runtime failures.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -10,7 +10,7 @@ Implemented `SA_PRODUCT_CLOSEOUT_CHECKS_FLATTEN_002` by flattening `Normalize-Pr
 
 ## Current entrypoints/paths
 - Agent execution path: `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- Updated function: `Normalize-ProductCloseoutForOutput`
+- Updated boundary block: `$doNextItems` assignment and Count check in fallback/output assembly (`next_actions` / `do_next` extraction path)
 
 ## Risks/blockers
 - No end-to-end PowerShell run was executed in this environment, so runtime confirmation should be completed in the next pipeline/agent execution.

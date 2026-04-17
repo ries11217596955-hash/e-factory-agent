@@ -4747,8 +4747,19 @@ function Write-OperatorOutputs {
     if ((Normalize-ToArray $topIssues).Count -eq 0) { $topIssues = @('No major issues detected from collected source/live evidence.') }
 
     $priorityActions = New-Object System.Collections.Generic.List[string]
-    $doNextItems = Normalize-ToArray @((Normalize-ToArray (Safe-Get -Object $Decision -Key 'next_actions' -Default (Safe-Get -Object $Decision -Key 'do_next' -Default @()))) | Select-Object -First 3)
-    if ((Normalize-ToArray $doNextItems).Count -gt 0) {
+    $doNextItems = @(
+        Convert-ToObjectArrayOrEmpty -Value (
+            @(
+                Convert-ToObjectArrayOrEmpty -Value (
+                    Safe-Get -Object $Decision -Key 'next_actions' -Default (
+                        Safe-Get -Object $Decision -Key 'do_next' -Default @()
+                    )
+                )
+            ) | Select-Object -First 3
+        )
+    )
+
+    if ($doNextItems.Count -gt 0) {
         for ($i = 0; $i -lt $doNextItems.Count; $i++) {
             $priorityActions.Add("$($i + 1)) $($doNextItems[$i])")
         }
