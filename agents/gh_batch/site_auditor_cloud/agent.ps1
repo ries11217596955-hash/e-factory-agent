@@ -3392,8 +3392,21 @@ function Build-DecisionLayer {
         $pageQualityStatus = if ($totalRoutes -gt 0) { 'EVALUATED' } else { 'NOT_EVALUATED' }
     }
 
+    $normalizedPriorityRouteCandidates = @(
+        foreach ($candidate in @($priorityRouteCandidates)) {
+            $candidateNode = Convert-ToHashtableSafe -Value $candidate
+            $candidateRoutePath = [string](Safe-Get -Object $candidateNode -Key 'route_path' -Default '')
+            if ([string]::IsNullOrWhiteSpace($candidateRoutePath)) { continue }
+
+            [pscustomobject]@{
+                route_path = $candidateRoutePath
+                severity = Convert-ToIntSafe -Value (Safe-Get -Object $candidateNode -Key 'severity' -Default 0)
+            }
+        }
+    )
+
     $priorityRoutes = @(
-        $priorityRouteCandidates |
+        @($normalizedPriorityRouteCandidates) |
             Sort-Object -Property @{Expression='severity';Descending=$true}, @{Expression='route_path';Descending=$false} |
             Select-Object -First 5 |
             ForEach-Object { [string]$_.route_path }

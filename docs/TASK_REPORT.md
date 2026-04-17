@@ -1,9 +1,9 @@
 ## Summary
-- Performed a focused forensic audit of `Build-DecisionLayer` and its direct helper dependency `Get-DecisionRepairHint` in `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Confirmed the crash boundary aligns with `DECISION_BUILD` before the post-return writeback block, matching `last_success_stage = INPUT_VALIDATION`.
-- Identified a strict parameter type mismatch risk in `Get-DecisionRepairHint` for `-LiveSummary` when `Build-DecisionLayer` passes a normalized ordered dictionary/object.
-- Applied one minimal bounded fix: relaxed `Get-DecisionRepairHint` parameter type from `[hashtable]` to `[object]` to match real call shapes without changing logic.
-- Kept scope strictly limited to the requested file plus this required task report.
+- Performed a bounded forensic review of `Build-DecisionLayer` and direct helper targets in `agents/gh_batch/site_auditor_cloud/agent.ps1` for `Argument types do not match` risk patterns.
+- Confirmed primary root-cause candidate in decision build is mixed-shape input entering `Sort-Object` over priority route candidates.
+- Identified two secondary suspects in helper boundaries where collection shape drift can reach typed operations/comparisons.
+- Applied one bounded patch in `Build-DecisionLayer` to normalize priority route candidates to deterministic `{ route_path:string, severity:int }` objects before sorting.
+- Kept scope limited to the target file and this mandatory task report update.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -13,9 +13,15 @@
 - None.
 
 ## Current entrypoints/paths
-- Entrypoint audited: `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- Affected execution path: `Build-DecisionLayer` → `Get-DecisionRepairHint` call path inside stage `DECISION_BUILD`.
+- Entrypoint reviewed: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- Focused path: `Build-DecisionLayer` plus direct helpers:
+  - `Get-DecisionRepairHint`
+  - `Convert-ToObjectArraySafe`
+  - `Convert-ToStringArraySafe`
+  - `Add-UniqueString`
+  - `Safe-Get`
+  - `Normalize-ProductCloseout`
 
 ## Risks/blockers
-- No runtime PowerShell execution verification was performed in this environment because `pwsh` is unavailable; validation was static source-level forensics.
-- Diagnosis assumes runtime payloads can provide non-hashtable dictionary-like objects (e.g., ordered dictionaries) to `Get-DecisionRepairHint`; patch is intentionally minimal and type-tolerant.
+- Static forensic review only; no full runtime replay of production payloads was executed.
+- Remaining risk is low but non-zero where external caller contracts bypass current helper normalization assumptions.
