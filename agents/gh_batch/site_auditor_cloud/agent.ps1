@@ -2,6 +2,11 @@ param(
     [string]$MODE = 'REPO'
 )
 
+Write-Host "AGENT_VERSION=V5_FINAL_FIX"
+if ($true) {
+    Write-Host "AGENT_VERSION=V5_FINAL_FIX"
+}
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $script:DecisionBuildStamp = 'DBUILD_FORENSIC_V2'
