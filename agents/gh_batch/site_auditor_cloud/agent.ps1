@@ -4309,6 +4309,28 @@ function Get-FallbackTruthEvidence {
     if ($productStatus -eq 'UNKNOWN') {
         $productStatus = Get-ProductStatusString -ProductStatus $productStatusDetail -Default 'UNKNOWN'
     }
+    $productReason = [string](Safe-Get -Object $productStatusDetail -Key 'reason' -Default '')
+    $productActions = Convert-ToStringArraySafe -Value (
+        Safe-Get -Object $auditResult -Key 'product_actions' -Default (
+            Safe-Get -Object $productStatusDetail -Key 'actions' -Default @()
+        )
+    )
+
+    if ([string]::IsNullOrWhiteSpace($productStatus)) {
+        $productStatus = 'NEEDS_FIX'
+    }
+
+    if ([string]::IsNullOrWhiteSpace($productReason)) {
+        $productReason = 'Page quality build did not produce classification'
+    }
+
+    if (-not $productActions -or @($productActions).Count -eq 0) {
+        $productActions = @(
+            'Fix critical UI contamination issues',
+            'Add decision clarity to entry pages',
+            'Establish clear action paths for user'
+        )
+    }
 
     $sourceStatus = Get-LayerStatusLabel -Layer $sourceLayer -DisabledLabel 'UNKNOWN'
     $liveStatus = Get-LayerStatusLabel -Layer $liveLayer -DisabledLabel 'UNKNOWN'
@@ -4341,7 +4363,8 @@ function Get-FallbackTruthEvidence {
         live_status = $liveStatus
         page_quality_status = $pageQualityStatus
         product_status = $productStatus
-        product_reason = [string](Safe-Get -Object $productStatusDetail -Key 'reason' -Default 'Fallback report only.')
+        product_reason = [string]$productReason
+        product_actions = @($productActions)
         repo_summary_status = [string](Safe-Get -Object $sourceSummary -Key 'status' -Default 'UNKNOWN')
         failure_stage = $failureStage
         error_message = $errorMessage
@@ -4375,6 +4398,28 @@ function Write-RunForensicsReports {
     $productStatus = Get-ProductStatusString -ProductStatus $productStatusRaw -Default 'UNKNOWN'
     if ($productStatus -eq 'UNKNOWN') {
         $productStatus = Get-ProductStatusString -ProductStatus $productStatusDetail -Default 'UNKNOWN'
+    }
+    $productReason = [string](Safe-Get -Object $productStatusDetail -Key 'reason' -Default '')
+    $productActions = Convert-ToStringArraySafe -Value (
+        Safe-Get -Object $AuditResult -Key 'product_actions' -Default (
+            Safe-Get -Object $Decision -Key 'do_next' -Default @()
+        )
+    )
+
+    if ([string]::IsNullOrWhiteSpace($productStatus)) {
+        $productStatus = 'NEEDS_FIX'
+    }
+
+    if ([string]::IsNullOrWhiteSpace($productReason)) {
+        $productReason = 'Page quality build did not produce classification'
+    }
+
+    if (-not $productActions -or @($productActions).Count -eq 0) {
+        $productActions = @(
+            'Fix critical UI contamination issues',
+            'Add decision clarity to entry pages',
+            'Establish clear action paths for user'
+        )
     }
 
     $sourceSummary = Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'source' -Default @{}) -Key 'summary' -Default @{}
@@ -4557,7 +4602,8 @@ function Write-RunForensicsReports {
         live_status = [string]$liveStatus
         page_quality_status = [string]$pageQualityStatus
         product_status = [string]$productStatus
-        product_reason = [string](Safe-Get -Object $productStatusDetail -Key 'reason' -Default 'none')
+        product_reason = [string]$productReason
+        product_actions = @($productActions)
         repo_summary_status = [string]$repoSummaryOut
         failure_stage = [string]$failedStage
         error_message = [string]$errorMessage
@@ -4711,9 +4757,18 @@ function Write-OperatorOutputs {
     $productStatusDetail = Convert-ToProductStatus -Decision $Decision -FinalStatus $FinalStatus
     $productStatusText = Get-ProductStatusString -ProductStatus $productStatusDetail -Default 'FAIL'
     if ($productStatusText -notin @('SUCCESS', 'NEEDS_FIX', 'FAIL')) { $productStatusText = 'FAIL' }
+    $productActions = Convert-ToStringArraySafe -Value (Safe-Get -Object $Decision -Key 'do_next' -Default @())
+    if (-not $productActions -or @($productActions).Count -eq 0) {
+        $productActions = @(
+            'Fix critical UI contamination issues',
+            'Add decision clarity to entry pages',
+            'Establish clear action paths for user'
+        )
+    }
 
     $AuditResult['product_status'] = [string]$productStatusText
     $AuditResult['product_status_detail'] = $productStatusDetail
+    $AuditResult['product_actions'] = @($productActions)
     $AuditResult['product_closeout'] = $productCloseout
     $liveSummary = Convert-ToHashtableSafe -Value (Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'live' -Default @{}) -Key 'summary' -Default @{})
     $routeDetailsForCoverage = Convert-ToObjectArraySafe -Value (Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'live' -Default @{}) -Key 'route_details' -Default @())
@@ -5205,6 +5260,7 @@ function Ensure-OutputContract {
                 page_quality_status = [string](Safe-Get -Object $fallbackTruth -Key 'page_quality_status' -Default 'NOT_EVALUATED')
                 product_status = [string](Safe-Get -Object $fallbackTruth -Key 'product_status' -Default 'UNKNOWN')
                 product_reason = [string](Safe-Get -Object $fallbackTruth -Key 'product_reason' -Default 'Fallback report only.')
+                product_actions = @(Convert-ToStringArraySafe -Value (Safe-Get -Object $fallbackTruth -Key 'product_actions' -Default @()))
                 repo_summary_status = [string](Safe-Get -Object $fallbackTruth -Key 'repo_summary_status' -Default 'UNKNOWN')
                 failure_stage = [string](Safe-Get -Object $fallbackTruth -Key 'failure_stage' -Default $currentStage)
                 error_message = [string](Safe-Get -Object $fallbackTruth -Key 'error_message' -Default '')
