@@ -3856,54 +3856,70 @@ function Build-MetaAuditBriefLines {
         $dominantPatternLine = "$label ($scope, $count route(s))"
     }
 
-    $scoredRoutes = New-Object System.Collections.Generic.List[object]
-    foreach ($route in @($routeDetails)) {
-        $routePath = [string](Safe-Get -Object $route -Key 'route_path' -Default '')
-        if ([string]::IsNullOrWhiteSpace($routePath)) { continue }
+    $scoredRoutes = @(
+        foreach ($route in @($routeDetails)) {
+            $routePath = [string](Safe-Get -Object $route -Key 'route_path' -Default '')
+            if ([string]::IsNullOrWhiteSpace($routePath)) { continue }
 
-        $pageFlags = Safe-Get -Object $route -Key 'page_flags' -Default @{}
-        $empty = [bool](Safe-Get -Object $pageFlags -Key 'empty' -Default $false)
-        $thin = [bool](Safe-Get -Object $pageFlags -Key 'thin' -Default $false)
-        $weakCta = [bool](Safe-Get -Object $pageFlags -Key 'weak_cta' -Default $false)
-        $deadEnd = [bool](Safe-Get -Object $pageFlags -Key 'dead_end' -Default $false)
-        $contaminated = [bool](Safe-Get -Object $pageFlags -Key 'ui_contamination' -Default $false)
-        $verdict = [string](Safe-Get -Object $route -Key 'verdict_class' -Default 'UNKNOWN')
-        $status = [int](Safe-Get -Object $route -Key 'status' -Default 0)
-        $bodyTextLength = [int](Safe-Get -Object $route -Key 'bodyTextLength' -Default 0)
+            $pageFlags = Safe-Get -Object $route -Key 'page_flags' -Default @{}
+            $empty = [bool](Safe-Get -Object $pageFlags -Key 'empty' -Default $false)
+            $thin = [bool](Safe-Get -Object $pageFlags -Key 'thin' -Default $false)
+            $weakCta = [bool](Safe-Get -Object $pageFlags -Key 'weak_cta' -Default $false)
+            $deadEnd = [bool](Safe-Get -Object $pageFlags -Key 'dead_end' -Default $false)
+            $contaminated = [bool](Safe-Get -Object $pageFlags -Key 'ui_contamination' -Default $false)
+            $verdict = [string](Safe-Get -Object $route -Key 'verdict_class' -Default 'UNKNOWN')
+            $status = [int](Safe-Get -Object $route -Key 'status' -Default 0)
+            $bodyTextLength = [int](Safe-Get -Object $route -Key 'bodyTextLength' -Default 0)
 
-        $score = 0
-        if ($empty) { $score += 9 }
-        if ($contaminated) { $score += 7 }
-        if ($weakCta) { $score += 4 }
-        if ($deadEnd) { $score += 4 }
-        if ($thin) { $score += 3 }
-        if ($status -ge 400 -or $status -eq 0) { $score += 4 }
-        if ($verdict -eq 'MIXED') { $score += 2 }
-        if ($verdict -eq 'HEALTHY' -and ($bodyTextLength -lt 250 -or $status -ge 400 -or $status -eq 0)) { $score += 2 }
+            $score = 0
+            if ($empty) { $score += 9 }
+            if ($contaminated) { $score += 7 }
+            if ($weakCta) { $score += 4 }
+            if ($deadEnd) { $score += 4 }
+            if ($thin) { $score += 3 }
+            if ($status -ge 400 -or $status -eq 0) { $score += 4 }
+            if ($verdict -eq 'MIXED') { $score += 2 }
+            if ($verdict -eq 'HEALTHY' -and ($bodyTextLength -lt 250 -or $status -ge 400 -or $status -eq 0)) { $score += 2 }
 
-        if ($score -gt 0) {
-            $reasons = New-Object System.Collections.Generic.List[string]
-            if ($empty) { $reasons.Add('empty') }
-            if ($contaminated) { $reasons.Add('trust contamination') }
-            if ($thin) { $reasons.Add('thin content') }
-            if ($weakCta) { $reasons.Add('weak CTA') }
-            if ($deadEnd) { $reasons.Add('dead-end flow') }
-            if ($status -ge 400 -or $status -eq 0) { $reasons.Add("status $status") }
-            if ($verdict -eq 'HEALTHY' -and ($bodyTextLength -lt 250 -or $status -ge 400 -or $status -eq 0)) { $reasons.Add('healthy verdict but weak evidence signals') }
-            $scoredRoutes.Add([ordered]@{
-                route_path = $routePath
-                score = $score
-                verdict = $verdict
-                reasons = @($reasons)
-            })
+            if ($score -gt 0) {
+                $reasons = @()
+                if ($empty) { $reasons += 'empty' }
+                if ($contaminated) { $reasons += 'trust contamination' }
+                if ($thin) { $reasons += 'thin content' }
+                if ($weakCta) { $reasons += 'weak CTA' }
+                if ($deadEnd) { $reasons += 'dead-end flow' }
+                if ($status -ge 400 -or $status -eq 0) { $reasons += "status $status" }
+                if ($verdict -eq 'HEALTHY' -and ($bodyTextLength -lt 250 -or $status -ge 400 -or $status -eq 0)) { $reasons += 'healthy verdict but weak evidence signals' }
+                $reasonsSafe = @(
+                    foreach ($reason in @($reasons)) {
+                        if ($null -ne $reason) {
+                            $reasonText = [string]$reason
+                            if (-not [string]::IsNullOrWhiteSpace($reasonText)) { $reasonText }
+                        }
+                    }
+                )
+
+                [pscustomobject]@{
+                    route_path = [string]$routePath
+                    score      = [int]$score
+                    verdict    = [string]$verdict
+                    reasons    = @($reasonsSafe)
+                }
+            }
         }
-    }
+    )
 
     $suspiciousRouteLines = New-Object System.Collections.Generic.List[string]
-    $scoredRoutesSafe = @($scoredRoutes)
-    if ($scoredRoutesSafe.Count -gt 0) {
-        foreach ($item in @($scoredRoutesSafe | Sort-Object -Property @{Expression = 'score'; Descending = $true }, @{Expression = 'route_path'; Descending = $false } | Select-Object -First 6)) {
-            $itemReasonsSafe = @($item.reasons)
+    if ($scoredRoutes.Count -gt 0) {
+        foreach ($item in @($scoredRoutes | Sort-Object -Property @{Expression = 'score'; Descending = $true }, @{Expression = 'route_path'; Descending = $false } | Select-Object -First 6)) {
+            $itemReasonsSafe = @(
+                foreach ($r in @($item.reasons)) {
+                    if ($null -ne $r) {
+                        $rt = [string]$r
+                        if (-not [string]::IsNullOrWhiteSpace($rt)) { $rt }
+                    }
+                }
+            )
             $reasonText = if ($itemReasonsSafe.Count -gt 0) { $itemReasonsSafe -join ', ' } else { 'review required' }
             $suspiciousRouteLines.Add("- $($item.route_path) [verdict=$($item.verdict)] :: $reasonText")
         }
