@@ -41,6 +41,14 @@ jobs:
     steps:
       - name: Checkout agent repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify agent path in repo root
+        shell: pwsh
+        run: |
+          Write-Host "REPO_ROOT_CONTENT:"
+          ls -R agents/gh_batch/site_auditor_cloud/
 
       - name: Checkout target repo for REPO-bound executions (bundle + manual REPO single-mode)
         if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.execution_path == 'BUNDLE' || (inputs.execution_path == 'SINGLE_MODE' && inputs.audit_mode == 'REPO')))
@@ -85,10 +93,11 @@ jobs:
         env:
           TARGET_REPO_PATH: ${{ github.workspace }}/target_repo
           BASE_URL: ${{ github.event_name == 'workflow_dispatch' && (inputs.base_url != '' && inputs.base_url || env.DEFAULT_BASE_URL) || env.DEFAULT_BASE_URL }}
+        shell: pwsh
         run: |
-          cd agents/gh_batch/site_auditor_cloud
-          echo "SITE_AUDITOR execution path: TRI-AUDIT bundle"
-          pwsh ./run_bundle.ps1
+          Write-Host "SITE_AUDITOR execution path: TRI-AUDIT bundle"
+          Write-Host "RUNNING_AGENT_PATH=agents/gh_batch/site_auditor_cloud/agent.ps1"
+          pwsh -File agents/gh_batch/site_auditor_cloud/agent.ps1
 
       - name: Run SITE_AUDITOR single-mode (manual operator explicit only)
         if: github.event_name == 'workflow_dispatch' && inputs.execution_path == 'SINGLE_MODE'
@@ -96,10 +105,11 @@ jobs:
           FORCE_MODE: ${{ inputs.audit_mode }}
           TARGET_REPO_PATH: ${{ github.workspace }}/target_repo
           BASE_URL: ${{ inputs.base_url != '' && inputs.base_url || env.DEFAULT_BASE_URL }}
+        shell: pwsh
         run: |
-          cd agents/gh_batch/site_auditor_cloud
-          echo "SITE_AUDITOR execution path: manual single-mode"
-          pwsh ./run.ps1
+          Write-Host "SITE_AUDITOR execution path: manual single-mode"
+          Write-Host "RUNNING_AGENT_PATH=agents/gh_batch/site_auditor_cloud/agent.ps1"
+          pwsh -File agents/gh_batch/site_auditor_cloud/agent.ps1
 
       - name: Debug tree
         if: always()

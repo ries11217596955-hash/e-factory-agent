@@ -1,27 +1,25 @@
 ## Summary
-- Performed a bounded forensic review of `Build-DecisionLayer` and direct helper targets in `agents/gh_batch/site_auditor_cloud/agent.ps1` for `Argument types do not match` risk patterns.
-- Confirmed primary root-cause candidate in decision build is mixed-shape input entering `Sort-Object` over priority route candidates.
-- Identified two secondary suspects in helper boundaries where collection shape drift can reach typed operations/comparisons.
-- Applied one bounded patch in `Build-DecisionLayer` to normalize priority route candidates to deterministic `{ route_path:string, severity:int }` objects before sorting.
-- Kept scope limited to the target file and this mandatory task report update.
+- Updated Site Auditor workflow execution to invoke the canonical agent entrypoint with an explicit absolute repository path.
+- Added pre-execution trace logging to emit `RUNNING_AGENT_PATH=agents/gh_batch/site_auditor_cloud/agent.ps1` immediately before agent execution steps.
+- Added post-checkout repository-root diagnostics to print `REPO_ROOT_CONTENT:` and list `agents/gh_batch/site_auditor_cloud/`.
+- Enforced `actions/checkout@v4` with `fetch-depth: 0` in Site Auditor workflow files touched in scope.
+- Verified there is only one `agent.ps1` in repository and removed legacy workflow invocations of `./run.ps1` / `./run_bundle.ps1` in the fixed-list workflow.
 
 ## Changed files
-- `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- `.github/workflows/site-auditor-fixed-list.yml`
+- `.github/workflows/site-auditor-fetch-trace.yml`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- Entrypoint reviewed: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Focused path: `Build-DecisionLayer` plus direct helpers:
-  - `Get-DecisionRepairHint`
-  - `Convert-ToObjectArraySafe`
-  - `Convert-ToStringArraySafe`
-  - `Add-UniqueString`
-  - `Safe-Get`
-  - `Normalize-ProductCloseout`
+- Canonical agent path: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- Workflow execution now calls:
+  - `pwsh -File agents/gh_batch/site_auditor_cloud/agent.ps1`
+- Diagnostic path listing executed after checkout:
+  - `ls -R agents/gh_batch/site_auditor_cloud/`
 
 ## Risks/blockers
-- Static forensic review only; no full runtime replay of production payloads was executed.
-- Remaining risk is low but non-zero where external caller contracts bypass current helper normalization assumptions.
+- `DBUILD_FORENSIC_V2` confirmation requires a subsequent GitHub Actions run log; not verifiable locally in this environment.
+- If stamp remains missing after this patch, likely causes match provided fail mode (different repo/branch binding or cached artifact).

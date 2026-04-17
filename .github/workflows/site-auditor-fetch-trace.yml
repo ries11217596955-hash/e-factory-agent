@@ -16,6 +16,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify agent path in repo root
+        shell: pwsh
+        run: |
+          Write-Host "REPO_ROOT_CONTENT:"
+          ls -R agents/gh_batch/site_auditor_cloud/
 
       - name: Setup PowerShell
         shell: pwsh
