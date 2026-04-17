@@ -3351,7 +3351,7 @@ function Build-DecisionLayer {
         $totalRoutes = [int](Safe-Get -Object $liveSummary -Key 'total_routes' -Default 0)
         $screenshotCount = [int](Safe-Get -Object $liveSummary -Key 'screenshot_count' -Default 0)
         $routesWithEvidence = 0
-        $priorityRouteCandidates = New-Object System.Collections.Generic.List[object]
+        $priorityRouteCandidates = New-Object System.Collections.ArrayList
 
         $activeOperationLabel = 'route_iteration'
         $activeExpression = 'foreach route in routes'
@@ -3403,7 +3403,12 @@ function Build-DecisionLayer {
             if ($routeScreenshotCount -gt 0) { $severity += 5 }
 
             if ($severity -gt 0) {
-                $priorityRouteCandidates.Add([pscustomobject]@{ route_path = $routePath; severity = $severity })
+                [void]$priorityRouteCandidates.Add(
+                    [pscustomobject]@{
+                        route_path = [string]$routePath
+                        severity   = [int]$severity
+                    }
+                )
             }
         }
 
@@ -3414,6 +3419,8 @@ function Build-DecisionLayer {
         if ([string]::IsNullOrWhiteSpace($pageQualityStatus)) {
             $pageQualityStatus = if ($totalRoutes -gt 0) { 'EVALUATED' } else { 'NOT_EVALUATED' }
         }
+
+        $priorityRouteCandidates = @($priorityRouteCandidates)
 
         $activeOperationLabel = 'priority_route_sort'
         $activeExpression = 'Sort-Object normalizedPriorityRouteCandidates by severity/route_path'

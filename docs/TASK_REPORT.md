@@ -1,7 +1,8 @@
 ## Summary
-- Replaced the `priority_route_sort` candidate normalization output fields with explicit `[string]`/`[int]` typed values to eliminate mixed-type sort inputs.
-- Replaced the multi-property `Sort-Object -Property ...` call with scriptblock-based sort keys for deterministic severity-desc/route-asc ordering.
-- Preserved existing Build-DecisionLayer flow, decision summary behavior, and runReport formatting outside the priority sort cluster.
+- Fixed `Build-DecisionLayer` priority-route candidate collection initialization to use `System.Collections.ArrayList` so `.Add()` accepts PSCustomObject consistently.
+- Updated candidate insertion to use `[void]` cast on `.Add()` and enforced `[string]`/`[int]` field typing at insertion time.
+- Added an explicit pre-sort shape enforcement step: `$priorityRouteCandidates = @($priorityRouteCandidates)` before the `priority_route_sort` block.
+- Kept sorting logic unchanged and did not modify summary/runReport behavior.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -12,7 +13,7 @@
 
 ## Current entrypoints/paths
 - Agent entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Patched decision block location: Build-DecisionLayer `priority_route_sort` cluster in `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- Modified decision-layer location: `Build-DecisionLayer` priority route candidate collection and pre-sort preparation.
 
 ## Risks/blockers
-- Full `DECISION_BUILD` runtime validation depends on executing the complete Site Auditor pipeline inputs; this environment verified the patch statically but did not run a full cloud batch audit cycle.
+- Runtime validation of the full cloud batch flow was not executed in this environment; changes were limited to type-safe collection handling in the targeted block.
