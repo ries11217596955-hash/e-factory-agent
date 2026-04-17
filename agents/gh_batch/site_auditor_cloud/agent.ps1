@@ -898,26 +898,23 @@ function Normalize-ProductCloseoutForOutput {
 
     $node = Normalize-ProductCloseout -Value $Value
     $checksRaw = Convert-ToObjectArraySafe -Value (Safe-Get -Object $node -Key 'checks' -Default @())
-    $checks = New-Object System.Collections.Generic.List[object]
+    $checks = @(
+        foreach ($check in @($checksRaw)) {
+            if ($null -eq $check) { continue }
 
-    foreach ($check in @($checksRaw)) {
-        if ($null -eq $check) { continue }
+            if ($check -is [System.Collections.IDictionary] -or $check -is [PSCustomObject]) {
+                $node = Convert-ToHashtableSafe -Value $check
+                $text = [string](Safe-Get -Object $node -Key 'name' -Default (Safe-Get -Object $node -Key 'detail' -Default 'check'))
+            }
+            else {
+                $text = [string]$check
+            }
 
-        if ($check -is [System.Collections.IDictionary] -or $check -is [PSCustomObject]) {
-            $checks.Add([ordered]@{
-                name = [string](Safe-Get -Object $check -Key 'name' -Default 'unnamed_check')
-                status = [string](Safe-Get -Object $check -Key 'status' -Default 'UNKNOWN')
-                detail = [string](Safe-Get -Object $check -Key 'detail' -Default '')
-            })
-            continue
+            if (-not [string]::IsNullOrWhiteSpace($text)) {
+                $text
+            }
         }
-
-        $checks.Add([ordered]@{
-            name = 'closeout_check'
-            status = 'UNKNOWN'
-            detail = [string]$check
-        })
-    }
+    )
 
     $evidence = Convert-ToStringArraySafe -Value (Safe-Get -Object $node -Key 'evidence' -Default @())
 

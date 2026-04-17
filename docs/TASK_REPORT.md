@@ -1,5 +1,5 @@
 ## Summary
-Normalized `Normalize-ProductCloseout` checks handling to emit deterministic string values only, and simplified the helper return payload to a plain hashtable to avoid ordered-dictionary fragility around the closeout decision payload.
+Implemented `SA_PRODUCT_CLOSEOUT_CHECKS_FLATTEN_002` by flattening `Normalize-ProductCloseoutForOutput` check normalization so `$checks` is now a string array, eliminating nested ordered hashtables that were causing argument type mismatch errors.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -10,7 +10,7 @@ Normalized `Normalize-ProductCloseout` checks handling to emit deterministic str
 
 ## Current entrypoints/paths
 - Agent execution path: `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- Updated function: `Normalize-ProductCloseout`
+- Updated function: `Normalize-ProductCloseoutForOutput`
 
 ## Risks/blockers
-- No runtime execution was performed in this environment, so validation that failure now moves past the previous crash point (around line 845) must be confirmed in the next agent run.
+- No end-to-end PowerShell run was executed in this environment, so runtime confirmation should be completed in the next pipeline/agent execution.
