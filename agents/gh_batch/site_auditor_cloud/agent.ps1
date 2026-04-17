@@ -4838,8 +4838,14 @@ function Write-OperatorOutputs {
     if ([string]::IsNullOrWhiteSpace($primaryProblem)) {
         $primaryProblem = 'Core problem was not generated; use remediation package as the immediate operator path.'
     }
-    $criticalBlockers = Convert-ToObjectArrayOrEmpty -Value @($decisionP0 | Select-Object -First 3)
-    if ($criticalBlockers.Count -eq 0) { $criticalBlockers = @('No critical blockers were detected; execute operator path to validate baseline stability.') }
+    $criticalBlockers = @(
+        Convert-ToObjectArrayOrEmpty -Value (
+            @($decisionP0 | Select-Object -First 3)
+        )
+    )
+    if ($criticalBlockers.Count -eq 0) {
+        $criticalBlockers = @('No critical blockers identified.')
+    }
     $doNextItems = Convert-ToObjectArrayOrEmpty -Value @((Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object $Decision -Key 'do_next' -Default @())) | Select-Object -First 3)
     if ($doNextItems.Count -eq 0) { $doNextItems = @('Execute remediation package steps from reports/REMEDIATION_PACKAGE.json and rerun SITE_AUDITOR.') }
     $successSignalItems = @(
