@@ -3748,7 +3748,7 @@ function Build-DecisionLayer {
             }
         )
 
-        return [ordered]$decision
+        return $decision
     }
     catch {
         Set-DecisionForensics -FunctionName 'Build-DecisionLayer' -ActivePhase 'DECISION_BUILD' -ActiveOperationLabel $activeOperationLabel -ActiveExpression $activeExpression -LeftOperand $leftOperand -RightOperand $rightOperand -StackHintIfAvailable $_.ScriptStackTrace -AdditionalContext ([ordered]@{

@@ -1,8 +1,7 @@
 ## Summary
-- Applied a targeted output-sanitization fix inside `Build-DecisionLayer` to prevent ordered hashtable type crashes at return time.
-- Added a SAFE NORMALIZATION LAYER immediately before return, coercing decision output fields to deterministic string/array-of-string shapes.
-- Normalized `STAGE`, `CORE_PROBLEM`, `P0`, `P1`, `P2`, `DO_NEXT`, and `MISSING` values with null-safe iteration and string casting.
-- Replaced the function return with `return [ordered]$decision` to emit an ordered hashtable built from sanitized values only.
+- Applied the requested PowerShell return fix in `Build-DecisionLayer` by replacing the invalid cast return with a direct return.
+- Kept the existing normalization layer intact.
+- Did not modify broader `Build-DecisionLayer` decision logic beyond the single return-line replacement.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -13,8 +12,8 @@
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Modified scope: `Build-DecisionLayer` final output/return block only.
+- Modified scope: final return statement in `Build-DecisionLayer` only.
 
 ## Risks/blockers
-- Full DECISION_BUILD end-to-end execution was not run in this environment, so runtime confirmation depends on CI/operator execution.
-- Sanitized output now returns the normalized decision envelope (`STAGE`, `CORE_PROBLEM`, `P0`, `P1`, `P2`, `DO_NEXT`, `MISSING`) and may reduce availability of previous auxiliary keys if downstream consumers relied on them.
+- No blockers identified.
+- Runtime validation of the full agent flow was not executed in this environment.
