@@ -1,17 +1,18 @@
 ## Summary
-- Validated the helper block in `Convert-ToObjectArrayOrEmpty` near line 4230 uses `return ,$Value` for dictionary/object inputs.
-- helper 4230 branch patched; no other functions changed
+Patched PAGE_QUALITY_BUILD screenshot evidence merge by forcing explicit array materialization in Build-PageQualityFindings. No unrelated functions changed.
 
 ## Changed files
+- `agents/gh_batch/site_auditor_cloud/agent.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- No entrypoints or routing paths changed.
-- Runtime helper location verified: `agents/gh_batch/site_auditor_cloud/agent.ps1` (`Convert-ToObjectArrayOrEmpty`, line ~4230 branch).
+- Entrypoint remains unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- Runtime target path remains unchanged: `RUNNING_AGENT_PATH=agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- Scope of code change is limited to `Build-PageQualityFindings` in PAGE_QUALITY_BUILD contour.
 
 ## Risks/blockers
-- No blockers.
-- Residual risk is low: this task only updates task reporting and validates the target helper branch state.
+- No active blockers identified for the patched screenshot evidence merge path.
+- Residual risk: downstream PAGE_QUALITY defects (if any) may surface after this fix, which would indicate a new independent issue.
