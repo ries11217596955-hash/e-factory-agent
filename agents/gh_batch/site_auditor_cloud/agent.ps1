@@ -657,12 +657,29 @@ function Convert-ToObjectArraySafe {
 }
 
 function Normalize-ToArray {
-    param([object]$x)
+    param([object]$Value)
 
-    if ($null -eq $x) { return @() }
-    if ($x -is [string]) { return @($x) }
-    if ($x -is [System.Collections.IEnumerable]) { return @($x) }
-    return @($x)
+    if ($null -eq $Value) {
+        return @()
+    }
+
+    if ($Value -is [string]) {
+        return @([string]$Value)
+    }
+
+    if ($Value -is [System.Collections.IDictionary] -or $Value -is [pscustomobject]) {
+        return @($Value)
+    }
+
+    if ($Value -is [System.Collections.IEnumerable]) {
+        $items = New-Object System.Collections.ArrayList
+        foreach ($item in $Value) {
+            [void]$items.Add($item)
+        }
+        return @($items.ToArray())
+    }
+
+    return @($Value)
 }
 
 function Normalize-CollectionShape {

@@ -1,5 +1,5 @@
 ## Summary
-Completed `SA_RUN_FORENSICS_HARDENING_PASS_002` by hardening `Write-RunForensicsReports` into a deterministic payload-builder. Stabilized artifact manifest inputs, precomputed scalar/array payload values, and removed late coercion/count hazards so output contracts are assembled only from normalized values.
+Completed `SA_NORMALIZE_TO_ARRAY_HELPER_REWRITE_001` by rewriting `Normalize-ToArray` to deterministic materialization behavior for null, string, dictionary/PSCustomObject, and IEnumerable inputs. This removes the fragile enumerable wrapping path that could surface `Argument types do not match` at the shared normalization helper.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -9,16 +9,14 @@ Completed `SA_RUN_FORENSICS_HARDENING_PASS_002` by hardening `Write-RunForensics
 - None.
 
 ## Current entrypoints/paths
-- Scoped function touched: `Write-RunForensicsReports` in `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- Hardening details:
-  - Stabilized collections:
-    - Built `$artifactItemsSafe` once from normalized hashtable nodes.
-    - Built `$primaryTruthSafe` only from `$artifactItemsSafe`.
-    - Built `$confirmedPassingStagesSafe` as a deterministic string array.
-  - Replaced late coercions:
-    - Replaced late `@($artifactItems).Count` with `$artifactItemsSafe.Count`.
-    - Replaced downstream raw/mixed collection loops with safe arrays (`$artifactItemsSafe`, `$primaryTruthSafe`, `$confirmedPassingStagesSafe`).
-    - Built `artifact_manifest_summary`, `run_status`, and `key_evidence_excerpts` maps from precomputed scalars/arrays.
+- Scoped helper touched: `Normalize-ToArray` in `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- Behavior after rewrite:
+  - `$null` => empty array `@()`
+  - `string` => single-item string array
+  - `IDictionary` / `PSCustomObject` => single-item object array (no enumeration flattening)
+  - `IEnumerable` => explicit materialization via `System.Collections.ArrayList` and `.ToArray()`
+  - fallback scalars/objects => single-item array
+- No changes made to `Build-DecisionLayer`, workflow, or other repository paths.
 
 ## Risks/blockers
-- End-to-end execution of the full agent workflow was not run in this environment, so final validation that the next runtime failure (if any) occurs outside `Write-RunForensicsReports` must be confirmed in pipeline execution.
+- Full runtime execution of the agent pipeline was not performed in this environment; downstream behavior beyond this normalization point still requires pipeline validation.
