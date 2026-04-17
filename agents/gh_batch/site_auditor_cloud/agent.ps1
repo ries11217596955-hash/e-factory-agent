@@ -4846,8 +4846,19 @@ function Write-OperatorOutputs {
     if ($criticalBlockers.Count -eq 0) {
         $criticalBlockers = @('No critical blockers identified.')
     }
-    $doNextItems = Convert-ToObjectArrayOrEmpty -Value @((Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object $Decision -Key 'do_next' -Default @())) | Select-Object -First 3)
-    if ($doNextItems.Count -eq 0) { $doNextItems = @('Execute remediation package steps from reports/REMEDIATION_PACKAGE.json and rerun SITE_AUDITOR.') }
+    $doNextItems = @(
+        Convert-ToObjectArrayOrEmpty -Value (
+            @(
+                Convert-ToObjectArrayOrEmpty -Value (
+                    Safe-Get -Object $Decision -Key 'do_next' -Default @()
+                )
+            ) | Select-Object -First 3
+        )
+    )
+
+    if ($doNextItems.Count -eq 0) {
+        $doNextItems = @('Execute remediation package steps from reports/REMEDIATION_PACKAGE.json and rerun SITE_AUDITOR.')
+    }
     $successSignalItems = @(
         'Primary target page is updated in source/live evidence. (YES/NO)',
         'A clear CTA exists on each primary target route. (YES/NO)',
