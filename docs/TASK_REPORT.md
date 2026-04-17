@@ -1,22 +1,20 @@
 ## Summary
-Completed `SA_CONVERT_TO_OBJECT_ARRAY_OR_EMPTY_REWRITE_001` by rewriting `Convert-ToObjectArrayOrEmpty` to deterministic materialization behavior for null, string, dictionary/PSCustomObject, and IEnumerable inputs. This addresses the helper-level source of repeated `Argument types do not match` cascades and stabilizes callers at and around line 4222.
+Executed task `SA_CONVERT_TO_OBJECT_ARRAY_OR_EMPTY_FORCE_REPLACE_002` with strict single-file scope validation for `agents/gh_batch/site_auditor_cloud/agent.ps1`. The target helper `Convert-ToObjectArrayOrEmpty` was verified to already match the required replacement body (including enumerable materialization) and did not require additional code edits.
 
 ## Changed files
-- `agents/gh_batch/site_auditor_cloud/agent.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- Scoped helper touched: `Convert-ToObjectArrayOrEmpty` in `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- Behavior after rewrite:
-  - `$null` => empty array `@()`
-  - `string` => single-item string array
-  - `IDictionary` / `PSCustomObject` => single-item object array (no enumeration flattening)
-  - `IEnumerable` => explicit materialization via `System.Collections.ArrayList` and `.ToArray()`
-  - fallback scalars/objects => single-item array
-- No changes made to `Normalize-ToArray`, output functions, workflows, entrypoints, or protected infrastructure paths.
+- Verified helper location: `agents/gh_batch/site_auditor_cloud/agent.ps1` (`Convert-ToObjectArrayOrEmpty`).
+- Validation results:
+  - Exactly one `Convert-ToObjectArrayOrEmpty` function definition exists.
+  - The legacy exact two-line block is absent:
+    - `if ($null -eq $Value) { return @() }`
+    - `return @($Value)`
+- No changes were made to `Normalize-ToArray`, output functions, entrypoints, workflows, or protected infrastructure paths.
 
 ## Risks/blockers
-- End-to-end pipeline execution was not run in this environment; while the helper logic is now deterministic, full runtime verification should be completed in operator validation.
+- No code modifications were needed in the target file because the required patch state was already present before this task run.
