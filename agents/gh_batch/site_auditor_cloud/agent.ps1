@@ -4238,7 +4238,12 @@ function Convert-ToObjectArrayOrEmpty {
         return @($items.ToArray())
     }
 
-    return @($Value)
+    try {
+        return @($Value)
+    }
+    catch {
+        return ,$Value
+    }
 }
 
 function Get-TruthBackedConfirmedStages {
