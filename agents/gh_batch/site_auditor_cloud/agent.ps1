@@ -3110,7 +3110,7 @@ function Get-DecisionRepairHint {
         [object[]]$PriorityRoutes,
         [string]$ResolvedMode,
         [string[]]$MissingInputs,
-        [hashtable]$LiveSummary
+        [object]$LiveSummary
     )
 
     $normalizedStage = [string]$Stage
