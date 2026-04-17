@@ -1,9 +1,9 @@
 ## Summary
-- Performed a targeted systemic bug hunt for all write operations to `$liveLayer.summary` in `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Enumerated and classified each write location (dot notation, indexer notation, and `Add-Member`) in the decision writeback block.
-- Identified the primary crash-risk cluster as the contradiction summary writeback during `DECISION_BUILD`.
-- Applied a surgical hardening patch at the writeback site to include an explicit fallback for unexpected summary object types.
-- Kept scope limited to the requested PowerShell file and this task report.
+- Performed a focused forensic audit of `Build-DecisionLayer` and its direct helper dependency `Get-DecisionRepairHint` in `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- Confirmed the crash boundary aligns with `DECISION_BUILD` before the post-return writeback block, matching `last_success_stage = INPUT_VALIDATION`.
+- Identified a strict parameter type mismatch risk in `Get-DecisionRepairHint` for `-LiveSummary` when `Build-DecisionLayer` passes a normalized ordered dictionary/object.
+- Applied one minimal bounded fix: relaxed `Get-DecisionRepairHint` parameter type from `[hashtable]` to `[object]` to match real call shapes without changing logic.
+- Kept scope strictly limited to the requested file plus this required task report.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -14,8 +14,8 @@
 
 ## Current entrypoints/paths
 - Entrypoint audited: `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- Affected execution path: main `try` block at `DECISION_BUILD`, immediately after `Build-DecisionLayer` when writing `contradiction_summary` into the live layer summary node.
+- Affected execution path: `Build-DecisionLayer` → `Get-DecisionRepairHint` call path inside stage `DECISION_BUILD`.
 
 ## Risks/blockers
-- No runtime PowerShell execution verification was performed in this environment; analysis and validation were static (source inspection + targeted search).
-- Fallback branch initializes a minimal hashtable summary if the live summary is neither `IDictionary` nor `PSCustomObject`; this is intentionally narrow to avoid broad refactor.
+- No runtime PowerShell execution verification was performed in this environment because `pwsh` is unavailable; validation was static source-level forensics.
+- Diagnosis assumes runtime payloads can provide non-hashtable dictionary-like objects (e.g., ordered dictionaries) to `Get-DecisionRepairHint`; patch is intentionally minimal and type-tolerant.
