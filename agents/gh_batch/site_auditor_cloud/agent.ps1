@@ -3834,7 +3834,8 @@ function Build-MetaAuditBriefLines {
     if ($FinalStatus -eq 'FAIL') {
         $confidenceLimiters.Add('overall run status is FAIL.')
     }
-    $limiterText = if ($confidenceLimiters.Count -gt 0) { $confidenceLimiters -join ' ' } else { 'none; enabled deterministic checks completed.' }
+    $confidenceLimitersSafe = @($confidenceLimiters)
+    $limiterText = if ($confidenceLimitersSafe.Count -gt 0) { $confidenceLimitersSafe -join ' ' } else { 'none; enabled deterministic checks completed.' }
     $contradictionTotal = [int](Safe-Get -Object $contradictionSummary -Key 'total_candidates' -Default 0)
     $contradictionClassCounts = Safe-Get -Object $contradictionSummary -Key 'class_counts' -Default @{}
     $contradictionClassLine = 'none'
@@ -3899,9 +3900,11 @@ function Build-MetaAuditBriefLines {
     }
 
     $suspiciousRouteLines = New-Object System.Collections.Generic.List[string]
-    if ($scoredRoutes.Count -gt 0) {
-        foreach ($item in @($scoredRoutes | Sort-Object -Property @{Expression = 'score'; Descending = $true }, @{Expression = 'route_path'; Descending = $false } | Select-Object -First 6)) {
-            $reasonText = if ($item.reasons.Count -gt 0) { $item.reasons -join ', ' } else { 'review required' }
+    $scoredRoutesSafe = @($scoredRoutes)
+    if ($scoredRoutesSafe.Count -gt 0) {
+        foreach ($item in @($scoredRoutesSafe | Sort-Object -Property @{Expression = 'score'; Descending = $true }, @{Expression = 'route_path'; Descending = $false } | Select-Object -First 6)) {
+            $itemReasonsSafe = @($item.reasons)
+            $reasonText = if ($itemReasonsSafe.Count -gt 0) { $itemReasonsSafe -join ', ' } else { 'review required' }
             $suspiciousRouteLines.Add("- $($item.route_path) [verdict=$($item.verdict)] :: $reasonText")
         }
     }
@@ -3920,7 +3923,8 @@ function Build-MetaAuditBriefLines {
             }
         }
 
-        if ($paths.Count -eq 0) { return 'none' }
+        $pathsSafe = @($paths)
+        if ($pathsSafe.Count -eq 0) { return 'none' }
         return ($paths -join ', ')
     }
 
@@ -3975,31 +3979,35 @@ function Build-MetaAuditBriefLines {
                 ($normalizedDominant -match 'contaminat' -and [bool](Safe-Get -Object $pageFlags -Key 'ui_contamination' -Default $false))
             })
     }
+    $dominantRoutesSafe = @($dominantRoutes)
 
     $screenshotPlan = New-Object System.Collections.Generic.List[string]
     $screenshotPlan.Add("- Start with highest-risk routes: $(& $formatRouteSet $worstRouteSet 3).")
-    if (@($dominantRoutes).Count -gt 0) {
+    if ($dominantRoutesSafe.Count -gt 0) {
         $screenshotPlan.Add("- Validate dominant pattern routes early ($dominantPatternLine): $(& $formatRouteSet $dominantRoutes 3).")
     }
-    if ($suspiciousHealthyRoutes.Count -gt 0) {
+    $suspiciousHealthyRoutesSafe = @($suspiciousHealthyRoutes)
+    if ($suspiciousHealthyRoutesSafe.Count -gt 0) {
         $screenshotPlan.Add("- Compare suspicious HEALTHY routes against weak routes to catch false-positive health labels: $(& $formatRouteSet $suspiciousHealthyRoutes 3).")
     }
     if ($runState -in @('partial', 'degraded', 'failed')) {
         $screenshotPlan.Add("- Run is $runState; increase screenshot-first validation because deterministic rollups may be incomplete.")
     }
-    if ($screenshotPlan.Count -eq 0) {
+    $screenshotPlanSafe = @($screenshotPlan)
+    if ($screenshotPlanSafe.Count -eq 0) {
         $screenshotPlan.Add('- No deterministic high-risk cluster available; review one route per verdict class from visual_manifest.')
     }
 
     $comparisonGroups = New-Object System.Collections.Generic.List[string]
     $comparisonGroups.Add("- Worst vs best: [$(& $formatRouteSet $worstRouteSet 2)] vs [$(& $formatRouteSet $bestHealthyRoutes 2)].")
-    if ($suspiciousHealthyRoutes.Count -gt 0) {
+    if ($suspiciousHealthyRoutesSafe.Count -gt 0) {
         $comparisonGroups.Add("- Suspicious HEALTHY vs clearly weak: [$(& $formatRouteSet $suspiciousHealthyRoutes 2)] vs [$(& $formatRouteSet $worstRouteSet 2)].")
     }
-    if ($contaminatedRoutes.Count -gt 0) {
+    $contaminatedRoutesSafe = @($contaminatedRoutes)
+    if ($contaminatedRoutesSafe.Count -gt 0) {
         $comparisonGroups.Add("- Trust contamination contrast: contaminated [$(& $formatRouteSet $contaminatedRoutes 2)] vs non-contaminated [$(& $formatRouteSet $cleanRoutes 2)].")
     }
-    if ($dominantRoutes.Count -gt 0) {
+    if ($dominantRoutesSafe.Count -gt 0) {
         $comparisonGroups.Add("- Same dominant verdict-pattern cluster: [$(& $formatRouteSet $dominantRoutes 3)].")
     }
 
@@ -4011,16 +4019,17 @@ function Build-MetaAuditBriefLines {
     )
 
     $contradictionHotspots = New-Object System.Collections.Generic.List[string]
-    if ($suspiciousHealthyRoutes.Count -gt 0) {
+    if ($suspiciousHealthyRoutesSafe.Count -gt 0) {
         $contradictionHotspots.Add("- HEALTHY-but-suspicious routes need screenshot verification: $(& $formatRouteSet $suspiciousHealthyRoutes 3).")
     }
-    if ($contaminatedRoutes.Count -gt 0) {
+    if ($contaminatedRoutesSafe.Count -gt 0) {
         $contradictionHotspots.Add("- Summary may look acceptable while contamination is visually obvious on: $(& $formatRouteSet $contaminatedRoutes 3).")
     }
     if ($runState -in @('partial', 'degraded', 'failed')) {
         $contradictionHotspots.Add("- Deterministic wording may understate live severity because run state is $runState; verify screenshot evidence before trusting aggregate text.")
     }
-    if ($dominantRoutes.Count -gt 0 -and $worstRouteSet.Count -gt 0) {
+    $worstRouteSetSafe = @($worstRouteSet)
+    if ($dominantRoutesSafe.Count -gt 0 -and $worstRouteSetSafe.Count -gt 0) {
         $contradictionHotspots.Add("- Confirm dominant pattern claim by comparing [$(& $formatRouteSet $dominantRoutes 2)] against highest-risk outliers [$(& $formatRouteSet $worstRouteSet 2)].")
     }
     $contradictionHotspots.Add('- Routes classified weak may still show real user value; if screenshots contradict class labels, annotate exact mismatch and route.')
@@ -4043,7 +4052,8 @@ function Build-MetaAuditBriefLines {
     if ($pageQualityStatus -eq 'PARTIAL') {
         $watchlist.Add('- PARTIAL route evaluation may hide repeated patterns if unsupported entries were dropped.')
     }
-    if (@($routeDetails | Where-Object { [string](Safe-Get -Object $_ -Key 'verdict_class' -Default '') -eq 'HEALTHY' -and ([int](Safe-Get -Object $_ -Key 'bodyTextLength' -Default 0) -lt 250) }).Count -gt 0) {
+    $healthyLowTextRoutes = @($routeDetails | Where-Object { [string](Safe-Get -Object $_ -Key 'verdict_class' -Default '') -eq 'HEALTHY' -and ([int](Safe-Get -Object $_ -Key 'bodyTextLength' -Default 0) -lt 250) })
+    if ($healthyLowTextRoutes.Count -gt 0) {
         $watchlist.Add('- Some routes are labeled HEALTHY with low visible text; confirm screenshots are not visually thin.')
     }
     if ([int](Safe-Get -Object $patternSummary -Key 'repeated_pattern_count' -Default 0) -gt 0) {
@@ -4378,7 +4388,8 @@ function Write-RunForensicsReports {
     Add-ArtifactManifestItem -Items $artifactItems -Path 'outbox/DONE.fail' -ArtifactType 'run_marker' -Purpose 'Run fail marker file.' -Priority 'low'
 
     $primaryTruth = Convert-ToObjectArrayOrEmpty -Value @($artifactItems | Where-Object { $_.priority_for_operator -eq 'high' } | ForEach-Object { $_.path })
-    $usablePartialArtifacts = ($artifactItems.Count -gt 0)
+    $artifactItemsCount = @($artifactItems).Count
+    $usablePartialArtifacts = ($artifactItemsCount -gt 0)
 
     $confirmedPassingStages = New-Object System.Collections.Generic.List[string]
     if ($sourceStatus -eq 'PASS') { $confirmedPassingStages.Add('SOURCE_AUDIT') }
@@ -4414,69 +4425,81 @@ function Write-RunForensicsReports {
     $errorMessage = [string]$FailureReason
     if ([string]::IsNullOrWhiteSpace($errorMessage)) { $errorMessage = '' }
 
-    $evidence = [ordered]@{
-        source_status = $sourceStatus
-        live_status = $liveStatus
-        page_quality_status = $pageQualityStatus
-        product_status = $productStatus
-        product_reason = [string](Safe-Get -Object $productStatusDetail -Key 'reason' -Default 'none')
-        repo_summary_status = $repoSummaryOut
-        failure_stage = $failedStage
-        error_message = $errorMessage
-        failure_node = [string]$CurrentStage
-        decision_build_failed_node = $decisionBuildFailedNode
-        blocker = [string](Safe-Get -Object $Decision -Key 'core_problem' -Default '')
-    }
-
     $targetValue = [string]$env:TARGET_REPO_PATH
     if ([string]::IsNullOrWhiteSpace($targetValue)) {
         $targetValue = [string](Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'live' -Default @{}) -Key 'base_url' -Default 'UNKNOWN_TARGET')
     }
 
+    $inputValidationStatusText = if ($LastSuccessStage -in @('INPUT_VALIDATION', 'DECISION_BUILD', 'OPERATOR_OUTPUT_CONTRACT', 'COMPLETE')) { 'PASS' } else { 'UNKNOWN' }
+    $decisionBuildStatusText = if ($LastSuccessStage -in @('DECISION_BUILD', 'OPERATOR_OUTPUT_CONTRACT', 'COMPLETE')) { 'PASS' } else { 'FAIL_OR_SKIPPED' }
+    $operatorContractStatusText = if ($CurrentStage -eq 'COMPLETE' -or $LastSuccessStage -eq 'OPERATOR_OUTPUT_CONTRACT') { 'PASS' } else { 'FAIL_OR_SKIPPED' }
     $steps = @(
-        [ordered]@{ name = 'INPUT_VALIDATION'; status = if ($LastSuccessStage -in @('INPUT_VALIDATION', 'DECISION_BUILD', 'OPERATOR_OUTPUT_CONTRACT', 'COMPLETE')) { 'PASS' } else { 'UNKNOWN' } },
-        [ordered]@{ name = 'DECISION_BUILD'; status = if ($LastSuccessStage -in @('DECISION_BUILD', 'OPERATOR_OUTPUT_CONTRACT', 'COMPLETE')) { 'PASS' } else { 'FAIL_OR_SKIPPED' } },
-        [ordered]@{ name = 'OPERATOR_OUTPUT_CONTRACT'; status = if ($CurrentStage -eq 'COMPLETE' -or $LastSuccessStage -eq 'OPERATOR_OUTPUT_CONTRACT') { 'PASS' } else { 'FAIL_OR_SKIPPED' } }
+        [ordered]@{ name = [string]'INPUT_VALIDATION'; status = [string]$inputValidationStatusText },
+        [ordered]@{ name = [string]'DECISION_BUILD'; status = [string]$decisionBuildStatusText },
+        [ordered]@{ name = [string]'OPERATOR_OUTPUT_CONTRACT'; status = [string]$operatorContractStatusText }
     )
     $visualCoverageNode = Convert-ToHashtableSafe -Value (Safe-Get -Object $AuditResult -Key 'visual_coverage' -Default @{})
     $visualAuditActiveFlag = [bool](Safe-Get -Object $visualCoverageNode -Key 'visual_audit_active' -Default $false)
     $visualArtifactsStatus = if ($visualAuditActiveFlag) { 'PASS' } else { 'FAIL' }
+    $visualScreenshotsPackaged = [int](Safe-Get -Object $visualCoverageNode -Key 'screenshots_packaged' -Default 0)
+    $visualRoutesWithEvidence = [int](Safe-Get -Object $visualCoverageNode -Key 'routes_with_evidence' -Default 0)
+    $errorClassText = if ([string]::IsNullOrWhiteSpace($errorMessage)) { '' } else { 'RUNTIME_FAILURE' }
+    $messageText = if ([string]::IsNullOrWhiteSpace($errorMessage)) { $executiveSummary } else { $errorMessage }
+
+    $runStatusMap = [ordered]@{
+        run_id = [string]$runId
+        target = [string]$targetValue
+        mode = [string]$ResolvedMode
+        started_at = [string]$runStartedAt
+        finished_at = [string]$RunFinishedAt
+        final_status = [string]$FinalStatus
+        final_stage = [string]$CurrentStage
+        last_success_stage = [string]$LastSuccessStage
+    }
+    $visualArtifactsMap = [ordered]@{
+        visual_audit_active = [bool]$visualAuditActiveFlag
+        screenshots_packaged = [int]$visualScreenshotsPackaged
+        routes_with_evidence = [int]$visualRoutesWithEvidence
+        status = [string]$visualArtifactsStatus
+    }
+    $artifactItemsSafe = @($artifactItems)
+    $primaryTruthSafe = @($primaryTruth)
+    $artifactManifestSummaryMap = [ordered]@{
+        artifacts = @($artifactItemsSafe)
+        primary_truth_sources = @($primaryTruthSafe)
+    }
+    $evidenceMap = [ordered]@{
+        source_status = [string]$sourceStatus
+        live_status = [string]$liveStatus
+        page_quality_status = [string]$pageQualityStatus
+        product_status = [string]$productStatus
+        product_reason = [string](Safe-Get -Object $productStatusDetail -Key 'reason' -Default 'none')
+        repo_summary_status = [string]$repoSummaryOut
+        failure_stage = [string]$failedStage
+        error_message = [string]$errorMessage
+        failure_node = [string]$CurrentStage
+        decision_build_failed_node = [string]$decisionBuildFailedNode
+        blocker = [string](Safe-Get -Object $Decision -Key 'core_problem' -Default '')
+    }
 
     $contract = [ordered]@{
         schema_version = '2.0'
-        run_id = $runId
-        started_at = $runStartedAt
-        finished_at = $RunFinishedAt
-        target_type = $ResolvedMode
-        steps = $steps
-        final_status = $FinalStatus
-        failed_step = $failedStage
-        error_class = if ([string]::IsNullOrWhiteSpace($errorMessage)) { '' } else { 'RUNTIME_FAILURE' }
-        message = if ([string]::IsNullOrWhiteSpace($errorMessage)) { $executiveSummary } else { $errorMessage }
-        run_status = [ordered]@{
-            run_id = $runId
-            target = $targetValue
-            mode = $ResolvedMode
-            started_at = $runStartedAt
-            finished_at = $RunFinishedAt
-            final_status = $FinalStatus
-            final_stage = $CurrentStage
-            last_success_stage = $LastSuccessStage
-        }
-        executive_summary = $executiveSummary
-        key_evidence_excerpts = $evidence
-        visual_artifacts = [ordered]@{
-            visual_audit_active = [bool]$visualAuditActiveFlag
-            screenshots_packaged = [int](Safe-Get -Object $visualCoverageNode -Key 'screenshots_packaged' -Default 0)
-            routes_with_evidence = [int](Safe-Get -Object $visualCoverageNode -Key 'routes_with_evidence' -Default 0)
-            status = [string]$visualArtifactsStatus
-        }
+        run_id = [string]$runId
+        started_at = [string]$runStartedAt
+        finished_at = [string]$RunFinishedAt
+        target_type = [string]$ResolvedMode
+        steps = @($steps)
+        final_status = [string]$FinalStatus
+        failed_step = [string]$failedStage
+        error_class = [string]$errorClassText
+        message = [string]$messageText
+        run_status = $runStatusMap
+        executive_summary = [string]$executiveSummary
+        key_evidence_excerpts = $evidenceMap
+        visual_artifacts = $visualArtifactsMap
         repair_hint = $repairHint
-        artifact_manifest_summary = [ordered]@{
-            artifacts = @($artifactItems)
-            primary_truth_sources = @($primaryTruth)
-        }
-        next_technical_move = $nextMove
+        artifact_manifest_summary = $artifactManifestSummaryMap
+        next_technical_move = [string]$nextMove
     }
 
     $manifestPath = Join-Path $reportsDir 'ARTIFACT_MANIFEST.json'
@@ -4484,7 +4507,7 @@ function Write-RunForensicsReports {
         run_id = $runId
         generated_at = $RunFinishedAt
         final_status = $FinalStatus
-        artifacts = @($artifactItems)
+        artifacts = @($artifactItemsSafe)
     })
 
     $runReportJsonPath = Join-Path $reportsDir 'RUN_REPORT.json'
@@ -4502,8 +4525,8 @@ function Write-RunForensicsReports {
         confirmed_passing_stages = @($confirmedPassingStages)
         usable_partial_artifacts_exist = [bool]$usablePartialArtifacts
         next_technical_move = $nextMove
-        key_evidence_excerpts = $evidence
-        primary_truth_sources = @($primaryTruth)
+        key_evidence_excerpts = $evidenceMap
+        primary_truth_sources = @($primaryTruthSafe)
     }
 
     if ($FinalStatus -in @('FAIL', 'PARTIAL')) {
@@ -4528,17 +4551,17 @@ function Write-RunForensicsReports {
         $executiveSummary,
         '',
         'KEY EVIDENCE EXCERPTS',
-        "- source_status: $($evidence.source_status)",
-        "- live_status: $($evidence.live_status)",
-        "- page_quality_status: $($evidence.page_quality_status)",
-        "- product_status: $($evidence.product_status)",
-        "- product_reason: $($evidence.product_reason)",
-        "- repo_summary_status: $($evidence.repo_summary_status)",
-        "- failure_stage: $($evidence.failure_stage)",
-        "- failure_node: $($evidence.failure_node)",
-        "- decision_build_failed_node: $($evidence.decision_build_failed_node)",
-        "- blocker: $($evidence.blocker)",
-        "- error_message: $($evidence.error_message)",
+        "- source_status: $($evidenceMap.source_status)",
+        "- live_status: $($evidenceMap.live_status)",
+        "- page_quality_status: $($evidenceMap.page_quality_status)",
+        "- product_status: $($evidenceMap.product_status)",
+        "- product_reason: $($evidenceMap.product_reason)",
+        "- repo_summary_status: $($evidenceMap.repo_summary_status)",
+        "- failure_stage: $($evidenceMap.failure_stage)",
+        "- failure_node: $($evidenceMap.failure_node)",
+        "- decision_build_failed_node: $($evidenceMap.decision_build_failed_node)",
+        "- blocker: $($evidenceMap.blocker)",
+        "- error_message: $($evidenceMap.error_message)",
         '',
         'REPAIR HINT',
         "- target_file: $([string](Safe-Get -Object $repairHint -Key 'target_file' -Default 'agents/gh_batch/site_auditor_cloud/agent.ps1'))",
@@ -4549,13 +4572,13 @@ function Write-RunForensicsReports {
         'ARTIFACT MANIFEST SUMMARY'
     )
 
-    foreach ($artifact in @($artifactItems | Sort-Object -Property @{Expression='priority_for_operator';Descending=$false}, @{Expression='path';Descending=$false})) {
+    foreach ($artifact in @($artifactItemsSafe | Sort-Object -Property @{Expression='priority_for_operator';Descending=$false}, @{Expression='path';Descending=$false})) {
         $lines += "- $($artifact.path) | type=$($artifact.artifact_type) | priority=$($artifact.priority_for_operator) | purpose=$($artifact.purpose)"
     }
 
     $lines += ''
     $lines += 'PRIMARY TRUTH SOURCES'
-    foreach ($truth in @($primaryTruth)) {
+    foreach ($truth in @($primaryTruthSafe)) {
         $lines += "- $truth"
     }
 
@@ -4563,7 +4586,7 @@ function Write-RunForensicsReports {
         $lines += ''
         $lines += 'FAILURE SUMMARY'
         $lines += "- exact_failed_stage_or_node: $failedStage"
-        $lines += "- error_class_or_message: $($evidence.error_message)"
+        $lines += "- error_class_or_message: $($evidenceMap.error_message)"
         $lines += "- confirmed_passing_stages: $((@($confirmedPassingStages) -join ', '))"
         $lines += "- usable_partial_artifacts_exist: $usablePartialArtifacts"
     }
@@ -4611,15 +4634,18 @@ function Write-OperatorOutputs {
     $liveSummary = Convert-ToHashtableSafe -Value (Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'live' -Default @{}) -Key 'summary' -Default @{})
     $routeDetailsForCoverage = Convert-ToObjectArraySafe -Value (Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'live' -Default @{}) -Key 'route_details' -Default @())
     $visualCoverage = Convert-ToHashtableSafe -Value (Safe-Get -Object $liveSummary -Key 'visual_coverage' -Default @{})
-    if (@($visualCoverage.Keys).Count -eq 0) {
-        $routesTotalLocal = [int]@($routeDetailsForCoverage).Count
-        $routesCapturedLocal = [int]@($routeDetailsForCoverage | Where-Object { [int](Safe-Get -Object $_ -Key 'screenshotCount' -Default 0) -ge 3 }).Count
+    $visualCoverageKeys = @($visualCoverage.Keys)
+    if ($visualCoverageKeys.Count -eq 0) {
+        $routeDetailsForCoverageSafe = @($routeDetailsForCoverage)
+        $routesTotalLocal = [int]$routeDetailsForCoverageSafe.Count
+        $capturedRouteCandidates = @($routeDetailsForCoverageSafe | Where-Object { [int](Safe-Get -Object $_ -Key 'screenshotCount' -Default 0) -ge 3 })
+        $routesCapturedLocal = [int]$capturedRouteCandidates.Count
         $coverageScoreLocal = if ($routesTotalLocal -gt 0) { [int][Math]::Round((($routesCapturedLocal / [double]$routesTotalLocal) * 100), 0) } else { 0 }
         $visualCoverage = [ordered]@{
-            routes_total = $routesTotalLocal
-            routes_captured = $routesCapturedLocal
+            routes_total = [int]$routesTotalLocal
+            routes_captured = [int]$routesCapturedLocal
             issue_screenshots = [int](Safe-Get -Object $liveSummary -Key 'issue_screenshots' -Default 0)
-            coverage_score = $coverageScoreLocal
+            coverage_score = [int]$coverageScoreLocal
         }
     }
     $decisionStage = [string](Safe-Get -Object $Decision -Key 'stage' -Default 'BROKEN')
@@ -4628,27 +4654,33 @@ function Write-OperatorOutputs {
     $doNextNow = Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object $Decision -Key 'do_next_now' -Default (Safe-Get -Object $Decision -Key 'do_next' -Default @()))
     $doNextAfter = Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object $Decision -Key 'do_next_after' -Default @())
     $validatorPass = ($FinalStatus -ne 'FAIL')
-    $AuditResult['schema_version'] = '4.0'
-    $AuditResult['run_id'] = $runId
-    $AuditResult['target'] = if ([string]::IsNullOrWhiteSpace([string]$env:TARGET_REPO_PATH)) { [string]$env:BASE_URL } else { [string]$env:TARGET_REPO_PATH }
+    $targetText = if ([string]::IsNullOrWhiteSpace([string]$env:TARGET_REPO_PATH)) { [string]$env:BASE_URL } else { [string]$env:TARGET_REPO_PATH }
+    $decisionCoreText = (($decisionCore -replace "`r", ' ') -replace "`n", ' ').Trim()
+    $decisionP0Safe = @($decisionP0 | Select-Object -Unique)
+    $doNextNowSafe = @($doNextNow | Select-Object -Unique)
+    $doNextAfterSafe = @($doNextAfter | Select-Object -Unique)
+    $AuditResult['schema_version'] = [string]'4.0'
+    $AuditResult['run_id'] = [string]$runId
+    $AuditResult['target'] = [string]$targetText
     $AuditResult['runtime'] = [ordered]@{
-        status = $FinalStatus
+        status = [string]$FinalStatus
         validator_pass = [bool]$validatorPass
-        final_output_contract_pass = $false
-        diagnostic_or_result_present = $false
+        final_output_contract_pass = [bool]$false
+        diagnostic_or_result_present = [bool]$false
     }
     $decisionRepairHint = Convert-ToHashtableSafe -Value (Safe-Get -Object $Decision -Key 'repair_hint' -Default @{})
     $decisionPriorityRoutes = Convert-ToStringArraySafe -Value (Safe-Get -Object $Decision -Key 'priority_routes' -Default @())
+    $decisionPriorityRoutesSafe = @($decisionPriorityRoutes)
     $AuditResult['decision'] = [ordered]@{
         stage = [string]$decisionStage
-        core_problem = (($decisionCore -replace "`r", ' ') -replace "`n", ' ').Trim()
-        p0 = @($decisionP0 | Select-Object -Unique)
+        core_problem = [string]$decisionCoreText
+        p0 = @($decisionP0Safe)
         do_next = [ordered]@{
-            now = @($doNextNow | Select-Object -Unique)
-            after = @($doNextAfter | Select-Object -Unique)
+            now = @($doNextNowSafe)
+            after = @($doNextAfterSafe)
         }
         repair_hint = $decisionRepairHint
-        priority_routes = @($decisionPriorityRoutes)
+        priority_routes = @($decisionPriorityRoutesSafe)
     }
     $routeDetailsForVisualTruth = Convert-ToObjectArraySafe -Value (Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'live' -Default @{}) -Key 'route_details' -Default @())
     $visualManifestPath = Join-Path $reportsDir 'visual_manifest.json'
@@ -4656,10 +4688,12 @@ function Write-OperatorOutputs {
     $legacyScreenshotDir = Join-Path $base 'screenshots'
     $capturedScreenshotCount = 0
     if (Test-Path -Path $packagedScreenshotDir -PathType Container) {
-        $capturedScreenshotCount += @(Get-ChildItem -Path $packagedScreenshotDir -Include *.png,*.jpg,*.jpeg,*.webp -File -Recurse -ErrorAction SilentlyContinue).Count
+        $packagedScreenshotsSafe = @(Get-ChildItem -Path $packagedScreenshotDir -Include *.png,*.jpg,*.jpeg,*.webp -File -Recurse -ErrorAction SilentlyContinue)
+        $capturedScreenshotCount += $packagedScreenshotsSafe.Count
     }
     if (Test-Path -Path $legacyScreenshotDir -PathType Container) {
-        $capturedScreenshotCount += @(Get-ChildItem -Path $legacyScreenshotDir -Include *.png,*.jpg,*.jpeg,*.webp -File -Recurse -ErrorAction SilentlyContinue).Count
+        $legacyScreenshotsSafe = @(Get-ChildItem -Path $legacyScreenshotDir -Include *.png,*.jpg,*.jpeg,*.webp -File -Recurse -ErrorAction SilentlyContinue)
+        $capturedScreenshotCount += $legacyScreenshotsSafe.Count
     }
 
     $routesWithEvidence = 0
@@ -4667,8 +4701,10 @@ function Write-OperatorOutputs {
         $routeNode = Convert-ToHashtableSafe -Value $routeItem
         $routeScreenshotCount = [int](Safe-Get -Object $routeNode -Key 'screenshotCount' -Default 0)
         if ($routeScreenshotCount -le 0) {
-            $routeScreenshotCount = @(Convert-ToObjectArraySafe -Value (Safe-Get -Object $routeNode -Key 'screenshots' -Default @())).Count
-            $routeScreenshotCount += @(Convert-ToObjectArraySafe -Value (Safe-Get -Object $routeNode -Key 'issue_screenshots' -Default @())).Count
+            $routeScreenshotsSafe = @(Convert-ToObjectArraySafe -Value (Safe-Get -Object $routeNode -Key 'screenshots' -Default @()))
+            $routeIssueScreenshotsSafe = @(Convert-ToObjectArraySafe -Value (Safe-Get -Object $routeNode -Key 'issue_screenshots' -Default @()))
+            $routeScreenshotCount = $routeScreenshotsSafe.Count
+            $routeScreenshotCount += $routeIssueScreenshotsSafe.Count
         }
         if ($routeScreenshotCount -gt 0) {
             $routesWithEvidence++
@@ -4683,7 +4719,7 @@ function Write-OperatorOutputs {
     $visualCoverage['routes_with_evidence'] = [int]$routesWithEvidence
     $AuditResult['visual_coverage'] = $visualCoverage
     $AuditResult['facts'] = [ordered]@{
-        mode = $ResolvedMode
+        mode = [string]$ResolvedMode
         required_inputs = Normalize-CollectionShape -Value (Safe-Get -Object $AuditResult -Key 'required_inputs' -Default @())
         total_routes = [int](Safe-Get -Object $liveSummary -Key 'total_routes' -Default 0)
         empty_routes = [int](Safe-Get -Object $liveSummary -Key 'empty_routes' -Default 0)
@@ -4746,9 +4782,18 @@ function Write-OperatorOutputs {
     if (-not [string]::IsNullOrWhiteSpace($packageGoal)) {
         $topIssues = @("Primary remediation package: $packageName — $packageGoal") + @($topIssues)
     }
-    if ((Normalize-ToArray $topIssues).Count -eq 0) { $topIssues = @($decisionP2) }
-    if ((Normalize-ToArray $topIssues).Count -eq 0 -and $FinalStatus -eq 'FAIL') { $topIssues = @($decisionP0) }
-    if ((Normalize-ToArray $topIssues).Count -eq 0) { $topIssues = @('No major issues detected from collected source/live evidence.') }
+    $topIssuesSafe = @(Normalize-ToArray $topIssues)
+    if ($topIssuesSafe.Count -eq 0) {
+        $topIssues = @($decisionP2)
+        $topIssuesSafe = @(Normalize-ToArray $topIssues)
+    }
+    if ($topIssuesSafe.Count -eq 0 -and $FinalStatus -eq 'FAIL') {
+        $topIssues = @($decisionP0)
+        $topIssuesSafe = @(Normalize-ToArray $topIssues)
+    }
+    if ($topIssuesSafe.Count -eq 0) {
+        $topIssues = @('No major issues detected from collected source/live evidence.')
+    }
 
     $priorityActions = New-Object System.Collections.Generic.List[string]
     $doNextItems = @(
@@ -4763,9 +4808,10 @@ function Write-OperatorOutputs {
         )
     )
 
-    if ($doNextItems.Count -gt 0) {
-        for ($i = 0; $i -lt $doNextItems.Count; $i++) {
-            $priorityActions.Add("$($i + 1)) $($doNextItems[$i])")
+    $doNextItemsSafe = @($doNextItems)
+    if ($doNextItemsSafe.Count -gt 0) {
+        for ($i = 0; $i -lt $doNextItemsSafe.Count; $i++) {
+            $priorityActions.Add("$($i + 1)) $($doNextItemsSafe[$i])")
         }
     }
     elseif ($FinalStatus -eq 'FAIL') {
@@ -4779,12 +4825,12 @@ function Write-OperatorOutputs {
     }
 
     $howToFix = @{
-        mode = $ResolvedMode
-        status = $FinalStatus
+        mode = [string]$ResolvedMode
+        status = [string]$FinalStatus
         generated_from = 'audit_result.json'
-        core_problem = $Decision.core_problem
-        top_issues = $topIssues
-        priority_actions = $priorityActions
+        core_problem = [string]$Decision.core_problem
+        top_issues = @($topIssues)
+        priority_actions = @($priorityActions)
         repair_hint = $decisionRepairHint
     }
     $howToFixPath = Join-Path $reportsDir 'HOW_TO_FIX.json'
@@ -4802,7 +4848,8 @@ function Write-OperatorOutputs {
     $sourceStatus = if (-not (Safe-Get -Object $AuditResult['source'] -Key 'enabled' -Default $false)) { 'OFF' } elseif (Safe-Get -Object $AuditResult['source'] -Key 'ok' -Default $false) { 'PASS' } else { 'FAIL' }
     $liveStatus = if (-not (Safe-Get -Object $AuditResult['live'] -Key 'enabled' -Default $false)) { 'OFF' } elseif (Safe-Get -Object $AuditResult['live'] -Key 'ok' -Default $false) { 'PASS' } else { 'FAIL' }
     $requiredInputs = Convert-ToObjectArrayOrEmpty -Value (Safe-Get -Object $AuditResult -Key 'required_inputs' -Default @())
-    $requiredInputsLine = if ($requiredInputs.Count -gt 0) { $requiredInputs -join ', ' } else { 'Not required for this mode.' }
+    $requiredInputsSafe = @($requiredInputs)
+    $requiredInputsLine = if ($requiredInputsSafe.Count -gt 0) { $requiredInputsSafe -join ', ' } else { 'Not required for this mode.' }
     $repoRoot = Safe-Get -Object $AuditResult['source'] -Key 'root' -Default $null
     $sourceEnabled = [bool](Safe-Get -Object $AuditResult['source'] -Key 'enabled' -Default $false)
 
@@ -4847,8 +4894,10 @@ function Write-OperatorOutputs {
             @($decisionP0 | Select-Object -First 3)
         )
     )
-    if ($criticalBlockers.Count -eq 0) {
+    $criticalBlockersSafe = @($criticalBlockers)
+    if ($criticalBlockersSafe.Count -eq 0) {
         $criticalBlockers = @('No critical blockers identified.')
+        $criticalBlockersSafe = @($criticalBlockers)
     }
     $doNextItems = @(
         Convert-ToObjectArrayOrEmpty -Value (
@@ -4860,8 +4909,10 @@ function Write-OperatorOutputs {
         )
     )
 
-    if ($doNextItems.Count -eq 0) {
+    $doNextItemsReportSafe = @($doNextItems)
+    if ($doNextItemsReportSafe.Count -eq 0) {
         $doNextItems = @('Execute remediation package steps from reports/REMEDIATION_PACKAGE.json and rerun SITE_AUDITOR.')
+        $doNextItemsReportSafe = @($doNextItems)
     }
     $successSignalItems = @(
         'Primary target page is updated in source/live evidence. (YES/NO)',
@@ -4881,8 +4932,8 @@ function Write-OperatorOutputs {
         '',
         'SECTION: CRITICAL BLOCKERS'
     )
-    for ($i = 0; $i -lt $criticalBlockers.Count; $i++) {
-        $item = $criticalBlockers[$i]
+    for ($i = 0; $i -lt $criticalBlockersSafe.Count; $i++) {
+        $item = $criticalBlockersSafe[$i]
         $reportLines += "- WHAT: $item"
         $reportLines += "- ORDER: $($i + 1)"
         $reportLines += '- WHY: This condition blocks reliable operator execution or baseline quality.'
@@ -4890,8 +4941,8 @@ function Write-OperatorOutputs {
     }
     $reportLines += ''
     $reportLines += 'SECTION: OPERATOR PATH'
-    for ($i = 0; $i -lt $doNextItems.Count; $i++) {
-        $reportLines += "STEP $($i + 1) -> $($doNextItems[$i])"
+    for ($i = 0; $i -lt $doNextItemsReportSafe.Count; $i++) {
+        $reportLines += "STEP $($i + 1) -> $($doNextItemsReportSafe[$i])"
     }
     $reportLines += ''
     $reportLines += 'SECTION: SUCCESS SIGNAL'
@@ -4908,19 +4959,20 @@ function Write-OperatorOutputs {
     $reportLines += "PRODUCT CONFIDENCE: $([string](Safe-Get -Object $productStatusDetail -Key 'confidence' -Default 'low'))"
     $reportLines += "PRIMARY REMEDIATION PACKAGE: $packageName"
 
+    $reportFilesSafe = @($reportFiles)
     $manifest = @{
-        mode = $ResolvedMode
-        status = $FinalStatus
-        repo_root = $repoRoot
-        target_repo_bound = $sourceEnabled
-        output_root = $base
-        report_files = @($reportFiles)
-        run_id = $runId
-        started_at = $runStartedAt
-        finished_at = $RunFinishedAt
-        final_stage = $CurrentStage
-        last_success_stage = $LastSuccessStage
-        timestamp = $timestamp
+        mode = [string]$ResolvedMode
+        status = [string]$FinalStatus
+        repo_root = [string]$repoRoot
+        target_repo_bound = [bool]$sourceEnabled
+        output_root = [string]$base
+        report_files = @($reportFilesSafe)
+        run_id = [string]$runId
+        started_at = [string]$runStartedAt
+        finished_at = [string]$RunFinishedAt
+        final_stage = [string]$CurrentStage
+        last_success_stage = [string]$LastSuccessStage
+        timestamp = [string]$timestamp
     }
 
     $manifestPath = Join-Path $reportsDir 'run_manifest.json'
