@@ -3427,15 +3427,17 @@ function Build-DecisionLayer {
                 if ([string]::IsNullOrWhiteSpace($candidateRoutePath)) { continue }
 
                 [pscustomobject]@{
-                    route_path = $candidateRoutePath
-                    severity = Convert-ToIntSafe -Value (Safe-Get -Object $candidateNode -Key 'severity' -Default 0)
+                    route_path = [string]$candidateRoutePath
+                    severity   = [int](Convert-ToIntSafe -Value (Safe-Get -Object $candidateNode -Key 'severity' -Default 0))
                 }
             }
         )
 
         $priorityRoutes = @(
             @($normalizedPriorityRouteCandidates) |
-                Sort-Object -Property @{Expression='severity';Descending=$true}, @{Expression='route_path';Descending=$false} |
+                Sort-Object `
+                    @{ Expression = { [int]$_.severity }; Descending = $true }, `
+                    @{ Expression = { [string]$_.route_path }; Descending = $false } |
                 Select-Object -First 5 |
                 ForEach-Object { [string]$_.route_path }
         )

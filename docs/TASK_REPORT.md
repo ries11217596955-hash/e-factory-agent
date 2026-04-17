@@ -1,25 +1,18 @@
 ## Summary
-- Updated Site Auditor workflow execution to invoke the canonical agent entrypoint with an explicit absolute repository path.
-- Added pre-execution trace logging to emit `RUNNING_AGENT_PATH=agents/gh_batch/site_auditor_cloud/agent.ps1` immediately before agent execution steps.
-- Added post-checkout repository-root diagnostics to print `REPO_ROOT_CONTENT:` and list `agents/gh_batch/site_auditor_cloud/`.
-- Enforced `actions/checkout@v4` with `fetch-depth: 0` in Site Auditor workflow files touched in scope.
-- Verified there is only one `agent.ps1` in repository and removed legacy workflow invocations of `./run.ps1` / `./run_bundle.ps1` in the fixed-list workflow.
+- Replaced the `priority_route_sort` candidate normalization output fields with explicit `[string]`/`[int]` typed values to eliminate mixed-type sort inputs.
+- Replaced the multi-property `Sort-Object -Property ...` call with scriptblock-based sort keys for deterministic severity-desc/route-asc ordering.
+- Preserved existing Build-DecisionLayer flow, decision summary behavior, and runReport formatting outside the priority sort cluster.
 
 ## Changed files
-- `.github/workflows/site-auditor-fixed-list.yml`
-- `.github/workflows/site-auditor-fetch-trace.yml`
+- `agents/gh_batch/site_auditor_cloud/agent.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- Canonical agent path: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Workflow execution now calls:
-  - `pwsh -File agents/gh_batch/site_auditor_cloud/agent.ps1`
-- Diagnostic path listing executed after checkout:
-  - `ls -R agents/gh_batch/site_auditor_cloud/`
+- Agent entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- Patched decision block location: Build-DecisionLayer `priority_route_sort` cluster in `agents/gh_batch/site_auditor_cloud/agent.ps1`.
 
 ## Risks/blockers
-- `DBUILD_FORENSIC_V2` confirmation requires a subsequent GitHub Actions run log; not verifiable locally in this environment.
-- If stamp remains missing after this patch, likely causes match provided fail mode (different repo/branch binding or cached artifact).
+- Full `DECISION_BUILD` runtime validation depends on executing the complete Site Auditor pipeline inputs; this environment verified the patch statically but did not run a full cloud batch audit cycle.
