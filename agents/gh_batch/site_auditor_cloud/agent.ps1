@@ -4403,15 +4403,44 @@ function Write-RunForensicsReports {
     Add-ArtifactManifestItem -Items $artifactItems -Path 'outbox/DONE.ok' -ArtifactType 'run_marker' -Purpose 'Run pass marker file.' -Priority 'low'
     Add-ArtifactManifestItem -Items $artifactItems -Path 'outbox/DONE.fail' -ArtifactType 'run_marker' -Purpose 'Run fail marker file.' -Priority 'low'
 
-    $primaryTruth = Convert-ToObjectArrayOrEmpty -Value @($artifactItems | Where-Object { $_.priority_for_operator -eq 'high' } | ForEach-Object { $_.path })
-    $artifactItemsCount = @($artifactItems).Count
-    $usablePartialArtifacts = ($artifactItemsCount -gt 0)
+    $artifactItemsSafe = @(
+        foreach ($item in (Convert-ToObjectArrayOrEmpty -Value $artifactItems)) {
+            if ($null -eq $item) { continue }
+            $node = Convert-ToHashtableSafe -Value $item
+            if (@($node.Keys).Count -eq 0) { continue }
 
-    $confirmedPassingStages = New-Object System.Collections.Generic.List[string]
-    if ($sourceStatus -eq 'PASS') { $confirmedPassingStages.Add('SOURCE_AUDIT') }
-    if ($liveStatus -eq 'PASS') { $confirmedPassingStages.Add('LIVE_AUDIT') }
-    if ($pageQualityStatus -notin @('NOT_EVALUATED', 'PARTIAL')) { $confirmedPassingStages.Add('PAGE_QUALITY_BUILD') }
-    if ($FinalStatus -eq 'PASS') { $confirmedPassingStages.Add('OPERATOR_OUTPUT_CONTRACT') }
+            [ordered]@{
+                path = [string](Safe-Get -Object $node -Key 'path' -Default '')
+                artifact_type = [string](Safe-Get -Object $node -Key 'artifact_type' -Default 'report')
+                purpose = [string](Safe-Get -Object $node -Key 'purpose' -Default '')
+                priority_for_operator = [string](Safe-Get -Object $node -Key 'priority_for_operator' -Default 'low')
+            }
+        }
+    )
+    $artifactItemsCount = [int]$artifactItemsSafe.Count
+    $usablePartialArtifacts = ($artifactItemsCount -gt 0)
+    $primaryTruthSafe = @(
+        foreach ($artifact in $artifactItemsSafe) {
+            $artifactNode = Convert-ToHashtableSafe -Value $artifact
+            if ([string](Safe-Get -Object $artifactNode -Key 'priority_for_operator' -Default '') -ne 'high') { continue }
+            $artifactPath = [string](Safe-Get -Object $artifactNode -Key 'path' -Default '')
+            if ([string]::IsNullOrWhiteSpace($artifactPath)) { continue }
+            $artifactPath
+        }
+    )
+
+    $confirmedPassingStagesBuilder = New-Object System.Collections.Generic.List[string]
+    if ($sourceStatus -eq 'PASS') { $confirmedPassingStagesBuilder.Add('SOURCE_AUDIT') }
+    if ($liveStatus -eq 'PASS') { $confirmedPassingStagesBuilder.Add('LIVE_AUDIT') }
+    if ($pageQualityStatus -notin @('NOT_EVALUATED', 'PARTIAL')) { $confirmedPassingStagesBuilder.Add('PAGE_QUALITY_BUILD') }
+    if ($FinalStatus -eq 'PASS') { $confirmedPassingStagesBuilder.Add('OPERATOR_OUTPUT_CONTRACT') }
+    $confirmedPassingStagesSafe = @(
+        foreach ($stageName in (Convert-ToObjectArrayOrEmpty -Value $confirmedPassingStagesBuilder)) {
+            $stageText = [string]$stageName
+            if ([string]::IsNullOrWhiteSpace($stageText)) { continue }
+            $stageText
+        }
+    )
 
     $decisionBuildFailedNode = ''
     if ($null -ne $global:DecisionForensics) {
@@ -4478,11 +4507,9 @@ function Write-RunForensicsReports {
         routes_with_evidence = [int]$visualRoutesWithEvidence
         status = [string]$visualArtifactsStatus
     }
-    $artifactItemsSafe = @($artifactItems)
-    $primaryTruthSafe = @($primaryTruth)
     $artifactManifestSummaryMap = [ordered]@{
-        artifacts = @($artifactItemsSafe)
-        primary_truth_sources = @($primaryTruthSafe)
+        artifacts = $artifactItemsSafe
+        primary_truth_sources = $primaryTruthSafe
     }
     $evidenceMap = [ordered]@{
         source_status = [string]$sourceStatus
@@ -4523,7 +4550,7 @@ function Write-RunForensicsReports {
         run_id = $runId
         generated_at = $RunFinishedAt
         final_status = $FinalStatus
-        artifacts = @($artifactItemsSafe)
+        artifacts = $artifactItemsSafe
     })
 
     $runReportJsonPath = Join-Path $reportsDir 'RUN_REPORT.json'
@@ -4538,11 +4565,11 @@ function Write-RunForensicsReports {
         failed_stage = $failedStage
         error_message = $errorMessage
         decision_build_failed_node = $decisionBuildFailedNode
-        confirmed_passing_stages = @($confirmedPassingStages)
+        confirmed_passing_stages = $confirmedPassingStagesSafe
         usable_partial_artifacts_exist = [bool]$usablePartialArtifacts
         next_technical_move = $nextMove
         key_evidence_excerpts = $evidenceMap
-        primary_truth_sources = @($primaryTruthSafe)
+        primary_truth_sources = $primaryTruthSafe
     }
 
     if ($FinalStatus -in @('FAIL', 'PARTIAL')) {
@@ -4588,13 +4615,13 @@ function Write-RunForensicsReports {
         'ARTIFACT MANIFEST SUMMARY'
     )
 
-    foreach ($artifact in @($artifactItemsSafe | Sort-Object -Property @{Expression='priority_for_operator';Descending=$false}, @{Expression='path';Descending=$false})) {
+    foreach ($artifact in ($artifactItemsSafe | Sort-Object -Property @{Expression='priority_for_operator';Descending=$false}, @{Expression='path';Descending=$false})) {
         $lines += "- $($artifact.path) | type=$($artifact.artifact_type) | priority=$($artifact.priority_for_operator) | purpose=$($artifact.purpose)"
     }
 
     $lines += ''
     $lines += 'PRIMARY TRUTH SOURCES'
-    foreach ($truth in @($primaryTruthSafe)) {
+    foreach ($truth in $primaryTruthSafe) {
         $lines += "- $truth"
     }
 
@@ -4603,7 +4630,7 @@ function Write-RunForensicsReports {
         $lines += 'FAILURE SUMMARY'
         $lines += "- exact_failed_stage_or_node: $failedStage"
         $lines += "- error_class_or_message: $($evidenceMap.error_message)"
-        $lines += "- confirmed_passing_stages: $((@($confirmedPassingStages) -join ', '))"
+        $lines += "- confirmed_passing_stages: $(($confirmedPassingStagesSafe -join ', '))"
         $lines += "- usable_partial_artifacts_exist: $usablePartialArtifacts"
     }
 
