@@ -3706,7 +3706,49 @@ function Build-DecisionLayer {
             clean_state = if ($stage -eq 'READY') { 'CLEAN' } else { 'NOT_CLEAN' }
         }
 
-        return $decision
+        # SAFE NORMALIZATION LAYER
+        $p0 = @($p0List.ToArray() | Select-Object -Unique)
+        $p1 = @()
+        $p2 = @()
+        $doNext = @($nowList.ToArray() | Select-Object -Unique)
+
+        $decision = @{}
+
+        $decision["STAGE"] = [string]$stage
+
+        $decision["CORE_PROBLEM"] = [string]$coreProblem
+
+        $decision["P0"] = @(
+            foreach ($item in @($p0)) {
+                if ($null -ne $item) { [string]$item }
+            }
+        )
+
+        $decision["P1"] = @(
+            foreach ($item in @($p1)) {
+                if ($null -ne $item) { [string]$item }
+            }
+        )
+
+        $decision["P2"] = @(
+            foreach ($item in @($p2)) {
+                if ($null -ne $item) { [string]$item }
+            }
+        )
+
+        $decision["DO_NEXT"] = @(
+            foreach ($item in @($doNext)) {
+                if ($null -ne $item) { [string]$item }
+            }
+        )
+
+        $decision["MISSING"] = @(
+            foreach ($item in @($normalizedMissingInputs)) {
+                if ($null -ne $item) { [string]$item }
+            }
+        )
+
+        return [ordered]$decision
     }
     catch {
         Set-DecisionForensics -FunctionName 'Build-DecisionLayer' -ActivePhase 'DECISION_BUILD' -ActiveOperationLabel $activeOperationLabel -ActiveExpression $activeExpression -LeftOperand $leftOperand -RightOperand $rightOperand -StackHintIfAvailable $_.ScriptStackTrace -AdditionalContext ([ordered]@{
