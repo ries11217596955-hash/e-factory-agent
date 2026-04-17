@@ -1,16 +1,16 @@
 ## Summary
-Reduced the workflow pre-run verification step to fast truth markers so execution reaches the real agent run quickly while still confirming script presence, latest commit, and key agent markers.
+Normalized `Normalize-ProductCloseout` checks handling to emit deterministic string values only, and simplified the helper return payload to a plain hashtable to avoid ordered-dictionary fragility around the closeout decision payload.
 
 ## Changed files
-- `.github/workflows/site-auditor-fixed-list.yml`
+- `agents/gh_batch/site_auditor_cloud/agent.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- Workflow entrypoint: `.github/workflows/site-auditor-fixed-list.yml`
-- Agent execution step target: `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- Agent execution path: `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- Updated function: `Normalize-ProductCloseout`
 
 ## Risks/blockers
-- This environment cannot execute GitHub-hosted workflow runs; confirmation that logs now reach `Run SITE_AUDITOR TRI-AUDIT bundle` must be validated in Actions on the branch/PR run.
+- No runtime execution was performed in this environment, so validation that failure now moves past the previous crash point (around line 845) must be confirmed in the next agent run.

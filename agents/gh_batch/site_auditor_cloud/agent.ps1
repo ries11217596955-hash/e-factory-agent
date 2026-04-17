@@ -834,21 +834,37 @@ function Normalize-ProductCloseout {
     if ($confidence -notin @('high', 'medium', 'low')) { $confidence = 'low' }
 
     $checksRaw = Convert-ToObjectArraySafe -Value (Safe-Get -Object $node -Key 'checks' -Default @())
-    $checks = New-Object System.Collections.Generic.List[object]
-    foreach ($check in @($checksRaw)) {
-        if ($null -eq $check) { continue }
-        $checks.Add($check)
-    }
+    $checks = @(
+        foreach ($check in @($checksRaw)) {
+            if ($null -eq $check) { continue }
+
+            if ($check -is [string]) {
+                $text = [string]$check
+            }
+            elseif ($check -is [System.Collections.IDictionary] -or $check -is [pscustomobject]) {
+                $checkNode = Convert-ToHashtableSafe -Value $check
+                $text = [string](Safe-Get -Object $checkNode -Key 'label' -Default (Safe-Get -Object $checkNode -Key 'name' -Default (Safe-Get -Object $checkNode -Key 'message' -Default '')))
+            }
+            else {
+                $text = [string]$check
+            }
+
+            if (-not [string]::IsNullOrWhiteSpace($text)) {
+                $text
+            }
+        }
+    )
 
     $evidence = Convert-ToStringArraySafe -Value (Safe-Get -Object $node -Key 'evidence' -Default @())
 
-    return [ordered]@{
-        class = $classification
-        reason = $reason
-        confidence = $confidence
+    $result = @{
+        class = [string]$classification
+        reason = [string]$reason
+        confidence = [string]$confidence
         checks = @($checks)
         evidence = @($evidence)
     }
+    return $result
 }
 
 function Get-ProductStatusString {
