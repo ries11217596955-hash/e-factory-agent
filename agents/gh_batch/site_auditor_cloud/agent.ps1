@@ -2185,7 +2185,11 @@ function Build-PageQualityFindings {
             $routeContradictions = New-Object System.Collections.Generic.List[object]
             $baseScreenshots = Convert-ToPageQualityStringArray -Value (Safe-Get -Object $route -Key 'screenshots' -Default @())
             $issueScreenshots = Convert-ToPageQualityStringArray -Value (Safe-Get -Object $route -Key 'issue_screenshots' -Default @())
-            $screenshotEvidence = @($baseScreenshots + $issueScreenshots | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Select-Object -Unique)
+            $screenshotEvidence = @(
+    @($baseScreenshots) + @($issueScreenshots) |
+    Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } |
+    Select-Object -Unique
+)
             $routeIssues = New-Object System.Collections.Generic.List[object]
 
             $operationLabel = 'PQ3_route_contradictions_build'
