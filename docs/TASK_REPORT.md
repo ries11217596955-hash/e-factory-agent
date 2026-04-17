@@ -1,8 +1,8 @@
 ## Summary
-- Fixed `Build-DecisionLayer` priority-route candidate collection initialization to use `System.Collections.ArrayList` so `.Add()` accepts PSCustomObject consistently.
-- Updated candidate insertion to use `[void]` cast on `.Add()` and enforced `[string]`/`[int]` field typing at insertion time.
-- Added an explicit pre-sort shape enforcement step: `$priorityRouteCandidates = @($priorityRouteCandidates)` before the `priority_route_sort` block.
-- Kept sorting logic unchanged and did not modify summary/runReport behavior.
+- Applied a focused fix in `Build-DecisionLayer` to hard-normalize `$normalizedMissingInputs` using `Convert-ToObjectArraySafe` and per-item string coercion.
+- Added filtering to keep only non-empty/non-whitespace strings in `$normalizedMissingInputs`.
+- Added explicit final-shape enforcement to guarantee non-null array form for `$normalizedMissingInputs`.
+- Left `priority_route_sort`, collection handling, and broader `Build-DecisionLayer` logic unchanged per scope constraints.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -12,8 +12,9 @@
 - None.
 
 ## Current entrypoints/paths
-- Agent entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Modified decision-layer location: `Build-DecisionLayer` priority route candidate collection and pre-sort preparation.
+- Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- Modified section: `Build-DecisionLayer` input normalization block for `$normalizedMissingInputs`.
 
 ## Risks/blockers
-- Runtime validation of the full cloud batch flow was not executed in this environment; changes were limited to type-safe collection handling in the targeted block.
+- Full end-to-end runtime validation (cloud/batch execution) was not run in this environment.
+- Change is intentionally narrow; behavior outside missing-input normalization is untouched.

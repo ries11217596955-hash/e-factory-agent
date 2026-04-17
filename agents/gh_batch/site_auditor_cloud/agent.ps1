@@ -3331,7 +3331,18 @@ function Build-DecisionLayer {
         $liveSummary = Convert-ToHashtableSafe -Value (Safe-Get -Object $normalizedLiveLayer -Key 'summary' -Default @{})
         $routes = @(Convert-ToObjectArraySafe -Value (Safe-Get -Object $normalizedLiveLayer -Key 'route_details' -Default @()))
         $normalizedWarnings = @(Convert-ToDecisionWarningStringArray -Value $Warnings)
-        $normalizedMissingInputs = @(Convert-ToStringArraySafe -Value $MissingInputs)
+        $normalizedMissingInputs = @(
+            foreach ($item in @(Convert-ToObjectArraySafe -Value $MissingInputs)) {
+                $value = [string]$item
+                if (-not [string]::IsNullOrWhiteSpace($value)) {
+                    $value
+                }
+            }
+        )
+        if ($null -eq $normalizedMissingInputs) {
+            $normalizedMissingInputs = @()
+        }
+        $normalizedMissingInputs = @($normalizedMissingInputs)
 
         $activeOperationLabel = 'live_summary_extract'
         $activeExpression = 'Safe-Get counters from liveSummary'
