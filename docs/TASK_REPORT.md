@@ -1,26 +1,26 @@
 ## Summary
-Executed PHASE 4 / STEP 13 (compatibility-first) by extracting only closeout-layer logic from `agents/gh_batch/site_auditor_cloud/agent.ps1` into `agents/gh_batch/site_auditor_cloud/modules/decision_closeout.ps1`, wiring the new module import in the existing entrypoint, and leaving all non-target decision/contract/legacy blocks in place.
+Executed PHASE 4 / STEP 14A (compatibility-first) by extracting `Build-DecisionLayer` from `agent.ps1` into a dedicated module, preserving the rich lower-snake-case decision contract as the primary return, and isolating the legacy uppercase collapse contract into a separate adapter function (`Convert-ToLegacyDecisionShape`) without changing downstream output flow.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- `agents/gh_batch/site_auditor_cloud/modules/decision_closeout.ps1` (new)
+- `agents/gh_batch/site_auditor_cloud/modules/decision_build.ps1` (new)
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - No files/folders moved.
-- Moved function blocks from `agent.ps1` to `modules/decision_closeout.ps1`:
-  - `Build-ProductCloseoutClassification`
-  - `Convert-ToProductStatus`
-- Left in place (by design for compatibility):
-  - `Ensure-OutputContract`
+- Moved function block from `agent.ps1` to `modules/decision_build.ps1`:
   - `Build-DecisionLayer`
-  - Legacy post-exit decision blocks
+- Extracted legacy contract collapse into dedicated adapter in new module:
+  - `Convert-ToLegacyDecisionShape`
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- Added module path: `agents/gh_batch/site_auditor_cloud/modules/decision_closeout.ps1`
-- Decision orchestration and output contract flow remain in `agent.ps1`.
+- Added module import path: `agents/gh_batch/site_auditor_cloud/modules/decision_build.ps1`
+- Runtime call flow now (temporary parity path):
+  - `$decisionRich = Build-DecisionLayer(...)`
+  - `$decision = Convert-ToLegacyDecisionShape($decisionRich)`
+- Downstream output contract and operator output flow unchanged.
 
 ## Risks/blockers
-- Blocker: PowerShell runtime is unavailable in this container (`pwsh`/`powershell` not installed), so runtime FAIL-parity verification could not be executed locally.
-- Risk: required parity checks (`RUN_REPORT.json`, `FAILURE_SUMMARY.json`, bundled `REPORT.txt`, and expected fail-stage contract values) still need validation on a PowerShell-capable runner.
+- Blocker: PowerShell runtime is unavailable in this container (`pwsh`/`powershell` not installed), so runtime parity checks for `RUN_REPORT.json`, `FAILURE_SUMMARY.json`, bundled `REPORT.txt`, `final_status`, and `failed_step` could not be executed locally.
+- Risk: while code path preserves legacy adapter usage downstream by design, full FAIL-parity must be validated on a PowerShell-capable runner.
