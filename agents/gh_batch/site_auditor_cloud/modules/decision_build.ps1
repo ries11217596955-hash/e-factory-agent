@@ -293,8 +293,20 @@ function Build-DecisionLayer {
         $leftOperand = $visualAuditActive
         $rightOperand = $routesWithEvidence
 
+        $contradictionSourceLayer = @{}
+        foreach ($entry in @(Convert-ToHashtableSafe -Value $normalizedSourceLayer).GetEnumerator()) {
+            $contradictionSourceLayer[[string]$entry.Key] = $entry.Value
+        }
+
+        $contradictionLiveLayer = @{}
+        foreach ($entry in @(Convert-ToHashtableSafe -Value $normalizedLiveLayer).GetEnumerator()) {
+            $contradictionLiveLayer[[string]$entry.Key] = $entry.Value
+        }
+
+        $contradictionMissingInputs = @(Convert-ToStringArraySafe -Value $normalizedMissingInputs)
+
         $contradictionSummary = Convert-ToHashtableSafe -Value (
-            Build-ContradictionLayer -SourceLayer $normalizedSourceLayer -LiveLayer $normalizedLiveLayer -MissingInputs $normalizedMissingInputs
+            Build-ContradictionLayer -SourceLayer $contradictionSourceLayer -LiveLayer $contradictionLiveLayer -MissingInputs $contradictionMissingInputs
         )
 
         $siteDiagnosis = Convert-ToHashtableSafe -Value (
