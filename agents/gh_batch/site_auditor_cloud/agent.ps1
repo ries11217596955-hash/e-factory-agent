@@ -24,6 +24,8 @@ Write-Host "OUTPUT BASE: $base"
 Write-Host "DEBUG BASE PATH: $base"
 Write-Host "DEBUG PWD: $(Get-Location)"
 
+. "$PSScriptRoot/modules/util_io.ps1"
+
 $outboxDir = Join-Path $base 'outbox'
 $reportsDir = Join-Path $base 'reports'
 $runtimeDir = Join-Path $base 'runtime'
@@ -463,33 +465,6 @@ function New-RouteNormalizationFallbackDebug {
     }
 }
 
-
-function Ensure-Dir([string]$Path) {
-    New-Item -ItemType Directory -Force -Path $Path | Out-Null
-}
-
-function Reset-Dir([string]$Path) {
-    if (Test-Path $Path) {
-        Remove-Item -Path $Path -Recurse -Force
-    }
-    New-Item -ItemType Directory -Force -Path $Path | Out-Null
-}
-
-function Write-JsonFile {
-    param(
-        [string]$Path,
-        [object]$Data
-    )
-    $Data | ConvertTo-Json -Depth 20 | Out-File -FilePath $Path -Encoding utf8
-}
-
-function Write-TextFile {
-    param(
-        [string]$Path,
-        [string[]]$Lines
-    )
-    $Lines -join "`n" | Out-File -FilePath $Path -Encoding utf8
-}
 
 function New-SourceLayer {
     param([hashtable]$Overrides = @{})
