@@ -1,26 +1,24 @@
 ## Summary
-Extracted bootstrap/context initialization from `agent.ps1` into new `modules/bootstrap.ps1` via `Initialize-SiteAuditorBootstrapContext`, and updated the entrypoint script to consume returned startup state in compatibility-first mode.
+Extracted source-audit logic from `agent.ps1` into `modules/source_audit.ps1` in compatibility-first mode without changing workflow entrypoint behavior.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- `agents/gh_batch/site_auditor_cloud/modules/bootstrap.ps1`
+- `agents/gh_batch/site_auditor_cloud/modules/source_audit.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - No files/folders moved.
-- Initialization logic moved from `agent.ps1` to `modules/bootstrap.ps1`:
-  - workspace/base path resolution (`$env:GITHUB_WORKSPACE` vs `$PSScriptRoot`)
-  - startup path initialization (`outbox`, `reports`, `runtime`, `zip_extracted`)
-  - startup run metadata initialization (`timestamp`, `runStartedAt`, `runId`, defaults)
-  - initial stage/status/failure defaults (`currentStage`, `lastSuccessStage`, `status`, `failureReason`)
-  - global forensic placeholder initialization (`AuditError`, route/page/decision forensic containers)
-  - startup report file list container initialization (`reportFiles`)
+- Functions moved from `agent.ps1` to `modules/source_audit.ps1`:
+  - `New-SourceLayer`
+  - `Get-SourceSummary`
+  - `Invoke-SourceAuditRepo`
+  - `Invoke-SourceAuditZip`
 
 ## Current entrypoints/paths
-- Workflow entrypoint remains unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Added module file: `agents/gh_batch/site_auditor_cloud/modules/bootstrap.ps1`.
-- Added dot-source import in entrypoint: `. "$PSScriptRoot/modules/bootstrap.ps1"`.
+- Workflow-facing entrypoint remains: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- New module path: `agents/gh_batch/site_auditor_cloud/modules/source_audit.ps1`.
+- Entrypoint now dot-sources source module via `. "$PSScriptRoot/modules/source_audit.ps1"`.
 
 ## Risks/blockers
-- Blocker: PowerShell runtime is not available in this execution environment (`pwsh`/`powershell` not found), so mandatory fail-parity runtime execution checks could not be run locally.
-- Risk: required parity assertions (`final_status`, `failed_step`, `last_success_stage`, `final_stage`, and artifact presence checks) remain unverified until executed in a PowerShell-capable environment.
+- Blocker: PowerShell runtime is unavailable in this container (`pwsh`/`powershell` not found), so execution parity checks could not be run here.
+- Risk: required fail-parity assertions (`final_status`, `failed_step`, `last_success_stage`, `final_stage`, artifact generation, screenshot package count) must be validated in a PowerShell-capable runner.
