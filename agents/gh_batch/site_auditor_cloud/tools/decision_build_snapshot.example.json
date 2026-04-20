@@ -1,0 +1,46 @@
+{
+  "_note": "Minimal offline input snapshot for decision_build_forensics.ps1.",
+  "resolved_mode": "live",
+  "source_layer": {
+    "required": true,
+    "ok": true
+  },
+  "live_layer": {
+    "required": true,
+    "enabled": true,
+    "ok": true,
+    "summary": {
+      "page_quality_status": "EVALUATED",
+      "total_routes": 1,
+      "empty_routes": 0,
+      "thin_routes": 0,
+      "weak_cta_routes": 0,
+      "dead_end_routes": 0,
+      "contaminated_routes": 0,
+      "screenshot_count": 1,
+      "routes_with_evidence": 1,
+      "evidence_coverage": {
+        "evidence_richness": "RICH"
+      }
+    },
+    "route_details": [
+      {
+        "route_path": "/",
+        "status": 200,
+        "page_flags": {
+          "empty": false,
+          "thin": false,
+          "ui_contamination": false,
+          "weak_cta": false,
+          "dead_end": false
+        },
+        "issues": [],
+        "screenshots": [
+          "home.png"
+        ]
+      }
+    ]
+  },
+  "missing_inputs": [],
+  "warnings": []
+}
