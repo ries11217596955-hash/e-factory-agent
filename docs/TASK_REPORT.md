@@ -1,18 +1,24 @@
 ## Summary
-Patched PAGE_QUALITY_BUILD screenshot evidence merge by forcing explicit array materialization in Build-PageQualityFindings. No unrelated functions changed.
+Extracted only the file I/O helper functions from `agent.ps1` into a new module file and dot-sourced that module from `agent.ps1` in compatibility-first mode (no logic edits outside extraction).
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- `agents/gh_batch/site_auditor_cloud/modules/util_io.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
-- None.
+- Function definitions moved (code extraction only):
+  - `Ensure-Dir`
+  - `Reset-Dir`
+  - `Write-JsonFile`
+  - `Write-TextFile`
+- No files/folders moved.
 
 ## Current entrypoints/paths
 - Entrypoint remains unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Runtime target path remains unchanged: `RUNNING_AGENT_PATH=agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Scope of code change is limited to `Build-PageQualityFindings` in PAGE_QUALITY_BUILD contour.
+- Added module import path in entrypoint script: `. "$PSScriptRoot/modules/util_io.ps1"`.
+- New module file path: `agents/gh_batch/site_auditor_cloud/modules/util_io.ps1`.
 
 ## Risks/blockers
-- No active blockers identified for the patched screenshot evidence merge path.
-- Residual risk: downstream PAGE_QUALITY defects (if any) may surface after this fix, which would indicate a new independent issue.
+- Blocker: PowerShell runtime is unavailable in this environment (`pwsh`/`powershell` not found), so runtime fail-parity validation could not be executed here.
+- Risk: fail-parity status is unverified in this environment until script is executed where PowerShell is available.
