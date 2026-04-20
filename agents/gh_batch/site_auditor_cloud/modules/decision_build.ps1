@@ -294,13 +294,21 @@ function Build-DecisionLayer {
         $rightOperand = $routesWithEvidence
 
         $contradictionSourceLayer = @{}
-        foreach ($entry in @(Convert-ToHashtableSafe -Value $normalizedSourceLayer).GetEnumerator()) {
-            $contradictionSourceLayer[[string]$entry.Key] = $entry.Value
+        $normalizedContradictionSource = Convert-ToHashtableSafe -Value $normalizedSourceLayer
+        foreach ($entry in $normalizedContradictionSource.GetEnumerator()) {
+            $entryNode = Convert-ToHashtableSafe -Value $entry
+            $entryKey = [string](Safe-Get -Object $entryNode -Key 'Key' -Default '')
+            if ([string]::IsNullOrWhiteSpace($entryKey)) { continue }
+            $contradictionSourceLayer[$entryKey] = Safe-Get -Object $entryNode -Key 'Value' -Default $null
         }
 
         $contradictionLiveLayer = @{}
-        foreach ($entry in @(Convert-ToHashtableSafe -Value $normalizedLiveLayer).GetEnumerator()) {
-            $contradictionLiveLayer[[string]$entry.Key] = $entry.Value
+        $normalizedContradictionLive = Convert-ToHashtableSafe -Value $normalizedLiveLayer
+        foreach ($entry in $normalizedContradictionLive.GetEnumerator()) {
+            $entryNode = Convert-ToHashtableSafe -Value $entry
+            $entryKey = [string](Safe-Get -Object $entryNode -Key 'Key' -Default '')
+            if ([string]::IsNullOrWhiteSpace($entryKey)) { continue }
+            $contradictionLiveLayer[$entryKey] = Safe-Get -Object $entryNode -Key 'Value' -Default $null
         }
 
         $contradictionMissingInputs = @(Convert-ToStringArraySafe -Value $normalizedMissingInputs)
