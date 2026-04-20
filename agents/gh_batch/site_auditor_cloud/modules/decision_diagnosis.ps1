@@ -114,7 +114,7 @@ function Build-MaturityReadinessLayer {
     $diagnosisClass = [string](Safe-Get -Object $SiteDiagnosis -Key 'class' -Default 'UNKNOWN')
     $evidenceCoverage = Safe-Get -Object $liveSummary -Key 'evidence_coverage' -Default @{}
     $evidenceRichness = [string](Safe-Get -Object $evidenceCoverage -Key 'evidence_richness' -Default 'SPARSE')
-    $missingCount = (@($MissingInputs) | Where-Object { $_ -ne $null }).Count
+    $missingCount = @(@($MissingInputs) | Where-Object { $_ -ne $null }).Count
 
     $class = 'NOT_READY'
     $reason = 'Run or route-quality evidence is insufficient for release review.'
