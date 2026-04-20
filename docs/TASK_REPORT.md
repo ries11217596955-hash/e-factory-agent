@@ -1,21 +1,20 @@
 ## Summary
-Applied a compatibility-first truth-layer hardening update for site auditor failure outputs. The change stabilizes shared failure facts (message/class) across `RUN_REPORT.json` and `FAILURE_SUMMARY.json`, and mirrors `outbox/REPORT.txt` into `reports/REPORT.txt` when present so bundle-side artifact inclusion remains deterministic.
+Performed PHASE 2 / STEP 5 compatibility-first extraction of route-normalization forensic/debug helpers from `agent.ps1` into a new module, without changing workflow entrypoint, stage flow, or route-normalization execution logic.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- `agents/gh_batch/site_auditor_cloud/modules/route_normalization_forensics.ps1` (new)
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - No files/folders moved.
+- Function blocks moved from `agent.ps1` into `modules/route_normalization_forensics.ps1`.
 
 ## Current entrypoints/paths
-- Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Runtime truth artifacts remain at:
-  - `reports/RUN_REPORT.json`
-  - `reports/FAILURE_SUMMARY.json` (FAIL/PARTIAL)
-  - `outbox/REPORT.txt` (runtime operator report)
-  - `reports/REPORT.txt` (mirror copy when runtime report exists)
+- Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- New forensic module path: `agents/gh_batch/site_auditor_cloud/modules/route_normalization_forensics.ps1`
+- Entrypoint now dot-sources the new module and remains workflow-facing.
 
 ## Risks/blockers
-- Blocker: PowerShell runtime is unavailable in this container (`pwsh` not installed), so runtime execution checks could not be run locally.
-- Risk: success-check assertions for `failed_step=PAGE_QUALITY_BUILD` and bundle-side inclusion must be verified on the workflow runner that executes `run.ps1`/`run_bundle.ps1`.
+- Blocker: PowerShell runtime is unavailable in this container (`pwsh`/`powershell` not installed), so mandatory runtime parity execution checks could not be run locally.
+- Risk: FAIL-parity assertions (`final_status=FAIL`, `failed_step=PAGE_QUALITY_BUILD`, artifact bundle presence) must be validated on a runner where `agent.ps1` executes.
