@@ -1,24 +1,21 @@
 ## Summary
-Extracted source-audit logic from `agent.ps1` into `modules/source_audit.ps1` in compatibility-first mode without changing workflow entrypoint behavior.
+Applied a compatibility-first truth-layer hardening update for site auditor failure outputs. The change stabilizes shared failure facts (message/class) across `RUN_REPORT.json` and `FAILURE_SUMMARY.json`, and mirrors `outbox/REPORT.txt` into `reports/REPORT.txt` when present so bundle-side artifact inclusion remains deterministic.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- `agents/gh_batch/site_auditor_cloud/modules/source_audit.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - No files/folders moved.
-- Functions moved from `agent.ps1` to `modules/source_audit.ps1`:
-  - `New-SourceLayer`
-  - `Get-SourceSummary`
-  - `Invoke-SourceAuditRepo`
-  - `Invoke-SourceAuditZip`
 
 ## Current entrypoints/paths
-- Workflow-facing entrypoint remains: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- New module path: `agents/gh_batch/site_auditor_cloud/modules/source_audit.ps1`.
-- Entrypoint now dot-sources source module via `. "$PSScriptRoot/modules/source_audit.ps1"`.
+- Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- Runtime truth artifacts remain at:
+  - `reports/RUN_REPORT.json`
+  - `reports/FAILURE_SUMMARY.json` (FAIL/PARTIAL)
+  - `outbox/REPORT.txt` (runtime operator report)
+  - `reports/REPORT.txt` (mirror copy when runtime report exists)
 
 ## Risks/blockers
-- Blocker: PowerShell runtime is unavailable in this container (`pwsh`/`powershell` not found), so execution parity checks could not be run here.
-- Risk: required fail-parity assertions (`final_status`, `failed_step`, `last_success_stage`, `final_stage`, artifact generation, screenshot package count) must be validated in a PowerShell-capable runner.
+- Blocker: PowerShell runtime is unavailable in this container (`pwsh` not installed), so runtime execution checks could not be run locally.
+- Risk: success-check assertions for `failed_step=PAGE_QUALITY_BUILD` and bundle-side inclusion must be verified on the workflow runner that executes `run.ps1`/`run_bundle.ps1`.

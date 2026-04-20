@@ -3857,6 +3857,53 @@ function Get-TruthBackedConfirmedStages {
     return @($confirmed)
 }
 
+function Resolve-FailureCoreFacts {
+    param(
+        [object]$ErrorRecord = $null,
+        [string]$FailureReason = '',
+        [string]$DefaultMessage = 'Unknown failure while running SITE_AUDITOR.'
+    )
+
+    $errorRecordSafe = if ($null -eq $ErrorRecord) { $global:AuditError } else { $ErrorRecord }
+    $exception = $null
+    if ($null -ne $errorRecordSafe) {
+        $exception = Safe-Get -Object $errorRecordSafe -Key 'Exception' -Default $null
+    }
+
+    $message = [string]$FailureReason
+    if ([string]::IsNullOrWhiteSpace($message) -and $null -ne $exception) {
+        $message = [string](Safe-Get -Object $exception -Key 'Message' -Default '')
+    }
+    if ([string]::IsNullOrWhiteSpace($message) -and $null -ne $errorRecordSafe) {
+        $message = [string](Safe-Get -Object $errorRecordSafe -Key 'FullyQualifiedErrorId' -Default '')
+    }
+    if ([string]::IsNullOrWhiteSpace($message)) {
+        $message = [string]$DefaultMessage
+    }
+
+    $errorClass = ''
+    if ($null -ne $exception -and $exception.GetType) {
+        $errorClass = [string]$exception.GetType().FullName
+    }
+    if ([string]::IsNullOrWhiteSpace($errorClass) -and $null -ne $errorRecordSafe) {
+        $errorClass = [string](Safe-Get -Object $errorRecordSafe -Key 'FullyQualifiedErrorId' -Default '')
+    }
+    if ([string]::IsNullOrWhiteSpace($errorClass) -and -not [string]::IsNullOrWhiteSpace($message)) {
+        $errorClass = 'RUNTIME_FAILURE'
+    }
+
+    $stackHint = ''
+    if ($null -ne $errorRecordSafe) {
+        $stackHint = [string](Safe-Get -Object $errorRecordSafe -Key 'ScriptStackTrace' -Default '')
+    }
+
+    return [ordered]@{
+        error_message = [string]$message
+        error_class = [string]$errorClass
+        stack_hint_if_available = [string]$stackHint
+    }
+}
+
 function Get-FallbackTruthEvidence {
     param(
         [string]$AuditResultPath,
@@ -3929,10 +3976,11 @@ function Get-FallbackTruthEvidence {
         $truthSources.Add('reports/route_normalization_trace.json')
     }
 
-    $errorMessage = [string]$FailureReason
-    if ([string]::IsNullOrWhiteSpace($errorMessage)) { $errorMessage = '' }
+    $failureCore = Resolve-FailureCoreFacts -FailureReason $FailureReason
+    $errorMessage = [string](Safe-Get -Object $failureCore -Key 'error_message' -Default '')
+    $errorClass = [string](Safe-Get -Object $failureCore -Key 'error_class' -Default '')
 
-    $blocker = [string]$FailureReason
+    $blocker = [string]$errorMessage
     if ([string]::IsNullOrWhiteSpace($blocker)) { $blocker = 'Unknown fallback failure.' }
 
     return [ordered]@{
@@ -3945,6 +3993,7 @@ function Get-FallbackTruthEvidence {
         repo_summary_status = [string](Safe-Get -Object $sourceSummary -Key 'status' -Default 'UNKNOWN')
         failure_stage = $failureStage
         error_message = $errorMessage
+        error_class = $errorClass
         failure_node = [string]$CurrentStage
         blocker = $blocker
         confirmed_passing_stages = @($confirmedStages)
@@ -4130,8 +4179,9 @@ function Write-RunForensicsReports {
     $repoSummaryOut = [string]$repoSummaryStatus
     if ([string]::IsNullOrWhiteSpace($repoSummaryOut)) { $repoSummaryOut = 'UNKNOWN' }
 
-    $errorMessage = [string]$FailureReason
-    if ([string]::IsNullOrWhiteSpace($errorMessage)) { $errorMessage = '' }
+    $failureCore = Resolve-FailureCoreFacts -FailureReason $FailureReason
+    $errorMessage = [string](Safe-Get -Object $failureCore -Key 'error_message' -Default '')
+    $errorClassText = [string](Safe-Get -Object $failureCore -Key 'error_class' -Default '')
 
     $targetValue = [string]$env:TARGET_REPO_PATH
     if ([string]::IsNullOrWhiteSpace($targetValue)) {
@@ -4151,7 +4201,6 @@ function Write-RunForensicsReports {
     $visualArtifactsStatus = if ($visualAuditActiveFlag) { 'PASS' } else { 'FAIL' }
     $visualScreenshotsPackaged = [int](Safe-Get -Object $visualCoverageNode -Key 'screenshots_packaged' -Default 0)
     $visualRoutesWithEvidence = [int](Safe-Get -Object $visualCoverageNode -Key 'routes_with_evidence' -Default 0)
-    $errorClassText = if ([string]::IsNullOrWhiteSpace($errorMessage)) { '' } else { 'RUNTIME_FAILURE' }
     $messageText = if ([string]::IsNullOrWhiteSpace($errorMessage)) { $executiveSummary } else { $errorMessage }
 
     $runStatusMap = [ordered]@{
@@ -4184,6 +4233,7 @@ function Write-RunForensicsReports {
         repo_summary_status = [string]$repoSummaryOut
         failure_stage = [string]$failedStage
         error_message = [string]$errorMessage
+        error_class = [string]$errorClassText
         failure_node = [string]$CurrentStage
         decision_build_failed_node = [string]$decisionBuildFailedNode
         blocker = [string](Safe-Get -Object $Decision -Key 'core_problem' -Default '')
@@ -4228,6 +4278,7 @@ function Write-RunForensicsReports {
         last_success_stage = $LastSuccessStage
         failed_stage = $failedStage
         error_message = $errorMessage
+        error_class = $errorClassText
         decision_build_failed_node = $decisionBuildFailedNode
         confirmed_passing_stages = $confirmedPassingStagesSafe
         usable_partial_artifacts_exist = [bool]$usablePartialArtifacts
@@ -4269,6 +4320,7 @@ function Write-RunForensicsReports {
         "- decision_build_failed_node: $($evidenceMap.decision_build_failed_node)",
         "- blocker: $($evidenceMap.blocker)",
         "- error_message: $($evidenceMap.error_message)",
+        "- error_class: $($evidenceMap.error_class)",
         '',
         'REPAIR HINT',
         "- target_file: $([string](Safe-Get -Object $repairHint -Key 'target_file' -Default 'agents/gh_batch/site_auditor_cloud/agent.ps1'))",
@@ -4293,7 +4345,8 @@ function Write-RunForensicsReports {
         $lines += ''
         $lines += 'FAILURE SUMMARY'
         $lines += "- exact_failed_stage_or_node: $failedStage"
-        $lines += "- error_class_or_message: $($evidenceMap.error_message)"
+        $lines += "- error_class: $($evidenceMap.error_class)"
+        $lines += "- error_message: $($evidenceMap.error_message)"
         $lines += "- confirmed_passing_stages: $(($confirmedPassingStagesSafe -join ', '))"
         $lines += "- usable_partial_artifacts_exist: $usablePartialArtifacts"
     }
@@ -4753,6 +4806,10 @@ function Ensure-OutputContract {
         )
         Write-TextFile -Path $reportPath -Lines $fallbackLines
     }
+    $reportMirrorPath = Join-Path $reportsDir 'REPORT.txt'
+    if (Test-Path $reportPath -PathType Leaf) {
+        Copy-Item -Path $reportPath -Destination $reportMirrorPath -Force -ErrorAction SilentlyContinue
+    }
 
 
     $runReportJsonPath = Join-Path $reportsDir 'RUN_REPORT.json'
@@ -4771,6 +4828,7 @@ function Ensure-OutputContract {
 
     if (-not (Test-Path $runReportJsonPath -PathType Leaf)) {
         $fallbackTruth = Get-FallbackTruthEvidence -AuditResultPath $auditResultPath -FailureReason $FailureReason -CurrentStage $currentStage -LastSuccessStage $lastSuccessStage
+        $fallbackErrorClass = [string](Safe-Get -Object $fallbackTruth -Key 'error_class' -Default '')
         $fallbackNextMove = if ($FinalStatus -eq 'PASS') {
             'No technical repair node remains.'
         }
@@ -4831,6 +4889,7 @@ function Ensure-OutputContract {
                 last_success_stage = $lastSuccessStage
             }
             executive_summary = 'Fallback run report generated because primary operator report contract was missing.'
+            error_class = [string]$fallbackErrorClass
             key_evidence_excerpts = [ordered]@{
                 source_status = [string](Safe-Get -Object $fallbackTruth -Key 'source_status' -Default 'UNKNOWN')
                 live_status = [string](Safe-Get -Object $fallbackTruth -Key 'live_status' -Default 'UNKNOWN')
@@ -4841,6 +4900,7 @@ function Ensure-OutputContract {
                 repo_summary_status = [string](Safe-Get -Object $fallbackTruth -Key 'repo_summary_status' -Default 'UNKNOWN')
                 failure_stage = [string](Safe-Get -Object $fallbackTruth -Key 'failure_stage' -Default $currentStage)
                 error_message = [string](Safe-Get -Object $fallbackTruth -Key 'error_message' -Default '')
+                error_class = [string]$fallbackErrorClass
                 failure_node = [string](Safe-Get -Object $fallbackTruth -Key 'failure_node' -Default $currentStage)
                 blocker = [string](Safe-Get -Object $fallbackTruth -Key 'blocker' -Default 'Unknown fallback failure.')
             }
@@ -4930,7 +4990,8 @@ function Ensure-OutputContract {
             final_stage = $currentStage
             last_success_stage = $lastSuccessStage
             failed_stage = [string](Safe-Get -Object $fallbackTruth -Key 'failure_stage' -Default $currentStage)
-            error_message = if ([string]::IsNullOrWhiteSpace($FailureReason)) { '' } else { $FailureReason }
+            error_message = [string](Safe-Get -Object $fallbackTruth -Key 'error_message' -Default '')
+            error_class = [string]$fallbackErrorClass
             confirmed_passing_stages = @(Convert-ToObjectArraySafe -Value (Safe-Get -Object $fallbackTruth -Key 'confirmed_passing_stages' -Default @()))
             usable_partial_artifacts_exist = $true
             next_technical_move = $fallbackNextMove
@@ -5168,8 +5229,8 @@ catch {
     $global:AuditError = $_
     $status = 'FAIL'
 
-    $failureReason = $global:AuditError.Exception.Message
-    if (-not $failureReason) { $failureReason = 'Unknown failure while running SITE_AUDITOR.' }
+    $failureCore = Resolve-FailureCoreFacts -ErrorRecord $global:AuditError -FailureReason $failureReason
+    $failureReason = [string](Safe-Get -Object $failureCore -Key 'error_message' -Default 'Unknown failure while running SITE_AUDITOR.')
     if ($null -ne $global:DecisionForensics) {
         $dfFunction = [string](Safe-Get -Object $global:DecisionForensics -Key 'function_name' -Default '')
         $dfOperation = [string](Safe-Get -Object $global:DecisionForensics -Key 'activeOperationLabel' -Default '')
