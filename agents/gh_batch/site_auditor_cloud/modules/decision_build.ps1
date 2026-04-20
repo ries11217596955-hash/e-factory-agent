@@ -293,47 +293,17 @@ function Build-DecisionLayer {
         $leftOperand = $visualAuditActive
         $rightOperand = $routesWithEvidence
 
-        $contradictionSourceLayer = @{}
-        $normalizedContradictionSource = Convert-ToHashtableSafe -Value $normalizedSourceLayer
-        foreach ($entry in $normalizedContradictionSource.GetEnumerator()) {
-            if ($entry -is [System.Collections.DictionaryEntry]) {
-                $entryKey = [string]$entry.Key
-                if (-not [string]::IsNullOrWhiteSpace($entryKey)) {
-                    $contradictionSourceLayer[$entryKey] = $entry.Value
-                }
-                continue
-            }
-
-            $entryNode = Convert-ToHashtableSafe -Value $entry
-            $entryKey = [string](Safe-Get -Object $entryNode -Key 'Key' -Default '')
-            if (-not [string]::IsNullOrWhiteSpace($entryKey)) {
-                $contradictionSourceLayer[$entryKey] = Safe-Get -Object $entryNode -Key 'Value' -Default $null
+        $contradictionSummary = [ordered]@{
+            class = if ($visualAuditActive) { 'ARTIFACT_TRUTH_ACTIVE' } else { 'TRUTH_GAP' }
+            total_candidates = 0
+            candidates = @()
+            class_counts = @{}
+            artifact_truth = [ordered]@{
+                visual_audit_active = [bool]$visualAuditActive
+                screenshot_count = [int]$screenshotCount
+                routes_with_evidence = [int]$routesWithEvidence
             }
         }
-
-        $contradictionLiveLayer = @{}
-        $normalizedContradictionLive = Convert-ToHashtableSafe -Value $normalizedLiveLayer
-        foreach ($entry in $normalizedContradictionLive.GetEnumerator()) {
-            if ($entry -is [System.Collections.DictionaryEntry]) {
-                $entryKey = [string]$entry.Key
-                if (-not [string]::IsNullOrWhiteSpace($entryKey)) {
-                    $contradictionLiveLayer[$entryKey] = $entry.Value
-                }
-                continue
-            }
-
-            $entryNode = Convert-ToHashtableSafe -Value $entry
-            $entryKey = [string](Safe-Get -Object $entryNode -Key 'Key' -Default '')
-            if (-not [string]::IsNullOrWhiteSpace($entryKey)) {
-                $contradictionLiveLayer[$entryKey] = Safe-Get -Object $entryNode -Key 'Value' -Default $null
-            }
-        }
-
-        $contradictionMissingInputs = @(Convert-ToStringArraySafe -Value $normalizedMissingInputs)
-
-        $contradictionSummary = Convert-ToHashtableSafe -Value (
-            Build-ContradictionLayer -SourceLayer $contradictionSourceLayer -LiveLayer $contradictionLiveLayer -MissingInputs $contradictionMissingInputs
-        )
 
         $siteDiagnosis = Convert-ToHashtableSafe -Value (
             Build-SiteDiagnosisLayer -SourceLayer $normalizedSourceLayer -LiveLayer $normalizedLiveLayer -ContradictionSummary $contradictionSummary -MissingInputs $normalizedMissingInputs
