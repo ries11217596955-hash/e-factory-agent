@@ -12,41 +12,26 @@ $ErrorActionPreference = 'Stop'
 $script:DecisionBuildStamp = 'DBUILD_FORENSIC_V2'
 Write-Host "DECISION_BUILD_STAMP: $script:DecisionBuildStamp"
 
-$workspace = $env:GITHUB_WORKSPACE
-if (-not [string]::IsNullOrWhiteSpace($workspace)) {
-    $base = Join-Path $workspace 'agents/gh_batch/site_auditor_cloud'
-}
-else {
-    $base = $PSScriptRoot
-}
-
-Write-Host "OUTPUT BASE: $base"
-Write-Host "DEBUG BASE PATH: $base"
-Write-Host "DEBUG PWD: $(Get-Location)"
-
 . "$PSScriptRoot/modules/util_io.ps1"
 . "$PSScriptRoot/modules/util_convert.ps1"
 . "$PSScriptRoot/modules/util_debug.ps1"
+. "$PSScriptRoot/modules/bootstrap.ps1"
 
-$outboxDir = Join-Path $base 'outbox'
-$reportsDir = Join-Path $base 'reports'
-$runtimeDir = Join-Path $base 'runtime'
-$zipWorkRoot = Join-Path $runtimeDir 'zip_extracted'
-$timestamp = (Get-Date).ToString('o')
-$runStartedAt = $timestamp
-$runFinishedAt = $null
-$runId = "SITE_AUDITOR_$((Get-Date).ToString('yyyyMMdd_HHmmss_fff'))_$PID"
-$currentStage = 'INIT'
-$lastSuccessStage = 'INIT'
-$status = 'FAIL'
-$failureReason = $null
-$global:AuditError = $null
-$global:RouteNormalizationForensics = $null
-$global:RouteNormalizationTrace = @()
-$global:RouteNormalizationAggregateTrace = @()
-$global:PageQualityForensics = $null
-$global:DecisionForensics = $null
-$reportFiles = New-Object System.Collections.Generic.List[string]
+$bootstrapContext = Initialize-SiteAuditorBootstrapContext -ScriptRoot $PSScriptRoot -Workspace $env:GITHUB_WORKSPACE -ProcessId $PID
+$base = [string]$bootstrapContext.base
+$outboxDir = [string]$bootstrapContext.outboxDir
+$reportsDir = [string]$bootstrapContext.reportsDir
+$runtimeDir = [string]$bootstrapContext.runtimeDir
+$zipWorkRoot = [string]$bootstrapContext.zipWorkRoot
+$timestamp = [string]$bootstrapContext.timestamp
+$runStartedAt = [string]$bootstrapContext.runStartedAt
+$runFinishedAt = $bootstrapContext.runFinishedAt
+$runId = [string]$bootstrapContext.runId
+$currentStage = [string]$bootstrapContext.currentStage
+$lastSuccessStage = [string]$bootstrapContext.lastSuccessStage
+$status = [string]$bootstrapContext.status
+$failureReason = $bootstrapContext.failureReason
+$reportFiles = $bootstrapContext.reportFiles
 
 function Set-RouteNormalizationForensics {
     param(

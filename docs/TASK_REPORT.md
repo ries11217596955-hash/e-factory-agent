@@ -1,36 +1,26 @@
 ## Summary
-Extracted generic conversion/debug helper functions from `agents/gh_batch/site_auditor_cloud/agent.ps1` into `modules/util_convert.ps1` and `modules/util_debug.ps1`, then dot-sourced those modules from `agent.ps1` in compatibility-first mode without intentional logic changes.
+Extracted bootstrap/context initialization from `agent.ps1` into new `modules/bootstrap.ps1` via `Initialize-SiteAuditorBootstrapContext`, and updated the entrypoint script to consume returned startup state in compatibility-first mode.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- `agents/gh_batch/site_auditor_cloud/modules/util_convert.ps1`
-- `agents/gh_batch/site_auditor_cloud/modules/util_debug.ps1`
+- `agents/gh_batch/site_auditor_cloud/modules/bootstrap.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - No files/folders moved.
-- Function definitions moved (extracted from `agent.ps1`):
-  - `Get-DebugValueSample`
-  - `Get-ObjectShapeSummary`
-  - `Convert-ToIntSafe`
-  - `Convert-ToBoolSafe`
-  - `Convert-ToObjectArraySafe`
-  - `Normalize-ToArray`
-  - `Normalize-CollectionShape`
-  - `Add-UniqueString`
-  - `Convert-ToStringArraySafe`
-  - `Convert-ToStringKeyDictionarySafe`
-  - `Convert-ToHashtableSafe`
+- Initialization logic moved from `agent.ps1` to `modules/bootstrap.ps1`:
+  - workspace/base path resolution (`$env:GITHUB_WORKSPACE` vs `$PSScriptRoot`)
+  - startup path initialization (`outbox`, `reports`, `runtime`, `zip_extracted`)
+  - startup run metadata initialization (`timestamp`, `runStartedAt`, `runId`, defaults)
+  - initial stage/status/failure defaults (`currentStage`, `lastSuccessStage`, `status`, `failureReason`)
+  - global forensic placeholder initialization (`AuditError`, route/page/decision forensic containers)
+  - startup report file list container initialization (`reportFiles`)
 
 ## Current entrypoints/paths
-- Entrypoint remains unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
-- Added module imports in entrypoint script:
-  - `. "$PSScriptRoot/modules/util_convert.ps1"`
-  - `. "$PSScriptRoot/modules/util_debug.ps1"`
-- New module file paths:
-  - `agents/gh_batch/site_auditor_cloud/modules/util_convert.ps1`
-  - `agents/gh_batch/site_auditor_cloud/modules/util_debug.ps1`
+- Workflow entrypoint remains unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`.
+- Added module file: `agents/gh_batch/site_auditor_cloud/modules/bootstrap.ps1`.
+- Added dot-source import in entrypoint: `. "$PSScriptRoot/modules/bootstrap.ps1"`.
 
 ## Risks/blockers
-- Blocker: PowerShell runtime is unavailable in this environment (`pwsh` and `powershell` commands not found), so required fail-parity runtime validation could not be executed locally.
-- Risk: parity outputs (`final_status`, `failed_step`, `last_success_stage`, artifact counts) are unverified until run in a PowerShell-capable environment.
+- Blocker: PowerShell runtime is not available in this execution environment (`pwsh`/`powershell` not found), so mandatory fail-parity runtime execution checks could not be run locally.
+- Risk: required parity assertions (`final_status`, `failed_step`, `last_success_stage`, `final_stage`, and artifact presence checks) remain unverified until executed in a PowerShell-capable environment.
