@@ -127,12 +127,33 @@ function Build-ProductCloseoutClassification {
 
         $activeOperationLabel = 'assemble/final_closeout_object'
         $activeExpression = '@{ class=...; reason=...; confidence=...; checks=...; evidence=... }'
+        $checksArray = @()
+        if ($checks -is [System.Collections.IEnumerable] -and -not ($checks -is [string])) {
+            foreach ($checkEntry in $checks) {
+                $normalizedCheckEntry = Convert-ToHashtableSafe -Value $checkEntry
+                $checksArray += [ordered]@{
+                    name = [string](Safe-Get -Object $normalizedCheckEntry -Key 'name' -Default '')
+                    status = [string](Safe-Get -Object $normalizedCheckEntry -Key 'status' -Default 'FAIL')
+                }
+            }
+        }
+        else {
+            $normalizedSingleCheck = Convert-ToHashtableSafe -Value $checks
+            if ($normalizedSingleCheck.Count -gt 0) {
+                $checksArray += [ordered]@{
+                    name = [string](Safe-Get -Object $normalizedSingleCheck -Key 'name' -Default '')
+                    status = [string](Safe-Get -Object $normalizedSingleCheck -Key 'status' -Default 'FAIL')
+                }
+            }
+        }
+
+        $evidenceArray = Convert-ToStringArraySafe -Value $evidence
         return @{
             class = [string]$classification
             reason = [string]$reasonText
             confidence = [string]$confidence
-            checks = @($checks)
-            evidence = @($evidence)
+            checks = @($checksArray)
+            evidence = @($evidenceArray)
         }
     }
     catch {
