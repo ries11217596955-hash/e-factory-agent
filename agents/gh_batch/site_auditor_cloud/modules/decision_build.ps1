@@ -305,20 +305,35 @@ function Build-DecisionLayer {
             }
         }
 
+        $activeOperationLabel = 'site_diagnosis_build'
+        $activeExpression = 'Build-SiteDiagnosisLayer'
+        $leftOperand = $contradictionSummary
+        $rightOperand = $normalizedMissingInputs
+
         $siteDiagnosis = Convert-ToHashtableSafe -Value (
             Build-SiteDiagnosisLayer -SourceLayer $normalizedSourceLayer -LiveLayer $normalizedLiveLayer -ContradictionSummary $contradictionSummary -MissingInputs $normalizedMissingInputs
         )
+
+        $activeOperationLabel = 'maturity_readiness_build'
+        $activeExpression = 'Build-MaturityReadinessLayer'
+        $leftOperand = $siteDiagnosis
+        $rightOperand = $contradictionSummary
 
         $maturityReadiness = Convert-ToHashtableSafe -Value (
             Build-MaturityReadinessLayer -SourceLayer $normalizedSourceLayer -LiveLayer $normalizedLiveLayer -SiteDiagnosis $siteDiagnosis -ContradictionSummary $contradictionSummary -MissingInputs $normalizedMissingInputs
         )
 
+        $activeOperationLabel = 'auditor_baseline_build'
+        $activeExpression = 'Build-AuditorBaselineCertification'
+        $leftOperand = $maturityReadiness
+        $rightOperand = $siteDiagnosis
+
         $auditorBaseline = Convert-ToHashtableSafe -Value (
             Build-AuditorBaselineCertification -FinalStatus 'FAIL' -SourceLayer $normalizedSourceLayer -LiveLayer $normalizedLiveLayer -ContradictionSummary $contradictionSummary -SiteDiagnosis $siteDiagnosis -MaturityReadiness $maturityReadiness
         )
 
-        $activeOperationLabel = 'remediation_build'
-        $activeExpression = 'Build remediationPackage'
+        $activeOperationLabel = 'primary_remediation_package_build'
+        $activeExpression = 'Build-PrimaryRemediationPackage'
         $leftOperand = $priorityRoutes
         $rightOperand = $nowList
 
@@ -334,7 +349,7 @@ function Build-DecisionLayer {
         }
 
         $activeOperationLabel = 'product_closeout_build'
-        $activeExpression = 'Normalize-ProductCloseout'
+        $activeExpression = 'Build-ProductCloseoutClassification'
         $leftOperand = $stage
         $rightOperand = $coreProblem
 
@@ -342,7 +357,7 @@ function Build-DecisionLayer {
             Build-ProductCloseoutClassification -FinalStatus 'FAIL' -SourceLayer $normalizedSourceLayer -LiveLayer $normalizedLiveLayer -ContradictionSummary $contradictionSummary -SiteDiagnosis $siteDiagnosis -MaturityReadiness $maturityReadiness -RemediationPackage $remediationPackage
         )
 
-        $activeOperationLabel = 'repair_hint_build'
+        $activeOperationLabel = 'decision_repair_hint_build'
         $activeExpression = 'Get-DecisionRepairHint'
         $leftOperand = $priorityRoutes
         $rightOperand = $liveSummary
