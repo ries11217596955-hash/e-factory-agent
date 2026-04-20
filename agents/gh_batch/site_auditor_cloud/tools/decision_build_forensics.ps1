@@ -219,8 +219,18 @@ if (Test-Path -LiteralPath $DiagnosticPath) {
     Remove-Item -LiteralPath $DiagnosticPath -Force
 }
 
+function ConvertFrom-JsonCompat {
+    param([string]$JsonText)
+
+    if ($PSVersionTable.PSVersion.Major -ge 6) {
+        return ($JsonText | ConvertFrom-Json -Depth 100)
+    }
+
+    return ($JsonText | ConvertFrom-Json)
+}
+
 $rawSnapshot = Get-Content -LiteralPath $SnapshotPath -Raw
-$snapshot = $rawSnapshot | ConvertFrom-Json -Depth 100
+$snapshot = ConvertFrom-JsonCompat -JsonText $rawSnapshot
 
 $resolvedMode = [string](Safe-Get -Object $snapshot -Key 'resolved_mode' -Default 'live')
 $sourceLayer = Convert-ToHashtableFromJsonObject -Value (Safe-Get -Object $snapshot -Key 'source_layer' -Default @{})
