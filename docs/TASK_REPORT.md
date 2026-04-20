@@ -1,12 +1,11 @@
 ## Summary
-Compatibility rollback restored for both failing contradiction contours without deleting extracted modules and without adding new contradiction logic.
-- `PAGE_QUALITY_BUILD` (`PQ3_route_contradictions_build`) now bypasses contradiction candidate construction and emits deterministic empty compatibility output.
-- `DECISION_BUILD` (`contradiction_summary_build`) remains a compatibility stub and explicitly avoids contradiction runtime invocation.
-- Entrypoint, report contract shape, and legacy adapter paths were preserved.
+AUDIT_ONLY root-cause isolation completed for the remaining `DECISION_BUILD` failure (`"The property 'Count' cannot be found on this object"`) after contradiction rollback.
+- Primary blocker confirmed: stale `activeOperationLabel` coverage across the post-`contradiction_summary_build` calls (`siteDiagnosis`, `maturityReadiness`, `auditorBaseline`) causes mis-attribution of downstream exceptions to `contradiction_summary_build`.
+- `repairHint.Count` was inspected and is not the reported blocker under the current failure label path.
+- `Convert-ToHashtableSafe` contract was audited: it returns hashtable-like shapes with `.Count`, but callers can still fail when upstream invoked functions return unexpected non-collection shapes before label advancement.
+- Report fields (`failed_step`, `final_stage`, `decision_build_failed_node`) are independently populated; they can diverge semantically, but this is a secondary observability issue, not the triggering runtime defect.
 
 ## Changed files
-- `agents/gh_batch/site_auditor_cloud/modules/page_quality.ps1`
-- `agents/gh_batch/site_auditor_cloud/modules/decision_build.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
@@ -14,10 +13,11 @@ Compatibility rollback restored for both failing contradiction contours without 
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- Page-quality compatibility contour: `agents/gh_batch/site_auditor_cloud/modules/page_quality.ps1` (`PQ3_route_contradictions_build`)
-- Decision compatibility contour: `agents/gh_batch/site_auditor_cloud/modules/decision_build.ps1` (`contradiction_summary_build`)
-- Extracted contradiction module retained on disk and untouched: `agents/gh_batch/site_auditor_cloud/modules/decision_contradictions.ps1`
+- Decision build flow audited: `agents/gh_batch/site_auditor_cloud/modules/decision_build.ps1`
+- Conversion helper contract audited: `agents/gh_batch/site_auditor_cloud/modules/util_convert.ps1`
+- Forensics/report-node mapping audited: `agents/gh_batch/site_auditor_cloud/agent.ps1`
 
 ## Risks/blockers
-- Runtime validation could not be executed in-container because PowerShell (`pwsh`/`powershell`) is not installed.
-- Therefore, artifact-backed confirmation of `final_status=FAIL`, `failed_step=PAGE_QUALITY_BUILD`, `final_stage=OPERATOR_OUTPUT_CONTRACT`, and `last_success_stage=DECISION_BUILD` could not be produced in this environment.
+- PowerShell runtime execution was not performed in-container for this task; findings are from deterministic static flow trace and contract inspection.
+- The currently reported node `DECISION_BUILD/Build-DecisionLayer/contradiction_summary_build` is not sufficient proof of the actual failing callee because label advancement is delayed until `remediation_build`.
+- Until label coverage is fixed, subsequent errors in `Build-SiteDiagnosisLayer`, `Build-MaturityReadinessLayer`, or `Build-AuditorBaselineCertification` will continue to be attributed to `contradiction_summary_build`.
