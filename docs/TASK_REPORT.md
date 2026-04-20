@@ -1,21 +1,22 @@
 ## Summary
-Implemented an observability-only label coverage fix in `Build-DecisionLayer` so downstream failures are attributed to the true failing node instead of a stale `contradiction_summary_build` label.
-- Added explicit `activeOperationLabel` + `activeExpression` assignments immediately before each critical downstream call in the decision build sequence.
-- Preserved existing call order, inputs, outputs, and status behavior (`FAIL` path unchanged).
-- No business logic, contradiction logic, Count handling, helper conversion behavior, or control-flow refactor was changed.
+Added a diagnostic-only offline forensic harness for DECISION_BUILD without altering production entrypoints or decision business logic.
+- Added `decision_build_forensics.ps1` under tools to load snapshot input, import decision modules, execute major decision-build sub-steps with typed diagnostics, and run `Build-DecisionLayer` under controlled try/catch.
+- Harness emits a dedicated diagnostic artifact containing per-step variable type metadata and failure payload (`failing_step`, exact exception, last label, and type dump).
+- Added a minimal documented snapshot example file defining required fields for forensic execution.
 
 ## Changed files
-- `agents/gh_batch/site_auditor_cloud/modules/decision_build.ps1`
+- `agents/gh_batch/site_auditor_cloud/tools/decision_build_forensics.ps1`
+- `agents/gh_batch/site_auditor_cloud/tools/decision_build_snapshot.example.json`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - No files/folders moved.
 
 ## Current entrypoints/paths
-- Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- Decision layer observability labels updated: `agents/gh_batch/site_auditor_cloud/modules/decision_build.ps1`
-- Task report updated: `docs/TASK_REPORT.md`
+- Production entrypoints unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`, `agents/gh_batch/site_auditor_cloud/run.ps1`.
+- New diagnostic-only entrypoint: `agents/gh_batch/site_auditor_cloud/tools/decision_build_forensics.ps1`.
+- Diagnostic snapshot example: `agents/gh_batch/site_auditor_cloud/tools/decision_build_snapshot.example.json`.
 
 ## Risks/blockers
-- Runtime execution was not performed in this patch task, so validation of the next failing label requires the next pipeline run.
-- If any called function throws before internal safeguards, attribution should now point to the specific pre-call label added for that node.
+- The harness relies on module function contracts remaining stable; if module signatures change, snapshot shape may need to be adjusted.
+- Forensics reproduces decision-build path locally, but cannot emulate external cloud/runtime dependencies outside snapshot truth.
