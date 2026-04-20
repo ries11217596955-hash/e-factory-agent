@@ -281,23 +281,7 @@ function Build-PageQualityFindings {
             $routeIssues = New-Object System.Collections.Generic.List[object]
 
             $operationLabel = 'PQ3_route_contradictions_build'
-            $expression = 'Route contradiction candidate construction'
-            if ($primaryVerdict -eq 'HEALTHY' -and ($thin -or $weakCta -or $deadEnd -or $bodyTextLength -lt 250 -or $statusCode -ge 400 -or [int](Safe-Get -Object $route -Key 'screenshotCount' -Default 0) -eq 0)) {
-                $routeContradictions.Add([ordered]@{
-                        class = 'HEALTHY_BUT_VISUALLY_WEAK'
-                        scope = 'ROUTE'
-                        severity = 'REVIEW'
-                        evidence = "verdict=HEALTHY while thin=$thin weak_cta=$weakCta dead_end=$deadEnd bodyTextLength=$bodyTextLength status=$statusCode screenshotCount=$([int](Safe-Get -Object $route -Key 'screenshotCount' -Default 0))"
-                    })
-            }
-            if ((-not $empty) -and $bodyTextLength -gt 120 -and ($weakCta -or $deadEnd)) {
-                $routeContradictions.Add([ordered]@{
-                        class = 'NON_EMPTY_BUT_LOW_VALUE'
-                        scope = 'ROUTE'
-                        severity = 'REVIEW'
-                        evidence = "bodyTextLength=$bodyTextLength avoids EMPTY, but weak_cta=$weakCta dead_end=$deadEnd links=$links buttonCount=$buttonCount hasNav=$hasNav"
-                    })
-            }
+            $expression = 'Compatibility rollback: contradiction runtime disabled and deterministic empty object[] shape emitted'
 
             if ($empty) { $emptyRoutes++ }
             if ($thin) { $thinRoutes++ }

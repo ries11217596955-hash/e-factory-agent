@@ -289,7 +289,7 @@ function Build-DecisionLayer {
         }
 
         $activeOperationLabel = 'contradiction_summary_build'
-        $activeExpression = 'Build contradictionSummary/siteDiagnosis/maturityReadiness/auditorBaseline'
+        $activeExpression = 'Compatibility stub only: emit deterministic contradictionSummary shape without contradiction runtime invocation'
         $leftOperand = $visualAuditActive
         $rightOperand = $routesWithEvidence
 
