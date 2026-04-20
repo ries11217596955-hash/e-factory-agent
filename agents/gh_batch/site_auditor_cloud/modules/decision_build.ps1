@@ -63,7 +63,7 @@ function Build-DecisionLayer {
 
         foreach ($route in @($routes)) {
             $routeNode = Convert-ToHashtableSafe -Value $route
-            $routePath = [string](Safe-Get -Object $routeNode -Key 'route_path' -Default (Safe-Get -Object $routeNode -Key 'url' -Default ''))
+            $routePath = [string](Safe-Get -Object $routeNode -Key 'route_path' -Default (Safe-Get -Object $routeNode -Key 'url' -Default (Safe-Get -Object $routeNode -Key 'path' -Default '')))
             if ([string]::IsNullOrWhiteSpace($routePath)) { $routePath = '(unknown-route)' }
 
             $pageFlags = Convert-ToHashtableSafe -Value (Safe-Get -Object $routeNode -Key 'page_flags' -Default @{})
@@ -89,6 +89,9 @@ function Build-DecisionLayer {
                 $issueClass = [string](Safe-Get -Object $issueNode -Key 'class' -Default '')
                 if ($issueClass -eq 'OVERLAY_OR_UI_CONTAMINATION' -or $issueClass -eq 'BROKEN_RENDER_OR_TEMPLATE_LEAKAGE') { $isContaminated = $true }
                 if ($issueClass -eq 'EMPTY_ROUTE' -or $issueClass -eq 'DUPLICATE_SHELL_OR_MISSING_CRITICAL_BLOCK') { $isEmpty = $true }
+                if ($issueClass -eq 'THIN_CONTENT') { $isThin = $true }
+                if ($issueClass -eq 'WEAK_CTA') { $isWeakCta = $true }
+                if ($issueClass -eq 'DEAD_END') { $isDeadEnd = $true }
             }
 
             if ($isEmpty) { $emptyRoutes++ }
@@ -290,60 +293,36 @@ function Build-DecisionLayer {
         $leftOperand = $visualAuditActive
         $rightOperand = $routesWithEvidence
 
-        $contradictionSummary = [ordered]@{
-            class = if ($visualAuditActive) { 'ARTIFACT_TRUTH_ACTIVE' } else { 'TRUTH_GAP' }
-            total_candidates = 0
-            candidates = @()
-            class_counts = @{}
-            artifact_truth = [ordered]@{
-                visual_audit_active = [bool]$visualAuditActive
-                screenshot_count = [int]$screenshotCount
-                routes_with_evidence = [int]$routesWithEvidence
-            }
-        }
+        $contradictionSummary = Convert-ToHashtableSafe -Value (
+            Build-ContradictionLayer -SourceLayer $normalizedSourceLayer -LiveLayer $normalizedLiveLayer -MissingInputs $normalizedMissingInputs
+        )
 
-        $siteDiagnosis = [ordered]@{
-            class = switch ($stage) {
-                'STRUCTURE' { 'STRUCTURE_BLOCKED' }
-                'UX' { 'TRUST_BLOCKED' }
-                'CONTENT' { 'CONTENT_BLOCKED' }
-                'CONVERSION' { 'CONVERSION_BLOCKED' }
-                'READY' { 'BASELINE_USABLE' }
-                default { 'BROKEN_SYSTEM' }
-            }
-            reason = $coreProblem
-            confidence = if ($stage -eq 'READY') { 'high' } else { 'medium' }
-            evidence = @(
-                "stage=$stage",
-                "routes=$totalRoutes",
-                "screenshots=$screenshotCount"
-            )
-        }
+        $siteDiagnosis = Convert-ToHashtableSafe -Value (
+            Build-SiteDiagnosisLayer -SourceLayer $normalizedSourceLayer -LiveLayer $normalizedLiveLayer -ContradictionSummary $contradictionSummary -MissingInputs $normalizedMissingInputs
+        )
 
-        $maturityReadiness = [ordered]@{
-            class = if ($stage -eq 'READY') { 'READY_BASELINE' } else { 'NOT_READY' }
-            reason = if ($stage -eq 'READY') { 'Current sampled routes show no deterministic blocker.' } else { $coreProblem }
-            confidence = if ($stage -eq 'READY') { 'high' } else { 'medium' }
-            evidence = @("stage=$stage")
-        }
+        $maturityReadiness = Convert-ToHashtableSafe -Value (
+            Build-MaturityReadinessLayer -SourceLayer $normalizedSourceLayer -LiveLayer $normalizedLiveLayer -SiteDiagnosis $siteDiagnosis -ContradictionSummary $contradictionSummary -MissingInputs $normalizedMissingInputs
+        )
 
-        $auditorBaseline = [ordered]@{
-            class = if ($stage -eq 'BROKEN') { 'OUTPUT_NOT_TRUSTWORTHY' } else { 'OUTPUT_USABLE_WITH_LIMITS' }
-            reason = if ($stage -eq 'BROKEN') { 'Truth/decision output is not yet trustworthy.' } else { 'Artifacts are usable for operator decision-making.' }
-            confidence = if ($stage -eq 'BROKEN') { 'medium' } else { 'high' }
-        }
+        $auditorBaseline = Convert-ToHashtableSafe -Value (
+            Build-AuditorBaselineCertification -FinalStatus 'FAIL' -SourceLayer $normalizedSourceLayer -LiveLayer $normalizedLiveLayer -ContradictionSummary $contradictionSummary -SiteDiagnosis $siteDiagnosis -MaturityReadiness $maturityReadiness
+        )
 
         $activeOperationLabel = 'remediation_build'
         $activeExpression = 'Build remediationPackage'
         $leftOperand = $priorityRoutes
         $rightOperand = $nowList
 
-        $remediationPackage = [ordered]@{
-            owner = 'SITE_AUDITOR_AGENT'
-            primary_goal = if ($stage -eq 'READY') { 'Maintain current baseline.' } else { 'Remove dominant blocker and rerun.' }
-            priority_routes = @($priorityRoutes)
-            do_next_now = @($nowList.ToArray() | Select-Object -Unique)
-            do_next_after = @($afterList.ToArray() | Select-Object -Unique)
+        $remediationPackage = Convert-ToHashtableSafe -Value (
+            Build-PrimaryRemediationPackage -LiveLayer $normalizedLiveLayer -SiteDiagnosis $siteDiagnosis -ContradictionSummary $contradictionSummary
+        )
+
+        if (@($priorityRoutes).Count -eq 0) {
+            $packageTargets = @(Convert-ToStringArraySafe -Value (Safe-Get -Object $remediationPackage -Key 'primary_targets' -Default @()))
+            if (@($packageTargets).Count -gt 0) {
+                $priorityRoutes = @($packageTargets | Select-Object -Unique | Select-Object -First 5)
+            }
         }
 
         $activeOperationLabel = 'product_closeout_build'
@@ -351,20 +330,23 @@ function Build-DecisionLayer {
         $leftOperand = $stage
         $rightOperand = $coreProblem
 
-        $productCloseout = Normalize-ProductCloseout -Value @{
-            class = if ($stage -eq 'READY') { 'PRODUCT_READY_BASELINE' } else { 'BLOCKED_BY_PRIMARY_ISSUE' }
-            reason = $coreProblem
-            confidence = if ($stage -eq 'READY') { 'high' } else { 'medium' }
-            checks = @()
-            evidence = @("stage=$stage", "routes=$totalRoutes", "screenshots=$screenshotCount")
-        }
+        $productCloseout = Convert-ToHashtableSafe -Value (
+            Build-ProductCloseoutClassification -FinalStatus 'FAIL' -SourceLayer $normalizedSourceLayer -LiveLayer $normalizedLiveLayer -ContradictionSummary $contradictionSummary -SiteDiagnosis $siteDiagnosis -MaturityReadiness $maturityReadiness -RemediationPackage $remediationPackage
+        )
 
         $activeOperationLabel = 'repair_hint_build'
         $activeExpression = 'Get-DecisionRepairHint'
         $leftOperand = $priorityRoutes
         $rightOperand = $liveSummary
 
-        $repairHint = Get-DecisionRepairHint -Stage $stage -CoreProblem $coreProblem -PriorityRoutes $priorityRoutes -ResolvedMode $ResolvedMode -MissingInputs $normalizedMissingInputs -LiveSummary $liveSummary
+        $repairHintRaw = Get-DecisionRepairHint -Stage $stage -CoreProblem $coreProblem -PriorityRoutes $priorityRoutes -ResolvedMode $ResolvedMode -MissingInputs $normalizedMissingInputs -LiveSummary $liveSummary
+        $repairHint = Convert-ToHashtableSafe -Value $repairHintRaw
+        if ($repairHint.Count -eq 0 -and $repairHintRaw -is [System.Collections.IDictionary]) {
+            $repairHint = [ordered]@{}
+            foreach ($entry in $repairHintRaw.GetEnumerator()) {
+                $repairHint[[string]$entry.Key] = $entry.Value
+            }
+        }
 
         $activeOperationLabel = 'decision_assemble'
         $activeExpression = 'Assemble final decision ordered hashtable'
