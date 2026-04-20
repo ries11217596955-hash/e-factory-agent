@@ -1,26 +1,20 @@
 ## Summary
-Executed PHASE 4 / STEP 14A (compatibility-first) by extracting `Build-DecisionLayer` from `agent.ps1` into a dedicated module, preserving the rich lower-snake-case decision contract as the primary return, and isolating the legacy uppercase collapse contract into a separate adapter function (`Convert-ToLegacyDecisionShape`) without changing downstream output flow.
+Performed PHASE 4 / STEP 14C controlled rich decision contract repair in `Build-DecisionLayer` only. Kept the legacy adapter path intact (`Build-DecisionLayer` rich output + `Convert-ToLegacyDecisionShape` legacy mapping), and repaired rich-path population for contradiction/diagnosis/remediation/repair-hint/closeout using the dedicated module builders.
 
 ## Changed files
-- `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- `agents/gh_batch/site_auditor_cloud/modules/decision_build.ps1` (new)
+- `agents/gh_batch/site_auditor_cloud/modules/decision_build.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - No files/folders moved.
-- Moved function block from `agent.ps1` to `modules/decision_build.ps1`:
-  - `Build-DecisionLayer`
-- Extracted legacy contract collapse into dedicated adapter in new module:
-  - `Convert-ToLegacyDecisionShape`
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- Added module import path: `agents/gh_batch/site_auditor_cloud/modules/decision_build.ps1`
-- Runtime call flow now (temporary parity path):
-  - `$decisionRich = Build-DecisionLayer(...)`
-  - `$decision = Convert-ToLegacyDecisionShape($decisionRich)`
-- Downstream output contract and operator output flow unchanged.
+- Decision builder path unchanged: `agents/gh_batch/site_auditor_cloud/modules/decision_build.ps1`
+- Legacy adapter path unchanged:
+  - `Build-DecisionLayer(...)` returns rich lower-snake-case decision object.
+  - `Convert-ToLegacyDecisionShape(...)` still provides downstream legacy decision shape.
 
 ## Risks/blockers
-- Blocker: PowerShell runtime is unavailable in this container (`pwsh`/`powershell` not installed), so runtime parity checks for `RUN_REPORT.json`, `FAILURE_SUMMARY.json`, bundled `REPORT.txt`, `final_status`, and `failed_step` could not be executed locally.
-- Risk: while code path preserves legacy adapter usage downstream by design, full FAIL-parity must be validated on a PowerShell-capable runner.
+- PowerShell runtime verification is blocked in this container because `pwsh` is unavailable, so full runtime parity checks for generated artifacts and final status fields could not be executed locally.
+- `Build-DecisionLayer` now relies on module-level builders being loaded in the same runtime (existing module import contract); if module loading order changes externally, this can impact execution.
