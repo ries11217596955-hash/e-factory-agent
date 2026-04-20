@@ -1,12 +1,12 @@
 ## Summary
-Added a diagnostic-only offline forensic harness for DECISION_BUILD without altering production entrypoints or decision business logic.
-- Added `decision_build_forensics.ps1` under tools to load snapshot input, import decision modules, execute major decision-build sub-steps with typed diagnostics, and run `Build-DecisionLayer` under controlled try/catch.
-- Harness emits a dedicated diagnostic artifact containing per-step variable type metadata and failure payload (`failing_step`, exact exception, last label, and type dump).
-- Added a minimal documented snapshot example file defining required fields for forensic execution.
+Executed a DECISION_BUILD forensic batch attempt in DIAGNOSTIC_BATCH mode without touching production logic.
+- Prepared an enriched diagnostic snapshot targeted at the known cloud lineage failure zone (`maturity_readiness_build`).
+- Attempted to execute the forensic harness (`decision_build_forensics.ps1`) against the prepared snapshot.
+- Harness execution was blocked by environment runtime limitations (`pwsh` not available in container; package install blocked by repository proxy 403).
+- No production files or entrypoints were modified.
 
 ## Changed files
-- `agents/gh_batch/site_auditor_cloud/tools/decision_build_forensics.ps1`
-- `agents/gh_batch/site_auditor_cloud/tools/decision_build_snapshot.example.json`
+- `agents/gh_batch/site_auditor_cloud/tools/decision_build_snapshot.diagnostic_cloudlineage.json`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
@@ -14,9 +14,10 @@ Added a diagnostic-only offline forensic harness for DECISION_BUILD without alte
 
 ## Current entrypoints/paths
 - Production entrypoints unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`, `agents/gh_batch/site_auditor_cloud/run.ps1`.
-- New diagnostic-only entrypoint: `agents/gh_batch/site_auditor_cloud/tools/decision_build_forensics.ps1`.
-- Diagnostic snapshot example: `agents/gh_batch/site_auditor_cloud/tools/decision_build_snapshot.example.json`.
+- Diagnostic harness unchanged: `agents/gh_batch/site_auditor_cloud/tools/decision_build_forensics.ps1`.
+- Snapshot used for this batch: `agents/gh_batch/site_auditor_cloud/tools/decision_build_snapshot.diagnostic_cloudlineage.json`.
 
 ## Risks/blockers
-- The harness relies on module function contracts remaining stable; if module signatures change, snapshot shape may need to be adjusted.
-- Forensics reproduces decision-build path locally, but cannot emulate external cloud/runtime dependencies outside snapshot truth.
+- Blocking runtime dependency: `pwsh` is not installed in this container.
+- Attempting to install PowerShell via apt failed due to upstream proxy/repository 403 responses, so no diagnostic artifact JSON could be emitted by the harness in this environment.
+- Root-cause confidence is therefore bounded to static forensic evidence (`decision_build.ps1` failure wrapping + cloud lineage failing node) rather than a fresh harness artifact from this run.
