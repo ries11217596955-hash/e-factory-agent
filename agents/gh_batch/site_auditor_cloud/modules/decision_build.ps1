@@ -296,19 +296,37 @@ function Build-DecisionLayer {
         $contradictionSourceLayer = @{}
         $normalizedContradictionSource = Convert-ToHashtableSafe -Value $normalizedSourceLayer
         foreach ($entry in $normalizedContradictionSource.GetEnumerator()) {
+            if ($entry -is [System.Collections.DictionaryEntry]) {
+                $entryKey = [string]$entry.Key
+                if (-not [string]::IsNullOrWhiteSpace($entryKey)) {
+                    $contradictionSourceLayer[$entryKey] = $entry.Value
+                }
+                continue
+            }
+
             $entryNode = Convert-ToHashtableSafe -Value $entry
             $entryKey = [string](Safe-Get -Object $entryNode -Key 'Key' -Default '')
-            if ([string]::IsNullOrWhiteSpace($entryKey)) { continue }
-            $contradictionSourceLayer[$entryKey] = Safe-Get -Object $entryNode -Key 'Value' -Default $null
+            if (-not [string]::IsNullOrWhiteSpace($entryKey)) {
+                $contradictionSourceLayer[$entryKey] = Safe-Get -Object $entryNode -Key 'Value' -Default $null
+            }
         }
 
         $contradictionLiveLayer = @{}
         $normalizedContradictionLive = Convert-ToHashtableSafe -Value $normalizedLiveLayer
         foreach ($entry in $normalizedContradictionLive.GetEnumerator()) {
+            if ($entry -is [System.Collections.DictionaryEntry]) {
+                $entryKey = [string]$entry.Key
+                if (-not [string]::IsNullOrWhiteSpace($entryKey)) {
+                    $contradictionLiveLayer[$entryKey] = $entry.Value
+                }
+                continue
+            }
+
             $entryNode = Convert-ToHashtableSafe -Value $entry
             $entryKey = [string](Safe-Get -Object $entryNode -Key 'Key' -Default '')
-            if ([string]::IsNullOrWhiteSpace($entryKey)) { continue }
-            $contradictionLiveLayer[$entryKey] = Safe-Get -Object $entryNode -Key 'Value' -Default $null
+            if (-not [string]::IsNullOrWhiteSpace($entryKey)) {
+                $contradictionLiveLayer[$entryKey] = Safe-Get -Object $entryNode -Key 'Value' -Default $null
+            }
         }
 
         $contradictionMissingInputs = @(Convert-ToStringArraySafe -Value $normalizedMissingInputs)
