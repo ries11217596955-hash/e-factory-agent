@@ -1,25 +1,21 @@
 ## Summary
-Executed PHASE 2 / STEP 8 (compatibility-first) by extracting page-quality execution/build logic from `agents/gh_batch/site_auditor_cloud/agent.ps1` into `agents/gh_batch/site_auditor_cloud/modules/page_quality.ps1` and wiring module import in the existing entrypoint without workflow/contract changes.
+Executed PHASE 4 / STEP 10 (compatibility-first) by extracting only contradiction-layer logic from `agents/gh_batch/site_auditor_cloud/agent.ps1` into new module `agents/gh_batch/site_auditor_cloud/modules/decision_contradictions.ps1`, then wiring the new module import in the existing entrypoint without changing decision orchestration, output contract, remediation, or workflow behavior.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- `agents/gh_batch/site_auditor_cloud/modules/page_quality.ps1` (new)
+- `agents/gh_batch/site_auditor_cloud/modules/decision_contradictions.ps1` (new)
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - No files/folders moved.
-- Moved function block from `agent.ps1` into `modules/page_quality.ps1`:
-  - `Get-RoutePrimaryVerdict`
-  - `Convert-ToPageQualityObjectArray`
-  - `Convert-ToPageQualityStringArray`
-  - `Build-SitePatternSummary`
-  - `Build-PageQualityFindings`
+- Moved function block from `agent.ps1` to `modules/decision_contradictions.ps1`:
+  - `Build-ContradictionLayer`
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- Added module path: `agents/gh_batch/site_auditor_cloud/modules/page_quality.ps1`
-- Entrypoint remains workflow-facing and now dot-sources page-quality execution module with existing module-loading flow.
+- Added module path: `agents/gh_batch/site_auditor_cloud/modules/decision_contradictions.ps1`
+- Decision orchestration remains in `Build-DecisionLayer` inside entrypoint; contradiction-layer function is now dot-sourced from the module.
 
 ## Risks/blockers
-- Blocker: PowerShell runtime unavailable in this execution container (`pwsh`/`powershell` not installed), so mandatory runtime FAIL-parity verification could not be executed locally.
-- Risk: required FAIL-parity verification (`final_status=FAIL`, `failed_step=PAGE_QUALITY_BUILD`, `final_stage=OPERATOR_OUTPUT_CONTRACT`, `last_success_stage=DECISION_BUILD`, report artifacts presence) must be run on a PowerShell-capable runner.
+- Blocker: PowerShell runtime is unavailable in this container (`pwsh`/`powershell` not installed), so runtime FAIL-parity checks and artifact regeneration could not be executed locally.
+- Risk: required parity validation still must be run on a PowerShell-capable runner to confirm `RUN_REPORT.json`, `FAILURE_SUMMARY.json`, bundled `REPORT.txt`, and unchanged failure contract values.
