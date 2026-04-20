@@ -1,11 +1,11 @@
 ## Summary
-AUDIT_ONLY root-cause isolation completed for the remaining `DECISION_BUILD` failure (`"The property 'Count' cannot be found on this object"`) after contradiction rollback.
-- Primary blocker confirmed: stale `activeOperationLabel` coverage across the post-`contradiction_summary_build` calls (`siteDiagnosis`, `maturityReadiness`, `auditorBaseline`) causes mis-attribution of downstream exceptions to `contradiction_summary_build`.
-- `repairHint.Count` was inspected and is not the reported blocker under the current failure label path.
-- `Convert-ToHashtableSafe` contract was audited: it returns hashtable-like shapes with `.Count`, but callers can still fail when upstream invoked functions return unexpected non-collection shapes before label advancement.
-- Report fields (`failed_step`, `final_stage`, `decision_build_failed_node`) are independently populated; they can diverge semantically, but this is a secondary observability issue, not the triggering runtime defect.
+Implemented an observability-only label coverage fix in `Build-DecisionLayer` so downstream failures are attributed to the true failing node instead of a stale `contradiction_summary_build` label.
+- Added explicit `activeOperationLabel` + `activeExpression` assignments immediately before each critical downstream call in the decision build sequence.
+- Preserved existing call order, inputs, outputs, and status behavior (`FAIL` path unchanged).
+- No business logic, contradiction logic, Count handling, helper conversion behavior, or control-flow refactor was changed.
 
 ## Changed files
+- `agents/gh_batch/site_auditor_cloud/modules/decision_build.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
@@ -13,11 +13,9 @@ AUDIT_ONLY root-cause isolation completed for the remaining `DECISION_BUILD` fai
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`
-- Decision build flow audited: `agents/gh_batch/site_auditor_cloud/modules/decision_build.ps1`
-- Conversion helper contract audited: `agents/gh_batch/site_auditor_cloud/modules/util_convert.ps1`
-- Forensics/report-node mapping audited: `agents/gh_batch/site_auditor_cloud/agent.ps1`
+- Decision layer observability labels updated: `agents/gh_batch/site_auditor_cloud/modules/decision_build.ps1`
+- Task report updated: `docs/TASK_REPORT.md`
 
 ## Risks/blockers
-- PowerShell runtime execution was not performed in-container for this task; findings are from deterministic static flow trace and contract inspection.
-- The currently reported node `DECISION_BUILD/Build-DecisionLayer/contradiction_summary_build` is not sufficient proof of the actual failing callee because label advancement is delayed until `remediation_build`.
-- Until label coverage is fixed, subsequent errors in `Build-SiteDiagnosisLayer`, `Build-MaturityReadinessLayer`, or `Build-AuditorBaselineCertification` will continue to be attributed to `contradiction_summary_build`.
+- Runtime execution was not performed in this patch task, so validation of the next failing label requires the next pipeline run.
+- If any called function throws before internal safeguards, attribution should now point to the specific pre-call label added for that node.
