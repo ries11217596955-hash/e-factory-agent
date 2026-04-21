@@ -1259,7 +1259,7 @@ function Resolve-FailureCoreFacts {
     param(
         [object]$ErrorRecord = $null,
         [string]$FailureReason = '',
-        [string]$DefaultMessage = 'SITE_AUDITOR runtime failure (no exception message available).'
+        [string]$DefaultMessage = 'SITE_AUDITOR runtime failure.'
     )
 
     $errorRecordSafe = if ($null -eq $ErrorRecord) { $global:AuditError } else { $ErrorRecord }
@@ -1274,6 +1274,9 @@ function Resolve-FailureCoreFacts {
     }
     if ([string]::IsNullOrWhiteSpace($message) -and $null -ne $errorRecordSafe) {
         $message = [string](Safe-Get -Object $errorRecordSafe -Key 'FullyQualifiedErrorId' -Default '')
+    }
+    if ([string]::IsNullOrWhiteSpace($message) -and $null -ne $errorRecordSafe) {
+        try { $message = [string]($errorRecordSafe | Out-String) } catch {}
     }
     if ([string]::IsNullOrWhiteSpace($message)) {
         $message = [string]$DefaultMessage
@@ -2680,16 +2683,42 @@ try {
 catch {
     $global:AuditError = $_
     $status = 'FAIL'
+    $caughtException = $null
+    $caughtInvocationInfo = $null
+    $caughtScriptStackTrace = ''
+    $caughtRawError = ''
     $caughtExceptionMessage = ''
-    try { $caughtExceptionMessage = [string]$_.Exception.Message } catch {}
+    try { $caughtException = $_.Exception } catch {}
+    if ($null -eq $caughtException) {
+        $caughtException = Safe-Get -Object $_ -Key 'Exception' -Default $null
+    }
+    try { $caughtInvocationInfo = $_.InvocationInfo } catch {}
+    if ($null -eq $caughtInvocationInfo) {
+        $caughtInvocationInfo = Safe-Get -Object $_ -Key 'InvocationInfo' -Default $null
+    }
+    try { $caughtScriptStackTrace = [string]$_.ScriptStackTrace } catch {}
+    if ([string]::IsNullOrWhiteSpace($caughtScriptStackTrace)) {
+        $caughtScriptStackTrace = [string](Safe-Get -Object $_ -Key 'ScriptStackTrace' -Default '')
+    }
+    try { $caughtRawError = [string]($_ | Out-String) } catch {}
+    try { $caughtExceptionMessage = [string](Safe-Get -Object $caughtException -Key 'Message' -Default '') } catch {}
+    if ([string]::IsNullOrWhiteSpace($caughtExceptionMessage) -and $null -ne $caughtException) {
+        try { $caughtExceptionMessage = [string]$caughtException.Message } catch {}
+    }
     if ([string]::IsNullOrWhiteSpace($caughtExceptionMessage)) {
-        $caughtExceptionMessage = [string](Safe-Get -Object (Safe-Get -Object $_ -Key 'Exception' -Default $null) -Key 'Message' -Default '')
+        $caughtExceptionMessage = [string]$caughtRawError
     }
     if ([string]::IsNullOrWhiteSpace($caughtExceptionMessage)) {
         try { $caughtExceptionMessage = [string]$_ } catch {}
     }
+    if ([string]::IsNullOrWhiteSpace($caughtExceptionMessage)) {
+        $caughtExceptionMessage = 'SITE_AUDITOR runtime failure.'
+    }
     $caughtStackHint = ''
-    try { $caughtStackHint = [string]$_.ScriptStackTrace } catch {}
+    try { $caughtStackHint = [string]$caughtScriptStackTrace } catch {}
+    if ([string]::IsNullOrWhiteSpace($caughtStackHint)) {
+        $caughtStackHint = [string](Safe-Get -Object $caughtInvocationInfo -Key 'PositionMessage' -Default '')
+    }
     if ([string]::IsNullOrWhiteSpace($caughtStackHint)) {
         $caughtStackHint = [string](Safe-Get -Object $_ -Key 'ScriptStackTrace' -Default '')
     }
@@ -2731,6 +2760,7 @@ catch {
     }
 
     try { Write-Host "[TRACE] FAIL NODE: $caughtFailureNode" } catch {}
+    try { Write-Host "[TRACE] RAW ERROR: $($caughtRawError)" } catch {}
     try { Write-Host "[TRACE] ERROR: $caughtExceptionMessage" } catch {}
 
     $failureCore = Resolve-FailureCoreFacts -ErrorRecord $global:AuditError -FailureReason $failureReason
