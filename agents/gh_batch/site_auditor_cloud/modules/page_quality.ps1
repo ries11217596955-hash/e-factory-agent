@@ -282,24 +282,50 @@ function Build-PageQualityFindings {
 
             $operationLabel = 'PQ3_route_contradictions_build'
             $expression = 'Route contradiction candidate construction with explicit scalar normalization at boundary'
+            $pq3PrimaryVerdict = [string]$primaryVerdict
+            $pq3Thin = [bool]$thin
+            $pq3WeakCta = [bool]$weakCta
+            $pq3DeadEnd = [bool]$deadEnd
+            $pq3Empty = [bool]$empty
+            $pq3HasNav = [bool]$hasNav
+            $pq3BodyTextLength = Convert-ToIntSafe -Value $bodyTextLength -Default 0
+            $pq3StatusCode = Convert-ToIntSafe -Value $statusCode -Default 0
             $routeScreenshotCount = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'screenshotCount' -Default 0) -Default 0
-            $isHealthyButVisuallyWeak = ($primaryVerdict -eq 'HEALTHY') -and ($thin -or $weakCta -or $deadEnd -or ($bodyTextLength -lt 250) -or ($statusCode -ge 400) -or ($routeScreenshotCount -eq 0))
+            $pq3RouteScreenshotCount = Convert-ToIntSafe -Value $routeScreenshotCount -Default 0
+
+            $isHealthyButVisuallyWeak = ($pq3PrimaryVerdict -eq 'HEALTHY') -and ($pq3Thin -or $pq3WeakCta -or $pq3DeadEnd -or ($pq3BodyTextLength -lt 250) -or ($pq3StatusCode -ge 400) -or ($pq3RouteScreenshotCount -eq 0))
             if ($isHealthyButVisuallyWeak) {
-                $routeContradictions.Add([ordered]@{
+                $routeContradictions.Add([pscustomobject]@{
                         class = 'HEALTHY_BUT_VISUALLY_WEAK'
                         scope = 'ROUTE'
                         severity = 'REVIEW'
-                        evidence = "verdict=HEALTHY while thin=$thin weak_cta=$weakCta dead_end=$deadEnd bodyTextLength=$bodyTextLength status=$statusCode screenshotCount=$routeScreenshotCount"
+                        evidence = [string]::Format(
+                            'verdict=HEALTHY while thin={0} weak_cta={1} dead_end={2} bodyTextLength={3} status={4} screenshotCount={5}',
+                            $pq3Thin,
+                            $pq3WeakCta,
+                            $pq3DeadEnd,
+                            $pq3BodyTextLength,
+                            $pq3StatusCode,
+                            $pq3RouteScreenshotCount
+                        )
                     })
             }
 
-            $isNonEmptyLowValue = (-not $empty) -and ($bodyTextLength -gt 120) -and ($weakCta -or $deadEnd)
+            $isNonEmptyLowValue = (-not $pq3Empty) -and ($pq3BodyTextLength -gt 120) -and ($pq3WeakCta -or $pq3DeadEnd)
             if ($isNonEmptyLowValue) {
-                $routeContradictions.Add([ordered]@{
+                $routeContradictions.Add([pscustomobject]@{
                         class = 'NON_EMPTY_BUT_LOW_VALUE'
                         scope = 'ROUTE'
                         severity = 'REVIEW'
-                        evidence = "bodyTextLength=$bodyTextLength avoids EMPTY, but weak_cta=$weakCta dead_end=$deadEnd links=$links buttonCount=$buttonCount hasNav=$hasNav"
+                        evidence = [string]::Format(
+                            'bodyTextLength={0} avoids EMPTY, but weak_cta={1} dead_end={2} links={3} buttonCount={4} hasNav={5}',
+                            $pq3BodyTextLength,
+                            $pq3WeakCta,
+                            $pq3DeadEnd,
+                            (Convert-ToIntSafe -Value $links -Default 0),
+                            (Convert-ToIntSafe -Value $buttonCount -Default 0),
+                            $pq3HasNav
+                        )
                     })
             }
 
