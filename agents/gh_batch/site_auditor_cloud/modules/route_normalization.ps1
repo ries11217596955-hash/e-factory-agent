@@ -557,11 +557,10 @@ function Normalize-LiveRoutes {
         throw
     }
 
-    return @{
-        routes = $normalizedRoutesOutput
-        raw_count = $rawRouteCount
-        dropped_count = $droppedCount
-        warnings = $shapeWarningsOutput
+    return [ordered]@{
+        routes = @($normalizedRoutesOutput)
+        raw_count = [int](Convert-ToIntSafe -Value $rawRouteCount -Default 0)
+        dropped_count = [int](Convert-ToIntSafe -Value $droppedCount -Default 0)
+        warnings = @($shapeWarningsOutput)
     }
 }
-
