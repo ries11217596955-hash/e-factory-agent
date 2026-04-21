@@ -1,9 +1,9 @@
 ## Summary
-- Task: SITE_AUDITOR execution trace integrity repair to stop runtime failures collapsing into generic unknown output.
-- Updated main execution catch-path propagation in `agent.ps1` so the original exception message is preserved and combined with a concrete failure node.
-- Captured and preserved `failure_stage/function_name/activeOperationLabel` into a stable node string for catch-time reporting.
-- Updated decision forensic node projection so `decision_build_failed_node` is emitted even when only stage-level forensic data exists.
-- Kept patch scope minimal and non-invasive (no business logic or module behavior changes).
+- Applied strict trace-hardening updates for SITE_AUDITOR runtime failure propagation so exception text and failing node context are preserved end-to-end.
+- Removed generic unknown-failure fallbacks from report/fallback paths and replaced them with exception-derived message defaults.
+- Updated top-level catch handling to capture `$currentNode` from `activeOperationLabel` before composing failure output, then persist node into failure reason text.
+- Ensured `decision_build_failed_node` is preserved from existing report evidence and backfilled from resolved failed stage when absent (no empty reset).
+- Kept scope minimal to requested runtime trace path and reporting artifact update.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -14,12 +14,12 @@
 
 ## Current entrypoints/paths
 - Entrypoints unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`, `agents/gh_batch/site_auditor_cloud/run.ps1`.
-- Failure propagation wrapper in the outer `try/catch` of `agent.ps1` now emits exact exception + forensic failure node.
-- `Write-RunForensicsReports` in `agent.ps1` now preserves stage-only decision forensic nodes in `decision_build_failed_node`.
+- Hardened failure propagation is in the outer `catch` block and run-report generation helpers within `agents/gh_batch/site_auditor_cloud/agent.ps1`.
 
 ## Risks/blockers
-- `pwsh` runtime validation could not be executed in this environment (PowerShell unavailable), so verification is static-only.
-- Final confirmation should be done in the next SITE_AUDITOR run by checking `RUN_REPORT.json` / `FAILURE_SUMMARY.json` for:
-  - non-generic `error_message`
-  - populated `decision_build_failed_node`
-  - `failure_node` that reflects the failing module/function/operation.
+- PowerShell runtime parse/execute verification could not be run because `pwsh` is unavailable in this container.
+- Validation is static and should be confirmed in next production run by checking `RUN_REPORT.json` and fallback outputs for:
+  - exact exception message retention
+  - populated `failure_node`
+  - non-empty `decision_build_failed_node`
+  - absence of `Unknown fallback failure.`
