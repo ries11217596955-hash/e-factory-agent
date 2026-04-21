@@ -1,5 +1,5 @@
 ## Summary
-Inserted a temporary runtime diagnostic probe at the confirmed crash-point in `Build-PageQualityFindings` to print the runtime type/shape of `$issue` and the extracted `evidence_refs` payload prior to conversion. No logic fix was applied.
+Applied a bounded runtime-safety fix in `page_quality.ps1` at the `verdictCounts` increment point by normalizing `$primaryVerdict` into a deterministic non-empty string key (`$primaryVerdictKey`) and falling back to `UNKNOWN` when null/empty/whitespace.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/modules/page_quality.ps1`
@@ -9,8 +9,8 @@ Inserted a temporary runtime diagnostic probe at the confirmed crash-point in `B
 - None.
 
 ## Current entrypoints/paths
-- Unchanged. Existing execution entrypoints and paths remain as-is.
+- Unchanged. Existing entrypoints and path structure remain as-is.
 
 ## Risks/blockers
-- Temporary `Write-Host` probe increases log verbosity and may expose runtime payload shape details in logs.
-- Probe is intentionally diagnostic-only and should be removed after crash-shape capture.
+- Low risk: behavior change only affects hashtable keying for empty/unstable verdict values.
+- If downstream consumers assume blank verdict keys in `verdict_counts`, they will now see `UNKNOWN` instead.

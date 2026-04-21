@@ -436,10 +436,16 @@ function Build-PageQualityFindings {
                 if ($ev.Count -eq 0) { $issuesMissingEvidence++ }
             }
 
-            if (-not $verdictCounts.ContainsKey($primaryVerdict)) {
-                $verdictCounts[$primaryVerdict] = 0
+            $primaryVerdictKey = [string]$primaryVerdict
+            if ([string]::IsNullOrWhiteSpace($primaryVerdictKey)) {
+                $primaryVerdictKey = 'UNKNOWN'
             }
-            $verdictCounts[$primaryVerdict] = [int]$verdictCounts[$primaryVerdict] + 1
+
+            if (-not $verdictCounts.ContainsKey($primaryVerdictKey)) {
+                $verdictCounts[$primaryVerdictKey] = 0
+            }
+
+            $verdictCounts[$primaryVerdictKey] = [int]$verdictCounts[$primaryVerdictKey] + 1
 
             $pq4aRoutePath = [string](Safe-Get -Object $route -Key 'route_path' -Default '')
             $operationLabel = 'PQ4A1_route_findings_list_init'
