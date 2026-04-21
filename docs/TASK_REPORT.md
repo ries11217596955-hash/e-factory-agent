@@ -1,12 +1,12 @@
 ## Summary
-- Located the ROUTE_NORMALIZATION failure surface in `Normalize-LiveRoutes` final return assembly path from forensic context.
-- Repaired final object assembly typing by normalizing all output contract fields to stable types.
-- Wrapped `routes` and `warnings` in explicit array materialization (`@(...)`) to prevent scalar/object-shape drift at contract boundary.
-- Coerced `raw_count` and `dropped_count` through `Convert-ToIntSafe` with explicit `[int]` typing to avoid downstream argument type mismatch.
-- Applied minimal in-module expression-only fix with no architecture or entrypoint changes.
+- Located the stable failing collection write in ROUTE_NORMALIZATION aggregate tracing within `Add-RouteNormalizationAggregateTrace`.
+- Normalized the aggregate trace collection immediately before append to force array semantics (`@(...)`).
+- Kept the repair to a single in-scope module and a single failing expression path.
+- Avoided protected paths and made no entrypoint/workflow/decision/page_quality changes.
+- Prepared this patch for PR-first review with minimal, deterministic impact.
 
 ## Changed files
-- `agents/gh_batch/site_auditor_cloud/modules/route_normalization.ps1`
+- `agents/gh_batch/site_auditor_cloud/modules/route_normalization_forensics.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
@@ -14,8 +14,8 @@
 
 ## Current entrypoints/paths
 - Entrypoints unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`, `agents/gh_batch/site_auditor_cloud/run.ps1`.
-- Repair scope applied only in `agents/gh_batch/site_auditor_cloud/modules/route_normalization.ps1` final object assembly return contract.
+- Active repair path: `agents/gh_batch/site_auditor_cloud/modules/route_normalization_forensics.ps1` (`Add-RouteNormalizationAggregateTrace`).
 
 ## Risks/blockers
-- Full pipeline execution validation is blocked in-container because `pwsh` is not installed.
-- Behavioral confirmation depends on the next SITE_AUDITOR batch run verifying no `"Argument types do not match"` at final contract assembly.
+- End-to-end runtime validation is not executed here because PowerShell runtime invocation for full batch was not run in this patch step.
+- If upstream code overwrites trace globals with non-array scalar values after this point, similar guards may be needed on adjacent append paths.
