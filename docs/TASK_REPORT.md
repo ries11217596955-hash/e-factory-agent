@@ -1,9 +1,9 @@
 ## Summary
-- Task: SITE_AUDITOR repair batch for truth-boundary stabilization after `DECISION_BUILD` PASS at `OPERATOR_OUTPUT_CONTRACT`.
-- Traced the failing boundary in `agents/gh_batch/site_auditor_cloud/agent.ps1` output assembly path (`Write-OperatorOutputs` → `Write-RunForensicsReports` / fallback contract path).
-- Repaired stage/node resolution so stale `live.summary.failure_stage` values (for example `PAGE_QUALITY_BUILD`) no longer override a real `OPERATOR_OUTPUT_CONTRACT` failure when `last_success_stage=DECISION_BUILD`.
-- Updated failure-node projection so `failure_node` now follows the resolved failed stage across `RUN_REPORT.json`, `FAILURE_SUMMARY.json`, and fallback truth packaging.
-- Hardened catch-path messaging so generic `Unknown failure while running SITE_AUDITOR.` is replaced with stage-aware contract-boundary context when the original exception message is empty.
+- Task: SITE_AUDITOR repair batch to preserve runtime failure context and prevent degradation to generic `Unknown failure` output.
+- Captured catch-path forensic context (active operation label, failing function hint, exception message, script stack) in the main execution catch block.
+- Updated failure-message propagation so real exception text is preferred and generic fallback is only used when no concrete message exists.
+- Preserved explicit failing node context in run forensics by promoting `decision_build_failed_node` into `failure_node` when the stage would otherwise collapse to `OPERATOR_OUTPUT_CONTRACT`/`RUNTIME_FAILURE`.
+- Kept scope minimal: no decision logic, page quality logic, workflow, or architecture refactor changes.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/agent.ps1`
@@ -14,8 +14,9 @@
 
 ## Current entrypoints/paths
 - Entrypoints unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`, `agents/gh_batch/site_auditor_cloud/run.ps1`.
-- Repaired boundary: `agents/gh_batch/site_auditor_cloud/agent.ps1` (`Resolve-FailureStageForOutput`, `Get-FallbackTruthEvidence`, `Write-RunForensicsReports`, main catch block near operator output contract).
+- Runtime failure wrapping adjusted in main catch path near end of `agent.ps1`.
+- Failure node projection adjusted in `Write-RunForensicsReports` within `agent.ps1`.
 
 ## Risks/blockers
-- Runtime verification is blocked in this container because `pwsh`/`powershell` are unavailable, so a full SITE_AUDITOR execution bundle could not be produced locally.
-- Next operator bundle should confirm: `failed_step` and `failure_node` are aligned with `OPERATOR_OUTPUT_CONTRACT` for post-`DECISION_BUILD` contract failures, and generic unknown failure text is no longer emitted.
+- Could not execute a full PowerShell runtime verification in this container because `pwsh` is not available.
+- Validation should be confirmed in next SITE_AUDITOR run by checking `RUN_REPORT.json` / `FAILURE_SUMMARY.json` for non-generic `error_message` and explicit non-collapsed failure node values.
