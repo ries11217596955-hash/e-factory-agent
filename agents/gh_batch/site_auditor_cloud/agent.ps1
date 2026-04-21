@@ -1259,7 +1259,7 @@ function Resolve-FailureCoreFacts {
     param(
         [object]$ErrorRecord = $null,
         [string]$FailureReason = '',
-        [string]$DefaultMessage = 'SITE_AUDITOR runtime failure (exception message unavailable).'
+        [string]$DefaultMessage = 'SITE_AUDITOR runtime failure (no exception message available).'
     )
 
     $errorRecordSafe = if ($null -eq $ErrorRecord) { $global:AuditError } else { $ErrorRecord }
@@ -1407,7 +1407,7 @@ function Get-FallbackTruthEvidence {
     $errorClass = [string](Safe-Get -Object $failureCore -Key 'error_class' -Default '')
 
     $blocker = [string]$errorMessage
-    if ([string]::IsNullOrWhiteSpace($blocker)) { $blocker = 'SITE_AUDITOR runtime failure (exception message unavailable).' }
+    if ([string]::IsNullOrWhiteSpace($blocker)) { $blocker = 'Unknown fallback failure.' }
 
     return [ordered]@{
         source_status = $sourceStatus
@@ -1581,7 +1581,7 @@ function Write-RunForensicsReports {
         }
     )
 
-    $decisionBuildFailedNode = [string](Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'key_evidence_excerpts' -Default @{}) -Key 'decision_build_failed_node' -Default '')
+    $decisionBuildFailedNode = ''
     if ($null -ne $global:DecisionForensics) {
         $dfFailureStage = [string](Safe-Get -Object $global:DecisionForensics -Key 'failure_stage' -Default 'DECISION_BUILD')
         $dfFunction = [string](Safe-Get -Object $global:DecisionForensics -Key 'function_name' -Default '')
@@ -1612,8 +1612,19 @@ function Write-RunForensicsReports {
     if (($failedStage -eq 'OPERATOR_OUTPUT_CONTRACT' -or [string]::IsNullOrWhiteSpace($failedStage) -or $failedStage -eq 'RUNTIME_FAILURE') -and -not [string]::IsNullOrWhiteSpace($decisionBuildFailedNode)) {
         $failedStage = [string]$decisionBuildFailedNode
     }
-    if ([string]::IsNullOrWhiteSpace($decisionBuildFailedNode)) {
-        $decisionBuildFailedNode = [string]$failedStage
+    if (($failedStage -eq 'OPERATOR_OUTPUT_CONTRACT' -or [string]::IsNullOrWhiteSpace($failedStage) -or $failedStage -eq 'RUNTIME_FAILURE') -and $null -ne $global:PageQualityForensics) {
+        $pqFailureStage = [string](Safe-Get -Object $global:PageQualityForensics -Key 'failure_stage' -Default '')
+        $pqFunction = [string](Safe-Get -Object $global:PageQualityForensics -Key 'function_name' -Default '')
+        $pqOperation = [string](Safe-Get -Object $global:PageQualityForensics -Key 'activeOperationLabel' -Default '')
+        $pqNodeParts = New-Object System.Collections.Generic.List[string]
+        foreach ($nodePart in @($pqFailureStage, $pqFunction, $pqOperation)) {
+            $nodePartText = [string]$nodePart
+            if ([string]::IsNullOrWhiteSpace($nodePartText)) { continue }
+            $pqNodeParts.Add($nodePartText)
+        }
+        if ($pqNodeParts.Count -gt 0) {
+            $failedStage = [string]::Join('/', @($pqNodeParts.ToArray()))
+        }
     }
 
     $repoSummaryOut = [string]$repoSummaryStatus
@@ -2282,7 +2293,7 @@ function Ensure-OutputContract {
         $repairHint = [ordered]@{
             target_file = 'agents/gh_batch/site_auditor_cloud/agent.ps1'
             broken_block = [string](Safe-Get -Object $fallbackTruth -Key 'failure_stage' -Default $currentStage)
-            reason = [string](Safe-Get -Object $fallbackTruth -Key 'blocker' -Default (Safe-Get -Object $fallbackTruth -Key 'error_message' -Default 'SITE_AUDITOR runtime failure (exception message unavailable).'))
+            reason = [string](Safe-Get -Object $fallbackTruth -Key 'blocker' -Default 'Unknown fallback failure.')
             next_action = $fallbackNextMove
             priority_routes = @()
         }
@@ -2342,7 +2353,7 @@ function Ensure-OutputContract {
                 error_message = [string](Safe-Get -Object $fallbackTruth -Key 'error_message' -Default '')
                 error_class = [string]$fallbackErrorClass
                 failure_node = [string](Safe-Get -Object $fallbackTruth -Key 'failure_node' -Default $currentStage)
-                blocker = [string](Safe-Get -Object $fallbackTruth -Key 'blocker' -Default (Safe-Get -Object $fallbackTruth -Key 'error_message' -Default 'SITE_AUDITOR runtime failure (exception message unavailable).'))
+                blocker = [string](Safe-Get -Object $fallbackTruth -Key 'blocker' -Default 'Unknown fallback failure.')
             }
             visual_artifacts = [ordered]@{
                 visual_audit_active = [bool](Safe-Get -Object $visualCoverageNode -Key 'visual_audit_active' -Default $false)
@@ -2392,7 +2403,7 @@ function Ensure-OutputContract {
             "- FINAL STATUS: $FinalStatus",
             "- FINAL STAGE: $currentStage",
             "- LAST SUCCESS STAGE: $lastSuccessStage",
-            "- EXACT BLOCKER: $([string](Safe-Get -Object $fallbackTruth -Key 'blocker' -Default (Safe-Get -Object $fallbackTruth -Key 'error_message' -Default 'SITE_AUDITOR runtime failure (exception message unavailable).')))",
+            "- EXACT BLOCKER: $([string](Safe-Get -Object $fallbackTruth -Key 'blocker' -Default 'Unknown fallback failure.'))",
             "- WHAT WORKED BEFORE FAILURE: $workedBeforeFailure",
             "- WHAT DID NOT COMPLETE: $fallbackDidNotComplete",
             "- ONE NEXT TECHNICAL MOVE: $fallbackNextMove",
@@ -2406,7 +2417,7 @@ function Ensure-OutputContract {
             "FINAL STATUS: $FinalStatus",
             "FINAL STAGE: $currentStage",
             "LAST SUCCESS STAGE: $lastSuccessStage",
-            "EXACT BLOCKER: $([string](Safe-Get -Object $fallbackTruth -Key 'blocker' -Default (Safe-Get -Object $fallbackTruth -Key 'error_message' -Default 'SITE_AUDITOR runtime failure (exception message unavailable).')))",
+            "EXACT BLOCKER: $([string](Safe-Get -Object $fallbackTruth -Key 'blocker' -Default 'Unknown fallback failure.'))",
             "WHAT WORKED BEFORE FAILURE: $workedBeforeFailure",
             "WHAT DID NOT COMPLETE: $fallbackDidNotComplete",
             "ONE NEXT TECHNICAL MOVE: $fallbackNextMove",
@@ -2459,7 +2470,7 @@ function Ensure-OutputContract {
                 "FINAL STATUS: $FinalStatus",
                 "FINAL STAGE: $currentStage",
                 "LAST SUCCESS STAGE: $lastSuccessStage",
-                "EXACT BLOCKER: $([string](Safe-Get -Object $fallbackTruth -Key 'blocker' -Default (Safe-Get -Object $fallbackTruth -Key 'error_message' -Default 'SITE_AUDITOR runtime failure (exception message unavailable).')))",
+                "EXACT BLOCKER: $([string](Safe-Get -Object $fallbackTruth -Key 'blocker' -Default 'Unknown fallback failure.'))",
                 "WHAT WORKED BEFORE FAILURE: $workedBeforeFailure",
                 'WHAT DID NOT COMPLETE: DECISION_BUILD materialization, operator output contract assembly, and downstream summary generation.',
                 "ONE NEXT TECHNICAL MOVE: $fallbackNextMove",
@@ -2669,13 +2680,23 @@ try {
 catch {
     $global:AuditError = $_
     $status = 'FAIL'
-    $caughtExceptionMessage = [string](Safe-Get -Object (Safe-Get -Object $_ -Key 'Exception' -Default $null) -Key 'Message' -Default '')
-    $caughtStackHint = [string](Safe-Get -Object $_ -Key 'ScriptStackTrace' -Default '')
+    $caughtExceptionMessage = ''
+    try { $caughtExceptionMessage = [string]$_.Exception.Message } catch {}
+    if ([string]::IsNullOrWhiteSpace($caughtExceptionMessage)) {
+        $caughtExceptionMessage = [string](Safe-Get -Object (Safe-Get -Object $_ -Key 'Exception' -Default $null) -Key 'Message' -Default '')
+    }
+    if ([string]::IsNullOrWhiteSpace($caughtExceptionMessage)) {
+        try { $caughtExceptionMessage = [string]$_ } catch {}
+    }
+    $caughtStackHint = ''
+    try { $caughtStackHint = [string]$_.ScriptStackTrace } catch {}
+    if ([string]::IsNullOrWhiteSpace($caughtStackHint)) {
+        $caughtStackHint = [string](Safe-Get -Object $_ -Key 'ScriptStackTrace' -Default '')
+    }
     $caughtOperationLabel = ''
     $caughtFunctionName = ''
     $caughtFailureStage = ''
     $caughtFailureNode = ''
-    $currentNode = ''
     if ($null -ne $global:DecisionForensics) {
         $caughtFailureStage = [string](Safe-Get -Object $global:DecisionForensics -Key 'failure_stage' -Default '')
         $caughtOperationLabel = [string](Safe-Get -Object $global:DecisionForensics -Key 'activeOperationLabel' -Default '')
@@ -2689,7 +2710,12 @@ catch {
     if ([string]::IsNullOrWhiteSpace($caughtFailureStage)) {
         $caughtFailureStage = [string]$currentStage
     }
-    $currentNode = [string]$caughtOperationLabel
+    if ([string]::IsNullOrWhiteSpace($caughtOperationLabel)) {
+        try { $caughtOperationLabel = [string]$activeOperationLabel } catch {}
+    }
+    if ([string]::IsNullOrWhiteSpace($caughtFunctionName)) {
+        try { $caughtFunctionName = [string]$activeFunctionName } catch {}
+    }
 
     $caughtFailureNodeParts = New-Object System.Collections.Generic.List[string]
     foreach ($nodePart in @($caughtFailureStage, $caughtFunctionName, $caughtOperationLabel)) {
@@ -2700,24 +2726,33 @@ catch {
     if ($caughtFailureNodeParts.Count -gt 0) {
         $caughtFailureNode = [string]::Join('/', @($caughtFailureNodeParts.ToArray()))
     }
-    $failureNode = [string]$currentNode
-    if ([string]::IsNullOrWhiteSpace($failureNode)) {
-        $failureNode = [string]$caughtFailureNode
-    }
-    if ([string]::IsNullOrWhiteSpace($failureNode)) {
-        $failureNode = [string]$caughtFailureStage
+    if ([string]::IsNullOrWhiteSpace($caughtFailureNode) -and -not [string]::IsNullOrWhiteSpace([string]$currentStage)) {
+        $caughtFailureNode = [string]$currentStage
     }
 
+    try { Write-Host "[TRACE] FAIL NODE: $caughtFailureNode" } catch {}
+    try { Write-Host "[TRACE] ERROR: $caughtExceptionMessage" } catch {}
+
     $failureCore = Resolve-FailureCoreFacts -ErrorRecord $global:AuditError -FailureReason $failureReason
-    $failureReason = [string]$caughtExceptionMessage
-    if ([string]::IsNullOrWhiteSpace($failureReason)) {
-        $failureReason = [string](Safe-Get -Object $failureCore -Key 'error_message' -Default '')
+    $failureReason = [string](Safe-Get -Object $failureCore -Key 'error_message' -Default '')
+    if (-not [string]::IsNullOrWhiteSpace($caughtExceptionMessage)) {
+        $failureReason = $caughtExceptionMessage
     }
     if ([string]::IsNullOrWhiteSpace($failureReason)) {
-        $failureReason = 'SITE_AUDITOR runtime failure (exception message unavailable).'
+        $failureReason = "Failure during $caughtFailureStage."
+        if (-not [string]::IsNullOrWhiteSpace($caughtStackHint)) {
+            $failureReason = "$failureReason Stack: $caughtStackHint"
+        }
     }
-    if (-not [string]::IsNullOrWhiteSpace($failureNode)) {
-        $failureReason = "$failureReason [$failureNode]"
+    if (-not [string]::IsNullOrWhiteSpace($caughtFailureNode) -and $failureReason -notmatch [regex]::Escape("[$caughtFailureNode]")) {
+        $failureReason = "$failureReason [$caughtFailureNode]"
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($caughtFailureNode)) {
+        $currentStage = [string]$caughtFailureNode
+    }
+    elseif ([string]::IsNullOrWhiteSpace($currentStage)) {
+        $currentStage = 'RUNTIME_FAILURE'
     }
 
     $sourceLayer = New-SourceLayer -Overrides $sourceLayer
