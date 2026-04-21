@@ -1,5 +1,5 @@
 ## Summary
-Applied a bounded runtime-safety fix in `page_quality.ps1` at the `verdictCounts` increment point by normalizing `$primaryVerdict` into a deterministic non-empty string key (`$primaryVerdictKey`) and falling back to `UNKNOWN` when null/empty/whitespace.
+Normalized `OrderedDictionary` items inside `Convert-ToPageQualityObjectArray` so collection materialization now emits `[pscustomobject]` entries instead of raw ordered dictionaries in both foreach loops.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/modules/page_quality.ps1`
@@ -9,8 +9,8 @@ Applied a bounded runtime-safety fix in `page_quality.ps1` at the `verdictCounts
 - None.
 
 ## Current entrypoints/paths
-- Unchanged. Existing entrypoints and path structure remain as-is.
+- Unchanged. No entrypoint or path changes were made.
 
 ## Risks/blockers
-- Low risk: behavior change only affects hashtable keying for empty/unstable verdict values.
-- If downstream consumers assume blank verdict keys in `verdict_counts`, they will now see `UNKNOWN` instead.
+- Low risk: only item-type normalization was added in two existing foreach loops.
+- If any caller depended on `OrderedDictionary` item typing specifically, those items are now `PSCustomObject` as requested.

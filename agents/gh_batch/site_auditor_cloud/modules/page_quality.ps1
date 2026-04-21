@@ -37,14 +37,24 @@ function Convert-ToPageQualityObjectArray {
         if (($Value -is [System.Collections.ICollection]) -and -not ($Value -is [System.Collections.IDictionary])) {
             $output = New-Object System.Collections.Generic.List[object]
             foreach ($item in $Value) {
-                $output.Add($item)
+                if ($item -is [System.Collections.Specialized.OrderedDictionary]) {
+                    $output.Add([pscustomobject]$item)
+                }
+                else {
+                    $output.Add($item)
+                }
             }
             return [object[]]$output.ToArray()
         }
         if (($Value -is [System.Collections.IEnumerable]) -and -not ($Value -is [string]) -and -not ($Value -is [System.Collections.IDictionary]) -and -not ($Value -is [pscustomobject])) {
             $output = New-Object System.Collections.Generic.List[object]
             foreach ($item in $Value) {
-                $output.Add($item)
+                if ($item -is [System.Collections.Specialized.OrderedDictionary]) {
+                    $output.Add([pscustomobject]$item)
+                }
+                else {
+                    $output.Add($item)
+                }
             }
             return [object[]]$output.ToArray()
         }
