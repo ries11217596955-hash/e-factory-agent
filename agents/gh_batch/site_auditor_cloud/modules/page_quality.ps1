@@ -290,12 +290,20 @@ function Build-PageQualityFindings {
             $pq3HasNav = [bool]$hasNav
             $pq3BodyTextLength = Convert-ToIntSafe -Value $bodyTextLength -Default 0
             $pq3StatusCode = Convert-ToIntSafe -Value $statusCode -Default 0
-            $routeScreenshotCount = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'screenshotCount' -Default 0) -Default 0
+            $pq3RouteObject = Safe-Get -Object $route -Key 'Value' -Default $route
+            $pq3RouteScreenshots = Convert-ToPageQualityStringArray -Value (Safe-Get -Object $pq3RouteObject -Key 'screenshots' -Default @())
+            $pq3RouteIssueScreenshots = Convert-ToPageQualityStringArray -Value (Safe-Get -Object $pq3RouteObject -Key 'issue_screenshots' -Default @())
+            $pq3RouteScreenshotCountRaw = Safe-Get -Object $pq3RouteObject -Key 'screenshotCount' -Default $null
+            if (($null -eq $pq3RouteScreenshotCountRaw) -or
+                (($pq3RouteScreenshotCountRaw -is [System.Collections.IEnumerable]) -and -not ($pq3RouteScreenshotCountRaw -is [string]))) {
+                $pq3RouteScreenshotCountRaw = @($pq3RouteScreenshots).Count + @($pq3RouteIssueScreenshots).Count
+            }
+            $routeScreenshotCount = Convert-ToIntSafe -Value $pq3RouteScreenshotCountRaw -Default 0
             $pq3RouteScreenshotCount = Convert-ToIntSafe -Value $routeScreenshotCount -Default 0
 
             $isHealthyButVisuallyWeak = ($pq3PrimaryVerdict -eq 'HEALTHY') -and ($pq3Thin -or $pq3WeakCta -or $pq3DeadEnd -or ($pq3BodyTextLength -lt 250) -or ($pq3StatusCode -ge 400) -or ($pq3RouteScreenshotCount -eq 0))
             if ($isHealthyButVisuallyWeak) {
-                $routeContradictions.Add([pscustomobject]@{
+                $routeContradictions.Add([ordered]@{
                         class = 'HEALTHY_BUT_VISUALLY_WEAK'
                         scope = 'ROUTE'
                         severity = 'REVIEW'
@@ -313,7 +321,7 @@ function Build-PageQualityFindings {
 
             $isNonEmptyLowValue = (-not $pq3Empty) -and ($pq3BodyTextLength -gt 120) -and ($pq3WeakCta -or $pq3DeadEnd)
             if ($isNonEmptyLowValue) {
-                $routeContradictions.Add([pscustomobject]@{
+                $routeContradictions.Add([ordered]@{
                         class = 'NON_EMPTY_BUT_LOW_VALUE'
                         scope = 'ROUTE'
                         severity = 'REVIEW'
