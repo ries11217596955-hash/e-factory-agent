@@ -1,12 +1,12 @@
 ## Summary
-- Task: SITE_AUDITOR tool-fix batch for forensic artifact finalization after `decision_layer_complete`.
-- Investigated the post-decision path in `decision_build_forensics.ps1` and isolated the remaining high-risk point to final artifact/decision JSON serialization.
-- Applied a bounded compatibility fix by normalizing complex runtime objects into JSON-safe scalar/dictionary/array shapes before `ConvertTo-Json`.
-- Kept the change strictly inside the forensic diagnostic tool path; no production agent/runtime logic was modified.
-- Updated forensic output flow so final diagnostic artifact emission is resilient across mixed object types that can trigger `Argument types do not match` during serialization.
+- Task: SITE_AUDITOR repair batch for `Build-PageQualityFindings / PQ3_route_contradictions_build`.
+- Inspected the exact contradiction construction block and identified mixed runtime route shapes reaching contradiction evidence construction.
+- Applied a minimal bounded compatibility fix in `page_quality.ps1` by normalizing PQ3 operands (verdict/flags/counts) to deterministic scalar types before contradiction assembly.
+- Hardened only the same PQ3 contradiction block by emitting contradiction candidates as `PSCustomObject` values with explicit `string::Format` evidence construction.
+- Kept scope constrained to allowed files; no decision modules, entrypoints, workflows, or broader architecture paths were touched.
 
 ## Changed files
-- `agents/gh_batch/site_auditor_cloud/tools/decision_build_forensics.ps1`
+- `agents/gh_batch/site_auditor_cloud/modules/page_quality.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
@@ -14,8 +14,8 @@
 
 ## Current entrypoints/paths
 - Production entrypoints unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`, `agents/gh_batch/site_auditor_cloud/run.ps1`.
-- Repaired diagnostic path: `agents/gh_batch/site_auditor_cloud/tools/decision_build_forensics.ps1` (post-decision artifact finalization + optional decision JSON emission).
+- Repaired page quality contradiction path: `agents/gh_batch/site_auditor_cloud/modules/page_quality.ps1` (`PQ3_route_contradictions_build`).
 
 ## Risks/blockers
-- Runtime verification is blocked in this container because neither `pwsh` nor `powershell` is installed; the forensic script cannot be executed locally here.
-- Final validation (artifact JSON emitted, no post-decision argument-type failure) must be confirmed in an environment with PowerShell available.
+- Runtime verification is blocked in this container because neither `pwsh` nor `powershell` is installed; module execution cannot be run locally here.
+- Next production run is required to confirm that `PAGE_QUALITY_BUILD` advances past `PQ3_route_contradictions_build` (or fails later at a different node/class).
