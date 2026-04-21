@@ -456,7 +456,6 @@ function Build-PageQualityFindings {
             if (-not $verdictCounts.ContainsKey($primaryVerdictKey)) {
                 $verdictCounts[$primaryVerdictKey] = 0
             }
-
             $verdictCounts[$primaryVerdictKey] = [int]$verdictCounts[$primaryVerdictKey] + 1
 
             $pq4aRoutePath = [string](Safe-Get -Object $route -Key 'route_path' -Default '')

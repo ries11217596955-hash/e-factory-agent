@@ -1,16 +1,15 @@
 ## Summary
-Normalized `OrderedDictionary` items inside `Convert-ToPageQualityObjectArray` so collection materialization now emits `[pscustomobject]` entries instead of raw ordered dictionaries in both foreach loops.
+Applied a bounded runtime-safety fix in `page_quality.ps1` to ensure verdict hashtable keys are deterministic and non-empty prior to `ContainsKey`/index access by using `$primaryVerdictKey` with `UNKNOWN` fallback.
 
 ## Changed files
-- `agents/gh_batch/site_auditor_cloud/modules/page_quality.ps1`
-- `docs/TASK_REPORT.md`
+- agents/gh_batch/site_auditor_cloud/modules/page_quality.ps1
+- docs/TASK_REPORT.md
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- Unchanged. No entrypoint or path changes were made.
+- Runtime logic path touched: `agents/gh_batch/site_auditor_cloud/modules/page_quality.ps1` (single bounded block only).
 
 ## Risks/blockers
-- Low risk: only item-type normalization was added in two existing foreach loops.
-- If any caller depended on `OrderedDictionary` item typing specifically, those items are now `PSCustomObject` as requested.
+- Low risk: change is localized to verdict-count key normalization and does not alter surrounding control flow.
