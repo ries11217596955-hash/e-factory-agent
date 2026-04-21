@@ -133,6 +133,7 @@ function Add-RouteNormalizationAggregateTrace {
     $leftType = if ($null -eq $LeftOperand) { '<null>' } else { $LeftOperand.GetType().FullName }
     $rightType = if ($null -eq $RightOperand) { '<null>' } else { $RightOperand.GetType().FullName }
 
+    $global:RouteNormalizationAggregateTrace = @($global:RouteNormalizationAggregateTrace)
     $global:RouteNormalizationAggregateTrace += [ordered]@{
         phase_name = $PhaseName
         operation_label = if ([string]::IsNullOrWhiteSpace($OperationLabel)) { '' } else { $OperationLabel }
