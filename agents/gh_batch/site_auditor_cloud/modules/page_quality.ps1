@@ -300,6 +300,13 @@ function Build-PageQualityFindings {
             }
             $routeScreenshotCount = Convert-ToIntSafe -Value $pq3RouteScreenshotCountRaw -Default 0
             $pq3RouteScreenshotCount = Convert-ToIntSafe -Value $routeScreenshotCount -Default 0
+            if (-not ($routeContradictions -is [System.Collections.Generic.List[object]])) {
+                $routeContradictionsNormalized = New-Object System.Collections.Generic.List[object]
+                foreach ($routeContradictionSeed in @(Convert-ToPageQualityObjectArray -Value $routeContradictions)) {
+                    $routeContradictionsNormalized.Add($routeContradictionSeed)
+                }
+                $routeContradictions = $routeContradictionsNormalized
+            }
 
             $isHealthyButVisuallyWeak = ($pq3PrimaryVerdict -eq 'HEALTHY') -and ($pq3Thin -or $pq3WeakCta -or $pq3DeadEnd -or ($pq3BodyTextLength -lt 250) -or ($pq3StatusCode -ge 400) -or ($pq3RouteScreenshotCount -eq 0))
             if ($isHealthyButVisuallyWeak) {
