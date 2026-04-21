@@ -1,9 +1,9 @@
 ## Summary
-- Applied a surgical fix in `Build-PageQualityFindings` at `PQ3_route_contradictions_build` to normalize `$routeContradictions` before any `.Add(...)` calls.
-- Kept contradiction candidate object shape/semantics unchanged; only the Add target compatibility guard was added.
-- Did not change other append paths (`routeIssues.Add`, `routeFindings.Add`, `result.Add`) and did not modify forbidden files.
-- Attempted production auditor validation run, but the environment lacks a PowerShell runtime (`pwsh`/`powershell` not installed), so live verification could not execute.
-- Prepared commit + PR payload under PR-first workflow.
+- Applied one bounded runtime-safety patch in `Build-PageQualityFindings` for screenshot-count fallback guard behavior.
+- Updated only the conditional that decides whether manual count logic should run for `$pq3RouteScreenshotCountRaw`.
+- Added an explicit dictionary/map exclusion (`[System.Collections.IDictionary]`) to prevent map values from entering the IEnumerable-based count path.
+- Did not refactor nearby logic, rename variables, or touch any other function.
+- Prepared commit + PR artifacts under PR-first workflow.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/modules/page_quality.ps1`
@@ -14,8 +14,8 @@
 
 ## Current entrypoints/paths
 - Entrypoints unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`, `agents/gh_batch/site_auditor_cloud/run.ps1`.
-- Active repair path: `agents/gh_batch/site_auditor_cloud/modules/page_quality.ps1` (`Build-PageQualityFindings`, operation `PQ3_route_contradictions_build`).
+- Patched scope: `agents/gh_batch/site_auditor_cloud/modules/page_quality.ps1` inside `Build-PageQualityFindings` at the screenshot-count fallback conditional.
 
 ## Risks/blockers
-- End-to-end production auditor/bundle validation is blocked in this container because neither `pwsh` nor `powershell` is available.
-- If runtime data mutates `$routeContradictions` into a non-list after this guard point, additional local guards may be needed at that later mutation site.
+- No known blockers in this edit scope.
+- Validation here is limited to static inspection in-container; full runtime verification depends on the target execution environment and data shapes.
