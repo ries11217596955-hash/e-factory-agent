@@ -1,9 +1,9 @@
 ## Summary
-- Applied one bounded runtime-safety patch in `Build-PageQualityFindings` for screenshot-count fallback guard behavior.
-- Updated only the conditional that decides whether manual count logic should run for `$pq3RouteScreenshotCountRaw`.
-- Added an explicit dictionary/map exclusion (`[System.Collections.IDictionary]`) to prevent map values from entering the IEnumerable-based count path.
-- Did not refactor nearby logic, rename variables, or touch any other function.
-- Prepared commit + PR artifacts under PR-first workflow.
+- Stabilized screenshot collection shape in `Build-PageQualityFindings` before screenshot count fallback aggregation.
+- Materialized both `$pq3RouteScreenshots` and `$pq3RouteIssueScreenshots` with local `@(...)` normalization immediately before count usage.
+- Kept the existing guard condition logic intact and unchanged.
+- Did not modify helpers, including `Convert-ToPageQualityObjectArray`, and did not refactor unrelated logic.
+- Kept scope minimal to the requested module plus this task report update.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/modules/page_quality.ps1`
@@ -14,8 +14,8 @@
 
 ## Current entrypoints/paths
 - Entrypoints unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`, `agents/gh_batch/site_auditor_cloud/run.ps1`.
-- Patched scope: `agents/gh_batch/site_auditor_cloud/modules/page_quality.ps1` inside `Build-PageQualityFindings` at the screenshot-count fallback conditional.
+- Updated path: `agents/gh_batch/site_auditor_cloud/modules/page_quality.ps1` within `Build-PageQualityFindings` around screenshot fallback count normalization.
 
 ## Risks/blockers
-- No known blockers in this edit scope.
-- Validation here is limited to static inspection in-container; full runtime verification depends on the target execution environment and data shapes.
+- No blockers identified.
+- Validation performed via targeted file inspection; runtime behavior still depends on live route payload shapes.
