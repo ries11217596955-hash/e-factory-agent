@@ -411,7 +411,8 @@ function Build-PageQualityFindings {
                     Write-Host "[PQPROBE] rawEvidenceRefs_type=$($rawEvidenceRefs.GetType().FullName)"
                     Write-Host "[PQPROBE] rawEvidenceRefs_shape=$(Get-ObjectShapeSummary -Value $rawEvidenceRefs)"
                 }
-                $ev = Convert-ToPageQualityStringArray -Value $rawEvidenceRefs
+                $normalizedEvidenceRefs = Convert-ToPageQualityObjectArray -Value $rawEvidenceRefs
+                $ev = Convert-ToPageQualityStringArray -Value $normalizedEvidenceRefs
                 if ($ev.Count -eq 0) { $issuesMissingEvidence++ }
             }
 
