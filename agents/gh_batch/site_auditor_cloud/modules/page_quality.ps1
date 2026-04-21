@@ -34,18 +34,14 @@ function Convert-ToPageQualityObjectArray {
         if ($null -eq $Value) { return @() }
         if ($Value -is [System.Collections.Generic.List[object]]) { return [object[]]$Value.ToArray() }
         if ($Value -is [System.Collections.Generic.List[string]]) { return [object[]]$Value.ToArray() }
-        if ($Value -is [System.Collections.IDictionary] -or $Value -is [PSCustomObject]) { return @($Value) }
-        if ($Value -is [object[]]) { return [object[]]$Value }
-        if ($Value -is [string[]]) { return [object[]]$Value }
-        if ($Value -is [string]) { return @($Value) }
-        if ($Value -is [System.Collections.ICollection]) {
+        if (($Value -is [System.Collections.ICollection]) -and -not ($Value -is [System.Collections.IDictionary])) {
             $output = New-Object System.Collections.Generic.List[object]
             foreach ($item in $Value) {
                 $output.Add($item)
             }
             return [object[]]$output.ToArray()
         }
-        if ($Value -is [System.Collections.IEnumerable] -and -not ($Value -is [string])) {
+        if (($Value -is [System.Collections.IEnumerable]) -and -not ($Value -is [string]) -and -not ($Value -is [System.Collections.IDictionary]) -and -not ($Value -is [pscustomobject])) {
             $output = New-Object System.Collections.Generic.List[object]
             foreach ($item in $Value) {
                 $output.Add($item)
@@ -178,7 +174,9 @@ function Build-SitePatternSummary {
         $expression = 'Select dominant pattern from deterministic combined pattern object[]'
         $dominant = $null
         foreach ($pattern in $combinedPatterns) {
-            if ($null -eq $dominant -or [int]$pattern.routes_affected -gt [int]$dominant.routes_affected) {
+            $patternRoutesAffected = Convert-ToIntSafe -Value (Safe-Get -Object $pattern -Key 'routes_affected' -Default 0) -Default 0
+            $dominantRoutesAffected = Convert-ToIntSafe -Value (Safe-Get -Object $dominant -Key 'routes_affected' -Default 0) -Default 0
+            if ($null -eq $dominant -or $patternRoutesAffected -gt $dominantRoutesAffected) {
                 $dominant = $pattern
             }
         }
@@ -186,9 +184,9 @@ function Build-SitePatternSummary {
         return @{
             repeated_patterns = $repeatedPatternsOutput
             isolated_patterns = $isolatedPatternsOutput
-            repeated_pattern_count = [int]@($repeatedPatterns).Count
-            isolated_pattern_count = [int]@($isolatedPatterns).Count
-            systemic = ([int]@($repeatedPatterns).Count -gt 0)
+            repeated_pattern_count = [int]$repeatedPatterns.Count
+            isolated_pattern_count = [int]$isolatedPatterns.Count
+            systemic = ([int]$repeatedPatterns.Count -gt 0)
             dominant_pattern = $dominant
         }
     }
@@ -353,8 +351,7 @@ function Build-PageQualityFindings {
             if ($weakCta) { $weakCtaRoutes++ }
             if ($deadEnd) { $deadEndRoutes++ }
             if ($uiContamination) { $contaminatedRoutes++ }
-            $screenshotEvidenceCount = @($screenshotEvidence).Count
-            if ($screenshotEvidenceCount -gt 0) { $issueScreenshotCount += $screenshotEvidenceCount }
+            if ($screenshotEvidence.Count -gt 0) { $issueScreenshotCount += $screenshotEvidence.Count }
 
             if ($empty) {
                 $routeIssues.Add([ordered]@{
@@ -393,7 +390,7 @@ function Build-PageQualityFindings {
             }
             foreach ($issue in @($routeIssues)) {
                 $ev = Convert-ToPageQualityStringArray -Value (Safe-Get -Object $issue -Key 'evidence_refs' -Default @())
-                if (@($ev).Count -eq 0) { $issuesMissingEvidence++ }
+                if ($ev.Count -eq 0) { $issuesMissingEvidence++ }
             }
 
             if (-not $verdictCounts.ContainsKey($primaryVerdict)) {
@@ -532,7 +529,7 @@ function Build-PageQualityFindings {
                 contradiction_candidates = $routeContradictionsOutput
                 screenshots = @($baseScreenshots)
                 issue_screenshots = @($issueScreenshots)
-                issues = @($routeIssues.ToArray())
+                issues = Convert-ToPageQualityObjectArray -Value $routeIssues
             })
         }
 
