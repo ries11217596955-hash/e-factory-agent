@@ -162,16 +162,7 @@ function Convert-ToHashtableSafe {
     param([object]$Value)
 
     if ($null -eq $Value) { return @{} }
-    if (-not ($Value -is [System.Collections.IDictionary] -or $Value -is [PSCustomObject])) {
-        if ($Value -is [System.Collections.IEnumerable] -and -not ($Value -is [string])) {
-            $materialized = @(Convert-ToObjectArraySafe -Value $Value)
-            if ($materialized.Count -eq 1) {
-                return Convert-ToHashtableSafe -Value $materialized[0]
-            }
-        }
-        Write-Host "[WARN] Convert-ToHashtableSafe fallback triggered. Type: $($Value.GetType().FullName)"
-    }
-    if ($Value -is [System.Collections.IDictionary] -and $Value.Count -gt 0) {
+    if ($Value -is [System.Collections.IDictionary]) {
         $normalized = [ordered]@{}
         foreach ($entry in @($Value.GetEnumerator())) {
             $keyText = [string](Safe-Get -Object $entry -Key 'Key' -Default '')
@@ -192,5 +183,16 @@ function Convert-ToHashtableSafe {
         return $normalized
     }
 
+    if ($Value -is [System.Collections.IEnumerable] -and -not ($Value -is [string])) {
+        $materialized = @(Convert-ToObjectArraySafe -Value $Value)
+        if ($materialized.Count -eq 0) {
+            return @{}
+        }
+        if ($materialized.Count -eq 1) {
+            return Convert-ToHashtableSafe -Value $materialized[0]
+        }
+    }
+
+    Write-Host "[WARN] Convert-ToHashtableSafe fallback triggered. Type: $($Value.GetType().FullName)"
     return @{ __raw = $Value }
 }
