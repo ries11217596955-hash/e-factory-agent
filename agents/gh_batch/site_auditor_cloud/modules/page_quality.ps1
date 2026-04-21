@@ -402,17 +402,21 @@ function Build-PageQualityFindings {
             $operationLabel = 'PQ3B_issue_evidence_refs_materialize'
             $expression = 'Materialize issue evidence_refs into string[] for evidence coverage validation'
             foreach ($issue in @($routeIssues)) {
-                Write-Host "[PQPROBE] issue_type=$($issue.GetType().FullName)"
-                Write-Host "[PQPROBE] issue_shape=$(Get-ObjectShapeSummary -Value $issue)"
-                $rawEvidenceRefs = Safe-Get -Object $issue -Key 'evidence_refs' -Default @()
-                if ($null -eq $rawEvidenceRefs) {
-                    Write-Host "[PQPROBE] rawEvidenceRefs=<null>"
-                } else {
-                    Write-Host "[PQPROBE] rawEvidenceRefs_type=$($rawEvidenceRefs.GetType().FullName)"
-                    Write-Host "[PQPROBE] rawEvidenceRefs_shape=$(Get-ObjectShapeSummary -Value $rawEvidenceRefs)"
+
+                if ($null -eq $issue) { continue }
+
+                if (-not ($issue -is [System.Collections.IDictionary] -or $issue -is [pscustomobject])) {
+                    continue
                 }
-                $normalizedEvidenceRefs = Convert-ToPageQualityObjectArray -Value $rawEvidenceRefs
-                $ev = Convert-ToPageQualityStringArray -Value $normalizedEvidenceRefs
+
+                $rawEvidenceRefs = Safe-Get -Object $issue -Key 'evidence_refs' -Default @()
+
+                if ($null -eq $rawEvidenceRefs) {
+                    $rawEvidenceRefs = @()
+                }
+
+                $ev = Convert-ToPageQualityStringArray -Value @($rawEvidenceRefs)
+
                 if ($ev.Count -eq 0) { $issuesMissingEvidence++ }
             }
 
