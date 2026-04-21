@@ -195,6 +195,11 @@ function Convert-ToHashtableFromJsonObject {
 }
 
 $moduleRoot = Join-Path (Join-Path $PSScriptRoot '..') 'modules'
+$forensicsHelperPath = Join-Path $PSScriptRoot 'decision_build_forensics_helpers.ps1'
+if (Test-Path -LiteralPath $forensicsHelperPath) {
+    . $forensicsHelperPath
+}
+
 $moduleFiles = @(
     'util_convert.ps1',
     'decision_diagnosis.ps1',
