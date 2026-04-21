@@ -402,7 +402,16 @@ function Build-PageQualityFindings {
                 })
             }
             foreach ($issue in @($routeIssues)) {
-                $ev = Convert-ToPageQualityStringArray -Value (Safe-Get -Object $issue -Key 'evidence_refs' -Default @())
+                Write-Host "[PQPROBE] issue_type=$($issue.GetType().FullName)"
+                Write-Host "[PQPROBE] issue_shape=$(Get-ObjectShapeSummary -Value $issue)"
+                $rawEvidenceRefs = Safe-Get -Object $issue -Key 'evidence_refs' -Default @()
+                if ($null -eq $rawEvidenceRefs) {
+                    Write-Host "[PQPROBE] rawEvidenceRefs=<null>"
+                } else {
+                    Write-Host "[PQPROBE] rawEvidenceRefs_type=$($rawEvidenceRefs.GetType().FullName)"
+                    Write-Host "[PQPROBE] rawEvidenceRefs_shape=$(Get-ObjectShapeSummary -Value $rawEvidenceRefs)"
+                }
+                $ev = Convert-ToPageQualityStringArray -Value $rawEvidenceRefs
                 if ($ev.Count -eq 0) { $issuesMissingEvidence++ }
             }
 
