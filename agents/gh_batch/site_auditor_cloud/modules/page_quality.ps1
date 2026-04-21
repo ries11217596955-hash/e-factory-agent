@@ -489,6 +489,12 @@ function Build-PageQualityFindings {
             }
             $pq4aRouteFindingsOutput = $routeFindingsOutput
 
+            $operationLabel = 'PQ4A5_route_output_shape_normalization'
+            $expression = 'Normalize final route findings/issues collections to concrete arrays before output assignment'
+            $routeFindings = @($routeFindingsOutput)
+            $routeIssues = @($routeIssues)
+            $routeFindingsOutput = [object[]]$routeFindings
+
             $operationLabel = 'PQ4B_route_contradictions_output_object_array'
             $expression = 'Materialize route contradiction candidates into object[] without fragile rematerialization when already array'
             $routeContradictionsSource = $routeContradictions
@@ -533,7 +539,7 @@ function Build-PageQualityFindings {
                 contradiction_candidates = $routeContradictionsOutput
                 screenshots = @($baseScreenshots)
                 issue_screenshots = @($issueScreenshots)
-                issues = Convert-ToPageQualityObjectArray -Value $routeIssues
+                issues = [object[]]$routeIssues
             })
         }
 
