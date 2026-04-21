@@ -2317,7 +2317,7 @@ function Ensure-OutputContract {
                     $manifestRouteCount = @($manifestItems).Count
                     $manifestScreenshotCount = 0
                     foreach ($manifestItem in @($manifestItems)) {
-                        $manifestScreenshotCount += [int](Safe-Get -Object $manifestItem -Key 'screenshotCount' -Default 0)
+                        $manifestScreenshotCount += Convert-ToIntSafe -Value (Safe-Get -Object $manifestItem -Key 'screenshotCount' -Default 0)
                     }
                     $visualCoverageNode = [ordered]@{
                         visual_audit_active = $true
