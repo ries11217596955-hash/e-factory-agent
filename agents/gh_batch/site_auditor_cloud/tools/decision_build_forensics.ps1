@@ -196,8 +196,14 @@ function Convert-ToHashtableFromJsonObject {
 
 $moduleRoot = Join-Path (Join-Path $PSScriptRoot '..') 'modules'
 $forensicsHelperPath = Join-Path $PSScriptRoot 'decision_build_forensics_helpers.ps1'
-if (Test-Path -LiteralPath $forensicsHelperPath) {
-    . $forensicsHelperPath
+if (-not (Test-Path -LiteralPath $forensicsHelperPath)) {
+    throw "Required forensics helper not found: $forensicsHelperPath"
+}
+
+. $forensicsHelperPath
+
+if (-not (Get-Command -Name 'Convert-ToDecisionWarningStringArray' -ErrorAction SilentlyContinue)) {
+    throw 'Forensics helper import failed: Convert-ToDecisionWarningStringArray is unavailable before module load.'
 }
 
 $moduleFiles = @(
@@ -214,6 +220,19 @@ foreach ($module in $moduleFiles) {
         throw "Required module not found: $modulePath"
     }
     . $modulePath
+}
+
+$requiredDecisionFunctions = @(
+    'Build-DecisionLayer',
+    'Convert-ToHashtableSafe',
+    'Convert-ToObjectArraySafe',
+    'Convert-ToDecisionWarningStringArray'
+)
+
+foreach ($requiredFunction in $requiredDecisionFunctions) {
+    if (-not (Get-Command -Name $requiredFunction -ErrorAction SilentlyContinue)) {
+        throw "Required function unavailable for forensics run: $requiredFunction"
+    }
 }
 
 if (-not (Test-Path -LiteralPath $SnapshotPath)) {
