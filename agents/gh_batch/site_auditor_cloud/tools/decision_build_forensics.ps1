@@ -253,6 +253,42 @@ function ConvertFrom-JsonCompat {
     return ($JsonText | ConvertFrom-Json)
 }
 
+function Convert-ToJsonReadyObject {
+    param([object]$Value)
+
+    if ($null -eq $Value) { return $null }
+    if ($Value -is [string] -or $Value -is [bool] -or $Value -is [char] -or $Value -is [byte] -or $Value -is [sbyte] -or $Value -is [int16] -or $Value -is [uint16] -or $Value -is [int32] -or $Value -is [uint32] -or $Value -is [int64] -or $Value -is [uint64] -or $Value -is [decimal] -or $Value -is [single] -or $Value -is [double] -or $Value -is [datetime]) {
+        return $Value
+    }
+
+    if ($Value -is [System.Collections.IDictionary]) {
+        $normalized = [ordered]@{}
+        foreach ($key in @($Value.Keys)) {
+            $keyText = [string]$key
+            $normalized[$keyText] = Convert-ToJsonReadyObject -Value $Value[$key]
+        }
+        return $normalized
+    }
+
+    if (($Value -is [System.Collections.IEnumerable]) -and -not ($Value -is [string])) {
+        $items = @()
+        foreach ($item in $Value) {
+            $items += @(Convert-ToJsonReadyObject -Value $item)
+        }
+        return @($items)
+    }
+
+    if ($Value -is [PSCustomObject]) {
+        $normalized = [ordered]@{}
+        foreach ($prop in @($Value.PSObject.Properties)) {
+            $normalized[[string]$prop.Name] = Convert-ToJsonReadyObject -Value $prop.Value
+        }
+        return $normalized
+    }
+
+    return [string]$Value
+}
+
 $rawSnapshot = Get-Content -LiteralPath $SnapshotPath -Raw
 $snapshot = ConvertFrom-JsonCompat -JsonText $rawSnapshot
 
@@ -376,7 +412,8 @@ $artifact = [ordered]@{
     failure = $failureRecord
 }
 
-$artifact | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $DiagnosticPath -Encoding UTF8
+$artifactJsonReady = Convert-ToJsonReadyObject -Value $artifact
+$artifactJsonReady | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $DiagnosticPath -Encoding UTF8
 Write-Host "[forensics] Diagnostic artifact: $DiagnosticPath"
 if ($artifact.status -eq 'FAILURE') {
     Write-Host "[forensics] Failure step: $($artifact.failure.failing_step)"
@@ -385,7 +422,8 @@ if ($artifact.status -eq 'FAILURE') {
 
 if ($EmitDecisionJson -and $null -ne $runResult) {
     $resultPath = [System.IO.Path]::ChangeExtension($DiagnosticPath, '.decision.json')
-    $runResult | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $resultPath -Encoding UTF8
+    $runResultJsonReady = Convert-ToJsonReadyObject -Value $runResult
+    $runResultJsonReady | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $resultPath -Encoding UTF8
     Write-Host "[forensics] Decision output: $resultPath"
 }
 
