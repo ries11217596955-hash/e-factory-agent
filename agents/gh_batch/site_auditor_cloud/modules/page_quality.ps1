@@ -399,6 +399,8 @@ function Build-PageQualityFindings {
                     evidence_refs = @($screenshotEvidence | Select-Object -First 2)
                 })
             }
+            $operationLabel = 'PQ3B_issue_evidence_refs_materialize'
+            $expression = 'Materialize issue evidence_refs into string[] for evidence coverage validation'
             foreach ($issue in @($routeIssues)) {
                 Write-Host "[PQPROBE] issue_type=$($issue.GetType().FullName)"
                 Write-Host "[PQPROBE] issue_shape=$(Get-ObjectShapeSummary -Value $issue)"
