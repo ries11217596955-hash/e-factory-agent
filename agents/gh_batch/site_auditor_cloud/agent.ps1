@@ -1259,7 +1259,7 @@ function Resolve-FailureCoreFacts {
     param(
         [object]$ErrorRecord = $null,
         [string]$FailureReason = '',
-        [string]$DefaultMessage = 'Unknown failure while running SITE_AUDITOR.'
+        [string]$DefaultMessage = 'SITE_AUDITOR runtime failure (no exception message available).'
     )
 
     $errorRecordSafe = if ($null -eq $ErrorRecord) { $global:AuditError } else { $ErrorRecord }
@@ -1583,10 +1583,17 @@ function Write-RunForensicsReports {
 
     $decisionBuildFailedNode = ''
     if ($null -ne $global:DecisionForensics) {
+        $dfFailureStage = [string](Safe-Get -Object $global:DecisionForensics -Key 'failure_stage' -Default 'DECISION_BUILD')
         $dfFunction = [string](Safe-Get -Object $global:DecisionForensics -Key 'function_name' -Default '')
         $dfOperation = [string](Safe-Get -Object $global:DecisionForensics -Key 'activeOperationLabel' -Default '')
-        if (-not [string]::IsNullOrWhiteSpace($dfFunction) -or -not [string]::IsNullOrWhiteSpace($dfOperation)) {
-            $decisionBuildFailedNode = "DECISION_BUILD/$dfFunction/$dfOperation".TrimEnd('/')
+        $decisionNodeParts = New-Object System.Collections.Generic.List[string]
+        foreach ($nodePart in @($dfFailureStage, $dfFunction, $dfOperation)) {
+            $nodePartText = [string]$nodePart
+            if ([string]::IsNullOrWhiteSpace($nodePartText)) { continue }
+            $decisionNodeParts.Add($nodePartText)
+        }
+        if ($decisionNodeParts.Count -gt 0) {
+            $decisionBuildFailedNode = [string]::Join('/', @($decisionNodeParts.ToArray()))
         }
 
         $decisionDebugPath = Join-Path $reportsDir 'decision_debug.json'
@@ -2663,28 +2670,45 @@ catch {
     $caughtStackHint = [string](Safe-Get -Object $_ -Key 'ScriptStackTrace' -Default '')
     $caughtOperationLabel = ''
     $caughtFunctionName = ''
+    $caughtFailureStage = ''
+    $caughtFailureNode = ''
     if ($null -ne $global:DecisionForensics) {
+        $caughtFailureStage = [string](Safe-Get -Object $global:DecisionForensics -Key 'failure_stage' -Default '')
         $caughtOperationLabel = [string](Safe-Get -Object $global:DecisionForensics -Key 'activeOperationLabel' -Default '')
         $caughtFunctionName = [string](Safe-Get -Object $global:DecisionForensics -Key 'function_name' -Default '')
     }
     if ([string]::IsNullOrWhiteSpace($caughtOperationLabel) -and $null -ne $global:PageQualityForensics) {
+        $caughtFailureStage = [string](Safe-Get -Object $global:PageQualityForensics -Key 'failure_stage' -Default $caughtFailureStage)
         $caughtOperationLabel = [string](Safe-Get -Object $global:PageQualityForensics -Key 'activeOperationLabel' -Default '')
         $caughtFunctionName = [string](Safe-Get -Object $global:PageQualityForensics -Key 'function_name' -Default $caughtFunctionName)
     }
+    if ([string]::IsNullOrWhiteSpace($caughtFailureStage)) {
+        $caughtFailureStage = [string]$currentStage
+    }
+
+    $caughtFailureNodeParts = New-Object System.Collections.Generic.List[string]
+    foreach ($nodePart in @($caughtFailureStage, $caughtFunctionName, $caughtOperationLabel)) {
+        $nodePartText = [string]$nodePart
+        if ([string]::IsNullOrWhiteSpace($nodePartText)) { continue }
+        $caughtFailureNodeParts.Add($nodePartText)
+    }
+    if ($caughtFailureNodeParts.Count -gt 0) {
+        $caughtFailureNode = [string]::Join('/', @($caughtFailureNodeParts.ToArray()))
+    }
 
     $failureCore = Resolve-FailureCoreFacts -ErrorRecord $global:AuditError -FailureReason $failureReason
-    $failureReason = [string](Safe-Get -Object $failureCore -Key 'error_message' -Default 'Unknown failure while running SITE_AUDITOR.')
+    $failureReason = [string](Safe-Get -Object $failureCore -Key 'error_message' -Default '')
     if (-not [string]::IsNullOrWhiteSpace($caughtExceptionMessage)) {
         $failureReason = $caughtExceptionMessage
     }
-    if ([string]::Equals($failureReason, 'Unknown failure while running SITE_AUDITOR.', [System.StringComparison]::OrdinalIgnoreCase) -or [string]::IsNullOrWhiteSpace($failureReason)) {
-        $failureReason = "Failure during $currentStage."
+    if ([string]::IsNullOrWhiteSpace($failureReason)) {
+        $failureReason = "Failure during $caughtFailureStage."
         if (-not [string]::IsNullOrWhiteSpace($caughtStackHint)) {
             $failureReason = "$failureReason Stack: $caughtStackHint"
         }
     }
-    if (-not [string]::IsNullOrWhiteSpace($caughtFunctionName) -or -not [string]::IsNullOrWhiteSpace($caughtOperationLabel)) {
-        $failureReason = "$failureReason [$currentStage/$caughtFunctionName/$caughtOperationLabel]".TrimEnd('/')
+    if (-not [string]::IsNullOrWhiteSpace($caughtFailureNode)) {
+        $failureReason = "$failureReason [$caughtFailureNode]"
     }
 
     $sourceLayer = New-SourceLayer -Overrides $sourceLayer
