@@ -1602,6 +1602,9 @@ function Write-RunForensicsReports {
             $reportFiles.Add('reports/decision_debug.json')
         }
     }
+    if (($failedStage -eq 'OPERATOR_OUTPUT_CONTRACT' -or [string]::IsNullOrWhiteSpace($failedStage) -or $failedStage -eq 'RUNTIME_FAILURE') -and -not [string]::IsNullOrWhiteSpace($decisionBuildFailedNode)) {
+        $failedStage = [string]$decisionBuildFailedNode
+    }
 
     $repoSummaryOut = [string]$repoSummaryStatus
     if ([string]::IsNullOrWhiteSpace($repoSummaryOut)) { $repoSummaryOut = 'UNKNOWN' }
@@ -2656,18 +2659,32 @@ try {
 catch {
     $global:AuditError = $_
     $status = 'FAIL'
+    $caughtExceptionMessage = [string](Safe-Get -Object (Safe-Get -Object $_ -Key 'Exception' -Default $null) -Key 'Message' -Default '')
+    $caughtStackHint = [string](Safe-Get -Object $_ -Key 'ScriptStackTrace' -Default '')
+    $caughtOperationLabel = ''
+    $caughtFunctionName = ''
+    if ($null -ne $global:DecisionForensics) {
+        $caughtOperationLabel = [string](Safe-Get -Object $global:DecisionForensics -Key 'activeOperationLabel' -Default '')
+        $caughtFunctionName = [string](Safe-Get -Object $global:DecisionForensics -Key 'function_name' -Default '')
+    }
+    if ([string]::IsNullOrWhiteSpace($caughtOperationLabel) -and $null -ne $global:PageQualityForensics) {
+        $caughtOperationLabel = [string](Safe-Get -Object $global:PageQualityForensics -Key 'activeOperationLabel' -Default '')
+        $caughtFunctionName = [string](Safe-Get -Object $global:PageQualityForensics -Key 'function_name' -Default $caughtFunctionName)
+    }
 
     $failureCore = Resolve-FailureCoreFacts -ErrorRecord $global:AuditError -FailureReason $failureReason
     $failureReason = [string](Safe-Get -Object $failureCore -Key 'error_message' -Default 'Unknown failure while running SITE_AUDITOR.')
-    if ([string]::Equals($failureReason, 'Unknown failure while running SITE_AUDITOR.', [System.StringComparison]::OrdinalIgnoreCase)) {
-        $failureReason = "Failure during $currentStage while assembling operator output contract."
+    if (-not [string]::IsNullOrWhiteSpace($caughtExceptionMessage)) {
+        $failureReason = $caughtExceptionMessage
     }
-    if ($null -ne $global:DecisionForensics) {
-        $dfFunction = [string](Safe-Get -Object $global:DecisionForensics -Key 'function_name' -Default '')
-        $dfOperation = [string](Safe-Get -Object $global:DecisionForensics -Key 'activeOperationLabel' -Default '')
-        if (-not [string]::IsNullOrWhiteSpace($dfFunction) -or -not [string]::IsNullOrWhiteSpace($dfOperation)) {
-            $failureReason = "$failureReason [DECISION_BUILD/$dfFunction/$dfOperation]"
+    if ([string]::Equals($failureReason, 'Unknown failure while running SITE_AUDITOR.', [System.StringComparison]::OrdinalIgnoreCase) -or [string]::IsNullOrWhiteSpace($failureReason)) {
+        $failureReason = "Failure during $currentStage."
+        if (-not [string]::IsNullOrWhiteSpace($caughtStackHint)) {
+            $failureReason = "$failureReason Stack: $caughtStackHint"
         }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($caughtFunctionName) -or -not [string]::IsNullOrWhiteSpace($caughtOperationLabel)) {
+        $failureReason = "$failureReason [$currentStage/$caughtFunctionName/$caughtOperationLabel]".TrimEnd('/')
     }
 
     $sourceLayer = New-SourceLayer -Overrides $sourceLayer
