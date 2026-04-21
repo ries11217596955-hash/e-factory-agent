@@ -1,12 +1,12 @@
 ## Summary
-- Task: SITE_AUDITOR repair batch for post-`PAGE_QUALITY_BUILD` failure at the final operator output contract boundary.
-- Exact failing node identified from bundle lineage: `FINAL_CONTRACT_BUILD / Convert-ToHashtableSafe / singleton_contract_projection`.
-- Located boundary in `agents/gh_batch/site_auditor_cloud/modules/util_convert.ps1` at `Convert-ToHashtableSafe`, which is used when final report/contract nodes are normalized before JSON serialization.
-- Fixed type/shape mismatch by normalizing all dictionaries (including empty dictionaries) directly to ordered hashtables instead of falling through to `__raw` wrapping.
-- Added minimal serialization hardening for enumerable inputs: empty enumerable now resolves to `{}` and singleton enumerable still projects recursively to a single normalized object.
+- Task: SITE_AUDITOR repair batch for truth-boundary stabilization after `DECISION_BUILD` PASS at `OPERATOR_OUTPUT_CONTRACT`.
+- Traced the failing boundary in `agents/gh_batch/site_auditor_cloud/agent.ps1` output assembly path (`Write-OperatorOutputs` → `Write-RunForensicsReports` / fallback contract path).
+- Repaired stage/node resolution so stale `live.summary.failure_stage` values (for example `PAGE_QUALITY_BUILD`) no longer override a real `OPERATOR_OUTPUT_CONTRACT` failure when `last_success_stage=DECISION_BUILD`.
+- Updated failure-node projection so `failure_node` now follows the resolved failed stage across `RUN_REPORT.json`, `FAILURE_SUMMARY.json`, and fallback truth packaging.
+- Hardened catch-path messaging so generic `Unknown failure while running SITE_AUDITOR.` is replaced with stage-aware contract-boundary context when the original exception message is empty.
 
 ## Changed files
-- `agents/gh_batch/site_auditor_cloud/modules/util_convert.ps1`
+- `agents/gh_batch/site_auditor_cloud/agent.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
@@ -14,8 +14,8 @@
 
 ## Current entrypoints/paths
 - Entrypoints unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`, `agents/gh_batch/site_auditor_cloud/run.ps1`.
-- Repaired module boundary: `agents/gh_batch/site_auditor_cloud/modules/util_convert.ps1` (`Convert-ToHashtableSafe`).
+- Repaired boundary: `agents/gh_batch/site_auditor_cloud/agent.ps1` (`Resolve-FailureStageForOutput`, `Get-FallbackTruthEvidence`, `Write-RunForensicsReports`, main catch block near operator output contract).
 
 ## Risks/blockers
-- Runtime verification is blocked in this container because `pwsh`/`powershell` are unavailable, so full pipeline completion could not be executed locally.
-- Next operator run should confirm that execution now advances through final contract/report emission beyond `FINAL_CONTRACT_BUILD / Convert-ToHashtableSafe / singleton_contract_projection`.
+- Runtime verification is blocked in this container because `pwsh`/`powershell` are unavailable, so a full SITE_AUDITOR execution bundle could not be produced locally.
+- Next operator bundle should confirm: `failed_step` and `failure_node` are aligned with `OPERATOR_OUTPUT_CONTRACT` for post-`DECISION_BUILD` contract failures, and generic unknown failure text is no longer emitted.

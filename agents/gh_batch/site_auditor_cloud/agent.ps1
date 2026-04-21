@@ -1302,6 +1302,34 @@ function Resolve-FailureCoreFacts {
     }
 }
 
+function Resolve-FailureStageForOutput {
+    param(
+        [string]$CandidateFailureStage = '',
+        [string]$CurrentStage = '',
+        [string]$LastSuccessStage = ''
+    )
+
+    $candidate = [string]$CandidateFailureStage
+    $current = [string]$CurrentStage
+    $lastSuccess = [string]$LastSuccessStage
+
+    if (-not [string]::IsNullOrWhiteSpace($current) -and $current -eq 'OPERATOR_OUTPUT_CONTRACT') {
+        if ($lastSuccess -in @('DECISION_BUILD', 'INPUT_VALIDATION')) {
+            return 'OPERATOR_OUTPUT_CONTRACT'
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($candidate)) {
+        return $candidate
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($current)) {
+        return $current
+    }
+
+    return 'RUNTIME_FAILURE'
+}
+
 function Get-FallbackTruthEvidence {
     param(
         [string]$AuditResultPath,
@@ -1360,8 +1388,8 @@ function Get-FallbackTruthEvidence {
     $pageQualityStatus = [string](Safe-Get -Object $liveSummary -Key 'page_quality_status' -Default 'NOT_EVALUATED')
     if ([string]::IsNullOrWhiteSpace($pageQualityStatus)) { $pageQualityStatus = 'NOT_EVALUATED' }
 
-    $failureStage = [string](Safe-Get -Object $liveSummary -Key 'failure_stage' -Default '')
-    if ([string]::IsNullOrWhiteSpace($failureStage)) { $failureStage = [string]$CurrentStage }
+    $failureStageCandidate = [string](Safe-Get -Object $liveSummary -Key 'failure_stage' -Default '')
+    $failureStage = Resolve-FailureStageForOutput -CandidateFailureStage $failureStageCandidate -CurrentStage $CurrentStage -LastSuccessStage $LastSuccessStage
 
     $confirmedStages = Get-TruthBackedConfirmedStages -SourceStatus $sourceStatus -LiveStatus $liveStatus -PageQualityStatus $pageQualityStatus -LastSuccessStage $LastSuccessStage -CurrentStage $CurrentStage
 
@@ -1392,7 +1420,7 @@ function Get-FallbackTruthEvidence {
         failure_stage = $failureStage
         error_message = $errorMessage
         error_class = $errorClass
-        failure_node = [string]$CurrentStage
+        failure_node = [string]$failureStage
         blocker = $blocker
         confirmed_passing_stages = @($confirmedStages)
         primary_truth_sources = @($truthSources)
@@ -1449,7 +1477,8 @@ function Write-RunForensicsReports {
     $sourceSummary = Safe-Get -Object (Safe-Get -Object $AuditResult -Key 'source' -Default @{}) -Key 'summary' -Default @{}
     $repoSummaryStatus = [string](Safe-Get -Object $sourceSummary -Key 'status' -Default '')
 
-    $failedStage = [string](Safe-Get -Object $liveSummary -Key 'failure_stage' -Default '')
+    $failedStageCandidate = [string](Safe-Get -Object $liveSummary -Key 'failure_stage' -Default '')
+    $failedStage = Resolve-FailureStageForOutput -CandidateFailureStage $failedStageCandidate -CurrentStage $CurrentStage -LastSuccessStage $LastSuccessStage
     if ([string]::IsNullOrWhiteSpace($failedStage) -and $null -ne $global:DecisionForensics) {
         $failedStage = [string](Safe-Get -Object $global:DecisionForensics -Key 'failure_stage' -Default '')
     }
@@ -1632,7 +1661,7 @@ function Write-RunForensicsReports {
         failure_stage = [string]$failedStage
         error_message = [string]$errorMessage
         error_class = [string]$errorClassText
-        failure_node = [string]$CurrentStage
+        failure_node = [string]$failedStage
         decision_build_failed_node = [string]$decisionBuildFailedNode
         blocker = [string](Safe-Get -Object $Decision -Key 'core_problem' -Default '')
     }
@@ -2630,6 +2659,9 @@ catch {
 
     $failureCore = Resolve-FailureCoreFacts -ErrorRecord $global:AuditError -FailureReason $failureReason
     $failureReason = [string](Safe-Get -Object $failureCore -Key 'error_message' -Default 'Unknown failure while running SITE_AUDITOR.')
+    if ([string]::Equals($failureReason, 'Unknown failure while running SITE_AUDITOR.', [System.StringComparison]::OrdinalIgnoreCase)) {
+        $failureReason = "Failure during $currentStage while assembling operator output contract."
+    }
     if ($null -ne $global:DecisionForensics) {
         $dfFunction = [string](Safe-Get -Object $global:DecisionForensics -Key 'function_name' -Default '')
         $dfOperation = [string](Safe-Get -Object $global:DecisionForensics -Key 'activeOperationLabel' -Default '')
