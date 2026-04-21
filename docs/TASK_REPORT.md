@@ -1,22 +1,21 @@
 ## Summary
-- Task: SITE_AUDITOR tool-fix batch to restore diagnostic runner helper availability for `Build-DecisionLayer` forensics.
-- Confirmed helper source: `Convert-ToDecisionWarningStringArray` is defined in `agents/gh_batch/site_auditor_cloud/tools/decision_build_forensics_helpers.ps1` (mirrors production helper behavior used by `modules/decision_build.ps1`).
-- Updated `decision_build_forensics.ps1` to require and dot-source the forensics helper file (hard-fail if missing), then assert `Convert-ToDecisionWarningStringArray` is available before module loading.
-- Added explicit preflight checks that required decision-build functions are loaded (`Build-DecisionLayer`, `Convert-ToHashtableSafe`, `Convert-ToObjectArraySafe`, `Convert-ToDecisionWarningStringArray`) so missing helper/module availability fails early and clearly in the diagnostic path only.
-- Attempted forensic rerun, but this environment has no PowerShell runtime (`pwsh`/`powershell` unavailable), so JSON artifact re-generation cannot be executed here.
+- Task: SITE_AUDITOR repair batch for PAGE_QUALITY contradiction boundary failure at `Build-PageQualityFindings/PQ3_route_contradictions_build`.
+- Root cause addressed: contradiction construction used inline, unnormalized `Safe-Get` operand reads inside the PQ3 predicate/evidence path; when live route payloads provide non-scalar shapes, this can trigger PowerShell comparison/cast argument-type failures at the PQ3 operation boundary.
+- Applied minimal bounded fix only inside `Build-PageQualityFindings` PQ3 block: restored contradiction candidate creation and normalized `screenshotCount` once via `Convert-ToIntSafe` before any boolean comparisons/string interpolation.
+- Added same-block shape hardening by deriving deterministic boolean gates (`$isHealthyButVisuallyWeak`, `$isNonEmptyLowValue`) from already-normalized scalar operands.
+- No decision modules, entrypoints, workflow files, or architecture were changed.
 
 ## Changed files
-- `agents/gh_batch/site_auditor_cloud/tools/decision_build_forensics.ps1`
+- `agents/gh_batch/site_auditor_cloud/modules/page_quality.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - No files/folders moved.
 
 ## Current entrypoints/paths
-- Forensic harness path: `agents/gh_batch/site_auditor_cloud/tools/decision_build_forensics.ps1`
-- Forensics helper path: `agents/gh_batch/site_auditor_cloud/tools/decision_build_forensics_helpers.ps1`
-- Production entrypoints unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`, `agents/gh_batch/site_auditor_cloud/run.ps1`
+- Production entrypoints unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`, `agents/gh_batch/site_auditor_cloud/run.ps1`.
+- Repaired function scope: `agents/gh_batch/site_auditor_cloud/modules/page_quality.ps1` → `Build-PageQualityFindings` → `PQ3_route_contradictions_build`.
 
 ## Risks/blockers
-- Runtime verification is blocked by missing PowerShell runtime in this environment (`pwsh` and `powershell` commands are unavailable).
-- Because execution is blocked, generation of a fresh `decision_build_forensics_*.json` artifact must be validated in an environment with PowerShell installed.
+- Runtime verification is blocked in this container because PowerShell (`pwsh`/`powershell`) is not installed, so the production run progression beyond `PAGE_QUALITY_BUILD` cannot be executed locally here.
+- The next production run is required to confirm the PQ3 argument-type fault is cleared and to identify whether any downstream node/class fails next.

@@ -281,7 +281,27 @@ function Build-PageQualityFindings {
             $routeIssues = New-Object System.Collections.Generic.List[object]
 
             $operationLabel = 'PQ3_route_contradictions_build'
-            $expression = 'Compatibility rollback: contradiction runtime disabled and deterministic empty object[] shape emitted'
+            $expression = 'Route contradiction candidate construction with explicit scalar normalization at boundary'
+            $routeScreenshotCount = Convert-ToIntSafe -Value (Safe-Get -Object $route -Key 'screenshotCount' -Default 0) -Default 0
+            $isHealthyButVisuallyWeak = ($primaryVerdict -eq 'HEALTHY') -and ($thin -or $weakCta -or $deadEnd -or ($bodyTextLength -lt 250) -or ($statusCode -ge 400) -or ($routeScreenshotCount -eq 0))
+            if ($isHealthyButVisuallyWeak) {
+                $routeContradictions.Add([ordered]@{
+                        class = 'HEALTHY_BUT_VISUALLY_WEAK'
+                        scope = 'ROUTE'
+                        severity = 'REVIEW'
+                        evidence = "verdict=HEALTHY while thin=$thin weak_cta=$weakCta dead_end=$deadEnd bodyTextLength=$bodyTextLength status=$statusCode screenshotCount=$routeScreenshotCount"
+                    })
+            }
+
+            $isNonEmptyLowValue = (-not $empty) -and ($bodyTextLength -gt 120) -and ($weakCta -or $deadEnd)
+            if ($isNonEmptyLowValue) {
+                $routeContradictions.Add([ordered]@{
+                        class = 'NON_EMPTY_BUT_LOW_VALUE'
+                        scope = 'ROUTE'
+                        severity = 'REVIEW'
+                        evidence = "bodyTextLength=$bodyTextLength avoids EMPTY, but weak_cta=$weakCta dead_end=$deadEnd links=$links buttonCount=$buttonCount hasNav=$hasNav"
+                    })
+            }
 
             if ($empty) { $emptyRoutes++ }
             if ($thin) { $thinRoutes++ }
