@@ -295,6 +295,8 @@ function Build-PageQualityFindings {
             $pq3RouteObject = Safe-Get -Object $route -Key 'Value' -Default $route
             $pq3RouteScreenshots = Convert-ToPageQualityStringArray -Value (Safe-Get -Object $pq3RouteObject -Key 'screenshots' -Default @())
             $pq3RouteIssueScreenshots = Convert-ToPageQualityStringArray -Value (Safe-Get -Object $pq3RouteObject -Key 'issue_screenshots' -Default @())
+            $pq3RouteScreenshots = @($pq3RouteScreenshots)
+            $pq3RouteIssueScreenshots = @($pq3RouteIssueScreenshots)
             $pq3RouteScreenshotCountRaw = Safe-Get -Object $pq3RouteObject -Key 'screenshotCount' -Default $null
             if (($null -eq $pq3RouteScreenshotCountRaw) -or
                 (($pq3RouteScreenshotCountRaw -is [System.Collections.IEnumerable]) -and
