@@ -315,9 +315,10 @@ function Build-PageQualityFindings {
             $routeScreenshotCount = Convert-ToIntSafe -Value $pq3RouteScreenshotCountRaw -Default 0
             $pq3RouteScreenshotCount = Convert-ToIntSafe -Value $routeScreenshotCount -Default 0
             if (-not ($routeContradictions -is [System.Collections.Generic.List[object]])) {
-                $routeContradictionsNormalized = New-Object System.Collections.Generic.List[object]
+                [System.Collections.Generic.List[object]]$routeContradictionsNormalized = New-Object System.Collections.Generic.List[object]
                 foreach ($routeContradictionSeed in @(Convert-ToPageQualityObjectArray -Value $routeContradictions)) {
-                    $routeContradictionsNormalized.Add($routeContradictionSeed)
+                    if ($null -eq $routeContradictionSeed) { continue }
+                    [void]$routeContradictionsNormalized.Add($routeContradictionSeed)
                 }
                 $routeContradictions = $routeContradictionsNormalized
             }
