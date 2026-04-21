@@ -1,9 +1,9 @@
 ## Summary
-- Stabilized screenshot collection shape in `Build-PageQualityFindings` before screenshot count fallback aggregation.
-- Materialized both `$pq3RouteScreenshots` and `$pq3RouteIssueScreenshots` with local `@(...)` normalization immediately before count usage.
-- Kept the existing guard condition logic intact and unchanged.
-- Did not modify helpers, including `Convert-ToPageQualityObjectArray`, and did not refactor unrelated logic.
-- Kept scope minimal to the requested module plus this task report update.
+- Normalized final route-level output collection shapes in `Build-PageQualityFindings` so route findings and route issues are always materialized as arrays at the output boundary.
+- Enforced explicit final-stage normalization with `@(...)` for both `$routeFindings` and `$routeIssues` immediately before final output assignment.
+- Kept earlier guard/count/fallback logic unchanged and avoided structural refactoring.
+- Limited code changes to one requested module file.
+- Updated this task report per PR-first process requirements.
 
 ## Changed files
 - `agents/gh_batch/site_auditor_cloud/modules/page_quality.ps1`
@@ -14,8 +14,8 @@
 
 ## Current entrypoints/paths
 - Entrypoints unchanged: `agents/gh_batch/site_auditor_cloud/agent.ps1`, `agents/gh_batch/site_auditor_cloud/run.ps1`.
-- Updated path: `agents/gh_batch/site_auditor_cloud/modules/page_quality.ps1` within `Build-PageQualityFindings` around screenshot fallback count normalization.
+- Updated path: `agents/gh_batch/site_auditor_cloud/modules/page_quality.ps1` (`Build-PageQualityFindings` final route output assembly stage).
 
 ## Risks/blockers
 - No blockers identified.
-- Validation performed via targeted file inspection; runtime behavior still depends on live route payload shapes.
+- Low risk: change is constrained to output-shape normalization immediately before route output assignment.
