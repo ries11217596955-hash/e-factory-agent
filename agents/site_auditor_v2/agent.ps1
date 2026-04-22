@@ -33,6 +33,8 @@ $runKey = Get-DeterministicRunKey -Mode $Mode -BaseUrl $BaseUrl
 $outputRoot = Join-Path $PSScriptRoot (Join-Path 'output' $runKey)
 $runReportPath = Join-Path $outputRoot 'RUN_REPORT.json'
 $failurePath = Join-Path $outputRoot 'failure_summary.json'
+$deterministicRunReportPath = Join-Path $PSScriptRoot 'RUN_REPORT.json'
+$deterministicFailurePath = Join-Path $PSScriptRoot 'failure_summary.json'
 
 $capabilityStatus = [ordered]@{
     link = 'ACTIVE'
@@ -123,6 +125,7 @@ if ($shouldFail) {
 }
 
 Write-JsonFile -Path $runReportPath -Data $report
+Copy-Item -LiteralPath $runReportPath -Destination $deterministicRunReportPath -Force
 
 if ($shouldFail) {
     $failure = [ordered]@{
@@ -135,6 +138,7 @@ if ($shouldFail) {
         run_report_path = $runReportPath
     }
     Write-JsonFile -Path $failurePath -Data $failure
+    Copy-Item -LiteralPath $failurePath -Destination $deterministicFailurePath -Force
     exit 1
 }
 
