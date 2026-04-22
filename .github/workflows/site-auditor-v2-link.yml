@@ -3,7 +3,7 @@ name: Site Auditor v2 (LINK)
 on:
   workflow_dispatch:
     inputs:
-      base_url:
+      BaseUrl:
         description: "Target site URL"
         required: true
 
@@ -19,7 +19,7 @@ jobs:
         run: |
           ./agents/site_auditor_v2/agent.ps1 `
             -MODE LINK `
-            -BASE_URL "${{ github.event.inputs.base_url }}"
+            -BaseUrl "${{ github.event.inputs.BaseUrl }}"
 
       - name: Print run output paths
         if: always()
