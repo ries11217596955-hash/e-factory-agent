@@ -71,9 +71,25 @@ function Resolve-CanonicalBaseUrl {
         }
     }
 
+    $builder = [UriBuilder]::new($absoluteUri)
+    $normalizedPath = [string]$builder.Path
+    if ([string]::IsNullOrWhiteSpace($normalizedPath)) {
+        $normalizedPath = '/'
+    }
+
+    if (($normalizedPath.Length -gt 1) -and $normalizedPath.EndsWith('/')) {
+        $normalizedPath = $normalizedPath.TrimEnd('/')
+        if ([string]::IsNullOrWhiteSpace($normalizedPath)) {
+            $normalizedPath = '/'
+        }
+    }
+
+    $builder.Path = $normalizedPath
+    $canonicalUrl = $builder.Uri.AbsoluteUri
+
     return [ordered]@{
         status = 'ok'
-        canonical_url = $candidateUrl
+        canonical_url = $canonicalUrl
         error = ''
     }
 }
@@ -732,9 +748,11 @@ function Invoke-EvidenceReconciliation {
 $normalizedMode = $Mode.Trim().ToUpperInvariant()
 $maxRoutes = 5
 $timestamp = Get-IsoUtcNow
-$canonicalBaseUrlResult = Resolve-CanonicalBaseUrl -BaseUrl $BaseUrl
-$effectiveBaseUrl = if ($canonicalBaseUrlResult.status -eq 'ok') { [string]$canonicalBaseUrlResult.canonical_url } else { [string]$BaseUrl }
-$runKey = Get-DeterministicRunKey -Mode $Mode -BaseUrl $effectiveBaseUrl
+$originalBaseUrlInput = [string]$BaseUrl
+$canonicalBaseUrlResult = Resolve-CanonicalBaseUrl -BaseUrl $originalBaseUrlInput
+$canonicalBaseUrl = if ($canonicalBaseUrlResult.status -eq 'ok') { [string]$canonicalBaseUrlResult.canonical_url } else { '' }
+$runKeyBaseUrl = if ($canonicalBaseUrlResult.status -eq 'ok') { $canonicalBaseUrl } else { $originalBaseUrlInput.Trim() }
+$runKey = Get-DeterministicRunKey -Mode $Mode -BaseUrl $runKeyBaseUrl
 $outputRoot = Join-Path $PSScriptRoot (Join-Path 'output' $runKey)
 $runReportPath = Join-Path $outputRoot 'RUN_REPORT.json'
 $linkSummaryPath = Join-Path $outputRoot 'LINK_SUMMARY.json'
@@ -788,7 +806,12 @@ $cannotDoYet = @(
 
 $report = [ordered]@{
     mode = $normalizedMode
-    base_url = $BaseUrl
+    base_url = $canonicalBaseUrl
+    input_canonicalization = [ordered]@{
+        original = $originalBaseUrlInput
+        canonical = $canonicalBaseUrl
+        status = if ($canonicalBaseUrlResult.status -eq 'ok') { 'ok' } else { 'failed' }
+    }
     status = 'PASS'
     execution_status = 'SUCCESS'
     run_id = $runKey
@@ -943,10 +966,12 @@ if ($canonicalBaseUrlResult.status -ne 'ok') {
     $shouldFail = $true
     $errorCode = 'INVALID_BASE_URL'
     $errorMessage = [string]$canonicalBaseUrlResult.error
+    $report.input_canonicalization.canonical = ''
+    $report.input_canonicalization.status = 'failed'
 }
 else {
-    $BaseUrl = [string]$canonicalBaseUrlResult.canonical_url
-    $report.base_url = $BaseUrl
+    $BaseUrl = $canonicalBaseUrl
+    $report.base_url = $canonicalBaseUrl
 }
 
 if ($normalizedMode -ne 'LINK') {
