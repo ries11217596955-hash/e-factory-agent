@@ -1,8 +1,9 @@
 ## Summary
-- Fixed root fetch response handling to consistently read HTML from `Invoke-WebRequest` via `$response.Content`.
-- Removed dependency on `ResponseUri`/response-derived URL fields and now set `fetch_debug.final_url` directly to the input base URL.
-- Added hard validation to throw `FETCH_BODY_EMPTY` when HTTP status is `200` and HTML body length is `0`.
-- Preserved existing extraction/crawler/report behavior while improving fetch diagnostics (`final_url`, `html_length`, `body_present`).
+- Implemented a centralized `Get-ResponseHtml` helper with explicit extraction branches for `Invoke-WebRequest`, `Invoke-RestMethod`, and `HttpClient`.
+- Enforced hard fetch assertions in root route collection: `200 + html_length == 0` now throws `FETCH_RETURNED_EMPTY_BODY`, and empty body/content sample now throws `FETCH_BODY_VALIDATION_FAILED`.
+- Computed `html_length` and `body_present` immediately after fetch and before link parsing/filtering.
+- Expanded mandatory fetch diagnostics to include `content_sample` (first 200 chars) and removed `final_url` from `fetch_debug` output.
+- Updated report projection to pass through `status_code`, `html_length`, `body_present`, and `content_sample`.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
