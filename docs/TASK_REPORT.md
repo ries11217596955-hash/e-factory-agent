@@ -1,8 +1,9 @@
 ## Summary
-- Added a single entry canonicalization gate in LINK mode that transforms input `BaseUrl` into a mandatory canonical absolute URL before downstream execution.
-- Canonicalization now applies trim, scheme injection (`https://` when missing), absolute http/https validation, and trailing-slash normalization (except root).
-- Added `input_canonicalization` trace in `RUN_REPORT` with original input, canonical value, and status.
-- Updated failure handling to stop early with `INVALID_BASE_URL` when canonicalization fails (no fetch path entered).
+- Added LINK-mode diagnostic telemetry to expose fetch, extraction, and filter state in `RUN_REPORT` without changing crawler behavior.
+- Added `fetch_debug` fields (`status_code`, `final_url`, `html_length`, `body_present`) and `html_snapshot` (first 1000 chars) for root-page fetch diagnostics.
+- Added `raw_links_found` (pre-filter) and `internal_links` (post-filter) counters for route-discovery transparency.
+- Added `filter_reason` trace when internal links resolve to zero, including explicit fetch-failure reason when root fetch fails.
+- Added `link_extraction_failed=true` hard-rule signal when HTML exists but no links are extracted.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
@@ -12,8 +13,8 @@
 - None.
 
 ## Current entrypoints/paths
-- Agent entrypoint remains `agents/site_auditor_v2/agent.ps1` (LINK mode).
-- Entry lock is enforced at startup: canonicalization is resolved once and propagated to fetch, route discovery/normalization, screenshot targeting, `RUN_REPORT`, and `LINK_SUMMARY`.
+- Entrypoint remains `agents/site_auditor_v2/agent.ps1`.
+- LINK-mode route discovery diagnostics are produced in `RUN_REPORT.json` via the existing `Get-ShallowRoutes` flow.
 
 ## Risks/blockers
-- Validation was limited to static/structural checks in this environment because PowerShell (`pwsh`) is unavailable, so full runtime verification could not be executed here.
+- Runtime validation against a live site was not executed in this environment because PowerShell runtime execution was not run during this patch; diagnostics were added via static code update only.
