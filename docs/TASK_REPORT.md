@@ -1,19 +1,20 @@
 ## Summary
-Added a GitHub Actions artifact upload step to publish deterministic site_auditor_v2 run outputs from the LINK workflow so run outputs are downloadable from each workflow execution.
+Upgraded `site_auditor_v2` LINK mode from scaffold-only reporting to real single-page capture by fetching the `BaseUrl`, extracting minimal page signals, and writing a new `LINK_SUMMARY.json` artifact alongside updated `RUN_REPORT.json` metadata.
 
 ## Changed files
-- `.github/workflows/site-auditor-v2-link.yml`
+- `agents/site_auditor_v2/agent.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- Workflow entrypoint: `.github/workflows/site-auditor-v2-link.yml`
-- Uploaded artifact name: `site-auditor-v2-link-output`
-- Uploaded RUN report path: `agents/site_auditor_v2/RUN_REPORT.json`
-- Uploaded failure summary path: `agents/site_auditor_v2/failure_summary.json`
+- Agent entrypoint: `agents/site_auditor_v2/agent.ps1`
+- Deterministic run report path: `agents/site_auditor_v2/RUN_REPORT.json`
+- Deterministic link summary path: `agents/site_auditor_v2/LINK_SUMMARY.json`
+- Run-scoped report path: `agents/site_auditor_v2/output/<run_id>/RUN_REPORT.json`
+- Run-scoped link summary path: `agents/site_auditor_v2/output/<run_id>/LINK_SUMMARY.json`
 
 ## Risks/blockers
-- No blockers identified.
-- `failure_summary.json` is optional on PASS runs; upload behavior is configured to avoid workflow failure when that file is absent.
+- Network reachability and target-site behavior (timeouts, bot protection, redirects, TLS issues) can cause `LINK_FETCH_FAILED` in restricted environments.
+- Link counting is intentionally heuristic (regex-based) and may under/over-count in malformed or script-generated markup.

@@ -27,13 +27,48 @@ function Get-DeterministicRunKey {
     return "{0}_{1}" -f $Mode.Trim().ToLowerInvariant(), $hash.Substring(0, 12)
 }
 
+function Get-LinkSignals {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Url
+    )
+
+    $response = Invoke-WebRequest -Uri $Url -Method Get -MaximumRedirection 5
+    $statusCode = [int]$response.StatusCode
+    $html = [string]$response.Content
+
+    $titleMatch = [regex]::Match($html, '(?is)<title[^>]*>(.*?)</title>')
+    $title = if ($titleMatch.Success) {
+        [System.Net.WebUtility]::HtmlDecode($titleMatch.Groups[1].Value).Trim()
+    }
+    else {
+        ''
+    }
+
+    $linkMatches = [regex]::Matches($html, '(?is)<a\b[^>]*href\s*=')
+    $linkCount = [int]$linkMatches.Count
+    $htmlLength = [int]$html.Length
+    $isThin = (($htmlLength -lt 500) -or ([string]::IsNullOrWhiteSpace($title)) -or ($linkCount -le 1))
+
+    return [ordered]@{
+        url = $Url
+        status_code = $statusCode
+        title = $title
+        html_length = $htmlLength
+        link_count = $linkCount
+        is_thin = $isThin
+    }
+}
+
 $normalizedMode = $Mode.Trim().ToUpperInvariant()
 $timestamp = Get-IsoUtcNow
 $runKey = Get-DeterministicRunKey -Mode $Mode -BaseUrl $BaseUrl
 $outputRoot = Join-Path $PSScriptRoot (Join-Path 'output' $runKey)
 $runReportPath = Join-Path $outputRoot 'RUN_REPORT.json'
+$linkSummaryPath = Join-Path $outputRoot 'LINK_SUMMARY.json'
 $failurePath = Join-Path $outputRoot 'failure_summary.json'
 $deterministicRunReportPath = Join-Path $PSScriptRoot 'RUN_REPORT.json'
+$deterministicLinkSummaryPath = Join-Path $PSScriptRoot 'LINK_SUMMARY.json'
 $deterministicFailurePath = Join-Path $PSScriptRoot 'failure_summary.json'
 
 $capabilityStatus = [ordered]@{
@@ -60,12 +95,18 @@ $report = [ordered]@{
     timestamp_utc = $timestamp
     capability_status = $capabilityStatus
     learning_backlog = $learningBacklog
+    produced_artifacts = @(
+        'RUN_REPORT.json',
+        'LINK_SUMMARY.json'
+    )
     linked_artifacts = @(
-        [ordered]@{ name = 'run_report'; path = $runReportPath }
+        [ordered]@{ name = 'run_report'; path = $runReportPath },
+        [ordered]@{ name = 'link_summary'; path = $linkSummaryPath }
     )
     truth_files = [ordered]@{
         primary = @(
             'RUN_REPORT.json',
+            'LINK_SUMMARY.json',
             'failure_summary.json'
         )
         context = @(
@@ -75,6 +116,7 @@ $report = [ordered]@{
     }
     read_order = @(
         'RUN_REPORT.json',
+        'LINK_SUMMARY.json',
         'failure_summary.json',
         'agents/site_auditor_v2/agent.ps1',
         '.github/workflows/site-auditor-v2-link.yml'
@@ -92,10 +134,11 @@ $report = [ordered]@{
             'do not patch unrelated files'
         )
         if_missing_artifact = 'Request exact missing file; do not proceed'
-        next_task_shape = 'bounded fix only'
+        next_task_shape = 'expand LINK coverage'
+        scope_constraint = 'expand LINK capture only'
     }
-    summary = 'LINK mode scaffold executed. Non-LINK capabilities are marked NOT_IMPLEMENTED for Sprint A.'
-    next_step = 'Implement deterministic LINK traversal artifact generation in Sprint B.'
+    summary = 'LINK mode executes a live page fetch and writes base LINK signals to artifacts.'
+    next_step = 'Expand LINK capture only.'
 }
 
 $shouldFail = $false
@@ -122,6 +165,25 @@ if ($shouldFail) {
         [ordered]@{ name = 'run_report'; path = $runReportPath },
         [ordered]@{ name = 'failure_summary'; path = $failurePath }
     )
+}
+else {
+    try {
+        $linkSummary = Get-LinkSignals -Url $BaseUrl
+        Write-JsonFile -Path $linkSummaryPath -Data $linkSummary
+        Copy-Item -LiteralPath $linkSummaryPath -Destination $deterministicLinkSummaryPath -Force
+    }
+    catch {
+        $shouldFail = $true
+        $errorCode = 'LINK_FETCH_FAILED'
+        $errorMessage = $_.Exception.Message
+        $report.status = 'FAIL'
+        $report.summary = "Run failed: $errorCode"
+        $report.next_step = $errorMessage
+        $report.linked_artifacts = @(
+            [ordered]@{ name = 'run_report'; path = $runReportPath },
+            [ordered]@{ name = 'failure_summary'; path = $failurePath }
+        )
+    }
 }
 
 Write-JsonFile -Path $runReportPath -Data $report
