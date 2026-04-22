@@ -135,13 +135,51 @@ function Get-ShallowRoutes {
     )
 
     $rootUri = [Uri]$RootUrl
-    $rootResponse = Invoke-WebRequest -Uri $RootUrl -Method Get -MaximumRedirection 5
-    $rootHtml = [string]$rootResponse.Content
-    $hrefMatches = [regex]::Matches($rootHtml, '(?is)<a\b[^>]*href\s*=\s*("([^"]*)"|''([^'']*)''|([^\s>]+))')
+    $fetchDebug = [ordered]@{
+        status_code = ''
+        final_url = ''
+        html_length = 0
+        body_present = $false
+    }
+    $rootHtml = ''
+    $hrefMatches = @()
+    try {
+        $rootResponse = Invoke-WebRequest -Uri $RootUrl -Method Get -MaximumRedirection 5
+        $rootHtml = [string]$rootResponse.Content
+        $fetchDebug.status_code = [string][int]$rootResponse.StatusCode
+        $fetchDebug.final_url = if ($null -ne $rootResponse.BaseResponse -and $null -ne $rootResponse.BaseResponse.ResponseUri) {
+            [string]$rootResponse.BaseResponse.ResponseUri.AbsoluteUri
+        }
+        else {
+            $RootUrl
+        }
+        $fetchDebug.html_length = [int]$rootHtml.Length
+        $fetchDebug.body_present = (-not [string]::IsNullOrWhiteSpace($rootHtml))
+        $hrefMatches = [regex]::Matches($rootHtml, '(?is)<a\b[^>]*href\s*=\s*("([^"]*)"|''([^'']*)''|([^\s>]+))')
+    }
+    catch {
+        return [ordered]@{
+            root = $RootUrl
+            routes = @()
+            route_normalization = 'failed'
+            route_normalization_errors = @('route_fetch_failed')
+            fetch_debug = $fetchDebug
+            raw_links_found = 0
+            internal_links = 0
+            filter_reason = @('fetch_failed', [string]$_.Exception.Message)
+            html_snapshot = ''
+            link_extraction_failed = $false
+        }
+    }
+
+    $rawLinksFound = [int]$hrefMatches.Count
+    $htmlSnapshot = if ($rootHtml.Length -gt 1000) { $rootHtml.Substring(0, 1000) } else { $rootHtml }
     $uniqueRouteKeys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     $routeUrls = [System.Collections.Generic.List[object]]::new()
     $normalizationFailed = $false
     $normalizationErrors = [System.Collections.Generic.List[string]]::new()
+    $internalLinkCount = 0
+    $filterReasons = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 
     foreach ($match in $hrefMatches) {
         $rawHref = if (-not [string]::IsNullOrWhiteSpace($match.Groups[2].Value)) {
@@ -155,11 +193,13 @@ function Get-ShallowRoutes {
         }
 
         if ([string]::IsNullOrWhiteSpace($rawHref)) {
+            $null = $filterReasons.Add('empty_href')
             continue
         }
 
         $trimmedHref = $rawHref.Trim()
         if ($trimmedHref.StartsWith('#')) {
+            $null = $filterReasons.Add('invalid_format')
             continue
         }
 
@@ -167,16 +207,20 @@ function Get-ShallowRoutes {
             $resolvedUri = [Uri]::new($rootUri, $trimmedHref)
         }
         catch {
+            $null = $filterReasons.Add('invalid_format')
             continue
         }
 
         if ($resolvedUri.Scheme -notin @('http', 'https')) {
+            $null = $filterReasons.Add('invalid_format')
             continue
         }
 
         if ($resolvedUri.Host -ne $rootUri.Host) {
+            $null = $filterReasons.Add('all_external')
             continue
         }
+        $internalLinkCount += 1
 
         $normalizationResult = Get-NormalizedRouteResult -Url $resolvedUri.AbsoluteUri
         if ($normalizationResult.status -eq 'failed') {
@@ -184,12 +228,8 @@ function Get-ShallowRoutes {
             $normalizationErrors.Add("route=$($resolvedUri.AbsoluteUri); reason=$($normalizationResult.error)")
         }
 
-        if ($uniqueRouteKeys.Add($normalizationResult.normalized_route)) {
+        if (($routeUrls.Count -lt $MaxRoutes) -and $uniqueRouteKeys.Add($normalizationResult.normalized_route)) {
             $routeUrls.Add($normalizationResult)
-        }
-
-        if ($routeUrls.Count -ge $MaxRoutes) {
-            break
         }
     }
 
@@ -230,6 +270,12 @@ function Get-ShallowRoutes {
         routes = $routes
         route_normalization = if ($normalizationFailed) { 'failed' } else { 'ok' }
         route_normalization_errors = @($normalizationErrors)
+        fetch_debug = $fetchDebug
+        raw_links_found = [int]$rawLinksFound
+        internal_links = [int]$internalLinkCount
+        filter_reason = if ($internalLinkCount -eq 0) { @($filterReasons) } else { @() }
+        html_snapshot = $htmlSnapshot
+        link_extraction_failed = [bool](($fetchDebug.html_length -gt 0) -and ($rawLinksFound -eq 0))
     }
 }
 
@@ -843,6 +889,17 @@ $report = [ordered]@{
         [ordered]@{ name = 'screenshots'; path = $screenshotsPath }
     )
     problem_targets = @()
+    fetch_debug = [ordered]@{
+        status_code = ''
+        final_url = ''
+        html_length = 0
+        body_present = $false
+    }
+    raw_links_found = 0
+    internal_links = 0
+    filter_reason = @()
+    html_snapshot = ''
+    link_extraction_failed = $false
     operator_handoff = [ordered]@{
         deprecated = $true
         reader_role = 'ChatGPT decision/orchestration layer'
@@ -1007,6 +1064,17 @@ else {
 
         $routesSummary = Get-ShallowRoutes -RootUrl $BaseUrl -MaxRoutes 10
         $report.route_normalization = [string]$routesSummary.route_normalization
+        $report.fetch_debug = [ordered]@{
+            status_code = [string]$routesSummary.fetch_debug.status_code
+            final_url = [string]$routesSummary.fetch_debug.final_url
+            html_length = [int]$routesSummary.fetch_debug.html_length
+            body_present = [bool]$routesSummary.fetch_debug.body_present
+        }
+        $report.raw_links_found = [int]$routesSummary.raw_links_found
+        $report.internal_links = [int]$routesSummary.internal_links
+        $report.filter_reason = @($routesSummary.filter_reason)
+        $report.html_snapshot = [string]$routesSummary.html_snapshot
+        $report.link_extraction_failed = [bool]$routesSummary.link_extraction_failed
         foreach ($route in $routesSummary.routes) {
             $classification = if ($route.status_code -ne 200) {
                 'broken'
