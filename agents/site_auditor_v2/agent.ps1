@@ -839,6 +839,51 @@ $report = [ordered]@{
         why_this_move = ''
         do_not_do_yet = @()
     }
+    operator_memory_core = [ordered]@{
+        who_am_i = 'system operator building site auditor agent'
+        what_system_is_being_built = 'site audit agent → decision → action → monetization system'
+        primary_asset = 'automation site as decision system'
+        end_goal = 'traffic → decision → action → monetization'
+        current_stage = ''
+        current_focus = ''
+        what_is_stable = @()
+        what_is_unstable = @()
+        agent_learned = @()
+        agent_cannot_yet = @()
+        agent_misleading_risk = @()
+        next_capability_to_build = ''
+    }
+    operator_memory_bridge = [ordered]@{
+        identity_anchor = [ordered]@{
+            who_am_i = 'system operator building site auditor agent'
+            what_system_is_being_built = 'site audit agent → decision → action → monetization system'
+            primary_asset = 'automation site as decision system'
+            end_goal = 'traffic → decision → action → monetization'
+        }
+        state_anchor = [ordered]@{
+            current_stage = ''
+            current_focus = ''
+            what_is_stable = @()
+            what_is_unstable = @()
+        }
+        learning_anchor = [ordered]@{
+            agent_learned = @()
+            agent_cannot_yet = @()
+            agent_misleading_risk = @()
+            next_capability_to_build = ''
+        }
+        must_read_contract = [ordered]@{
+            must_read_files = @('RUN_REPORT.json', 'ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json', 'ACTION_SUMMARY.json', 'visual_manifest.json')
+            read_order = @('RUN_REPORT.json', 'ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json', 'ACTION_SUMMARY.json', 'visual_manifest.json')
+            first_file_to_open = 'RUN_REPORT.json'
+            why_read = 'RUN_REPORT.json contains deterministic findings, priorities, route verdicts, and report-state constraints anchored to generated artifacts.'
+            minimum_context_after_read = 'visual truth is trusted within sampled coverage, route selection is stable in-budget, report layer exists with deterministic findings, and deeper interpretation remains limited without interaction/decision layers.'
+        }
+        next_operator_posture = [ordered]@{
+            next_system_move = ''
+            do_not_do_yet = @()
+        }
+    }
     priority_summary = [ordered]@{
         p0_count = 0
         p1_count = 0
@@ -1703,6 +1748,37 @@ else {
             }
         }
         $report.operator_memory_core = $operatorMemoryCore
+        $report.operator_memory_bridge = [ordered]@{
+            identity_anchor = [ordered]@{
+                who_am_i = [string]$operatorMemoryCore.who_am_i
+                what_system_is_being_built = [string]$operatorMemoryCore.what_system_is_being_built
+                primary_asset = [string]$operatorMemoryCore.primary_asset
+                end_goal = [string]$operatorMemoryCore.end_goal
+            }
+            state_anchor = [ordered]@{
+                current_stage = [string]$operatorMemoryCore.current_stage
+                current_focus = [string]$operatorMemoryCore.current_focus
+                what_is_stable = @($operatorMemoryCore.what_is_stable)
+                what_is_unstable = @($operatorMemoryCore.what_is_unstable)
+            }
+            learning_anchor = [ordered]@{
+                agent_learned = @($operatorMemoryCore.agent_learned)
+                agent_cannot_yet = @($operatorMemoryCore.agent_cannot_yet)
+                agent_misleading_risk = @($operatorMemoryCore.agent_misleading_risk)
+                next_capability_to_build = [string]$operatorMemoryCore.next_capability_to_build
+            }
+            must_read_contract = [ordered]@{
+                must_read_files = @($report.operator_handoff.truth_files)
+                read_order = @($report.operator_handoff.read_order)
+                first_file_to_open = [string]$report.operator_handoff.first_file_to_open
+                why_read = [string]$report.operator_handoff.exact_reason
+                minimum_context_after_read = 'visual truth is trusted within sampled coverage, route selection is stable in-budget, report layer exists with deterministic findings, and deeper interpretation remains limited without interaction/decision layers.'
+            }
+            next_operator_posture = [ordered]@{
+                next_system_move = [string]$report.operator_feed.next_system_move
+                do_not_do_yet = @($report.operator_handoff.do_not_do_yet)
+            }
+        }
         $report.page_verdicts = @($pageVerdicts)
         $report.priority_summary = [ordered]@{
             p0_count = $p0Count
@@ -1788,6 +1864,17 @@ else {
                 'do not patch unrelated files'
             )
             if_missing_artifact = 'Request exact missing file; do not proceed'
+        }
+        $report.operator_memory_bridge.must_read_contract = [ordered]@{
+            must_read_files = @($report.operator_handoff.truth_files)
+            read_order = @($report.operator_handoff.read_order)
+            first_file_to_open = [string]$report.operator_handoff.first_file_to_open
+            why_read = [string]$report.operator_handoff.exact_reason
+            minimum_context_after_read = 'visual truth is trusted within sampled coverage, route selection is stable in-budget, report layer exists with deterministic findings, and deeper interpretation remains limited without interaction/decision layers.'
+        }
+        $report.operator_memory_bridge.next_operator_posture = [ordered]@{
+            next_system_move = [string]$report.operator_feed.next_system_move
+            do_not_do_yet = @($report.operator_handoff.do_not_do_yet)
         }
 
         $report.trust_boundary.decision_allowed = [bool]$report.decision_allowed

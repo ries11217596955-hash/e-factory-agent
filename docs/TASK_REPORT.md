@@ -1,5 +1,5 @@
 ## Summary
-Added a mandatory `operator_memory_core` block to LINK-mode `RUN_REPORT.json`, anchored to deterministic run-state evidence and populated with fixed operator identity/system-goal fields plus stage/focus/stability/capability fields derived from existing report truth sources.
+Implemented a canonical `operator_memory_bridge` block in LINK-mode `RUN_REPORT.json` output that deterministically unifies static operator identity anchors, dynamic run-state/learning anchors, must-read contract fields, and next operator posture.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
@@ -10,11 +10,12 @@ Added a mandatory `operator_memory_core` block to LINK-mode `RUN_REPORT.json`, a
 - None.
 
 ## Current entrypoints/paths
-- Agent entrypoint remains `agents/site_auditor_v2/agent.ps1` (LINK mode only).
-- RUN_REPORT contract path remains `agents/site_auditor_v2/contracts/run_report.schema.json`.
-- `RUN_REPORT.json` now includes both `operator_feed` and mandatory `operator_memory_core`.
-- `operator_memory_core` fields are deterministic and constrained to current capabilities: identity/system anchors, current stage/focus, stable/unstable state, learned limits, risk, and one next capability.
+- Agent entrypoint remains `agents/site_auditor_v2/agent.ps1` (LINK mode).
+- RUN_REPORT schema remains `agents/site_auditor_v2/contracts/run_report.schema.json`.
+- `RUN_REPORT.json` now includes mandatory `operator_memory_bridge` as canonical operator-context block while retaining `operator_memory_core` and `operator_handoff` for compatibility.
+- `operator_memory_bridge.must_read_contract` now carries `must_read_files`, `read_order`, `first_file_to_open`, `why_read`, and `minimum_context_after_read`.
+- `operator_memory_bridge` is seeded with static SSOT identity anchors and dynamic runtime state/learning fields; dynamic fields stay empty when not derivable.
 
 ## Risks/blockers
-- `operator_memory_core` intentionally excludes speculative interpretation and uses empty defaults where state cannot be derived.
-- Capability limitations remain explicit to reduce operator-context drift risk and prevent accidental over-claiming.
+- Compatibility fields are intentionally retained to avoid downstream contract breakage while transitioning canonical context to `operator_memory_bridge`.
+- `minimum_context_after_read` is deterministic and constrained to current LINK/report-layer capabilities; deeper interpretation remains explicitly out of scope.
