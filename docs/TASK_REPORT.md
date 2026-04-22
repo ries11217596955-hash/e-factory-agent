@@ -1,5 +1,5 @@
 ## Summary
-Implemented a bounded hotfix in `site_auditor_v2` so every FAIL state in `RUN_REPORT` references `failure_summary.json`, and ensured counter mismatch FAIL flow writes a compliant `failure_summary.json` artifact with required contract fields.
+Implemented a bounded LINK-mode route-key canonicalization fix in `site_auditor_v2` so selected routes and manifest routes are compared using the same normalized path-only key format. This removes false `COUNTER_INCONSISTENCY` mismatches caused by representation drift (absolute URL vs normalized path) while preserving hard fail behavior for real page-set mismatches. Added explicit normalization error capture so unsafe route values are recorded and excluded from raw cross-format comparison.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
@@ -10,10 +10,11 @@ Implemented a bounded hotfix in `site_auditor_v2` so every FAIL state in `RUN_RE
 
 ## Current entrypoints/paths
 - Agent entrypoint: `agents/site_auditor_v2/agent.ps1`
-- FAIL contract reference path: `report.failure_or_limit_report` now enforced to `kind=FAILURE` + `failure_summary=failure_summary.json` before FAIL exit.
-- Counter mismatch FAIL path: `counter_inconsistency` path now explicitly references `failure_summary.json`.
-- FAIL artifact write path: `failure_summary.json` write now includes required minimum fields (`error_code`, `error_message`, `fail_class`, `notes`, `must_read_files`) and includes last-resort fallback write.
+- Route normalization helpers:
+  - `Get-NormalizedRouteResult` (existing normalized route logic)
+  - `Get-CanonicalRouteKeyResult` (new single canonical route-key wrapper used by comparison path)
+- LINK-mode selected-vs-manifest route set comparison now canonicalizes both sides before mismatch detection and writes normalization diagnostics under `report.capture_summary.counter_mismatch_details`.
 
 ## Risks/blockers
-- Validation in this environment was static (script inspection/lint-level) and did not execute a live external LINK run.
-- Last-resort write uses direct JSON serialization as a fallback only when the primary writer fails.
+- Validation here was code-level/static and did not run a full external LINK capture against a live target.
+- Route values that cannot be safely normalized are now treated as `normalization_error`, which intentionally prevents PASS for that comparison cycle.
