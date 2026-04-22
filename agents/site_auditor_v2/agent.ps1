@@ -396,11 +396,18 @@ function Get-VisualTargets {
     if ($seenRoutes.Add($baseNormalized.normalized_route)) {
         $baseClassification = Get-SafeRouteClassification -RouteKey $baseNormalized.normalized_route
         if (-not $baseClassification.PSObject.Properties['hard_exclude'] -or -not [bool]$baseClassification.hard_exclude) {
+            $baseSelectionReason = switch ([string]$baseClassification.type) {
+                'ROOT' { 'tier_1_root_page' }
+                'DECISION' { 'tier_1_decision_page' }
+                'CONTENT' { 'tier_2_content_page' }
+                default { 'tier_2_content_page' }
+            }
             $tierOne.Add([ordered]@{
                     route = $baseNormalized.normalized_route
                     type = [string]$baseClassification.type
                     priority = [int]$baseClassification.priority
                     url = $baseNormalized.url
+                    selection_reason = $baseSelectionReason
                 })
         }
     }
@@ -429,11 +436,19 @@ function Get-VisualTargets {
             continue
         }
 
+        $selectionReason = switch ([string]$classification.type) {
+            'ROOT' { 'tier_1_root_page' }
+            'DECISION' { 'tier_1_decision_page' }
+            'CONTENT' { 'tier_2_content_page' }
+            default { 'tier_2_content_page' }
+        }
+
         $target = [ordered]@{
             route = $routeKey
             type = [string]$classification.type
             priority = [int]$classification.priority
             url = [string]$route.url
+            selection_reason = $selectionReason
         }
 
         if ($classification.priority -eq 1) {
@@ -457,7 +472,26 @@ function Get-VisualTargets {
         $selected.Add($target)
     }
 
-    return @($selected)
+    $allRankedTargets = @($tierOne + $tierTwo)
+    $overflow = @(
+        $allRankedTargets |
+        Select-Object -Skip $selected.Count |
+        ForEach-Object {
+            [ordered]@{
+                route = [string]$_.route
+                type = [string]$_.type
+                priority = [int]$_.priority
+                selection_reason = [string]$_.selection_reason
+                exclusion_reason = 'over_max_routes_tiered_priority_cutoff'
+            }
+        }
+    )
+
+    return [ordered]@{
+        selected_routes = @($selected)
+        overflow_routes = @($overflow)
+        selection_strategy = 'tiered_priority'
+    }
 }
 
 function Invoke-VisualCapture {
@@ -645,6 +679,7 @@ function Invoke-EvidenceReconciliation {
 }
 
 $normalizedMode = $Mode.Trim().ToUpperInvariant()
+$maxRoutes = 5
 $timestamp = Get-IsoUtcNow
 $runKey = Get-DeterministicRunKey -Mode $Mode -BaseUrl $BaseUrl
 $outputRoot = Join-Path $PSScriptRoot (Join-Path 'output' $runKey)
@@ -927,8 +962,9 @@ else {
         Copy-Item -LiteralPath $actionReportPath -Destination $deterministicActionReportPath -Force
         $null = $producedArtifacts.Add('ACTION_REPORT.txt')
 
-        $captureTargets = Get-VisualTargets -BaseUrl $BaseUrl -RoutesSummary $routesSummary -MaxPages 5
-        $selectedRoutes = @($captureTargets)
+        $captureTargetPlan = Get-VisualTargets -BaseUrl $BaseUrl -RoutesSummary $routesSummary -MaxPages $maxRoutes
+        $selectedRoutes = @($captureTargetPlan.selected_routes)
+        $overflowRoutes = @($captureTargetPlan.overflow_routes)
         $selectedRoutesCount = [int]$selectedRoutes.Count
         $captureTargetUrls = @($selectedRoutes | ForEach-Object { [string]$_.url })
         $report.selected_routes = @(
@@ -938,9 +974,21 @@ else {
                     route = [string]$_.route
                     type = [string]$_.type
                     priority = [int]$_.priority
+                    selection_reason = [string]$_.selection_reason
                 }
             }
         )
+        $report.run_budget = [ordered]@{
+            max_routes = [int]$maxRoutes
+            selected_routes = [int]$selectedRoutesCount
+            selection_strategy = [string]$captureTargetPlan.selection_strategy
+            overflow_routes = [int]$overflowRoutes.Count
+            overflow_route_details = @($overflowRoutes)
+        }
+
+        if ($selectedRoutesCount -gt $maxRoutes) {
+            throw "run_budget_violation: selected_routes_exceeded_max_routes"
+        }
         $captureToolPath = Join-Path $PSScriptRoot 'tools/capture_visuals.mjs'
         $captureExitCode = Invoke-VisualCapture -Pages $captureTargetUrls -ToolPath $captureToolPath -InputPath $visualInputPath -ManifestPath $visualManifestPath -ScreenshotsPath $screenshotsPath
         Copy-Item -LiteralPath $visualManifestPath -Destination $deterministicVisualManifestPath -Force
@@ -1260,8 +1308,8 @@ else {
             $report.execution_status = 'FAILED'
             $report.execution_report.final_outcome = 'FAIL'
             $report.execution_report.status_detail = 'FAIL'
-            $report.summary = 'Run failed: COUNTER_INCONSISTENCY'
-            $report.next_step = 'counter_inconsistency'
+            $report.summary = 'Run failed: run_budget_violation'
+            $report.next_step = 'run_budget_violation'
             $report.decision_allowed = $false
             $report.decision_disabled = $true
             $report.capture_report.status = 'FAIL'
@@ -1269,14 +1317,14 @@ else {
             $report.failure_or_limit_report = [ordered]@{
                 kind = 'FAILURE'
                 failure_summary = 'failure_summary.json'
-                notes = @('counter_inconsistency')
-                reason = 'counter_inconsistency'
+                notes = @('run_budget_violation')
+                reason = 'run_budget_violation'
             }
             $report.trust_boundary.visual_evidence = 'invalid'
-            $report.trust_boundary.reason = 'counter_inconsistency'
+            $report.trust_boundary.reason = 'run_budget_violation'
             $shouldFail = $true
-            $errorCode = 'COUNTER_INCONSISTENCY'
-            $errorMessage = 'counter_inconsistency'
+            $errorCode = 'RUN_BUDGET_VIOLATION'
+            $errorMessage = 'run_budget_violation'
         }
 
         $report.trust_boundary.decision_allowed = [bool]$report.decision_allowed

@@ -1,8 +1,9 @@
 ## Summary
-Implemented a bounded LINK-mode route-key canonicalization fix in `site_auditor_v2` so selected routes and manifest routes are compared using the same normalized path-only key format. This removes false `COUNTER_INCONSISTENCY` mismatches caused by representation drift (absolute URL vs normalized path) while preserving hard fail behavior for real page-set mismatches. Added explicit normalization error capture so unsafe route values are recorded and excluded from raw cross-format comparison.
+Implemented a strict LINK-mode run budget control layer with hard cap enforcement (`max_routes = 5`) and explicit route-selection traceability. Selected routes now include `selection_reason`, the run report now includes a `run_budget` block (including overflow accounting and excluded-route detail), and mismatch/overflow behavior now fails with `run_budget_violation` semantics.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
+- `agents/site_auditor_v2/contracts/run_report.schema.json`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
@@ -10,11 +11,10 @@ Implemented a bounded LINK-mode route-key canonicalization fix in `site_auditor_
 
 ## Current entrypoints/paths
 - Agent entrypoint: `agents/site_auditor_v2/agent.ps1`
-- Route normalization helpers:
-  - `Get-NormalizedRouteResult` (existing normalized route logic)
-  - `Get-CanonicalRouteKeyResult` (new single canonical route-key wrapper used by comparison path)
-- LINK-mode selected-vs-manifest route set comparison now canonicalizes both sides before mismatch detection and writes normalization diagnostics under `report.capture_summary.counter_mismatch_details`.
+- Run-budget selection path: `Get-VisualTargets` now returns `selected_routes`, `overflow_routes`, and `selection_strategy`.
+- RUN_REPORT contract path: `agents/site_auditor_v2/contracts/run_report.schema.json` now includes `selected_routes[].selection_reason` and `run_budget`.
+- LINK-mode enforcement path now explicitly hard-fails out-of-budget page-set mismatches as `run_budget_violation`.
 
 ## Risks/blockers
-- Validation here was code-level/static and did not run a full external LINK capture against a live target.
-- Route values that cannot be safely normalized are now treated as `normalization_error`, which intentionally prevents PASS for that comparison cycle.
+- Validation performed in-repo (static checks + schema parse only); no live external LINK crawl was executed in this environment.
+- Existing downstream consumers that assumed the old `COUNTER_INCONSISTENCY` reason code must now handle `run_budget_violation`.

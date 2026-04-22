@@ -49,6 +49,43 @@
         }
       }
     },
+    "selected_routes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["route", "type", "priority", "selection_reason"],
+        "properties": {
+          "route": { "type": "string" },
+          "type": { "type": "string" },
+          "priority": { "type": "integer" },
+          "selection_reason": { "type": "string" }
+        }
+      }
+    },
+    "run_budget": {
+      "type": "object",
+      "required": ["max_routes", "selected_routes", "selection_strategy", "overflow_routes"],
+      "properties": {
+        "max_routes": { "type": "integer" },
+        "selected_routes": { "type": "integer" },
+        "selection_strategy": { "type": "string" },
+        "overflow_routes": { "type": "integer" },
+        "overflow_route_details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["route", "type", "priority", "selection_reason", "exclusion_reason"],
+            "properties": {
+              "route": { "type": "string" },
+              "type": { "type": "string" },
+              "priority": { "type": "integer" },
+              "selection_reason": { "type": "string" },
+              "exclusion_reason": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
     "summary": { "type": "string" },
     "next_step": { "type": "string" }
   }
