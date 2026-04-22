@@ -234,7 +234,13 @@ function Invoke-EvidenceReconciliation {
         [Parameter(Mandatory = $true)]
         [string]$ScreenshotsPath,
         [Parameter(Mandatory = $true)]
-        [int]$RunReportPagesAttempted
+        [int]$RunReportPagesAttempted,
+        [Parameter(Mandatory = $true)]
+        [int]$RunReportCapturesAttempted,
+        [Parameter(Mandatory = $true)]
+        [int]$RunReportCapturesSuccess,
+        [Parameter(Mandatory = $true)]
+        [int]$RunReportCapturesFailed
     )
 
     $sizeThresholdBytes = 10000
@@ -320,6 +326,13 @@ function Invoke-EvidenceReconciliation {
     if (($RunReportPagesAttempted -ne $manifestPageCount) -or ($manifestPageCount -ne $actualUniquePageKeys.Count)) {
         $null = $issues.Add('RUN_REPORT_INCONSISTENT')
     }
+    if (
+        ($RunReportCapturesAttempted -ne $manifestCaptureCount) -or
+        ($RunReportCapturesSuccess -ne $validCount) -or
+        ($RunReportCapturesFailed -ne $invalidCount)
+    ) {
+        $null = $issues.Add('RUN_REPORT_COUNTER_MISMATCH')
+    }
 
     $status = 'PASS'
     if ($validCount -eq 0 -and ($manifestCaptureCount -gt 0)) {
@@ -336,6 +349,16 @@ function Invoke-EvidenceReconciliation {
     if (-not $checksCompleted) {
         $status = 'FAIL'
         $null = $issues.Add('reconciliation_error')
+    }
+
+    if (
+        ($issues.Contains('missing_capture')) -or
+        ($issues.Contains('empty_capture')) -or
+        ($issues.Contains('manifest_mismatch'))
+    ) {
+        if ($status -eq 'PASS') {
+            $status = 'PARTIAL'
+        }
     }
 
     return [ordered]@{
@@ -493,6 +516,8 @@ $report = [ordered]@{
     }
     summary = 'LINK mode executes live fetch, route checks, and screenshot evidence capture.'
     next_step = 'Stabilize screenshot evidence quality in LINK mode.'
+    decision_allowed = $true
+    reconciliation_enforced = $false
 }
 
 $shouldFail = $false
@@ -696,7 +721,7 @@ else {
         }
 
         try {
-            $reconciliation = Invoke-EvidenceReconciliation -ManifestPath $visualManifestPath -ScreenshotsPath $screenshotsPath -RunReportPagesAttempted $pagesAttempted
+            $reconciliation = Invoke-EvidenceReconciliation -ManifestPath $visualManifestPath -ScreenshotsPath $screenshotsPath -RunReportPagesAttempted $pagesAttempted -RunReportCapturesAttempted $capturesAttempted -RunReportCapturesSuccess $capturesSuccess -RunReportCapturesFailed $capturesFailed
             $report.evidence_reconciliation = [ordered]@{
                 status = $reconciliation.status
                 files_checked = $reconciliation.files_checked
@@ -704,9 +729,21 @@ else {
                 files_invalid = $reconciliation.files_invalid
                 issues = @($reconciliation.issues)
             }
+            $report.reconciliation_enforced = $true
 
-            if ($reconciliation.status -ne 'PASS' -and $report.capture_report.status -eq 'PASS') {
-                $report.capture_report.status = if ($reconciliation.status -eq 'FAIL') { 'FAIL' } else { 'PARTIAL' }
+            if (@('PASS', 'PARTIAL', 'FAIL') -notcontains [string]$reconciliation.status) {
+                throw "Reconciliation returned unsupported status '$([string]$reconciliation.status)'."
+            }
+
+            $report.capture_report.status = [string]$reconciliation.status
+            if ($reconciliation.status -eq 'PARTIAL') {
+                $report.trust_boundary = [ordered]@{
+                    visual_coverage = 'incomplete'
+                    note = 'Some screenshots missing or invalid'
+                }
+            }
+            elseif ($null -ne $report.PSObject.Properties['trust_boundary']) {
+                $report.PSObject.Properties.Remove('trust_boundary')
             }
         }
         catch {
@@ -715,6 +752,9 @@ else {
             $report.execution_report.final_outcome = 'FAIL'
             $report.execution_report.status_detail = 'FAIL'
             $report.decision_disabled = $true
+            $report.decision_allowed = $false
+            $report.reconciliation_enforced = $true
+            $report.capture_report.status = 'FAIL'
             $report.evidence_reconciliation = [ordered]@{
                 status = 'FAIL'
                 files_checked = 0
@@ -795,6 +835,14 @@ else {
         else {
             $report.execution_status = 'SUCCESS'
             $report.execution_report.status_detail = $passStatus
+        }
+        if ($report.capture_report.status -ne 'PASS') {
+            $report.decision_allowed = $false
+            $report.decision_disabled = $true
+        }
+        else {
+            $report.decision_allowed = $true
+            $report.decision_disabled = $false
         }
         $report.produced_artifacts = @($producedArtifacts)
     }
