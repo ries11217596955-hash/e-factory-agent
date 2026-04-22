@@ -167,11 +167,13 @@ $runReportPath = Join-Path $outputRoot 'RUN_REPORT.json'
 $linkSummaryPath = Join-Path $outputRoot 'LINK_SUMMARY.json'
 $routesSummaryPath = Join-Path $outputRoot 'ROUTES_SUMMARY.json'
 $auditSummaryPath = Join-Path $outputRoot 'AUDIT_SUMMARY.json'
+$actionSummaryPath = Join-Path $outputRoot 'ACTION_SUMMARY.json'
 $failurePath = Join-Path $outputRoot 'failure_summary.json'
 $deterministicRunReportPath = Join-Path $PSScriptRoot 'RUN_REPORT.json'
 $deterministicLinkSummaryPath = Join-Path $PSScriptRoot 'LINK_SUMMARY.json'
 $deterministicRoutesSummaryPath = Join-Path $PSScriptRoot 'ROUTES_SUMMARY.json'
 $deterministicAuditSummaryPath = Join-Path $PSScriptRoot 'AUDIT_SUMMARY.json'
+$deterministicActionSummaryPath = Join-Path $PSScriptRoot 'ACTION_SUMMARY.json'
 $deterministicFailurePath = Join-Path $PSScriptRoot 'failure_summary.json'
 
 $capabilityStatus = [ordered]@{
@@ -202,13 +204,15 @@ $report = [ordered]@{
         'RUN_REPORT.json',
         'LINK_SUMMARY.json',
         'ROUTES_SUMMARY.json',
-        'AUDIT_SUMMARY.json'
+        'AUDIT_SUMMARY.json',
+        'ACTION_SUMMARY.json'
     )
     linked_artifacts = @(
         [ordered]@{ name = 'run_report'; path = $runReportPath },
         [ordered]@{ name = 'link_summary'; path = $linkSummaryPath },
         [ordered]@{ name = 'routes_summary'; path = $routesSummaryPath },
-        [ordered]@{ name = 'audit_summary'; path = $auditSummaryPath }
+        [ordered]@{ name = 'audit_summary'; path = $auditSummaryPath },
+        [ordered]@{ name = 'action_summary'; path = $actionSummaryPath }
     )
     truth_files = [ordered]@{
         primary = @(
@@ -216,6 +220,7 @@ $report = [ordered]@{
             'LINK_SUMMARY.json',
             'ROUTES_SUMMARY.json',
             'AUDIT_SUMMARY.json',
+            'ACTION_SUMMARY.json',
             'failure_summary.json'
         )
         context = @(
@@ -228,6 +233,7 @@ $report = [ordered]@{
         'LINK_SUMMARY.json',
         'ROUTES_SUMMARY.json',
         'AUDIT_SUMMARY.json',
+        'ACTION_SUMMARY.json',
         'failure_summary.json',
         'agents/site_auditor_v2/agent.ps1',
         '.github/workflows/site-auditor-v2-link.yml'
@@ -256,7 +262,7 @@ $report = [ordered]@{
             'ROUTES_SUMMARY.json',
             'AUDIT_SUMMARY.json'
         )
-        next_task_shape = 'map unclear route structure'
+        next_task_shape = 'refine actions only'
         scope_constraint = 'expand LINK capture only'
     }
     summary = 'LINK mode executes a live page fetch and writes base LINK signals to artifacts.'
@@ -318,6 +324,7 @@ else {
                     url = $_.url
                     classification = 'broken'
                     reason = 'status_code not 200'
+                    action = 'fix or remove page'
                 }
             }
         )
@@ -331,11 +338,25 @@ else {
                     url = $_.url
                     classification = 'thin'
                     reason = 'low html_length'
+                    action = 'expand content'
                 }
             }
         )
         $problemTargets = @($brokenTargets + $thinTargets)
         $report.problem_targets = $problemTargets
+
+        $actionSummary = @(
+            $problemTargets |
+            ForEach-Object {
+                [ordered]@{
+                    url = $_.url
+                    issue = $_.classification
+                    action = $_.action
+                }
+            }
+        )
+        Write-JsonFile -Path $actionSummaryPath -Data $actionSummary
+        Copy-Item -LiteralPath $actionSummaryPath -Destination $deterministicActionSummaryPath -Force
 
         $okCount = @($routesSummary.routes | Where-Object { $_.classification -eq 'ok' }).Count
         $thinCount = @($routesSummary.routes | Where-Object { $_.classification -eq 'thin' }).Count
@@ -349,19 +370,7 @@ else {
         Write-JsonFile -Path $auditSummaryPath -Data $auditSummary
         Copy-Item -LiteralPath $auditSummaryPath -Destination $deterministicAuditSummaryPath -Force
 
-        $primaryProblem = 'structure unclear'
-        $nextTaskShape = 'map unclear route structure'
-        if ($thinCount -gt $okCount -and $thinCount -gt $brokenCount) {
-            $primaryProblem = 'thin content'
-            $nextTaskShape = 'detect why pages are thin'
-        }
-        elseif ($brokenCount -gt 0) {
-            $primaryProblem = 'broken pages'
-            $nextTaskShape = 'identify broken routes'
-        }
-
-        $report.operator_handoff.primary_problem = $primaryProblem
-        $report.operator_handoff.next_task_shape = $nextTaskShape
+        $report.operator_handoff.next_task_shape = 'refine actions only'
     }
     catch {
         $shouldFail = $true

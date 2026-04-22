@@ -1,5 +1,5 @@
 ## Summary
-Added explicit `problem_targets` generation from `ROUTES_SUMMARY` in LINK mode: all `broken` routes plus the top 3 `thin` routes with the lowest `html_length`. Updated `RUN_REPORT` to include `problem_targets` and replaced operator handoff instructions with targeted page-level inspection steps, including `what_to_inspect_next`.
+Added minimal per-page actions to `problem_targets`, generated `ACTION_SUMMARY.json`, updated `RUN_REPORT` artifact lists to include `ACTION_SUMMARY.json`, and set handoff `next_task_shape` to `refine actions only`.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
@@ -10,10 +10,9 @@ Added explicit `problem_targets` generation from `ROUTES_SUMMARY` in LINK mode: 
 
 ## Current entrypoints/paths
 - Agent entrypoint: `agents/site_auditor_v2/agent.ps1`
-- New run report block: `RUN_REPORT.json -> problem_targets`
-- Updated operator handoff block: `RUN_REPORT.json -> operator_handoff`
-- Source for target selection: `ROUTES_SUMMARY.json -> routes[*]`
+- New artifact output: `ACTION_SUMMARY.json`
+- Updated run report outputs: `RUN_REPORT.json -> produced_artifacts`, `RUN_REPORT.json -> linked_artifacts`
+- Updated handoff field: `RUN_REPORT.json -> operator_handoff.next_task_shape`
 
 ## Risks/blockers
-- If fewer than 3 thin routes are present, `problem_targets` will include fewer thin entries.
-- Route sampling remains shallow (`MaxRoutes = 10`), so target coverage is limited to sampled routes.
+- None.
