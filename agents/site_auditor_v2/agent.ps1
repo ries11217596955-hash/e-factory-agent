@@ -821,6 +821,37 @@ $report = [ordered]@{
     }
     summary = 'LINK mode executes live fetch, route checks, and screenshot evidence capture.'
     next_step = 'Stabilize screenshot evidence quality in LINK mode.'
+    report_mode = 'CLEAN'
+    executive_answer = [ordered]@{
+        overall_verdict = 'limited: findings layer not computed'
+        primary_problem = 'audit answer layer unavailable'
+        audit_scope = 'LINK mode / screenshot evidence baseline'
+        strongest_next_move = 'derive deterministic findings from existing artifacts'
+    }
+    findings = @()
+    priority_summary = [ordered]@{
+        p0_count = 0
+        p1_count = 0
+        p2_count = 0
+        top_issues = @()
+    }
+    page_verdicts = @()
+    business_impact = [ordered]@{
+        trust = 'unknown'
+        navigation = 'unknown'
+        coverage = 'unknown'
+        monetization_readiness = 'unknown'
+    }
+    next_action_contract = [ordered]@{
+        next_task_id = 'SITE_AUDITOR_V2_REPORT_LAYER_FOLLOWUP'
+        next_task_objective = 'produce bounded findings from existing LINK-mode truth artifacts'
+        why_this_first = 'operator needs deterministic answer contract before deeper interpretation'
+        forbidden_before_done = @(
+            'do not add interaction layer',
+            'do not expand crawl depth',
+            'do not add decision automation'
+        )
+    }
     decision_allowed = $true
     reconciliation_enforced = $false
     route_normalization = 'ok'
@@ -1325,6 +1356,249 @@ else {
             $shouldFail = $true
             $errorCode = 'RUN_BUDGET_VIOLATION'
             $errorMessage = 'run_budget_violation'
+        }
+
+        $routeIssueMap = @{}
+        $findingsList = [System.Collections.Generic.List[object]]::new()
+        $findingIndex = 1
+        foreach ($route in @($routesSummary.routes)) {
+            $routeKey = [string]$route.normalized_route
+            if ([string]::IsNullOrWhiteSpace($routeKey)) {
+                $routeKey = [string]$route.url
+            }
+
+            if ([string]::IsNullOrWhiteSpace($routeKey)) {
+                continue
+            }
+
+            if (-not $routeIssueMap.ContainsKey($routeKey)) {
+                $routeIssueMap[$routeKey] = [System.Collections.Generic.List[string]]::new()
+            }
+
+            if ($route.classification -eq 'broken') {
+                $findingId = "F-{0:d3}" -f $findingIndex
+                $findingsList.Add([ordered]@{
+                        finding_id = $findingId
+                        route = $routeKey
+                        issue_type = 'broken_route'
+                        severity = 'P1'
+                        evidence_refs = @('ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json')
+                        why_it_matters = 'Broken route evidence blocks page access in current sampled route set.'
+                        recommended_action = 'Fix route status or remove the broken link from internal navigation.'
+                    })
+                $routeIssueMap[$routeKey].Add($findingId)
+                $findingIndex += 1
+            }
+            elseif ($route.classification -eq 'thin') {
+                $findingId = "F-{0:d3}" -f $findingIndex
+                $findingsList.Add([ordered]@{
+                        finding_id = $findingId
+                        route = $routeKey
+                        issue_type = 'thin_route'
+                        severity = 'P2'
+                        evidence_refs = @('ROUTES_SUMMARY.json', 'ACTION_SUMMARY.json')
+                        why_it_matters = 'Thin HTML evidence reduces confidence for downstream audit interpretation.'
+                        recommended_action = 'Expand route content and rerun LINK capture before deeper audit interpretation.'
+                    })
+                $routeIssueMap[$routeKey].Add($findingId)
+                $findingIndex += 1
+            }
+        }
+
+        $captureStatus = [string]$report.capture_report.status
+        if ($counterMismatchDetected -or $captureStatus -eq 'FAIL' -or $captureStatus -eq 'PARTIAL') {
+            $visualSeverity = if ($counterMismatchDetected -or $captureStatus -eq 'FAIL') { 'P0' } else { 'P1' }
+            $visualIssueType = if ($counterMismatchDetected) { 'visual_counter_mismatch' } elseif ($captureStatus -eq 'FAIL') { 'visual_capture_failed' } else { 'visual_capture_partial' }
+            $visualWhy = if ($captureStatus -eq 'FAIL') {
+                'Visual evidence is not complete enough to support reliable page-level interpretation.'
+            }
+            elseif ($counterMismatchDetected) {
+                'Capture counters and selected-route evidence do not align, so output integrity is degraded.'
+            }
+            else {
+                'Partial visual capture limits deterministic interpretation for sampled pages.'
+            }
+            $visualAction = if ($counterMismatchDetected) {
+                'Repair route-to-manifest alignment and rerun LINK capture with the same route budget.'
+            }
+            elseif ($captureStatus -eq 'FAIL') {
+                'Restore baseline visual capture success before any deeper audit interpretation.'
+            }
+            else {
+                'Resolve failed captures and rerun LINK mode to restore full evidence coverage.'
+            }
+            $findingsList.Add([ordered]@{
+                    finding_id = "F-{0:d3}" -f $findingIndex
+                    route = '_run_scope'
+                    issue_type = $visualIssueType
+                    severity = $visualSeverity
+                    evidence_refs = @('visual_manifest.json', 'RUN_REPORT.json')
+                    why_it_matters = $visualWhy
+                    recommended_action = $visualAction
+                })
+        }
+
+        $manifestByRoute = @{}
+        foreach ($manifestPage in @($manifestPages)) {
+            $manifestUrl = [string]$manifestPage.url
+            if ([string]::IsNullOrWhiteSpace($manifestUrl)) {
+                continue
+            }
+
+            $canonicalManifestRoute = Get-CanonicalRouteKeyResult -RouteValue $manifestUrl -BaseUrl $BaseUrl
+            if ($canonicalManifestRoute.status -eq 'ok') {
+                $manifestByRoute[[string]$canonicalManifestRoute.canonical_route] = $manifestPage
+            }
+        }
+
+        $pageVerdicts = [System.Collections.Generic.List[object]]::new()
+        foreach ($selectedRoute in @($report.selected_routes)) {
+            $routeValue = [string]$selectedRoute.route
+            $canonicalSelectedRoute = Get-CanonicalRouteKeyResult -RouteValue $routeValue -BaseUrl $BaseUrl
+            $canonicalRoute = if ($canonicalSelectedRoute.status -eq 'ok') { [string]$canonicalSelectedRoute.canonical_route } else { $routeValue }
+            $routeIssueCount = if ($routeIssueMap.ContainsKey($canonicalRoute)) { [int]$routeIssueMap[$canonicalRoute].Count } else { 0 }
+
+            $visualStatus = 'unknown'
+            if ($manifestByRoute.ContainsKey($canonicalRoute)) {
+                $manifestRecord = $manifestByRoute[$canonicalRoute]
+                $captureStates = @($manifestRecord.captures | ForEach-Object { [string]$_.status })
+                if ($captureStates.Count -eq 0) {
+                    $visualStatus = 'unknown'
+                }
+                elseif (@($captureStates | Where-Object { $_ -eq 'ok' }).Count -eq $captureStates.Count) {
+                    $visualStatus = 'ok'
+                }
+                elseif (@($captureStates | Where-Object { $_ -eq 'ok' }).Count -gt 0) {
+                    $visualStatus = 'partial'
+                }
+                else {
+                    $visualStatus = 'failed'
+                }
+            }
+
+            $verdictText = if ($routeIssueCount -eq 0 -and $visualStatus -eq 'ok') {
+                'no visual evidence defect detected in sampled route'
+            }
+            elseif ($routeIssueCount -eq 0) {
+                'route content signal is clean but visual evidence is limited'
+            }
+            else {
+                'route has material issues in current sampled evidence'
+            }
+
+            $pageVerdicts.Add([ordered]@{
+                    route = $routeValue
+                    route_type = [string]$selectedRoute.type
+                    visual_status = $visualStatus
+                    verdict = $verdictText
+                    issue_count = [int]$routeIssueCount
+                })
+        }
+
+        $allFindings = @($findingsList)
+        $p0Count = [int]@($allFindings | Where-Object { $_.severity -eq 'P0' }).Count
+        $p1Count = [int]@($allFindings | Where-Object { $_.severity -eq 'P1' }).Count
+        $p2Count = [int]@($allFindings | Where-Object { $_.severity -eq 'P2' }).Count
+        $topIssues = @(
+            $allFindings |
+            Sort-Object @{ Expression = {
+                    switch ([string]$_.severity) {
+                        'P0' { 0 }
+                        'P1' { 1 }
+                        default { 2 }
+                    }
+                }
+            }, finding_id |
+            Select-Object -First 3 |
+            ForEach-Object { [string]$_.issue_type }
+        )
+
+        $report.findings = $allFindings
+        $report.page_verdicts = @($pageVerdicts)
+        $report.priority_summary = [ordered]@{
+            p0_count = $p0Count
+            p1_count = $p1Count
+            p2_count = $p2Count
+            top_issues = @($topIssues)
+        }
+        $report.report_mode = if ($allFindings.Count -gt 0) { 'PROBLEM' } else { 'CLEAN' }
+
+        $primaryProblem = if ($allFindings.Count -gt 0) {
+            [string]$allFindings[0].issue_type
+        }
+        else {
+            'no_material_findings_in_sampled_scope'
+        }
+        $overallVerdict = if ($allFindings.Count -eq 0) {
+            'CLEAN: sampled LINK evidence shows no material findings'
+        }
+        elseif ($report.status -eq 'PARTIAL' -or $report.status -eq 'FAIL') {
+            'PROBLEM: findings present and evidence confidence is limited'
+        }
+        else {
+            'PROBLEM: findings present in sampled LINK evidence'
+        }
+        $strongestMove = if ($allFindings.Count -eq 0) {
+            'Expand sampled route set only if operator needs broader coverage.'
+        }
+        else {
+            [string]$allFindings[0].recommended_action
+        }
+        $report.executive_answer = [ordered]@{
+            overall_verdict = $overallVerdict
+            primary_problem = $primaryProblem
+            audit_scope = 'LINK mode / screenshot evidence baseline'
+            strongest_next_move = $strongestMove
+        }
+
+        $report.business_impact = [ordered]@{
+            trust = if ($report.capture_report.status -eq 'PASS') { 'no integrity defect detected in sampled visual evidence' } else { 'limited trust due to incomplete visual evidence' }
+            navigation = if ($brokenCount -gt 0) { 'broken internal routes detected in sampled set' } else { 'no broken internal routes detected in sampled set' }
+            coverage = if ($report.run_budget.overflow_routes -gt 0 -or $report.capture_report.status -ne 'PASS') { 'partial coverage in sampled LINK run' } else { 'sampled coverage complete within current run budget' }
+            monetization_readiness = 'unknown (no interaction or conversion evidence in LINK mode)'
+        }
+
+        $report.next_action_contract = [ordered]@{
+            next_task_id = 'SITE_AUDITOR_V2_FINDINGS_REPAIR_001'
+            next_task_objective = if ($allFindings.Count -eq 0) { 'maintain CLEAN report mode and optionally expand deterministic route sample' } else { 'resolve highest-severity findings using referenced truth artifacts only' }
+            why_this_first = if ($allFindings.Count -eq 0) { 'current sampled evidence is clean; next value is controlled scope expansion only if requested' } else { 'highest-severity findings are directly evidenced and block confident downstream interpretation' }
+            forbidden_before_done = @(
+                'do not add interaction layer',
+                'do not add decision automation',
+                'do not expand crawler depth beyond current LINK-mode budget'
+            )
+        }
+
+        $report.next_step = [string]$report.next_action_contract.next_task_objective
+        $report.operator_handoff = [ordered]@{
+            reader_role = 'ChatGPT decision/orchestration layer'
+            truth_files = @(
+                'RUN_REPORT.json',
+                'ROUTES_SUMMARY.json',
+                'AUDIT_SUMMARY.json',
+                'ACTION_SUMMARY.json',
+                'visual_manifest.json'
+            )
+            read_order = @(
+                'RUN_REPORT.json',
+                'ROUTES_SUMMARY.json',
+                'AUDIT_SUMMARY.json',
+                'ACTION_SUMMARY.json',
+                'visual_manifest.json'
+            )
+            first_file_to_open = 'RUN_REPORT.json'
+            exact_reason = 'RUN_REPORT.json now contains deterministic findings, priorities, and route verdicts anchored to existing artifacts.'
+            do_not_do_yet = @(
+                'do not infer UX/conversion outcomes',
+                'do not grade CTA quality',
+                'do not claim monetization readiness beyond observable LINK evidence'
+            )
+            forbidden_moves = @(
+                'do not guess parameter names',
+                'do not generate task without reading truth_files',
+                'do not patch unrelated files'
+            )
+            if_missing_artifact = 'Request exact missing file; do not proceed'
         }
 
         $report.trust_boundary.decision_allowed = [bool]$report.decision_allowed
