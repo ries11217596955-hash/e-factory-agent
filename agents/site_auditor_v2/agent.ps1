@@ -235,21 +235,71 @@ function Get-VisualTargets {
         [int]$MaxPages = 5
     )
 
-    $targets = [System.Collections.Generic.List[string]]::new()
+    $selected = [System.Collections.Generic.List[object]]::new()
     $seenRoutes = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $tierOne = [System.Collections.Generic.List[object]]::new()
+    $tierTwo = [System.Collections.Generic.List[object]]::new()
+    $decisionKeywords = @('tool', 'best', 'how', 'guide')
+    $lowValueKeywords = @('tag', 'category', 'archive', 'page', 'feed')
 
-    $baseNormalized = Get-NormalizedRouteResult -Url $BaseUrl
+    function Get-RouteTypeAndPriority {
+        param(
+            [Parameter(Mandatory = $true)]
+            [string]$RouteKey
+        )
+
+        try {
+            $routeLower = $RouteKey.ToLowerInvariant()
+            if ($routeLower -eq '/') {
+                return [ordered]@{ type = 'ROOT'; priority = 1 }
+            }
+
+            if ($routeLower -match '(^|/)feed(/|$|\?)' -or $routeLower -match '(^|/)rss(/|$|\?)' -or $routeLower -match '(^|/)page/\d+(/|$|\?)') {
+                return [ordered]@{ type = 'LOW_VALUE'; priority = 3; hard_exclude = $true }
+            }
+
+            foreach ($keyword in $decisionKeywords) {
+                if ($routeLower.Contains($keyword)) {
+                    return [ordered]@{ type = 'DECISION'; priority = 1 }
+                }
+            }
+
+            foreach ($keyword in $lowValueKeywords) {
+                if ($routeLower.Contains($keyword)) {
+                    return [ordered]@{ type = 'LOW_VALUE'; priority = 3 }
+                }
+            }
+
+            return [ordered]@{ type = 'CONTENT'; priority = 2 }
+        }
+        catch {
+            return [ordered]@{ type = 'CONTENT'; priority = 2 }
+        }
+    }
+
+    $baseUri = [Uri]$BaseUrl
+    $rootBuilder = [UriBuilder]::new($baseUri)
+    $rootBuilder.Path = '/'
+    $rootBuilder.Query = ''
+    $rootBuilder.Fragment = ''
+    $baseNormalized = Get-NormalizedRouteResult -Url $rootBuilder.Uri.AbsoluteUri
     if ($seenRoutes.Add($baseNormalized.normalized_route)) {
-        $targets.Add($baseNormalized.url)
+        $baseClassification = Get-RouteTypeAndPriority -RouteKey $baseNormalized.normalized_route
+        if (-not $baseClassification.ContainsKey('hard_exclude')) {
+            $tierOne.Add([ordered]@{
+                    route = $baseNormalized.normalized_route
+                    type = [string]$baseClassification.type
+                    priority = [int]$baseClassification.priority
+                    url = $baseNormalized.url
+                })
+        }
     }
 
     foreach ($route in $RoutesSummary.routes) {
-        if ($targets.Count -ge $MaxPages) {
-            break
-        }
         if ($route.status_code -ne 200) {
             continue
         }
+
         $routeKey = if ($route.PSObject.Properties['normalized_route']) {
             [string]$route.normalized_route
         }
@@ -257,12 +307,47 @@ function Get-VisualTargets {
             [string]$route.url
         }
 
-        if ($seenRoutes.Add($routeKey)) {
-            $targets.Add([string]$route.url)
+        if (-not $seenRoutes.Add($routeKey)) {
+            continue
+        }
+
+        $classification = Get-RouteTypeAndPriority -RouteKey $routeKey
+        if ($classification.ContainsKey('hard_exclude')) {
+            continue
+        }
+        if ($classification.type -eq 'LOW_VALUE') {
+            continue
+        }
+
+        $target = [ordered]@{
+            route = $routeKey
+            type = [string]$classification.type
+            priority = [int]$classification.priority
+            url = [string]$route.url
+        }
+
+        if ($classification.priority -eq 1) {
+            $tierOne.Add($target)
+        }
+        else {
+            $tierTwo.Add($target)
         }
     }
 
-    return @($targets)
+    foreach ($target in $tierOne) {
+        if ($selected.Count -ge $MaxPages) {
+            break
+        }
+        $selected.Add($target)
+    }
+    foreach ($target in $tierTwo) {
+        if ($selected.Count -ge $MaxPages) {
+            break
+        }
+        $selected.Add($target)
+    }
+
+    return @($selected)
 }
 
 function Invoke-VisualCapture {
@@ -732,8 +817,19 @@ else {
         $null = $producedArtifacts.Add('ACTION_REPORT.txt')
 
         $captureTargets = Get-VisualTargets -BaseUrl $BaseUrl -RoutesSummary $routesSummary -MaxPages 5
+        $captureTargetUrls = @($captureTargets | ForEach-Object { [string]$_.url })
+        $report.selected_routes = @(
+            $captureTargets |
+            ForEach-Object {
+                [ordered]@{
+                    route = [string]$_.route
+                    type = [string]$_.type
+                    priority = [int]$_.priority
+                }
+            }
+        )
         $captureToolPath = Join-Path $PSScriptRoot 'tools/capture_visuals.mjs'
-        $captureExitCode = Invoke-VisualCapture -Pages $captureTargets -ToolPath $captureToolPath -InputPath $visualInputPath -ManifestPath $visualManifestPath -ScreenshotsPath $screenshotsPath
+        $captureExitCode = Invoke-VisualCapture -Pages $captureTargetUrls -ToolPath $captureToolPath -InputPath $visualInputPath -ManifestPath $visualManifestPath -ScreenshotsPath $screenshotsPath
         Copy-Item -LiteralPath $visualManifestPath -Destination $deterministicVisualManifestPath -Force
         Ensure-Directory -Path $deterministicScreenshotsPath
         Get-ChildItem -LiteralPath $deterministicScreenshotsPath -File -Filter '*.png' | Remove-Item -Force

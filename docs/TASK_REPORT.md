@@ -1,5 +1,5 @@
 ## Summary
-Implemented LINK-mode route normalization before visual capture so equivalent routes resolve to one canonical key (`normalized_route`) and deduplicate to one logical page. Added fallback behavior that preserves original routes on normalization errors and marks `route_normalization` as `failed` in `RUN_REPORT`.
+Implemented deterministic LINK-mode route prioritization for visual capture input. Routes are now classified as ROOT, DECISION, CONTENT, or LOW_VALUE and selected by priority tiers with a hard max of 5 routes. Added hard exclusions for `/feed`, `/rss`, and pagination routes (`/page/<n>`), and propagated only selected routes to screenshot input plus RUN_REPORT metadata.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
@@ -10,10 +10,10 @@ Implemented LINK-mode route normalization before visual capture so equivalent ro
 
 ## Current entrypoints/paths
 - Agent runtime entrypoint: `agents/site_auditor_v2/agent.ps1`
-- Route collection path: `Get-ShallowRoutes` (normalization + dedup)
-- Visual target selection path: `Get-VisualTargets` (canonical dedup keys)
-- Screenshot capture tool (unchanged logic): `agents/site_auditor_v2/tools/capture_visuals.mjs`
+- Route prioritization path: `Get-VisualTargets` (classification, tiering, sampling, hard exclusions)
+- Screenshot input path: `Invoke-VisualCapture` call site now uses selected prioritized URLs only
+- RUN_REPORT propagation path: `selected_routes` field reflects filtered route set sent to screenshot layer
 
 ## Risks/blockers
-- `pwsh` is not available in this execution environment, so end-to-end LINK-mode runtime validation could not be executed locally.
-- Path lowercasing is now part of canonicalization; environments with case-sensitive URL routing may intentionally serve different content by path case.
+- Tier-1 routes are capped by `max_routes=5` to enforce processing limit; in edge cases with more than 5 tier-1 candidates, only the first deterministic subset is processed.
+- `pwsh` runtime validation is not executable in this environment, so behavior was validated statically by code inspection only.
