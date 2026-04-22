@@ -1,10 +1,9 @@
 ## Summary
-Implemented W2 LINK-mode visual evidence baseline for `agents/site_auditor_v2` by adding deterministic screenshot capture (top/mid/bottom), a machine-readable `visual_manifest.json`, honest capture-state reporting in `RUN_REPORT`, and workflow support to upload new visual artifacts.
+Hardened LINK-mode screenshot evidence in `agents/site_auditor_v2` with post-capture file validation, per-capture truth status in `visual_manifest.json`, and a new `capture_report` block in `RUN_REPORT.json` that drives PASS/PARTIAL/FAIL honesty rules (including hard fail when no pages have valid captures).
 
 ## Changed files
-- `agents/site_auditor_v2/agent.ps1`
 - `agents/site_auditor_v2/tools/capture_visuals.mjs`
-- `.github/workflows/site-auditor-v2-link.yml`
+- `agents/site_auditor_v2/agent.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
@@ -13,14 +12,15 @@ Implemented W2 LINK-mode visual evidence baseline for `agents/site_auditor_v2` b
 ## Current entrypoints/paths
 - Agent entrypoint: `agents/site_auditor_v2/agent.ps1`
 - Visual capture runtime entrypoint: `agents/site_auditor_v2/tools/capture_visuals.mjs`
-- Workflow entrypoint: `.github/workflows/site-auditor-v2-link.yml`
-- New deterministic visual outputs at repo root when available:
+- Deterministic outputs retained:
+  - `agents/site_auditor_v2/RUN_REPORT.json`
   - `agents/site_auditor_v2/visual_manifest.json`
   - `agents/site_auditor_v2/screenshots/*.png`
-- Run-scoped visual outputs:
+- Run-scoped outputs retained:
+  - `agents/site_auditor_v2/output/<run_id>/RUN_REPORT.json`
   - `agents/site_auditor_v2/output/<run_id>/visual_manifest.json`
   - `agents/site_auditor_v2/output/<run_id>/screenshots/*.png`
 
 ## Risks/blockers
-- Visual capture now depends on Playwright + Chromium runtime availability; workflow installs these explicitly, but local runs without Node/Playwright will report capture limits honestly.
-- Target sites with strict bot defenses or heavy client rendering may produce partial capture status despite successful LINK fetches.
+- Capture validation uses a minimum PNG size threshold (4096 bytes); very minimal pages may classify as `empty_capture` and force partial/fail outcomes even if capture technically executed.
+- Sites with anti-automation controls may still cause `render_fail` or `missing_capture`; those failures are now surfaced explicitly in manifests and run report metrics.

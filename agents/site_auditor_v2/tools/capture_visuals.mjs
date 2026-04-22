@@ -3,6 +3,8 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { chromium } from 'playwright';
 
+const MIN_CAPTURE_SIZE_BYTES = 4096;
+
 function slugForUrl(url) {
   return crypto.createHash('sha1').update(url).digest('hex').slice(0, 10);
 }
@@ -54,8 +56,39 @@ async function captureSegments(page, pageDescriptor, screenshotsDir) {
     await page.waitForTimeout(250);
     const fileName = `page-${String(pageIndex).padStart(2, '0')}-${slug}-${segment}.png`;
     const outPath = path.join(screenshotsDir, fileName);
-    await page.screenshot({ path: outPath, type: 'png', fullPage: false });
-    captures.push({ segment, file: `screenshots/${fileName}`, scroll_y: y });
+    let captureStatus = 'ok';
+    let captureError = '';
+    let captureSizeBytes = 0;
+
+    try {
+      await page.screenshot({ path: outPath, type: 'png', fullPage: false });
+    } catch (err) {
+      captureStatus = 'render_fail';
+      captureError = err instanceof Error ? err.message : String(err);
+    }
+
+    if (captureStatus !== 'render_fail') {
+      if (!fs.existsSync(outPath)) {
+        captureStatus = 'missing_capture';
+        captureError = 'Screenshot file missing after capture call.';
+      } else {
+        const stats = fs.statSync(outPath);
+        captureSizeBytes = Number(stats.size || 0);
+        if (captureSizeBytes < MIN_CAPTURE_SIZE_BYTES) {
+          captureStatus = 'empty_capture';
+          captureError = `Screenshot size ${captureSizeBytes} bytes is below minimum ${MIN_CAPTURE_SIZE_BYTES} bytes.`;
+        }
+      }
+    }
+
+    captures.push({
+      segment,
+      type: segment,
+      file: `screenshots/${fileName}`,
+      size_bytes: captureSizeBytes,
+      status: captureStatus,
+      error: captureError
+    });
   }
 
   return captures;
@@ -99,7 +132,12 @@ async function run() {
         await page.goto(descriptor.url, { waitUntil: 'domcontentloaded', timeout: 25000 });
         await settlePage(page);
         pageResult.captures = await captureSegments(page, descriptor, screenshotsDir);
+        const hasCaptureFailure = pageResult.captures.some((capture) => capture.status !== 'ok');
+        pageResult.status = hasCaptureFailure ? 'PARTIAL' : 'SUCCESS';
         manifest.processed_pages += 1;
+        if (hasCaptureFailure) {
+          manifest.failed_pages += 1;
+        }
       } catch (err) {
         pageResult.status = 'FAIL';
         pageResult.error = err instanceof Error ? err.message : String(err);
