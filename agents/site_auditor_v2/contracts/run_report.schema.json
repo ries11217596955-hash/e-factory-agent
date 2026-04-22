@@ -231,9 +231,11 @@
         },
         "next_operator_posture": {
           "type": "object",
-          "required": ["next_system_move", "do_not_do_yet"],
+          "required": ["next_system_move", "must_do_before_next_task", "what_to_inspect_next", "do_not_do_yet"],
           "properties": {
             "next_system_move": { "type": "string" },
+            "must_do_before_next_task": { "type": "array", "items": { "type": "string" } },
+            "what_to_inspect_next": { "type": "array", "items": { "type": "string" } },
             "do_not_do_yet": { "type": "array", "items": { "type": "string" } }
           }
         }
@@ -285,12 +287,26 @@
     },
     "operator_handoff": {
       "type": "object",
-      "required": ["truth_files", "read_order", "first_file_to_open", "exact_reason", "do_not_do_yet"],
+      "required": [
+        "deprecated",
+        "mirrors_operator_memory_bridge",
+        "truth_files",
+        "read_order",
+        "first_file_to_open",
+        "exact_reason",
+        "must_do_before_next_task",
+        "what_to_inspect_next",
+        "do_not_do_yet"
+      ],
       "properties": {
+        "deprecated": { "type": "boolean" },
+        "mirrors_operator_memory_bridge": { "type": "boolean" },
         "truth_files": { "type": "array", "items": { "type": "string" } },
         "read_order": { "type": "array", "items": { "type": "string" } },
         "first_file_to_open": { "type": "string" },
         "exact_reason": { "type": "string" },
+        "must_do_before_next_task": { "type": "array", "items": { "type": "string" } },
+        "what_to_inspect_next": { "type": "array", "items": { "type": "string" } },
         "do_not_do_yet": { "type": "array", "items": { "type": "string" } }
       }
     },
