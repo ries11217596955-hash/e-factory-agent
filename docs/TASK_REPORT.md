@@ -1,5 +1,5 @@
 ## Summary
-Implemented a strict LINK-mode run budget control layer with hard cap enforcement (`max_routes = 5`) and explicit route-selection traceability. Selected routes now include `selection_reason`, the run report now includes a `run_budget` block (including overflow accounting and excluded-route detail), and mismatch/overflow behavior now fails with `run_budget_violation` semantics.
+Upgraded the LINK-mode `RUN_REPORT.json` output contract with a deterministic audit answer layer so each run now states what is wrong, why it matters, and what to do next without expanding crawler/interaction scope.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
@@ -10,11 +10,10 @@ Implemented a strict LINK-mode run budget control layer with hard cap enforcemen
 - None.
 
 ## Current entrypoints/paths
-- Agent entrypoint: `agents/site_auditor_v2/agent.ps1`
-- Run-budget selection path: `Get-VisualTargets` now returns `selected_routes`, `overflow_routes`, and `selection_strategy`.
-- RUN_REPORT contract path: `agents/site_auditor_v2/contracts/run_report.schema.json` now includes `selected_routes[].selection_reason` and `run_budget`.
-- LINK-mode enforcement path now explicitly hard-fails out-of-budget page-set mismatches as `run_budget_violation`.
+- Agent entrypoint remains `agents/site_auditor_v2/agent.ps1` (LINK mode only).
+- RUN_REPORT contract path remains `agents/site_auditor_v2/contracts/run_report.schema.json`.
+- New report-layer outputs are generated inside `RUN_REPORT.json`: `executive_answer`, `findings`, `priority_summary`, `page_verdicts`, `business_impact`, `next_action_contract`, hardened `operator_handoff`, and explicit `report_mode` (`CLEAN`/`PROBLEM`).
 
 ## Risks/blockers
-- Validation performed in-repo (static checks + schema parse only); no live external LINK crawl was executed in this environment.
-- Existing downstream consumers that assumed the old `COUNTER_INCONSISTENCY` reason code must now handle `run_budget_violation`.
+- Findings are intentionally bounded to currently available evidence artifacts (`ROUTES_SUMMARY.json`, `AUDIT_SUMMARY.json`, `ACTION_SUMMARY.json`, `visual_manifest.json`, `RUN_REPORT.json`) and do not infer interaction or conversion behavior.
+- No crawler depth, screenshot engine behavior, or decision automation was added; deeper interpretation remains out of scope until additional evidence layers exist.
