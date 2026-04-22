@@ -14,6 +14,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Install browser runtime (Playwright Chromium)
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright@1.54.2
+          npx playwright install --with-deps chromium
+
       - name: Run site_auditor_v2 in LINK mode
         shell: pwsh
         run: |
@@ -61,6 +68,7 @@ jobs:
               echo "Missing produced artifact listed in RUN_REPORT: ${target_path}"
               exit 1
             fi
+            mkdir -p "site_auditor_v2_artifact_bundle/$(dirname "${artifact}")"
             cp "${target_path}" "site_auditor_v2_artifact_bundle/${artifact}"
           done
 

@@ -159,6 +159,74 @@ function Get-ShallowRoutes {
     }
 }
 
+function Get-VisualTargets {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$BaseUrl,
+        [Parameter(Mandatory = $true)]
+        [object]$RoutesSummary,
+        [int]$MaxPages = 5
+    )
+
+    $targets = [System.Collections.Generic.List[object]]::new()
+    $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+
+    if ($seen.Add($BaseUrl)) {
+        $targets.Add($BaseUrl)
+    }
+
+    foreach ($route in $RoutesSummary.routes) {
+        if ($targets.Count -ge $MaxPages) {
+            break
+        }
+        if ($route.status_code -ne 200) {
+            continue
+        }
+        if ($seen.Add($route.url)) {
+            $targets.Add($route.url)
+        }
+    }
+
+    return @($targets)
+}
+
+function Invoke-VisualCapture {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Pages,
+        [Parameter(Mandatory = $true)]
+        [string]$ToolPath,
+        [Parameter(Mandatory = $true)]
+        [string]$InputPath,
+        [Parameter(Mandatory = $true)]
+        [string]$ManifestPath,
+        [Parameter(Mandatory = $true)]
+        [string]$ScreenshotsPath
+    )
+
+    Ensure-Directory -Path $ScreenshotsPath
+    $payloadPages = @(
+        for ($i = 0; $i -lt $Pages.Count; $i++) {
+            [ordered]@{
+                index = ($i + 1)
+                url = $Pages[$i]
+            }
+        }
+    )
+    $payload = [ordered]@{
+        pages = $payloadPages
+        screenshots_dir = $ScreenshotsPath
+        viewport = [ordered]@{
+            width = 1366
+            height = 768
+        }
+    }
+    Write-JsonFile -Path $InputPath -Data $payload
+
+    & node $ToolPath $InputPath $ManifestPath
+    return $LASTEXITCODE
+}
+
 $normalizedMode = $Mode.Trim().ToUpperInvariant()
 $timestamp = Get-IsoUtcNow
 $runKey = Get-DeterministicRunKey -Mode $Mode -BaseUrl $BaseUrl
@@ -170,6 +238,9 @@ $auditSummaryPath = Join-Path $outputRoot 'AUDIT_SUMMARY.json'
 $actionSummaryPath = Join-Path $outputRoot 'ACTION_SUMMARY.json'
 $actionReportPath = Join-Path $outputRoot 'ACTION_REPORT.txt'
 $failurePath = Join-Path $outputRoot 'failure_summary.json'
+$visualManifestPath = Join-Path $outputRoot 'visual_manifest.json'
+$visualInputPath = Join-Path $outputRoot 'visual_capture_input.json'
+$screenshotsPath = Join-Path $outputRoot 'screenshots'
 $deterministicRunReportPath = Join-Path $PSScriptRoot 'RUN_REPORT.json'
 $deterministicLinkSummaryPath = Join-Path $PSScriptRoot 'LINK_SUMMARY.json'
 $deterministicRoutesSummaryPath = Join-Path $PSScriptRoot 'ROUTES_SUMMARY.json'
@@ -177,10 +248,12 @@ $deterministicAuditSummaryPath = Join-Path $PSScriptRoot 'AUDIT_SUMMARY.json'
 $deterministicActionSummaryPath = Join-Path $PSScriptRoot 'ACTION_SUMMARY.json'
 $deterministicActionReportPath = Join-Path $PSScriptRoot 'ACTION_REPORT.txt'
 $deterministicFailurePath = Join-Path $PSScriptRoot 'failure_summary.json'
+$deterministicVisualManifestPath = Join-Path $PSScriptRoot 'visual_manifest.json'
+$deterministicScreenshotsPath = Join-Path $PSScriptRoot 'screenshots'
 
 $capabilityStatus = [ordered]@{
     link = 'ACTIVE'
-    capture = 'NOT_IMPLEMENTED'
+    capture = 'ACTIVE'
     routes = 'ACTIVE'
     page_quality = 'NOT_IMPLEMENTED'
     decision = 'NOT_IMPLEMENTED'
@@ -198,13 +271,12 @@ $null = $producedArtifacts.Add('RUN_REPORT.json')
 $null = $producedArtifacts.Add('ACTION_REPORT.txt')
 
 $notDoneYet = @(
-    'Capture mode execution is not implemented.',
+    'Capture mode supports baseline screenshot evidence only (no interactions).',
     'Page-quality scoring is not implemented.',
     'Decision synthesis is not implemented.'
 )
 
 $cannotDoYet = @(
-    'Cannot capture screenshots or visual evidence in LINK mode.',
     'Cannot run repository-wide inspection in LINK mode.',
     'Cannot provide scoring decisions without page-quality module.'
 )
@@ -237,7 +309,9 @@ $report = [ordered]@{
         [ordered]@{ name = 'routes_summary'; path = $routesSummaryPath },
         [ordered]@{ name = 'audit_summary'; path = $auditSummaryPath },
         [ordered]@{ name = 'action_summary'; path = $actionSummaryPath },
-        [ordered]@{ name = 'action_report'; path = $actionReportPath }
+        [ordered]@{ name = 'action_report'; path = $actionReportPath },
+        [ordered]@{ name = 'visual_manifest'; path = $visualManifestPath },
+        [ordered]@{ name = 'screenshots'; path = $screenshotsPath }
     )
     truth_files = [ordered]@{
         primary = @(
@@ -246,6 +320,7 @@ $report = [ordered]@{
             'ROUTES_SUMMARY.json',
             'AUDIT_SUMMARY.json',
             'ACTION_SUMMARY.json',
+            'visual_manifest.json',
             'failure_summary.json'
         )
         context = @(
@@ -259,6 +334,7 @@ $report = [ordered]@{
         'ROUTES_SUMMARY.json',
         'AUDIT_SUMMARY.json',
         'ACTION_SUMMARY.json',
+        'visual_manifest.json',
         'failure_summary.json',
         'agents/site_auditor_v2/agent.ps1',
         '.github/workflows/site-auditor-v2-link.yml'
@@ -290,8 +366,8 @@ $report = [ordered]@{
         next_task_shape = 'refine actions only'
         scope_constraint = 'expand LINK capture only'
     }
-    summary = 'LINK mode executes a live page fetch and writes base LINK signals to artifacts.'
-    next_step = 'Expand LINK capture only.'
+    summary = 'LINK mode executes live fetch, route checks, and screenshot evidence capture.'
+    next_step = 'Stabilize screenshot evidence quality in LINK mode.'
 }
 
 $shouldFail = $false
@@ -426,6 +502,31 @@ else {
         Copy-Item -LiteralPath $actionReportPath -Destination $deterministicActionReportPath -Force
         $null = $producedArtifacts.Add('ACTION_REPORT.txt')
 
+        $captureTargets = Get-VisualTargets -BaseUrl $BaseUrl -RoutesSummary $routesSummary -MaxPages 5
+        $captureToolPath = Join-Path $PSScriptRoot 'tools/capture_visuals.mjs'
+        $captureExitCode = Invoke-VisualCapture -Pages $captureTargets -ToolPath $captureToolPath -InputPath $visualInputPath -ManifestPath $visualManifestPath -ScreenshotsPath $screenshotsPath
+        Copy-Item -LiteralPath $visualManifestPath -Destination $deterministicVisualManifestPath -Force
+        Ensure-Directory -Path $deterministicScreenshotsPath
+        Get-ChildItem -LiteralPath $deterministicScreenshotsPath -File -Filter '*.png' | Remove-Item -Force
+        if (Test-Path -LiteralPath $screenshotsPath) {
+            Get-ChildItem -LiteralPath $screenshotsPath -File -Filter '*.png' | ForEach-Object {
+                Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $deterministicScreenshotsPath $_.Name) -Force
+                $null = $producedArtifacts.Add("screenshots/$($_.Name)")
+            }
+        }
+        $null = $producedArtifacts.Add('visual_manifest.json')
+
+        $visualManifest = Get-Content -LiteralPath $visualManifestPath -Raw | ConvertFrom-Json
+        $captureStatus = [string]$visualManifest.status
+        $captureSummary = [ordered]@{
+            status = $captureStatus
+            requested_pages = [int]$visualManifest.requested_pages
+            processed_pages = [int]$visualManifest.processed_pages
+            failed_pages = [int]$visualManifest.failed_pages
+            exit_code = [int]$captureExitCode
+        }
+        $report.capture_summary = $captureSummary
+
         if ($problemTargets.Count -eq 0) {
             $report.operator_handoff.must_do_before_next_task = @(
                 'review ROUTES_SUMMARY.json route coverage',
@@ -453,16 +554,22 @@ else {
 
         $report.operator_handoff.next_task_shape = 'refine actions only'
         $report.execution_report.final_outcome = 'PASS'
-        $report.execution_report.status_detail = $passStatus
-        if ($passStatus -eq 'PASS_WITH_LIMITS') {
+        $limitNotes = [System.Collections.Generic.List[string]]::new()
+        if ($thinCount -gt 0) { $limitNotes.Add("thin_pages=$thinCount") }
+        if ($brokenCount -gt 0) { $limitNotes.Add("broken_pages=$brokenCount") }
+        if ($captureStatus -eq 'FAIL') { $limitNotes.Add('capture_status=FAIL') }
+        elseif ($captureStatus -eq 'PARTIAL') { $limitNotes.Add('capture_status=PARTIAL') }
+
+        if ($limitNotes.Count -gt 0) {
+            $report.execution_report.status_detail = 'PASS_WITH_LIMITS'
             $report.failure_or_limit_report = [ordered]@{
                 kind = 'LIMITS'
                 failure_summary = ''
-                notes = @(
-                    "thin_pages=$thinCount",
-                    "broken_pages=$brokenCount"
-                )
+                notes = @($limitNotes)
             }
+        }
+        else {
+            $report.execution_report.status_detail = $passStatus
         }
         $report.produced_artifacts = @($producedArtifacts)
     }
