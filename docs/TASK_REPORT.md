@@ -1,5 +1,5 @@
 ## Summary
-Added a strict post-capture evidence reconciliation layer in LINK mode that cross-checks `screenshots/*.png`, `visual_manifest.json`, and `RUN_REPORT.json`, writes an `evidence_reconciliation` block into the run report, and enforces capture-status downgrade/override when evidence is inconsistent.
+Enforced reconciliation as the strict final gate for visual capture truth in LINK mode. `RUN_REPORT.capture_report.status` is now always set directly from reconciliation status, non-PASS capture now hard-locks decisions via `decision_allowed = false`, and reconciliation enforcement is explicitly logged.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
@@ -21,5 +21,5 @@ Added a strict post-capture evidence reconciliation layer in LINK mode that cros
   - `agents/site_auditor_v2/output/<run_id>/screenshots/*.png`
 
 ## Risks/blockers
-- Reconciliation depends on manifest `captures[].file` conventions and screenshot naming (`page-XX-...`); manual file edits or naming drift will mark mismatches and can force PARTIAL/FAIL.
-- If reconciliation itself throws, the run is now hard-failed with `decision_disabled = true` and diagnostic notes in `RUN_REPORT.json`.
+- Reconciliation now compares manifest pages, filesystem screenshots, and RUN_REPORT counters; any counter drift introduces explicit reconciliation issues and can force non-PASS outcomes.
+- If reconciliation returns an unsupported status or throws, execution is hard-failed with decision lock and no PASS fallback.
