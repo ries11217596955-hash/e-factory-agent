@@ -166,10 +166,12 @@ $outputRoot = Join-Path $PSScriptRoot (Join-Path 'output' $runKey)
 $runReportPath = Join-Path $outputRoot 'RUN_REPORT.json'
 $linkSummaryPath = Join-Path $outputRoot 'LINK_SUMMARY.json'
 $routesSummaryPath = Join-Path $outputRoot 'ROUTES_SUMMARY.json'
+$auditSummaryPath = Join-Path $outputRoot 'AUDIT_SUMMARY.json'
 $failurePath = Join-Path $outputRoot 'failure_summary.json'
 $deterministicRunReportPath = Join-Path $PSScriptRoot 'RUN_REPORT.json'
 $deterministicLinkSummaryPath = Join-Path $PSScriptRoot 'LINK_SUMMARY.json'
 $deterministicRoutesSummaryPath = Join-Path $PSScriptRoot 'ROUTES_SUMMARY.json'
+$deterministicAuditSummaryPath = Join-Path $PSScriptRoot 'AUDIT_SUMMARY.json'
 $deterministicFailurePath = Join-Path $PSScriptRoot 'failure_summary.json'
 
 $capabilityStatus = [ordered]@{
@@ -199,18 +201,21 @@ $report = [ordered]@{
     produced_artifacts = @(
         'RUN_REPORT.json',
         'LINK_SUMMARY.json',
-        'ROUTES_SUMMARY.json'
+        'ROUTES_SUMMARY.json',
+        'AUDIT_SUMMARY.json'
     )
     linked_artifacts = @(
         [ordered]@{ name = 'run_report'; path = $runReportPath },
         [ordered]@{ name = 'link_summary'; path = $linkSummaryPath },
-        [ordered]@{ name = 'routes_summary'; path = $routesSummaryPath }
+        [ordered]@{ name = 'routes_summary'; path = $routesSummaryPath },
+        [ordered]@{ name = 'audit_summary'; path = $auditSummaryPath }
     )
     truth_files = [ordered]@{
         primary = @(
             'RUN_REPORT.json',
             'LINK_SUMMARY.json',
             'ROUTES_SUMMARY.json',
+            'AUDIT_SUMMARY.json',
             'failure_summary.json'
         )
         context = @(
@@ -222,6 +227,7 @@ $report = [ordered]@{
         'RUN_REPORT.json',
         'LINK_SUMMARY.json',
         'ROUTES_SUMMARY.json',
+        'AUDIT_SUMMARY.json',
         'failure_summary.json',
         'agents/site_auditor_v2/agent.ps1',
         '.github/workflows/site-auditor-v2-link.yml'
@@ -239,7 +245,7 @@ $report = [ordered]@{
             'do not patch unrelated files'
         )
         if_missing_artifact = 'Request exact missing file; do not proceed'
-        next_task_shape = 'expand route understanding'
+        next_task_shape = 'improve classification accuracy'
         scope_constraint = 'expand LINK capture only'
     }
     summary = 'LINK mode executes a live page fetch and writes base LINK signals to artifacts.'
@@ -278,8 +284,32 @@ else {
         Copy-Item -LiteralPath $linkSummaryPath -Destination $deterministicLinkSummaryPath -Force
 
         $routesSummary = Get-ShallowRoutes -RootUrl $BaseUrl -MaxRoutes 10
+        foreach ($route in $routesSummary.routes) {
+            $classification = if ($route.status_code -ne 200) {
+                'broken'
+            }
+            elseif ($route.html_length -lt 1500) {
+                'thin'
+            }
+            else {
+                'ok'
+            }
+            $route.classification = $classification
+        }
         Write-JsonFile -Path $routesSummaryPath -Data $routesSummary
         Copy-Item -LiteralPath $routesSummaryPath -Destination $deterministicRoutesSummaryPath -Force
+
+        $okCount = @($routesSummary.routes | Where-Object { $_.classification -eq 'ok' }).Count
+        $thinCount = @($routesSummary.routes | Where-Object { $_.classification -eq 'thin' }).Count
+        $brokenCount = @($routesSummary.routes | Where-Object { $_.classification -eq 'broken' }).Count
+        $auditSummary = [ordered]@{
+            total = [int]@($routesSummary.routes).Count
+            ok = [int]$okCount
+            thin = [int]$thinCount
+            broken = [int]$brokenCount
+        }
+        Write-JsonFile -Path $auditSummaryPath -Data $auditSummary
+        Copy-Item -LiteralPath $auditSummaryPath -Destination $deterministicAuditSummaryPath -Force
     }
     catch {
         $shouldFail = $true

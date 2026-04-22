@@ -1,5 +1,5 @@
 ## Summary
-Added shallow route discovery to LINK mode (depth 1): the agent now extracts `<a href>` targets from the current page, filters to same-domain `http/https` routes, de-duplicates and removes anchors, fetches up to 10 routes, and writes `ROUTES_SUMMARY.json` with status/title/html-length per route. Also updated run metadata and handoff shape in `RUN_REPORT.json`.
+Implemented basic per-route page classification for LINK mode with deterministic rules (`broken` when status is not 200, `thin` when HTML length is below 1500, otherwise `ok`). Updated `ROUTES_SUMMARY.json` route entries to include `classification`, added a new `AUDIT_SUMMARY.json` artifact with aggregate counts, and updated `RUN_REPORT` metadata plus handoff `next_task_shape`.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
@@ -13,11 +13,12 @@ Added shallow route discovery to LINK mode (depth 1): the agent now extracts `<a
 - Deterministic run report path: `agents/site_auditor_v2/RUN_REPORT.json`
 - Deterministic link summary path: `agents/site_auditor_v2/LINK_SUMMARY.json`
 - Deterministic routes summary path: `agents/site_auditor_v2/ROUTES_SUMMARY.json`
+- Deterministic audit summary path: `agents/site_auditor_v2/AUDIT_SUMMARY.json`
 - Run-scoped report path: `agents/site_auditor_v2/output/<run_id>/RUN_REPORT.json`
 - Run-scoped link summary path: `agents/site_auditor_v2/output/<run_id>/LINK_SUMMARY.json`
 - Run-scoped routes summary path: `agents/site_auditor_v2/output/<run_id>/ROUTES_SUMMARY.json`
+- Run-scoped audit summary path: `agents/site_auditor_v2/output/<run_id>/AUDIT_SUMMARY.json`
 
 ## Risks/blockers
-- Network reachability and target-site behavior (timeouts, bot protection, redirects, TLS issues) can cause `LINK_FETCH_FAILED` in restricted environments.
-- Route extraction is regex-based and may miss malformed links or JavaScript-generated navigation.
-- Some sites may expose fewer than five eligible same-domain `http/https` links on the root page, resulting in fewer than 5 shallow routes in output.
+- Network reachability and target-site behavior (timeouts, bot protection, redirects, TLS issues) can still cause `LINK_FETCH_FAILED`.
+- Classification is intentionally threshold-based and may over/under-classify pages with atypical markup density.
