@@ -552,12 +552,17 @@ function Get-VisualTargets {
             continue
         }
 
-        $routeKey = if ($route.PSObject.Properties['normalized_route']) {
+        $routeValue = if ($route.PSObject.Properties['normalized_route']) {
             [string]$route.normalized_route
         }
         else {
             [string]$route.url
         }
+        $canonicalRouteResult = Get-CanonicalRouteKeyResult -RouteValue $routeValue -BaseUrl $BaseUrl
+        if ($canonicalRouteResult.status -ne 'ok') {
+            continue
+        }
+        $routeKey = [string]$canonicalRouteResult.canonical_route
 
         if (-not $seenRoutes.Add($routeKey)) {
             continue
@@ -582,7 +587,7 @@ function Get-VisualTargets {
             route = $routeKey
             type = [string]$classification.type
             priority = [int]$classification.priority
-            url = [string]$route.url
+            url = [Uri]::new([Uri]$BaseUrl, $routeKey).AbsoluteUri
             selection_reason = $selectionReason
         }
 
@@ -1198,6 +1203,7 @@ else {
             ForEach-Object {
                 [ordered]@{
                     route = [string]$_.route
+                    source_url = [string]$_.url
                     type = [string]$_.type
                     priority = [int]$_.priority
                     selection_reason = [string]$_.selection_reason
@@ -1229,6 +1235,32 @@ else {
         $null = $producedArtifacts.Add('visual_manifest.json')
 
         $visualManifest = Get-Content -LiteralPath $visualManifestPath -Raw | ConvertFrom-Json
+        foreach ($manifestPage in @($visualManifest.pages)) {
+            $manifestRouteInput = if ($manifestPage.PSObject.Properties['url']) {
+                [string]$manifestPage.url
+            }
+            elseif ($manifestPage.PSObject.Properties['source_url']) {
+                [string]$manifestPage.source_url
+            }
+            else {
+                ''
+            }
+
+            if ([string]::IsNullOrWhiteSpace($manifestRouteInput)) {
+                continue
+            }
+
+            $manifestCanonicalResult = Get-CanonicalRouteKeyResult -RouteValue $manifestRouteInput -BaseUrl $BaseUrl
+            if ($manifestCanonicalResult.status -ne 'ok') {
+                continue
+            }
+
+            $manifestPage | Add-Member -NotePropertyName 'source_url' -NotePropertyValue $manifestRouteInput -Force
+            $manifestPage | Add-Member -NotePropertyName 'route' -NotePropertyValue ([string]$manifestCanonicalResult.canonical_route) -Force
+            $manifestPage.url = [Uri]::new([Uri]$BaseUrl, [string]$manifestCanonicalResult.canonical_route).AbsoluteUri
+        }
+        Write-JsonFile -Path $visualManifestPath -Data $visualManifest
+        Copy-Item -LiteralPath $visualManifestPath -Destination $deterministicVisualManifestPath -Force
         $captureStatus = [string]$visualManifest.status
         $manifestRequestedPages = [int]$visualManifest.requested_pages
         $manifestProcessedPages = [int]$visualManifest.processed_pages
@@ -1556,10 +1588,12 @@ else {
         $findingsList = [System.Collections.Generic.List[object]]::new()
         $findingIndex = 1
         foreach ($route in @($routesSummary.routes)) {
-            $routeKey = [string]$route.normalized_route
-            if ([string]::IsNullOrWhiteSpace($routeKey)) {
-                $routeKey = [string]$route.url
+            $routeValue = [string]$route.normalized_route
+            if ([string]::IsNullOrWhiteSpace($routeValue)) {
+                $routeValue = [string]$route.url
             }
+            $canonicalRouteResult = Get-CanonicalRouteKeyResult -RouteValue $routeValue -BaseUrl $BaseUrl
+            $routeKey = if ($canonicalRouteResult.status -eq 'ok') { [string]$canonicalRouteResult.canonical_route } else { $routeValue }
 
             if ([string]::IsNullOrWhiteSpace($routeKey)) {
                 continue
@@ -1681,7 +1715,7 @@ else {
             }
 
             $pageVerdicts.Add([ordered]@{
-                    route = $routeValue
+                    route = $canonicalRoute
                     route_type = [string]$selectedRoute.type
                     visual_status = $visualStatus
                     verdict = $verdictText
