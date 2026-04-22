@@ -1050,7 +1050,7 @@ else {
             }
             $report.failure_or_limit_report = [ordered]@{
                 kind = 'FAILURE'
-                failure_summary = ''
+                failure_summary = 'failure_summary.json'
                 notes = @('Evidence reconciliation failed.', [string]$_.Exception.Message)
             }
             $shouldFail = $true
@@ -1074,6 +1074,11 @@ else {
             if ([string]::IsNullOrWhiteSpace($errorCode)) {
                 $errorCode = 'EVIDENCE_RECONCILIATION_NOT_EXECUTED'
                 $errorMessage = 'Evidence reconciliation did not execute.'
+            }
+            $report.failure_or_limit_report = [ordered]@{
+                kind = 'FAILURE'
+                failure_summary = 'failure_summary.json'
+                notes = @($errorMessage)
             }
         }
 
@@ -1155,7 +1160,7 @@ else {
                 $report.decision_disabled = $true
                 $report.failure_or_limit_report = [ordered]@{
                     kind = 'FAILURE'
-                    failure_summary = ''
+                    failure_summary = 'failure_summary.json'
                     notes = @($limitNotes + @('reconciliation_status=FAIL'))
                 }
             }
@@ -1173,7 +1178,7 @@ else {
             $report.capture_report.counter_mismatch = $true
             $report.failure_or_limit_report = [ordered]@{
                 kind = 'FAILURE'
-                failure_summary = ''
+                failure_summary = 'failure_summary.json'
                 notes = @('counter_inconsistency')
                 reason = 'counter_inconsistency'
             }
@@ -1222,17 +1227,45 @@ if (-not (Test-Path -LiteralPath $actionReportPath)) {
 }
 
 if ($shouldFail) {
+    if (-not $report.failure_or_limit_report -or [string]$report.failure_or_limit_report.kind -ne 'FAILURE') {
+        $report.failure_or_limit_report = [ordered]@{
+            kind = 'FAILURE'
+            failure_summary = 'failure_summary.json'
+            notes = @($errorMessage)
+        }
+    }
+    else {
+        $report.failure_or_limit_report.kind = 'FAILURE'
+        $report.failure_or_limit_report.failure_summary = 'failure_summary.json'
+    }
     $failure = [ordered]@{
+        error_code = $errorCode
+        error_message = $errorMessage
+        fail_class = 'FAILURE'
+        notes = @($errorMessage)
+        must_read_files = @('RUN_REPORT.json', 'visual_manifest.json')
         mode = $normalizedMode
         base_url = $BaseUrl
         status = 'FAIL'
-        error_code = $errorCode
-        message = $errorMessage
         timestamp_utc = Get-IsoUtcNow
         run_report_path = $runReportPath
     }
-    Write-JsonFile -Path $failurePath -Data $failure
-    Copy-Item -LiteralPath $failurePath -Destination $deterministicFailurePath -Force
+    try {
+        Write-JsonFile -Path $failurePath -Data $failure
+    }
+    catch {
+        $lastResortFailure = [ordered]@{
+            error_code = if ([string]::IsNullOrWhiteSpace($errorCode)) { 'FAILURE_SUMMARY_WRITE_FAILED' } else { $errorCode }
+            error_message = if ([string]::IsNullOrWhiteSpace($errorMessage)) { 'failure_summary_write_failed' } else { $errorMessage }
+            fail_class = 'FAILURE'
+            notes = @('failure_summary_write_failed')
+            must_read_files = @('RUN_REPORT.json', 'visual_manifest.json')
+        }
+        [System.IO.File]::WriteAllText($failurePath, ($lastResortFailure | ConvertTo-Json -Depth 10))
+    }
+    if (Test-Path -LiteralPath $failurePath) {
+        Copy-Item -LiteralPath $failurePath -Destination $deterministicFailurePath -Force
+    }
     $report.produced_artifacts = @($producedArtifacts + 'failure_summary.json')
     Write-JsonFile -Path $runReportPath -Data $report
     Copy-Item -LiteralPath $runReportPath -Destination $deterministicRunReportPath -Force
