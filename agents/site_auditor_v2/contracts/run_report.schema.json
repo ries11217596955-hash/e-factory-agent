@@ -16,6 +16,7 @@
     "report_mode",
     "executive_answer",
     "findings",
+    "operator_feed",
     "priority_summary",
     "page_verdicts",
     "business_impact",
@@ -119,6 +120,29 @@
           "why_it_matters": { "type": "string" },
           "recommended_action": { "type": "string" }
         }
+      }
+    },
+    "operator_feed": {
+      "type": "object",
+      "required": [
+        "system_state",
+        "primary_constraint",
+        "truth_confidence",
+        "what_is_reliable",
+        "what_is_not_reliable",
+        "next_system_move",
+        "why_this_move",
+        "do_not_do_yet"
+      ],
+      "properties": {
+        "system_state": { "type": "string" },
+        "primary_constraint": { "type": "string" },
+        "truth_confidence": { "type": "string", "enum": ["high", "medium", "low", ""] },
+        "what_is_reliable": { "type": "array", "items": { "type": "string" } },
+        "what_is_not_reliable": { "type": "array", "items": { "type": "string" } },
+        "next_system_move": { "type": "string" },
+        "why_this_move": { "type": "string" },
+        "do_not_do_yet": { "type": "array", "items": { "type": "string" } }
       }
     },
     "priority_summary": {

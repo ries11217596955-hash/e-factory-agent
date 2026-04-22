@@ -829,6 +829,16 @@ $report = [ordered]@{
         strongest_next_move = 'derive deterministic findings from existing artifacts'
     }
     findings = @()
+    operator_feed = [ordered]@{
+        system_state = ''
+        primary_constraint = ''
+        truth_confidence = ''
+        what_is_reliable = @()
+        what_is_not_reliable = @()
+        next_system_move = ''
+        why_this_move = ''
+        do_not_do_yet = @()
+    }
     priority_summary = [ordered]@{
         p0_count = 0
         p1_count = 0
@@ -1514,6 +1524,109 @@ else {
         )
 
         $report.findings = $allFindings
+        $hasOperatorFeedInputs = ($null -ne $report.capture_report -and $null -ne $report.evidence_reconciliation -and $null -ne $report.selected_routes -and $null -ne $report.run_budget -and $null -ne $report.findings)
+        if ($hasOperatorFeedInputs) {
+            $reconciliationStatus = [string]$report.evidence_reconciliation.status
+            $captureStatus = [string]$report.capture_report.status
+            $truthConfidence = if ($counterMismatchDetected -or $reconciliationStatus -eq 'FAIL' -or $captureStatus -eq 'FAIL') {
+                'low'
+            }
+            elseif ($reconciliationStatus -eq 'PARTIAL' -or $captureStatus -eq 'PARTIAL') {
+                'medium'
+            }
+            else {
+                'high'
+            }
+
+            $stableLayer = switch ($reconciliationStatus) {
+                'PASS' { 'W2 visual evidence stable' }
+                'PARTIAL' { 'W2.5 visual evidence partial' }
+                default { 'W2 visual evidence unstable' }
+            }
+            $systemChange = if (@($report.findings).Count -gt 0) {
+                'report layer now includes findings and operator_feed'
+            }
+            else {
+                'report layer now includes operator_feed with no material findings'
+            }
+
+            $whatIsReliable = [System.Collections.Generic.List[string]]::new()
+            if ($report.capture_report.captures_success -gt 0 -and $reconciliationStatus -ne 'FAIL') {
+                $null = $whatIsReliable.Add('screenshots')
+            }
+            if (@($report.selected_routes).Count -eq [int]$report.run_budget.selected_routes) {
+                $null = $whatIsReliable.Add('route selection')
+            }
+            if (@('PASS', 'PARTIAL') -contains $reconciliationStatus) {
+                $null = $whatIsReliable.Add('capture reconciliation')
+            }
+            if (@($report.findings).Count -ge 0) {
+                $null = $whatIsReliable.Add('findings serialization')
+            }
+
+            $whatIsNotReliable = [System.Collections.Generic.List[string]]::new()
+            if ($counterMismatchDetected -or $captureStatus -eq 'FAIL' -or $captureStatus -eq 'PARTIAL') {
+                $null = $whatIsNotReliable.Add('complete visual evidence coverage')
+            }
+            if ([int]$report.run_budget.overflow_routes -gt 0) {
+                $null = $whatIsNotReliable.Add('full route coverage beyond run budget')
+            }
+            if ($report.decision_allowed -eq $false) {
+                $null = $whatIsNotReliable.Add('decision automation layer')
+            }
+            $null = $whatIsNotReliable.Add('findings-to-action automation')
+
+            $primaryConstraint = if ($counterMismatchDetected) {
+                'route-manifest counter mismatch blocks trustworthy downstream interpretation'
+            }
+            elseif ($captureStatus -eq 'FAIL') {
+                'visual evidence failed and cannot support deterministic downstream interpretation'
+            }
+            elseif ($captureStatus -eq 'PARTIAL') {
+                'visual evidence is partial and limits deterministic downstream interpretation'
+            }
+            elseif ([int]$report.run_budget.overflow_routes -gt 0) {
+                'route budget overflow limits deterministic sampled coverage'
+            }
+            else {
+                'findings-to-action automation is not implemented'
+            }
+
+            $nextSystemMove = if ($counterMismatchDetected -or $captureStatus -eq 'FAIL' -or $captureStatus -eq 'PARTIAL') {
+                'stabilize visual evidence integrity checks in report outputs'
+            }
+            else {
+                'implement deterministic findings-to-action mapping in report layer'
+            }
+            $whyThisMove = if ($counterMismatchDetected -or $captureStatus -eq 'FAIL' -or $captureStatus -eq 'PARTIAL') {
+                'stable visual truth is required before higher-level system interpretation can be trusted'
+            }
+            else {
+                'mapping findings to deterministic system actions unlocks reliable operator sequencing'
+            }
+
+            $doNotDoYet = [System.Collections.Generic.List[string]]::new()
+            foreach ($blockedMove in @($report.next_action_contract.forbidden_before_done)) {
+                if (-not [string]::IsNullOrWhiteSpace([string]$blockedMove)) {
+                    $null = $doNotDoYet.Add([string]$blockedMove)
+                }
+            }
+            if ($doNotDoYet.Count -eq 0) {
+                $null = $doNotDoYet.Add('do not add interaction layer')
+                $null = $doNotDoYet.Add('do not expand crawler depth beyond current LINK-mode budget')
+            }
+
+            $report.operator_feed = [ordered]@{
+                system_state = "$stableLayer, $systemChange"
+                primary_constraint = $primaryConstraint
+                truth_confidence = $truthConfidence
+                what_is_reliable = @($whatIsReliable)
+                what_is_not_reliable = @($whatIsNotReliable)
+                next_system_move = $nextSystemMove
+                why_this_move = $whyThisMove
+                do_not_do_yet = @($doNotDoYet)
+            }
+        }
         $report.page_verdicts = @($pageVerdicts)
         $report.priority_summary = [ordered]@{
             p0_count = $p0Count
