@@ -1,5 +1,5 @@
 ## Summary
-Aligned LINK run artifact publication with `RUN_REPORT` truth by making `produced_artifacts` runtime-accurate, adding truthful empty-target handoff guidance, and enforcing pre-upload artifact assertions in workflow.
+Hardened LINK mode output guarantees by locking RUN_REPORT contract fields, enforcing deterministic artifact declarations, and adding workflow regression checks for contract/artifact drift and pass/fail consistency.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
@@ -12,9 +12,8 @@ Aligned LINK run artifact publication with `RUN_REPORT` truth by making `produce
 ## Current entrypoints/paths
 - Agent entrypoint: `agents/site_auditor_v2/agent.ps1`
 - Workflow entrypoint: `.github/workflows/site-auditor-v2-link.yml`
-- Published bundle source: `site_auditor_v2_artifact_bundle/` (created at workflow runtime)
-- `RUN_REPORT.produced_artifacts` now reflects only artifacts generated in the current run
-- `operator_handoff` now avoids `problem_targets` page-inspection directives when `problem_targets` is empty
+- Deterministic top-level outputs kept for operator access: `RUN_REPORT.json`, `ACTION_REPORT.txt` (and other core outputs when produced)
+- Workflow upload source: `site_auditor_v2_artifact_bundle/` containing exactly `RUN_REPORT.produced_artifacts`
 
 ## Risks/blockers
-- None.
+- Workflow assumes `jq` is available on `ubuntu-latest` runner (standard GitHub-hosted image expectation).

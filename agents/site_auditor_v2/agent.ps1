@@ -195,6 +195,19 @@ $learningBacklog = @(
 
 $producedArtifacts = [System.Collections.Generic.List[string]]::new()
 $null = $producedArtifacts.Add('RUN_REPORT.json')
+$null = $producedArtifacts.Add('ACTION_REPORT.txt')
+
+$notDoneYet = @(
+    'Capture mode execution is not implemented.',
+    'Page-quality scoring is not implemented.',
+    'Decision synthesis is not implemented.'
+)
+
+$cannotDoYet = @(
+    'Cannot capture screenshots or visual evidence in LINK mode.',
+    'Cannot run repository-wide inspection in LINK mode.',
+    'Cannot provide scoring decisions without page-quality module.'
+)
 
 $report = [ordered]@{
     mode = $normalizedMode
@@ -205,6 +218,18 @@ $report = [ordered]@{
     timestamp_utc = $timestamp
     capability_status = $capabilityStatus
     learning_backlog = $learningBacklog
+    execution_report = [ordered]@{
+        final_outcome = 'PASS'
+        status_detail = 'PASS'
+        mode = $normalizedMode
+    }
+    not_done_yet = $notDoneYet
+    cannot_do_yet = $cannotDoYet
+    failure_or_limit_report = [ordered]@{
+        kind = 'NONE'
+        failure_summary = ''
+        notes = @()
+    }
     produced_artifacts = @($producedArtifacts)
     linked_artifacts = @(
         [ordered]@{ name = 'run_report'; path = $runReportPath },
@@ -242,14 +267,14 @@ $report = [ordered]@{
     operator_handoff = [ordered]@{
         reader_role = 'ChatGPT decision/orchestration layer'
         must_do_before_next_task = @(
-            'open problem_targets pages',
-            'inspect their structure',
-            'compare thin vs ok pages'
+            'read RUN_REPORT.json first',
+            'confirm produced_artifacts are present',
+            'inspect ACTION_REPORT.txt and ACTION_SUMMARY.json'
         )
         what_to_inspect_next = @(
-            'open problem_targets pages',
-            'inspect their structure',
-            'compare thin vs ok pages'
+            'RUN_REPORT.json',
+            'ACTION_REPORT.txt',
+            'ACTION_SUMMARY.json'
         )
         forbidden_moves = @(
             'do not guess parameter names',
@@ -289,6 +314,13 @@ if ($shouldFail) {
     $report.status = 'FAIL'
     $report.summary = "Run failed: $errorCode"
     $report.next_step = $errorMessage
+    $report.execution_report.final_outcome = 'FAIL'
+    $report.execution_report.status_detail = 'FAIL'
+    $report.failure_or_limit_report = [ordered]@{
+        kind = 'FAILURE'
+        failure_summary = 'failure_summary.json'
+        notes = @($errorMessage)
+    }
     $report.produced_artifacts = @($producedArtifacts)
     $report.linked_artifacts = @(
         [ordered]@{ name = 'run_report'; path = $runReportPath },
@@ -365,6 +397,7 @@ else {
         $okCount = @($routesSummary.routes | Where-Object { $_.classification -eq 'ok' }).Count
         $thinCount = @($routesSummary.routes | Where-Object { $_.classification -eq 'thin' }).Count
         $brokenCount = @($routesSummary.routes | Where-Object { $_.classification -eq 'broken' }).Count
+        $passStatus = if (($thinCount -gt 0) -or ($brokenCount -gt 0)) { 'PASS_WITH_LIMITS' } else { 'PASS' }
         $auditSummary = [ordered]@{
             total = [int]@($routesSummary.routes).Count
             ok = [int]$okCount
@@ -405,8 +438,32 @@ else {
                 'ACTION_SUMMARY.json'
             )
         }
+        else {
+            $report.operator_handoff.must_do_before_next_task = @(
+                'open problem_targets pages',
+                'inspect their structure',
+                'compare thin vs ok pages'
+            )
+            $report.operator_handoff.what_to_inspect_next = @(
+                'open problem_targets pages',
+                'inspect their structure',
+                'compare thin vs ok pages'
+            )
+        }
 
         $report.operator_handoff.next_task_shape = 'refine actions only'
+        $report.execution_report.final_outcome = 'PASS'
+        $report.execution_report.status_detail = $passStatus
+        if ($passStatus -eq 'PASS_WITH_LIMITS') {
+            $report.failure_or_limit_report = [ordered]@{
+                kind = 'LIMITS'
+                failure_summary = ''
+                notes = @(
+                    "thin_pages=$thinCount",
+                    "broken_pages=$brokenCount"
+                )
+            }
+        }
         $report.produced_artifacts = @($producedArtifacts)
     }
     catch {
@@ -416,6 +473,13 @@ else {
         $report.status = 'FAIL'
         $report.summary = "Run failed: $errorCode"
         $report.next_step = $errorMessage
+        $report.execution_report.final_outcome = 'FAIL'
+        $report.execution_report.status_detail = 'FAIL'
+        $report.failure_or_limit_report = [ordered]@{
+            kind = 'FAILURE'
+            failure_summary = 'failure_summary.json'
+            notes = @($errorMessage)
+        }
         $report.produced_artifacts = @($producedArtifacts)
         $report.linked_artifacts = @(
             [ordered]@{ name = 'run_report'; path = $runReportPath },
@@ -426,6 +490,17 @@ else {
 
 Write-JsonFile -Path $runReportPath -Data $report
 Copy-Item -LiteralPath $runReportPath -Destination $deterministicRunReportPath -Force
+
+if (-not (Test-Path -LiteralPath $actionReportPath)) {
+    $fallbackActionReport = @(
+        "Site: $BaseUrl",
+        "Status: $($report.status)",
+        "Outcome: $($report.execution_report.status_detail)",
+        "Summary: $($report.summary)"
+    ) -join [Environment]::NewLine
+    [System.IO.File]::WriteAllText($actionReportPath, $fallbackActionReport)
+    Copy-Item -LiteralPath $actionReportPath -Destination $deterministicActionReportPath -Force
+}
 
 if ($shouldFail) {
     $failure = [ordered]@{
