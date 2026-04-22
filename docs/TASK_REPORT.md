@@ -1,9 +1,8 @@
 ## Summary
-Hardened LINK-mode screenshot evidence in `agents/site_auditor_v2` with post-capture file validation, per-capture truth status in `visual_manifest.json`, and a new `capture_report` block in `RUN_REPORT.json` that drives PASS/PARTIAL/FAIL honesty rules (including hard fail when no pages have valid captures).
+Hardened LINK-mode screenshot validation in `agents/site_auditor_v2/tools/capture_visuals.mjs` by enforcing a stricter default minimum capture size (10000 bytes), preserving explicit failure statuses (`missing_capture`, `empty_capture`, `render_fail`), and guaranteeing each capture manifest record reports `segment`, `file`, `size_bytes`, `status`, and `error`.
 
 ## Changed files
 - `agents/site_auditor_v2/tools/capture_visuals.mjs`
-- `agents/site_auditor_v2/agent.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
@@ -22,5 +21,5 @@ Hardened LINK-mode screenshot evidence in `agents/site_auditor_v2` with post-cap
   - `agents/site_auditor_v2/output/<run_id>/screenshots/*.png`
 
 ## Risks/blockers
-- Capture validation uses a minimum PNG size threshold (4096 bytes); very minimal pages may classify as `empty_capture` and force partial/fail outcomes even if capture technically executed.
+- Capture validation uses a minimum PNG size threshold (10000 bytes); very minimal pages may classify as `empty_capture` and force partial/fail outcomes even if capture technically executed.
 - Sites with anti-automation controls may still cause `render_fail` or `missing_capture`; those failures are now surfaced explicitly in manifests and run report metrics.

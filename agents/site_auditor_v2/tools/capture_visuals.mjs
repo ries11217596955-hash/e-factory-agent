@@ -3,7 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { chromium } from 'playwright';
 
-const MIN_CAPTURE_SIZE_BYTES = 4096;
+const MIN_CAPTURE_SIZE_BYTES = 10000;
 
 function slugForUrl(url) {
   return crypto.createHash('sha1').update(url).digest('hex').slice(0, 10);
@@ -72,18 +72,22 @@ async function captureSegments(page, pageDescriptor, screenshotsDir) {
         captureStatus = 'missing_capture';
         captureError = 'Screenshot file missing after capture call.';
       } else {
-        const stats = fs.statSync(outPath);
-        captureSizeBytes = Number(stats.size || 0);
-        if (captureSizeBytes < MIN_CAPTURE_SIZE_BYTES) {
-          captureStatus = 'empty_capture';
-          captureError = `Screenshot size ${captureSizeBytes} bytes is below minimum ${MIN_CAPTURE_SIZE_BYTES} bytes.`;
+        try {
+          const stats = fs.statSync(outPath);
+          captureSizeBytes = Number(stats.size || 0);
+          if (captureSizeBytes < MIN_CAPTURE_SIZE_BYTES) {
+            captureStatus = 'empty_capture';
+            captureError = `Screenshot size ${captureSizeBytes} bytes is below minimum ${MIN_CAPTURE_SIZE_BYTES} bytes.`;
+          }
+        } catch (err) {
+          captureStatus = 'render_fail';
+          captureError = err instanceof Error ? err.message : String(err);
         }
       }
     }
 
     captures.push({
       segment,
-      type: segment,
       file: `screenshots/${fileName}`,
       size_bytes: captureSizeBytes,
       status: captureStatus,
