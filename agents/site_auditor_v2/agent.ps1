@@ -227,6 +227,130 @@ function Invoke-VisualCapture {
     return $LASTEXITCODE
 }
 
+function Invoke-EvidenceReconciliation {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ManifestPath,
+        [Parameter(Mandatory = $true)]
+        [string]$ScreenshotsPath,
+        [Parameter(Mandatory = $true)]
+        [int]$RunReportPagesAttempted
+    )
+
+    $sizeThresholdBytes = 10000
+    $manifestRaw = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+    $manifestPages = @($manifestRaw.pages)
+    $captures = @(
+        $manifestPages |
+        ForEach-Object { @($_.captures) }
+    )
+
+    $pngFiles = if (Test-Path -LiteralPath $ScreenshotsPath) {
+        @(Get-ChildItem -LiteralPath $ScreenshotsPath -File -Filter '*.png')
+    }
+    else {
+        @()
+    }
+
+    $issues = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $validCount = 0
+    $invalidCount = 0
+    $checksCompleted = $true
+    $diagnostics = [System.Collections.Generic.List[string]]::new()
+
+    foreach ($capture in $captures) {
+        $relativeFile = [string]$capture.file
+        if ([string]::IsNullOrWhiteSpace($relativeFile)) {
+            $invalidCount += 1
+            $null = $issues.Add('manifest_mismatch')
+            continue
+        }
+
+        $normalizedRelative = $relativeFile.Replace('/', [System.IO.Path]::DirectorySeparatorChar)
+        $expectedPath = Join-Path (Split-Path -Parent $ManifestPath) $normalizedRelative
+        $fileStatus = 'ok'
+
+        if (-not (Test-Path -LiteralPath $expectedPath)) {
+            $fileStatus = 'missing_capture'
+            $null = $issues.Add('missing_capture')
+        }
+        else {
+            try {
+                $actualSize = [int](Get-Item -LiteralPath $expectedPath).Length
+                if ($actualSize -lt $sizeThresholdBytes) {
+                    $fileStatus = 'empty_capture'
+                    $null = $issues.Add('empty_capture')
+                }
+                if ([int]$capture.size_bytes -ne $actualSize) {
+                    $null = $issues.Add('size_mismatch')
+                }
+            }
+            catch {
+                $checksCompleted = $false
+                $fileStatus = 'reconciliation_error'
+                $null = $issues.Add('reconciliation_error')
+                $diagnostics.Add($_.Exception.Message)
+            }
+        }
+
+        if ($fileStatus -eq 'ok') {
+            $validCount += 1
+        }
+        else {
+            $invalidCount += 1
+        }
+    }
+
+    $manifestCaptureCount = [int]$captures.Count
+    $actualCaptureCount = [int]$pngFiles.Count
+    if ($manifestCaptureCount -ne $actualCaptureCount) {
+        $null = $issues.Add('manifest_mismatch')
+    }
+
+    $manifestPageCount = [int]$manifestPages.Count
+    $pageRegex = '^page-(?<idx>\d{2})-'
+    $actualUniquePageKeys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($png in $pngFiles) {
+        $match = [regex]::Match($png.Name, $pageRegex)
+        if ($match.Success) {
+            $null = $actualUniquePageKeys.Add($match.Groups['idx'].Value)
+        }
+    }
+
+    if (($RunReportPagesAttempted -ne $manifestPageCount) -or ($manifestPageCount -ne $actualUniquePageKeys.Count)) {
+        $null = $issues.Add('RUN_REPORT_INCONSISTENT')
+    }
+
+    $status = 'PASS'
+    if ($validCount -eq 0 -and ($manifestCaptureCount -gt 0)) {
+        $status = 'FAIL'
+    }
+    elseif ($invalidCount -gt 0 -or $issues.Count -gt 0) {
+        $status = 'PARTIAL'
+    }
+    elseif ($manifestCaptureCount -eq 0) {
+        $status = 'FAIL'
+        $null = $issues.Add('no_captures')
+    }
+
+    if (-not $checksCompleted) {
+        $status = 'FAIL'
+        $null = $issues.Add('reconciliation_error')
+    }
+
+    return [ordered]@{
+        status = $status
+        files_checked = $manifestCaptureCount
+        files_valid = [int]$validCount
+        files_invalid = [int]$invalidCount
+        issues = @($issues)
+        manifest_pages = $manifestPageCount
+        run_report_pages_attempted = $RunReportPagesAttempted
+        actual_unique_pages = [int]$actualUniquePageKeys.Count
+        diagnostics = @($diagnostics)
+    }
+}
+
 $normalizedMode = $Mode.Trim().ToUpperInvariant()
 $timestamp = Get-IsoUtcNow
 $runKey = Get-DeterministicRunKey -Mode $Mode -BaseUrl $BaseUrl
@@ -569,6 +693,44 @@ else {
             captures_success = $capturesSuccess
             captures_failed = $capturesFailed
             fail_types = @($failTypes)
+        }
+
+        try {
+            $reconciliation = Invoke-EvidenceReconciliation -ManifestPath $visualManifestPath -ScreenshotsPath $screenshotsPath -RunReportPagesAttempted $pagesAttempted
+            $report.evidence_reconciliation = [ordered]@{
+                status = $reconciliation.status
+                files_checked = $reconciliation.files_checked
+                files_valid = $reconciliation.files_valid
+                files_invalid = $reconciliation.files_invalid
+                issues = @($reconciliation.issues)
+            }
+
+            if ($reconciliation.status -ne 'PASS' -and $report.capture_report.status -eq 'PASS') {
+                $report.capture_report.status = if ($reconciliation.status -eq 'FAIL') { 'FAIL' } else { 'PARTIAL' }
+            }
+        }
+        catch {
+            $report.status = 'FAIL'
+            $report.execution_status = 'FAILED'
+            $report.execution_report.final_outcome = 'FAIL'
+            $report.execution_report.status_detail = 'FAIL'
+            $report.decision_disabled = $true
+            $report.evidence_reconciliation = [ordered]@{
+                status = 'FAIL'
+                files_checked = 0
+                files_valid = 0
+                files_invalid = 0
+                issues = @('reconciliation_error')
+                diagnostics = @([string]$_.Exception.Message)
+            }
+            $report.failure_or_limit_report = [ordered]@{
+                kind = 'FAILURE'
+                failure_summary = ''
+                notes = @('Evidence reconciliation failed.', [string]$_.Exception.Message)
+            }
+            $shouldFail = $true
+            $errorCode = 'EVIDENCE_RECONCILIATION_FAILED'
+            $errorMessage = $_.Exception.Message
         }
 
         if ($problemTargets.Count -eq 0) {
