@@ -1,0 +1,17 @@
+{
+  "status": "PARTIAL",
+  "pages": [
+    {
+      "route": "/",
+      "url": "https://example.com/",
+      "captures": [
+        {
+          "status": "ok"
+        },
+        {
+          "status": "render_fail"
+        }
+      ]
+    }
+  ]
+}
