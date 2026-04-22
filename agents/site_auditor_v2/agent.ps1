@@ -94,6 +94,27 @@ function Resolve-CanonicalBaseUrl {
     }
 }
 
+function Get-ResponseHtml {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Response,
+        [Parameter(Mandatory = $true)]
+        [string]$FetchMethod
+    )
+
+    if ($FetchMethod -eq 'Invoke-WebRequest') {
+        return [string]$Response.Content
+    }
+    elseif ($FetchMethod -eq 'Invoke-RestMethod') {
+        return [string]$Response
+    }
+    elseif ($FetchMethod -eq 'HttpClient') {
+        return [string]$Response.Content.ReadAsStringAsync().Result
+    }
+
+    throw "UNSUPPORTED_FETCH_METHOD:$FetchMethod"
+}
+
 function Get-LinkSignals {
     param(
         [Parameter(Mandatory = $true)]
@@ -102,7 +123,7 @@ function Get-LinkSignals {
 
     $response = Invoke-WebRequest -Uri $Url -Method Get -MaximumRedirection 5
     $statusCode = [int]$response.StatusCode
-    $html = [string]$response.Content
+    $html = Get-ResponseHtml -Response $response -FetchMethod 'Invoke-WebRequest'
 
     $titleMatch = [regex]::Match($html, '(?is)<title[^>]*>(.*?)</title>')
     $title = if ($titleMatch.Success) {
@@ -137,21 +158,24 @@ function Get-ShallowRoutes {
     $rootUri = [Uri]$RootUrl
     $fetchDebug = [ordered]@{
         status_code = ''
-        final_url = ''
         html_length = 0
         body_present = $false
+        content_sample = ''
     }
     $rootHtml = ''
     $hrefMatches = @()
     try {
         $rootResponse = Invoke-WebRequest -Uri $RootUrl -Method Get -MaximumRedirection 5
-        $rootHtml = [string]$rootResponse.Content
+        $rootHtml = Get-ResponseHtml -Response $rootResponse -FetchMethod 'Invoke-WebRequest'
         $fetchDebug.status_code = [string][int]$rootResponse.StatusCode
-        $fetchDebug.final_url = $RootUrl
         $fetchDebug.html_length = [int]$rootHtml.Length
-        $fetchDebug.body_present = (-not [string]::IsNullOrWhiteSpace($rootHtml))
+        $fetchDebug.body_present = ($rootHtml.Length -gt 0)
+        $fetchDebug.content_sample = if ($rootHtml.Length -gt 200) { $rootHtml.Substring(0, 200) } else { $rootHtml }
         if (($fetchDebug.status_code -eq '200') -and ($fetchDebug.html_length -eq 0)) {
-            throw 'FETCH_BODY_EMPTY'
+            throw 'FETCH_RETURNED_EMPTY_BODY'
+        }
+        if (($fetchDebug.body_present -eq $false) -or [string]::IsNullOrWhiteSpace($fetchDebug.content_sample)) {
+            throw 'FETCH_BODY_VALIDATION_FAILED'
         }
         $hrefMatches = [regex]::Matches($rootHtml, '(?is)<a\b[^>]*href\s*=\s*("([^"]*)"|''([^'']*)''|([^\s>]+))')
     }
@@ -235,7 +259,7 @@ function Get-ShallowRoutes {
     foreach ($routeTarget in $routeUrls) {
         try {
             $routeResponse = Invoke-WebRequest -Uri $routeTarget.url -Method Get -MaximumRedirection 5
-            $routeHtml = [string]$routeResponse.Content
+            $routeHtml = Get-ResponseHtml -Response $routeResponse -FetchMethod 'Invoke-WebRequest'
             $routeTitleMatch = [regex]::Match($routeHtml, '(?is)<title[^>]*>(.*?)</title>')
             $routeTitle = if ($routeTitleMatch.Success) {
                 [System.Net.WebUtility]::HtmlDecode($routeTitleMatch.Groups[1].Value).Trim()
@@ -889,9 +913,9 @@ $report = [ordered]@{
     problem_targets = @()
     fetch_debug = [ordered]@{
         status_code = ''
-        final_url = ''
         html_length = 0
         body_present = $false
+        content_sample = ''
     }
     raw_links_found = 0
     internal_links = 0
@@ -1064,9 +1088,9 @@ else {
         $report.route_normalization = [string]$routesSummary.route_normalization
         $report.fetch_debug = [ordered]@{
             status_code = [string]$routesSummary.fetch_debug.status_code
-            final_url = [string]$routesSummary.fetch_debug.final_url
             html_length = [int]$routesSummary.fetch_debug.html_length
             body_present = [bool]$routesSummary.fetch_debug.body_present
+            content_sample = [string]$routesSummary.fetch_debug.content_sample
         }
         $report.raw_links_found = [int]$routesSummary.raw_links_found
         $report.internal_links = [int]$routesSummary.internal_links
