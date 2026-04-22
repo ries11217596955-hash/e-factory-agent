@@ -1,5 +1,8 @@
 ## Summary
-Implemented LINK-mode BaseUrl canonicalization so scheme-less input is converted to an absolute URL (`https://...`) before any URL parsing/fetch logic runs, and invalid URLs now fail early with `INVALID_BASE_URL`.
+- Added a single entry canonicalization gate in LINK mode that transforms input `BaseUrl` into a mandatory canonical absolute URL before downstream execution.
+- Canonicalization now applies trim, scheme injection (`https://` when missing), absolute http/https validation, and trailing-slash normalization (except root).
+- Added `input_canonicalization` trace in `RUN_REPORT` with original input, canonical value, and status.
+- Updated failure handling to stop early with `INVALID_BASE_URL` when canonicalization fails (no fetch path entered).
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
@@ -10,9 +13,7 @@ Implemented LINK-mode BaseUrl canonicalization so scheme-less input is converted
 
 ## Current entrypoints/paths
 - Agent entrypoint remains `agents/site_auditor_v2/agent.ps1` (LINK mode).
-- New canonicalization gate: `Resolve-CanonicalBaseUrl` is evaluated before LINK fetch/route/screenshot target logic is executed.
-- Canonical BaseUrl is propagated as single source to live fetch, route normalization, visual target selection, `RUN_REPORT.base_url`, and `LINK_SUMMARY.root` (via shared `BaseUrl` usage after canonicalization).
+- Entry lock is enforced at startup: canonicalization is resolved once and propagated to fetch, route discovery/normalization, screenshot targeting, `RUN_REPORT`, and `LINK_SUMMARY`.
 
 ## Risks/blockers
-- Canonical URL persistence uses trimmed input + optional `https://` prefix; it does not aggressively reformat host/path casing or force trailing slash normalization.
-- Inputs that parse as absolute non-http(s) URLs are now explicitly rejected with `INVALID_BASE_URL`.
+- Validation was limited to static/structural checks in this environment because PowerShell (`pwsh`) is unavailable, so full runtime verification could not be executed here.
