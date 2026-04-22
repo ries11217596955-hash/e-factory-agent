@@ -35,12 +35,46 @@ jobs:
             echo "failure_summary.json not found"
           fi
 
+      - name: Assert RUN_REPORT artifacts exist before upload
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN_REPORT="agents/site_auditor_v2/RUN_REPORT.json"
+
+          if [ ! -f "${RUN_REPORT}" ]; then
+            echo "RUN_REPORT.json missing at ${RUN_REPORT}"
+            exit 1
+          fi
+
+          mapfile -t ARTIFACTS < <(jq -r '.produced_artifacts[]' "${RUN_REPORT}")
+          if [ "${#ARTIFACTS[@]}" -eq 0 ]; then
+            echo "RUN_REPORT.produced_artifacts is empty"
+            exit 1
+          fi
+
+          rm -rf site_auditor_v2_artifact_bundle
+          mkdir -p site_auditor_v2_artifact_bundle
+          for artifact in "${ARTIFACTS[@]}"; do
+            target_path="agents/site_auditor_v2/${artifact}"
+            if [ ! -f "${target_path}" ]; then
+              echo "Missing produced artifact listed in RUN_REPORT: ${target_path}"
+              exit 1
+            fi
+            cp "${target_path}" "site_auditor_v2_artifact_bundle/${artifact}"
+          done
+
+          if [ -f "agents/site_auditor_v2/failure_summary.json" ] && ! printf '%s\n' "${ARTIFACTS[@]}" | grep -qx 'failure_summary.json'; then
+            cp "agents/site_auditor_v2/failure_summary.json" "site_auditor_v2_artifact_bundle/failure_summary.json"
+          fi
+
+          echo "Artifacts staged for upload:"
+          ls -1 site_auditor_v2_artifact_bundle
+
       - name: Upload run outputs artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: site-auditor-v2-link-output
-          path: |
-            agents/site_auditor_v2/RUN_REPORT.json
-            agents/site_auditor_v2/failure_summary.json
-          if-no-files-found: ignore
+          path: site_auditor_v2_artifact_bundle
+          if-no-files-found: error
