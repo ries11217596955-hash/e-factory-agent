@@ -60,21 +60,122 @@ function Get-LinkSignals {
     }
 }
 
+function Get-ShallowRoutes {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RootUrl,
+        [int]$MaxRoutes = 10
+    )
+
+    $rootUri = [Uri]$RootUrl
+    $rootResponse = Invoke-WebRequest -Uri $RootUrl -Method Get -MaximumRedirection 5
+    $rootHtml = [string]$rootResponse.Content
+    $hrefMatches = [regex]::Matches($rootHtml, '(?is)<a\b[^>]*href\s*=\s*("([^"]*)"|''([^'']*)''|([^\s>]+))')
+    $uniqueUrls = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $routeUrls = [System.Collections.Generic.List[string]]::new()
+
+    foreach ($match in $hrefMatches) {
+        $rawHref = if (-not [string]::IsNullOrWhiteSpace($match.Groups[2].Value)) {
+            $match.Groups[2].Value
+        }
+        elseif (-not [string]::IsNullOrWhiteSpace($match.Groups[3].Value)) {
+            $match.Groups[3].Value
+        }
+        else {
+            $match.Groups[4].Value
+        }
+
+        if ([string]::IsNullOrWhiteSpace($rawHref)) {
+            continue
+        }
+
+        $trimmedHref = $rawHref.Trim()
+        if ($trimmedHref.StartsWith('#')) {
+            continue
+        }
+
+        try {
+            $resolvedUri = [Uri]::new($rootUri, $trimmedHref)
+        }
+        catch {
+            continue
+        }
+
+        if ($resolvedUri.Scheme -notin @('http', 'https')) {
+            continue
+        }
+
+        if ($resolvedUri.Host -ne $rootUri.Host) {
+            continue
+        }
+
+        $sanitizedUrl = $resolvedUri.GetLeftPart([System.UriPartial]::Path)
+        if (-not [string]::IsNullOrWhiteSpace($resolvedUri.Query)) {
+            $sanitizedUrl = "{0}{1}" -f $sanitizedUrl, $resolvedUri.Query
+        }
+
+        if ($uniqueUrls.Add($sanitizedUrl)) {
+            $routeUrls.Add($sanitizedUrl)
+        }
+
+        if ($routeUrls.Count -ge $MaxRoutes) {
+            break
+        }
+    }
+
+    $routes = [System.Collections.Generic.List[object]]::new()
+    foreach ($routeUrl in $routeUrls) {
+        try {
+            $routeResponse = Invoke-WebRequest -Uri $routeUrl -Method Get -MaximumRedirection 5
+            $routeHtml = [string]$routeResponse.Content
+            $routeTitleMatch = [regex]::Match($routeHtml, '(?is)<title[^>]*>(.*?)</title>')
+            $routeTitle = if ($routeTitleMatch.Success) {
+                [System.Net.WebUtility]::HtmlDecode($routeTitleMatch.Groups[1].Value).Trim()
+            }
+            else {
+                ''
+            }
+
+            $routes.Add([ordered]@{
+                    url = $routeUrl
+                    status_code = [int]$routeResponse.StatusCode
+                    title = $routeTitle
+                    html_length = [int]$routeHtml.Length
+                })
+        }
+        catch {
+            $routes.Add([ordered]@{
+                    url = $routeUrl
+                    status_code = -1
+                    title = ''
+                    html_length = 0
+                })
+        }
+    }
+
+    return [ordered]@{
+        root = $RootUrl
+        routes = $routes
+    }
+}
+
 $normalizedMode = $Mode.Trim().ToUpperInvariant()
 $timestamp = Get-IsoUtcNow
 $runKey = Get-DeterministicRunKey -Mode $Mode -BaseUrl $BaseUrl
 $outputRoot = Join-Path $PSScriptRoot (Join-Path 'output' $runKey)
 $runReportPath = Join-Path $outputRoot 'RUN_REPORT.json'
 $linkSummaryPath = Join-Path $outputRoot 'LINK_SUMMARY.json'
+$routesSummaryPath = Join-Path $outputRoot 'ROUTES_SUMMARY.json'
 $failurePath = Join-Path $outputRoot 'failure_summary.json'
 $deterministicRunReportPath = Join-Path $PSScriptRoot 'RUN_REPORT.json'
 $deterministicLinkSummaryPath = Join-Path $PSScriptRoot 'LINK_SUMMARY.json'
+$deterministicRoutesSummaryPath = Join-Path $PSScriptRoot 'ROUTES_SUMMARY.json'
 $deterministicFailurePath = Join-Path $PSScriptRoot 'failure_summary.json'
 
 $capabilityStatus = [ordered]@{
     link = 'ACTIVE'
     capture = 'NOT_IMPLEMENTED'
-    routes = 'NOT_IMPLEMENTED'
+    routes = 'ACTIVE'
     page_quality = 'NOT_IMPLEMENTED'
     decision = 'NOT_IMPLEMENTED'
 }
@@ -97,16 +198,19 @@ $report = [ordered]@{
     learning_backlog = $learningBacklog
     produced_artifacts = @(
         'RUN_REPORT.json',
-        'LINK_SUMMARY.json'
+        'LINK_SUMMARY.json',
+        'ROUTES_SUMMARY.json'
     )
     linked_artifacts = @(
         [ordered]@{ name = 'run_report'; path = $runReportPath },
-        [ordered]@{ name = 'link_summary'; path = $linkSummaryPath }
+        [ordered]@{ name = 'link_summary'; path = $linkSummaryPath },
+        [ordered]@{ name = 'routes_summary'; path = $routesSummaryPath }
     )
     truth_files = [ordered]@{
         primary = @(
             'RUN_REPORT.json',
             'LINK_SUMMARY.json',
+            'ROUTES_SUMMARY.json',
             'failure_summary.json'
         )
         context = @(
@@ -117,6 +221,7 @@ $report = [ordered]@{
     read_order = @(
         'RUN_REPORT.json',
         'LINK_SUMMARY.json',
+        'ROUTES_SUMMARY.json',
         'failure_summary.json',
         'agents/site_auditor_v2/agent.ps1',
         '.github/workflows/site-auditor-v2-link.yml'
@@ -134,7 +239,7 @@ $report = [ordered]@{
             'do not patch unrelated files'
         )
         if_missing_artifact = 'Request exact missing file; do not proceed'
-        next_task_shape = 'expand LINK coverage'
+        next_task_shape = 'expand route understanding'
         scope_constraint = 'expand LINK capture only'
     }
     summary = 'LINK mode executes a live page fetch and writes base LINK signals to artifacts.'
@@ -171,6 +276,10 @@ else {
         $linkSummary = Get-LinkSignals -Url $BaseUrl
         Write-JsonFile -Path $linkSummaryPath -Data $linkSummary
         Copy-Item -LiteralPath $linkSummaryPath -Destination $deterministicLinkSummaryPath -Force
+
+        $routesSummary = Get-ShallowRoutes -RootUrl $BaseUrl -MaxRoutes 10
+        Write-JsonFile -Path $routesSummaryPath -Data $routesSummary
+        Copy-Item -LiteralPath $routesSummaryPath -Destination $deterministicRoutesSummaryPath -Force
     }
     catch {
         $shouldFail = $true
