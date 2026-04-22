@@ -1,5 +1,5 @@
 ## Summary
-Applied a bounded hotfix for `Get-VisualTargets` in LINK mode to remove the `ContainsKey` runtime crash against ordered route classification results. Replaced invalid dictionary-method access with PowerShell-safe property checks, and added a fail-safe classification wrapper that defaults malformed/unsafe metadata to `CONTENT` without terminating the run.
+Implemented a minimal LINK-mode counter-alignment patch so page counting and reporting are strictly driven by `selected_routes` from `Get-VisualTargets`. Updated capture/report plumbing to keep selected route count, manifest page set, and RUN_REPORT counters in 1:1 alignment, and added deterministic failure behavior for counter inconsistencies.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
@@ -10,10 +10,11 @@ Applied a bounded hotfix for `Get-VisualTargets` in LINK mode to remove the `Con
 
 ## Current entrypoints/paths
 - Agent runtime entrypoint: `agents/site_auditor_v2/agent.ps1`
-- Route prioritization path: `Get-VisualTargets` (ROOT/DECISION tier 1, CONTENT tier 2, LOW_VALUE exclusion, hard excludes, max-routes cap)
-- Route classification path: `Get-RouteTypeAndPriority` + `Get-SafeRouteClassification` fail-safe access wrapper
-- RUN_REPORT propagation path: `selected_routes` remains sourced from visual target selection output
+- Visual target source of truth: `Get-VisualTargets` output (`selected_routes`)
+- Visual capture input path: `Invoke-VisualCapture -Pages` now sourced only from selected route URLs
+- Counter alignment path: `capture_summary` + `capture_report` counters now anchored to selected routes and manifest processed/failed counts
+- Consistency gate path: selected-route vs manifest mismatch check now flags `counter_mismatch` and forces failed execution with `counter_inconsistency`
 
 ## Risks/blockers
-- Validation in this environment is limited to static/script-level checks; a full external LINK-mode run artifact was not executed here.
-- Fail-safe intentionally coerces malformed classification metadata to `CONTENT` to prevent run-ending exceptions, which may reduce specificity for malformed items while preserving pipeline continuity.
+- Validation here is static/script-level only; no live external LINK-mode run was executed in this environment.
+- Manifest page URL normalization depends on available per-page URL/source URL fields in `visual_manifest.json`; malformed/missing manifest page URLs will trigger mismatch failure by design.
