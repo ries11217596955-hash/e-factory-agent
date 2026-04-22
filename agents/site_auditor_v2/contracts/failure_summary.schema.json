@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/site_auditor_v2/failure_summary.schema.json",
+  "title": "Site Auditor v2 Failure Summary",
+  "type": "object",
+  "required": [
+    "mode",
+    "base_url",
+    "status",
+    "error_code",
+    "message",
+    "timestamp_utc",
+    "run_report_path"
+  ],
+  "properties": {
+    "mode": { "type": "string" },
+    "base_url": { "type": "string" },
+    "status": { "type": "string", "const": "FAIL" },
+    "error_code": { "type": "string" },
+    "message": { "type": "string" },
+    "timestamp_utc": { "type": "string", "format": "date-time" },
+    "run_report_path": { "type": "string" }
+  }
+}

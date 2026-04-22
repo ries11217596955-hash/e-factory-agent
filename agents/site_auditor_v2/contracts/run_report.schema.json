@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/site_auditor_v2/run_report.schema.json",
+  "title": "Site Auditor v2 Run Report",
+  "type": "object",
+  "required": [
+    "mode",
+    "base_url",
+    "status",
+    "run_id",
+    "output_folder",
+    "timestamp_utc",
+    "capability_status",
+    "learning_backlog",
+    "linked_artifacts",
+    "summary",
+    "next_step"
+  ],
+  "properties": {
+    "mode": { "type": "string" },
+    "base_url": { "type": "string" },
+    "status": { "type": "string", "enum": ["PASS", "FAIL"] },
+    "run_id": { "type": "string" },
+    "output_folder": { "type": "string" },
+    "timestamp_utc": { "type": "string", "format": "date-time" },
+    "capability_status": {
+      "type": "object",
+      "required": ["capture", "routes", "page_quality", "decision", "link"],
+      "properties": {
+        "capture": { "type": "string" },
+        "routes": { "type": "string" },
+        "page_quality": { "type": "string" },
+        "decision": { "type": "string" },
+        "link": { "type": "string" }
+      }
+    },
+    "learning_backlog": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "linked_artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "path"],
+        "properties": {
+          "name": { "type": "string" },
+          "path": { "type": "string" }
+        }
+      }
+    },
+    "summary": { "type": "string" },
+    "next_step": { "type": "string" }
+  }
+}
