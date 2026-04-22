@@ -17,6 +17,7 @@
     "executive_answer",
     "findings",
     "operator_feed",
+    "operator_memory_core",
     "priority_summary",
     "page_verdicts",
     "business_impact",
@@ -143,6 +144,37 @@
         "next_system_move": { "type": "string" },
         "why_this_move": { "type": "string" },
         "do_not_do_yet": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "operator_memory_core": {
+      "type": "object",
+      "required": [
+        "who_am_i",
+        "what_system_is_being_built",
+        "primary_asset",
+        "end_goal",
+        "current_stage",
+        "current_focus",
+        "what_is_stable",
+        "what_is_unstable",
+        "agent_learned",
+        "agent_cannot_yet",
+        "agent_misleading_risk",
+        "next_capability_to_build"
+      ],
+      "properties": {
+        "who_am_i": { "type": "string" },
+        "what_system_is_being_built": { "type": "string" },
+        "primary_asset": { "type": "string" },
+        "end_goal": { "type": "string" },
+        "current_stage": { "type": "string" },
+        "current_focus": { "type": "string" },
+        "what_is_stable": { "type": "array", "items": { "type": "string" } },
+        "what_is_unstable": { "type": "array", "items": { "type": "string" } },
+        "agent_learned": { "type": "array", "items": { "type": "string" } },
+        "agent_cannot_yet": { "type": "array", "items": { "type": "string" } },
+        "agent_misleading_risk": { "type": "array", "items": { "type": "string" } },
+        "next_capability_to_build": { "type": "string" }
       }
     },
     "priority_summary": {

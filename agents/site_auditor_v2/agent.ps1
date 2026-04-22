@@ -1524,6 +1524,20 @@ else {
         )
 
         $report.findings = $allFindings
+        $operatorMemoryCore = [ordered]@{
+            who_am_i = 'system operator building site auditor agent'
+            what_system_is_being_built = 'site audit agent → decision → action → monetization system'
+            primary_asset = 'automation site as decision system'
+            end_goal = 'traffic → decision → action → monetization'
+            current_stage = ''
+            current_focus = ''
+            what_is_stable = @()
+            what_is_unstable = @()
+            agent_learned = @()
+            agent_cannot_yet = @()
+            agent_misleading_risk = @()
+            next_capability_to_build = ''
+        }
         $hasOperatorFeedInputs = ($null -ne $report.capture_report -and $null -ne $report.evidence_reconciliation -and $null -ne $report.selected_routes -and $null -ne $report.run_budget -and $null -ne $report.findings)
         if ($hasOperatorFeedInputs) {
             $reconciliationStatus = [string]$report.evidence_reconciliation.status
@@ -1616,6 +1630,67 @@ else {
                 $null = $doNotDoYet.Add('do not expand crawler depth beyond current LINK-mode budget')
             }
 
+            $whatIsStable = [System.Collections.Generic.List[string]]::new()
+            if ($report.capture_report.captures_success -gt 0) {
+                $null = $whatIsStable.Add('screenshots')
+            }
+            if (@('PASS', 'PARTIAL') -contains $reconciliationStatus) {
+                $null = $whatIsStable.Add('reconciliation')
+            }
+            if (@($report.selected_routes).Count -eq [int]$report.run_budget.selected_routes) {
+                $null = $whatIsStable.Add('route selection')
+            }
+
+            $whatIsUnstable = [System.Collections.Generic.List[string]]::new()
+            if (@($report.findings).Count -eq 0) {
+                $null = $whatIsUnstable.Add('findings depth')
+            }
+            if ($report.decision_allowed -eq $false) {
+                $null = $whatIsUnstable.Add('decision layer')
+            }
+            $null = $whatIsUnstable.Add('interaction layer')
+
+            $agentLearned = [System.Collections.Generic.List[string]]::new()
+            if ($report.capture_report.captures_success -gt 0) {
+                $null = $agentLearned.Add('can produce validated screenshots')
+            }
+            if (@('PASS', 'PARTIAL') -contains $reconciliationStatus) {
+                $null = $agentLearned.Add('can reconcile evidence')
+            }
+            if (@($report.selected_routes).Count -gt 0) {
+                $null = $agentLearned.Add('can perform deterministic route selection')
+            }
+
+            $agentCannotYet = [System.Collections.Generic.List[string]]::new()
+            $null = $agentCannotYet.Add('cannot interpret UX')
+            $null = $agentCannotYet.Add('cannot evaluate conversion')
+            if ($report.decision_allowed -eq $false) {
+                $null = $agentCannotYet.Add('cannot recommend tools')
+            }
+
+            $agentMisleadingRisk = [System.Collections.Generic.List[string]]::new()
+            $null = $agentMisleadingRisk.Add('may assume page quality from visuals only')
+            if ($captureStatus -eq 'PARTIAL' -or $captureStatus -eq 'FAIL') {
+                $null = $agentMisleadingRisk.Add('may overstate certainty when evidence coverage is partial')
+            }
+
+            $operatorMemoryCore.current_stage = if ($reconciliationStatus -eq 'PASS' -and $captureStatus -eq 'PASS') {
+                'W3 report layer'
+            }
+            elseif (@('PARTIAL', 'FAIL') -contains $reconciliationStatus -or @('PARTIAL', 'FAIL') -contains $captureStatus) {
+                'W2/W3 report layer hardening'
+            }
+            else {
+                ''
+            }
+            $operatorMemoryCore.current_focus = 'report layer'
+            $operatorMemoryCore.what_is_stable = @($whatIsStable)
+            $operatorMemoryCore.what_is_unstable = @($whatIsUnstable)
+            $operatorMemoryCore.agent_learned = @($agentLearned)
+            $operatorMemoryCore.agent_cannot_yet = @($agentCannotYet)
+            $operatorMemoryCore.agent_misleading_risk = @($agentMisleadingRisk)
+            $operatorMemoryCore.next_capability_to_build = 'structured findings → action mapping'
+
             $report.operator_feed = [ordered]@{
                 system_state = "$stableLayer, $systemChange"
                 primary_constraint = $primaryConstraint
@@ -1627,6 +1702,7 @@ else {
                 do_not_do_yet = @($doNotDoYet)
             }
         }
+        $report.operator_memory_core = $operatorMemoryCore
         $report.page_verdicts = @($pageVerdicts)
         $report.priority_summary = [ordered]@{
             p0_count = $p0Count
