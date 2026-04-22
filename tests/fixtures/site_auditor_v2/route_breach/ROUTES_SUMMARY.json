@@ -1,0 +1,8 @@
+{
+  "routes": [
+    {
+      "normalized_route": "https://example.com/about",
+      "url": "https://example.comhttps://example.com/about"
+    }
+  ]
+}

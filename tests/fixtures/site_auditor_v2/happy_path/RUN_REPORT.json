@@ -1,0 +1,43 @@
+{
+  "status": "PASS",
+  "selected_routes": [
+    {
+      "route": "/"
+    }
+  ],
+  "page_verdicts": [
+    {
+      "route": "/"
+    }
+  ],
+  "run_budget": {
+    "overflow_route_details": [
+      {
+        "route": "/"
+      }
+    ]
+  },
+  "route_contract": {
+    "status": "ok",
+    "violations": []
+  },
+  "artifact_contract": {
+    "status": "ok",
+    "violations": [],
+    "omissions": []
+  },
+  "trust_boundary": {
+    "decision_allowed": true
+  },
+  "operator_handoff": {
+    "must_read_first": "RUN_REPORT.json",
+    "forbidden_moves": [
+      "do not guess"
+    ]
+  },
+  "next_strongest_move": "keep stable",
+  "failure_summary": {
+    "present": false,
+    "reasons": []
+  }
+}

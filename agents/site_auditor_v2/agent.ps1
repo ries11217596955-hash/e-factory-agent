@@ -461,6 +461,133 @@ function Test-RouteContract {
     }
 }
 
+function Test-JsonArtifactFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ArtifactPath
+    )
+
+    if (-not (Test-Path -LiteralPath $ArtifactPath)) {
+        return [ordered]@{
+            status = 'failed'
+            reason = 'missing_file'
+            details = "Artifact file does not exist: $ArtifactPath"
+        }
+    }
+
+    $raw = Get-Content -LiteralPath $ArtifactPath -Raw
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return [ordered]@{
+            status = 'failed'
+            reason = 'empty_json'
+            details = "Artifact file is empty: $ArtifactPath"
+        }
+    }
+
+    $parsed = $null
+    try {
+        $parsed = $raw | ConvertFrom-Json -Depth 100
+    }
+    catch {
+        return [ordered]@{
+            status = 'failed'
+            reason = 'invalid_json'
+            details = "Artifact file is not valid JSON: $ArtifactPath"
+        }
+    }
+
+    $trimmed = $raw.Trim()
+    if ($trimmed -in @('{}', '[]')) {
+        return [ordered]@{
+            status = 'failed'
+            reason = 'placeholder_json'
+            details = "Artifact file is placeholder-only JSON: $ArtifactPath"
+        }
+    }
+
+    if ($trimmed -match '(?i)\b(placeholder|todo|tbd|fake)\b') {
+        return [ordered]@{
+            status = 'failed'
+            reason = 'placeholder_content'
+            details = "Artifact file contains placeholder marker text: $ArtifactPath"
+        }
+    }
+
+    if ($parsed -is [System.Array] -and @($parsed).Count -eq 0) {
+        return [ordered]@{
+            status = 'failed'
+            reason = 'empty_array'
+            details = "Artifact file has empty array payload: $ArtifactPath"
+        }
+    }
+
+    if ($parsed -is [PSCustomObject] -and @($parsed.PSObject.Properties).Count -eq 0) {
+        return [ordered]@{
+            status = 'failed'
+            reason = 'empty_object'
+            details = "Artifact file has empty object payload: $ArtifactPath"
+        }
+    }
+
+    return [ordered]@{
+        status = 'ok'
+        reason = ''
+        details = ''
+    }
+}
+
+function Test-DeclaredArtifactContract {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$OutputFolder,
+        [Parameter(Mandatory = $true)]
+        [string[]]$DeclaredArtifacts
+    )
+
+    $targetArtifacts = @(
+        'RUN_REPORT.json',
+        'ROUTES_SUMMARY.json',
+        'LINK_SUMMARY.json',
+        'ACTION_SUMMARY.json',
+        'visual_manifest.json'
+    )
+    $declaredSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($declared in @($DeclaredArtifacts)) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$declared)) {
+            $null = $declaredSet.Add([string]$declared)
+        }
+    }
+
+    $violations = [System.Collections.Generic.List[object]]::new()
+    $omissions = [System.Collections.Generic.List[object]]::new()
+
+    foreach ($artifactName in $targetArtifacts) {
+        if (-not $declaredSet.Contains($artifactName)) {
+            $omissions.Add([ordered]@{
+                    artifact = $artifactName
+                    reason = 'not_declared_for_this_run'
+                })
+            continue
+        }
+
+        $artifactPath = Join-Path $OutputFolder $artifactName
+        $validationResult = Test-JsonArtifactFile -ArtifactPath $artifactPath
+        if ($validationResult.status -ne 'ok') {
+            $violations.Add([ordered]@{
+                    artifact = $artifactName
+                    reason = [string]$validationResult.reason
+                    details = [string]$validationResult.details
+                })
+        }
+    }
+
+    return [ordered]@{
+        status = if ($violations.Count -eq 0) { 'ok' } else { 'failed' }
+        violations = @($violations)
+        omissions = @($omissions)
+    }
+}
+
 function Get-CanonicalRouteKeyResult {
     param(
         [Parameter(Mandatory = $true)]
@@ -1004,6 +1131,10 @@ $report = [ordered]@{
         failure_summary = ''
         notes = @()
     }
+    failure_summary = [ordered]@{
+        present = $false
+        reasons = @()
+    }
     produced_artifacts = @($producedArtifacts)
     linked_artifacts = @(
         [ordered]@{ name = 'run_report'; path = $runReportPath },
@@ -1031,6 +1162,7 @@ $report = [ordered]@{
         deprecated = $true
         reader_role = 'ChatGPT decision/orchestration layer'
         mirrors_operator_memory_bridge = $true
+        must_read_first = 'RUN_REPORT.json'
         must_do_before_next_task = @()
         what_to_inspect_next = @()
         truth_files = @()
@@ -1054,6 +1186,7 @@ $report = [ordered]@{
         audit_scope = 'LINK mode / screenshot evidence baseline'
         strongest_next_move = 'derive deterministic findings from existing artifacts'
     }
+    next_strongest_move = 'derive deterministic findings from existing artifacts'
     findings = @()
     operator_feed = [ordered]@{
         system_state = ''
@@ -1142,6 +1275,11 @@ $report = [ordered]@{
         status = 'ok'
         primary_key_format = 'path_only'
         violations = @()
+    }
+    artifact_contract = [ordered]@{
+        status = 'pending'
+        violations = @()
+        omissions = @()
     }
 }
 
@@ -2099,6 +2237,7 @@ else {
             audit_scope = 'LINK mode / screenshot evidence baseline'
             strongest_next_move = $strongestMove
         }
+        $report.next_strongest_move = $strongestMove
 
         $report.business_impact = [ordered]@{
             trust = if ($report.capture_report.status -eq 'PASS') { 'no integrity defect detected in sampled visual evidence' } else { 'limited trust due to incomplete visual evidence' }
@@ -2123,6 +2262,7 @@ else {
             deprecated = $true
             reader_role = 'ChatGPT decision/orchestration layer'
             mirrors_operator_memory_bridge = $true
+            must_read_first = 'RUN_REPORT.json'
             truth_files = @($report.operator_memory_bridge.must_read_contract.must_read_files)
             read_order = @($report.operator_memory_bridge.must_read_contract.read_order)
             first_file_to_open = [string]$report.operator_memory_bridge.must_read_contract.first_file_to_open
@@ -2166,6 +2306,41 @@ else {
             $shouldFail = $true
             $errorCode = 'ROUTE_CONTRACT_BREACH'
             $errorMessage = 'Primary route fields must use canonical path-only route identities.'
+        }
+        $artifactContractResult = Test-DeclaredArtifactContract -OutputFolder $outputRoot -DeclaredArtifacts @($producedArtifacts)
+        $report.artifact_contract = [ordered]@{
+            status = [string]$artifactContractResult.status
+            violations = @($artifactContractResult.violations)
+            omissions = @($artifactContractResult.omissions)
+        }
+        if ($artifactContractResult.status -ne 'ok') {
+            $report.status = 'FAIL'
+            $report.execution_status = 'FAILED'
+            $report.execution_report.final_outcome = 'FAIL'
+            $report.execution_report.status_detail = 'FAIL'
+            $report.summary = 'Run failed: ARTIFACT_CONTRACT_BREACH'
+            $report.next_step = 'Fix invalid declared artifacts and rerun LINK mode.'
+            $report.failure_or_limit_report = [ordered]@{
+                kind = 'FAILURE'
+                failure_summary = 'failure_summary.json'
+                notes = @('ARTIFACT_CONTRACT_BREACH')
+            }
+            $shouldFail = $true
+            if (-not $errorCode) {
+                $errorCode = 'ARTIFACT_CONTRACT_BREACH'
+                $errorMessage = 'Declared JSON artifacts must be valid truth artifacts.'
+            }
+        }
+        if ($report.status -eq 'PASS' -and ($report.route_contract.status -ne 'ok' -or $report.artifact_contract.status -ne 'ok')) {
+            $report.status = 'FAIL'
+            $report.execution_status = 'FAILED'
+            $report.execution_report.final_outcome = 'FAIL'
+            $report.execution_report.status_detail = 'FAIL'
+            if (-not $errorCode) {
+                $errorCode = 'CONTRACT_BREACH'
+                $errorMessage = 'PASS is not allowed when route/artifact contract is broken.'
+            }
+            $shouldFail = $true
         }
         $report.produced_artifacts = @($producedArtifacts)
     }
@@ -2228,8 +2403,15 @@ if ($shouldFail) {
         timestamp_utc = Get-IsoUtcNow
         run_report_path = $runReportPath
     }
+    $report.failure_summary = [ordered]@{
+        present = $true
+        reasons = @($errorCode)
+    }
     if ($errorCode -eq 'ROUTE_CONTRACT_BREACH' -and $null -ne $report.route_contract) {
         $failure.route_contract_violations = @($report.route_contract.violations)
+    }
+    if ($errorCode -eq 'ARTIFACT_CONTRACT_BREACH' -and $null -ne $report.artifact_contract) {
+        $failure.artifact_contract_violations = @($report.artifact_contract.violations)
     }
     try {
         Write-JsonFile -Path $failurePath -Data $failure

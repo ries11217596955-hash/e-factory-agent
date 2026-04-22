@@ -1,0 +1,8 @@
+{
+  "url": "https://example.com",
+  "status_code": 200,
+  "title": "Example",
+  "html_length": 1000,
+  "link_count": 3,
+  "is_thin": false
+}

@@ -1,0 +1,49 @@
+{
+  "status": "FAIL",
+  "selected_routes": [
+    {
+      "route": "https://example.com/about"
+    }
+  ],
+  "page_verdicts": [
+    {
+      "route": "https://example.com/about"
+    }
+  ],
+  "run_budget": {
+    "overflow_route_details": [
+      {
+        "route": "https://example.com/about"
+      }
+    ]
+  },
+  "route_contract": {
+    "status": "failed",
+    "violations": [
+      {
+        "reason": "must_start_with_slash"
+      }
+    ]
+  },
+  "artifact_contract": {
+    "status": "ok",
+    "violations": [],
+    "omissions": []
+  },
+  "trust_boundary": {
+    "decision_allowed": false
+  },
+  "operator_handoff": {
+    "must_read_first": "RUN_REPORT.json",
+    "forbidden_moves": [
+      "do not guess"
+    ]
+  },
+  "next_strongest_move": "keep stable",
+  "failure_summary": {
+    "present": true,
+    "reasons": [
+      "ROUTE_CONTRACT_BREACH"
+    ]
+  }
+}

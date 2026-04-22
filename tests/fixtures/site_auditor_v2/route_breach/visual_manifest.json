@@ -1,0 +1,14 @@
+{
+  "status": "SUCCESS",
+  "pages": [
+    {
+      "route": "https://example.com/about",
+      "url": "https://example.comhttps://example.com/about",
+      "captures": [
+        {
+          "status": "ok"
+        }
+      ]
+    }
+  ]
+}
