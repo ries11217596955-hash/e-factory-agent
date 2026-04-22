@@ -328,17 +328,11 @@ function Get-NormalizedRouteResult {
             $normalizedPath = "/$normalizedPath"
         }
 
-        $query = [string]$uri.Query
-        $normalizedRoute = if ([string]::IsNullOrWhiteSpace($query)) {
-            $normalizedPath
-        }
-        else {
-            "{0}{1}" -f $normalizedPath, $query
-        }
+        $normalizedRoute = $normalizedPath
 
         $builder = [UriBuilder]::new($uri)
         $builder.Path = $normalizedPath
-        $builder.Query = $query.TrimStart('?')
+        $builder.Query = [string]$uri.Query.TrimStart('?')
         $builder.Fragment = ''
         $normalizedUrl = $builder.Uri.AbsoluteUri
 
@@ -358,6 +352,112 @@ function Get-NormalizedRouteResult {
             source_url = $Url
             error = [string]$_.Exception.Message
         }
+    }
+}
+
+function Test-PrimaryRouteValue {
+    param(
+        [string]$Value
+    )
+
+    $routeValue = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($routeValue)) {
+        return [ordered]@{ valid = $false; reason = 'empty' }
+    }
+
+    $trimmed = $routeValue.Trim()
+    if (-not $trimmed.StartsWith('/')) {
+        return [ordered]@{ valid = $false; reason = 'must_start_with_slash' }
+    }
+    if ($trimmed -match '^[a-z][a-z0-9+\-.]*://') {
+        return [ordered]@{ valid = $false; reason = 'contains_scheme' }
+    }
+    if ($trimmed -match '#') {
+        return [ordered]@{ valid = $false; reason = 'contains_fragment' }
+    }
+    if ($trimmed -match '\?') {
+        return [ordered]@{ valid = $false; reason = 'contains_query' }
+    }
+    if ($trimmed -match '^//') {
+        return [ordered]@{ valid = $false; reason = 'contains_host_like_prefix' }
+    }
+    if (($trimmed.Length -gt 1) -and $trimmed.EndsWith('/')) {
+        return [ordered]@{ valid = $false; reason = 'trailing_slash_not_normalized' }
+    }
+
+    return [ordered]@{ valid = $true; reason = '' }
+}
+
+function Test-RouteContract {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$RunReport,
+        [Parameter(Mandatory = $true)]
+        [object]$RoutesSummary,
+        [Parameter(Mandatory = $true)]
+        [object]$VisualManifest
+    )
+
+    $violations = [System.Collections.Generic.List[object]]::new()
+    function Add-RouteViolation {
+        param(
+            [string]$ArtifactPath,
+            [string]$FieldPath,
+            [string]$Value,
+            [string]$Reason
+        )
+        $violations.Add([ordered]@{
+                artifact_path = $ArtifactPath
+                field_path = $FieldPath
+                offending_value = $Value
+                reason = $Reason
+            })
+    }
+
+    $selectedRoutes = @($RunReport.selected_routes)
+    for ($i = 0; $i -lt $selectedRoutes.Count; $i++) {
+        $testResult = Test-PrimaryRouteValue -Value ([string]$selectedRoutes[$i].route)
+        if (-not $testResult.valid) {
+            Add-RouteViolation -ArtifactPath 'RUN_REPORT.json' -FieldPath ("selected_routes[{0}].route" -f $i) -Value ([string]$selectedRoutes[$i].route) -Reason ([string]$testResult.reason)
+        }
+    }
+
+    $pageVerdicts = @($RunReport.page_verdicts)
+    for ($i = 0; $i -lt $pageVerdicts.Count; $i++) {
+        $testResult = Test-PrimaryRouteValue -Value ([string]$pageVerdicts[$i].route)
+        if (-not $testResult.valid) {
+            Add-RouteViolation -ArtifactPath 'RUN_REPORT.json' -FieldPath ("page_verdicts[{0}].route" -f $i) -Value ([string]$pageVerdicts[$i].route) -Reason ([string]$testResult.reason)
+        }
+    }
+
+    $overflowRoutes = @($RunReport.run_budget.overflow_route_details)
+    for ($i = 0; $i -lt $overflowRoutes.Count; $i++) {
+        $testResult = Test-PrimaryRouteValue -Value ([string]$overflowRoutes[$i].route)
+        if (-not $testResult.valid) {
+            Add-RouteViolation -ArtifactPath 'RUN_REPORT.json' -FieldPath ("run_budget.overflow_route_details[{0}].route" -f $i) -Value ([string]$overflowRoutes[$i].route) -Reason ([string]$testResult.reason)
+        }
+    }
+
+    $manifestPages = @($VisualManifest.pages)
+    for ($i = 0; $i -lt $manifestPages.Count; $i++) {
+        $testResult = Test-PrimaryRouteValue -Value ([string]$manifestPages[$i].route)
+        if (-not $testResult.valid) {
+            Add-RouteViolation -ArtifactPath 'visual_manifest.json' -FieldPath ("pages[{0}].route" -f $i) -Value ([string]$manifestPages[$i].route) -Reason ([string]$testResult.reason)
+        }
+    }
+
+    $summaryRoutes = @($RoutesSummary.routes)
+    for ($i = 0; $i -lt $summaryRoutes.Count; $i++) {
+        $testResult = Test-PrimaryRouteValue -Value ([string]$summaryRoutes[$i].normalized_route)
+        if (-not $testResult.valid) {
+            Add-RouteViolation -ArtifactPath 'ROUTES_SUMMARY.json' -FieldPath ("routes[{0}].normalized_route" -f $i) -Value ([string]$summaryRoutes[$i].normalized_route) -Reason ([string]$testResult.reason)
+        }
+    }
+
+    return [ordered]@{
+        status = if ($violations.Count -eq 0) { 'ok' } else { 'failed' }
+        primary_key_format = 'path_only'
+        violations = @($violations)
     }
 }
 
@@ -1038,6 +1138,11 @@ $report = [ordered]@{
     decision_allowed = $true
     reconciliation_enforced = $false
     route_normalization = 'ok'
+    route_contract = [ordered]@{
+        status = 'ok'
+        primary_key_format = 'path_only'
+        violations = @()
+    }
 }
 
 $shouldFail = $false
@@ -2033,6 +2138,35 @@ else {
             if_missing_artifact = 'Request exact missing file; do not proceed'
         }
         $report.trust_boundary.decision_allowed = [bool]$report.decision_allowed
+        $routeContractResult = Test-RouteContract -RunReport $report -RoutesSummary $routesSummary -VisualManifest $visualManifest
+        $report.route_contract = [ordered]@{
+            status = [string]$routeContractResult.status
+            primary_key_format = [string]$routeContractResult.primary_key_format
+            violations = @($routeContractResult.violations)
+        }
+        if ($routeContractResult.status -ne 'ok') {
+            $report.status = 'FAIL'
+            $report.execution_status = 'FAILED'
+            $report.execution_report.final_outcome = 'FAIL'
+            $report.execution_report.status_detail = 'FAIL'
+            $report.summary = 'Run failed: ROUTE_CONTRACT_BREACH'
+            $report.next_step = 'Fix route contract violations and rerun LINK mode.'
+            $report.decision_allowed = $false
+            $report.decision_disabled = $true
+            $report.failure_or_limit_report = [ordered]@{
+                kind = 'FAILURE'
+                failure_summary = 'failure_summary.json'
+                notes = @('ROUTE_CONTRACT_BREACH')
+            }
+            if ($null -ne $report.trust_boundary) {
+                $report.trust_boundary.visual_evidence = 'invalid'
+                $report.trust_boundary.reason = 'ROUTE_CONTRACT_BREACH'
+                $report.trust_boundary.decision_allowed = $false
+            }
+            $shouldFail = $true
+            $errorCode = 'ROUTE_CONTRACT_BREACH'
+            $errorMessage = 'Primary route fields must use canonical path-only route identities.'
+        }
         $report.produced_artifacts = @($producedArtifacts)
     }
     catch {
@@ -2083,6 +2217,7 @@ if ($shouldFail) {
     }
     $failure = [ordered]@{
         error_code = $errorCode
+        fail_reason = $errorCode
         error_message = $errorMessage
         fail_class = 'FAILURE'
         notes = @($errorMessage)
@@ -2093,12 +2228,16 @@ if ($shouldFail) {
         timestamp_utc = Get-IsoUtcNow
         run_report_path = $runReportPath
     }
+    if ($errorCode -eq 'ROUTE_CONTRACT_BREACH' -and $null -ne $report.route_contract) {
+        $failure.route_contract_violations = @($report.route_contract.violations)
+    }
     try {
         Write-JsonFile -Path $failurePath -Data $failure
     }
     catch {
         $lastResortFailure = [ordered]@{
             error_code = if ([string]::IsNullOrWhiteSpace($errorCode)) { 'FAILURE_SUMMARY_WRITE_FAILED' } else { $errorCode }
+            fail_reason = if ([string]::IsNullOrWhiteSpace($errorCode)) { 'FAILURE_SUMMARY_WRITE_FAILED' } else { $errorCode }
             error_message = if ([string]::IsNullOrWhiteSpace($errorMessage)) { 'failure_summary_write_failed' } else { $errorMessage }
             fail_class = 'FAILURE'
             notes = @('failure_summary_write_failed')
