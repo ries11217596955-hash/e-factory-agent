@@ -61,6 +61,37 @@ $report = [ordered]@{
     linked_artifacts = @(
         [ordered]@{ name = 'run_report'; path = $runReportPath }
     )
+    truth_files = [ordered]@{
+        primary = @(
+            'RUN_REPORT.json',
+            'failure_summary.json'
+        )
+        context = @(
+            'agents/site_auditor_v2/agent.ps1',
+            '.github/workflows/site-auditor-v2-link.yml'
+        )
+    }
+    read_order = @(
+        'RUN_REPORT.json',
+        'failure_summary.json',
+        'agents/site_auditor_v2/agent.ps1',
+        '.github/workflows/site-auditor-v2-link.yml'
+    )
+    operator_handoff = [ordered]@{
+        reader_role = 'ChatGPT decision/orchestration layer'
+        must_do_before_next_task = @(
+            'open agent param block',
+            'verify workflow parameter mapping',
+            'verify actual output path'
+        )
+        forbidden_moves = @(
+            'do not guess parameter names',
+            'do not generate task without reading truth_files',
+            'do not patch unrelated files'
+        )
+        if_missing_artifact = 'Request exact missing file; do not proceed'
+        next_task_shape = 'bounded fix only'
+    }
     summary = 'LINK mode scaffold executed. Non-LINK capabilities are marked NOT_IMPLEMENTED for Sprint A.'
     next_step = 'Implement deterministic LINK traversal artifact generation in Sprint B.'
 }
