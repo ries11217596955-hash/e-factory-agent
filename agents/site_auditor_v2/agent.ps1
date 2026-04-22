@@ -168,12 +168,14 @@ $linkSummaryPath = Join-Path $outputRoot 'LINK_SUMMARY.json'
 $routesSummaryPath = Join-Path $outputRoot 'ROUTES_SUMMARY.json'
 $auditSummaryPath = Join-Path $outputRoot 'AUDIT_SUMMARY.json'
 $actionSummaryPath = Join-Path $outputRoot 'ACTION_SUMMARY.json'
+$actionReportPath = Join-Path $outputRoot 'ACTION_REPORT.txt'
 $failurePath = Join-Path $outputRoot 'failure_summary.json'
 $deterministicRunReportPath = Join-Path $PSScriptRoot 'RUN_REPORT.json'
 $deterministicLinkSummaryPath = Join-Path $PSScriptRoot 'LINK_SUMMARY.json'
 $deterministicRoutesSummaryPath = Join-Path $PSScriptRoot 'ROUTES_SUMMARY.json'
 $deterministicAuditSummaryPath = Join-Path $PSScriptRoot 'AUDIT_SUMMARY.json'
 $deterministicActionSummaryPath = Join-Path $PSScriptRoot 'ACTION_SUMMARY.json'
+$deterministicActionReportPath = Join-Path $PSScriptRoot 'ACTION_REPORT.txt'
 $deterministicFailurePath = Join-Path $PSScriptRoot 'failure_summary.json'
 
 $capabilityStatus = [ordered]@{
@@ -205,14 +207,16 @@ $report = [ordered]@{
         'LINK_SUMMARY.json',
         'ROUTES_SUMMARY.json',
         'AUDIT_SUMMARY.json',
-        'ACTION_SUMMARY.json'
+        'ACTION_SUMMARY.json',
+        'ACTION_REPORT.txt'
     )
     linked_artifacts = @(
         [ordered]@{ name = 'run_report'; path = $runReportPath },
         [ordered]@{ name = 'link_summary'; path = $linkSummaryPath },
         [ordered]@{ name = 'routes_summary'; path = $routesSummaryPath },
         [ordered]@{ name = 'audit_summary'; path = $auditSummaryPath },
-        [ordered]@{ name = 'action_summary'; path = $actionSummaryPath }
+        [ordered]@{ name = 'action_summary'; path = $actionSummaryPath },
+        [ordered]@{ name = 'action_report'; path = $actionReportPath }
     )
     truth_files = [ordered]@{
         primary = @(
@@ -369,6 +373,23 @@ else {
         }
         Write-JsonFile -Path $auditSummaryPath -Data $auditSummary
         Copy-Item -LiteralPath $auditSummaryPath -Destination $deterministicAuditSummaryPath -Force
+
+        $actionReportLines = [System.Collections.Generic.List[string]]::new()
+        $actionReportLines.Add("Site: $BaseUrl")
+        $actionReportLines.Add("Total pages checked: $($auditSummary.total)")
+        $actionReportLines.Add("Thin: $($auditSummary.thin)")
+        $actionReportLines.Add("Broken: $($auditSummary.broken)")
+
+        foreach ($target in $problemTargets) {
+            $actionReportLines.Add('')
+            $actionReportLines.Add("URL: $($target.url)")
+            $actionReportLines.Add("Issue: $($target.classification)")
+            $actionReportLines.Add("Action: $($target.action)")
+        }
+
+        $actionReportContent = [string]::Join([Environment]::NewLine, $actionReportLines)
+        [System.IO.File]::WriteAllText($actionReportPath, $actionReportContent)
+        Copy-Item -LiteralPath $actionReportPath -Destination $deterministicActionReportPath -Force
 
         $report.operator_handoff.next_task_shape = 'refine actions only'
     }
