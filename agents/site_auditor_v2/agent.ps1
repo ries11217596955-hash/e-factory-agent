@@ -235,9 +235,9 @@ $report = [ordered]@{
     operator_handoff = [ordered]@{
         reader_role = 'ChatGPT decision/orchestration layer'
         must_do_before_next_task = @(
-            'open agent param block',
-            'verify workflow parameter mapping',
-            'verify actual output path'
+            'inspect routes with classification = thin',
+            'check html_length distribution',
+            'verify link structure of broken pages'
         )
         forbidden_moves = @(
             'do not guess parameter names',
@@ -245,7 +245,12 @@ $report = [ordered]@{
             'do not patch unrelated files'
         )
         if_missing_artifact = 'Request exact missing file; do not proceed'
-        next_task_shape = 'improve classification accuracy'
+        primary_problem = 'structure unclear'
+        focus_files = @(
+            'ROUTES_SUMMARY.json',
+            'AUDIT_SUMMARY.json'
+        )
+        next_task_shape = 'map unclear route structure'
         scope_constraint = 'expand LINK capture only'
     }
     summary = 'LINK mode executes a live page fetch and writes base LINK signals to artifacts.'
@@ -310,6 +315,20 @@ else {
         }
         Write-JsonFile -Path $auditSummaryPath -Data $auditSummary
         Copy-Item -LiteralPath $auditSummaryPath -Destination $deterministicAuditSummaryPath -Force
+
+        $primaryProblem = 'structure unclear'
+        $nextTaskShape = 'map unclear route structure'
+        if ($thinCount -gt $okCount -and $thinCount -gt $brokenCount) {
+            $primaryProblem = 'thin content'
+            $nextTaskShape = 'detect why pages are thin'
+        }
+        elseif ($brokenCount -gt 0) {
+            $primaryProblem = 'broken pages'
+            $nextTaskShape = 'identify broken routes'
+        }
+
+        $report.operator_handoff.primary_problem = $primaryProblem
+        $report.operator_handoff.next_task_shape = $nextTaskShape
     }
     catch {
         $shouldFail = $true
