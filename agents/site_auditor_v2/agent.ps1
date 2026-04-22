@@ -734,6 +734,7 @@ $shouldFail = $false
 $errorCode = ''
 $errorMessage = ''
 $reconciliationCompleted = $false
+$counterMismatchDetected = $false
 
 if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
     $shouldFail = $true
@@ -866,9 +867,11 @@ else {
         $null = $producedArtifacts.Add('ACTION_REPORT.txt')
 
         $captureTargets = Get-VisualTargets -BaseUrl $BaseUrl -RoutesSummary $routesSummary -MaxPages 5
-        $captureTargetUrls = @($captureTargets | ForEach-Object { [string]$_.url })
+        $selectedRoutes = @($captureTargets)
+        $selectedRoutesCount = [int]$selectedRoutes.Count
+        $captureTargetUrls = @($selectedRoutes | ForEach-Object { [string]$_.url })
         $report.selected_routes = @(
-            $captureTargets |
+            $selectedRoutes |
             ForEach-Object {
                 [ordered]@{
                     route = [string]$_.route
@@ -892,15 +895,63 @@ else {
 
         $visualManifest = Get-Content -LiteralPath $visualManifestPath -Raw | ConvertFrom-Json
         $captureStatus = [string]$visualManifest.status
+        $manifestRequestedPages = [int]$visualManifest.requested_pages
+        $manifestProcessedPages = [int]$visualManifest.processed_pages
+        $manifestFailedPages = [int]$visualManifest.failed_pages
         $captureSummary = [ordered]@{
             status = $captureStatus
-            requested_pages = [int]$visualManifest.requested_pages
-            processed_pages = [int]$visualManifest.processed_pages
-            failed_pages = [int]$visualManifest.failed_pages
+            requested_pages = $manifestRequestedPages
+            processed_pages = $manifestProcessedPages
+            failed_pages = $manifestFailedPages
             exit_code = [int]$captureExitCode
+            counter_mismatch = $false
         }
         $report.capture_summary = $captureSummary
         $manifestPages = @($visualManifest.pages)
+
+        $selectedRouteKeys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($target in $selectedRoutes) {
+            $normalizedRoute = [string]$target.route
+            if ([string]::IsNullOrWhiteSpace($normalizedRoute)) {
+                $normalizedRoute = [string](Get-NormalizedRouteResult -Url ([string]$target.url)).normalized_route
+            }
+            $null = $selectedRouteKeys.Add($normalizedRoute)
+        }
+
+        $manifestRouteKeys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($manifestPage in $manifestPages) {
+            $manifestPageUrl = if ($manifestPage.PSObject.Properties['url']) {
+                [string]$manifestPage.url
+            }
+            elseif ($manifestPage.PSObject.Properties['source_url']) {
+                [string]$manifestPage.source_url
+            }
+            else {
+                ''
+            }
+            if (-not [string]::IsNullOrWhiteSpace($manifestPageUrl)) {
+                $null = $manifestRouteKeys.Add([string](Get-NormalizedRouteResult -Url $manifestPageUrl).normalized_route)
+            }
+        }
+
+        $missingManifestRoutes = @($selectedRouteKeys | Where-Object { -not $manifestRouteKeys.Contains($_) })
+        $extraManifestRoutes = @($manifestRouteKeys | Where-Object { -not $selectedRouteKeys.Contains($_) })
+
+        if ($selectedRoutesCount -ne $manifestRequestedPages -or $manifestPages.Count -ne $selectedRoutesCount -or $missingManifestRoutes.Count -gt 0 -or $extraManifestRoutes.Count -gt 0) {
+            $counterMismatchDetected = $true
+            $report.capture_summary.counter_mismatch = $true
+            if ($report.capture_summary.status -eq 'PASS') {
+                $report.capture_summary.status = 'PARTIAL'
+            }
+            $report.capture_summary.counter_mismatch_details = [ordered]@{
+                selected_routes = $selectedRoutesCount
+                manifest_requested_pages = $manifestRequestedPages
+                manifest_pages = [int]$manifestPages.Count
+                missing_routes = @($missingManifestRoutes)
+                extra_routes = @($extraManifestRoutes)
+            }
+        }
+
         $captures = @(
             $manifestPages |
             ForEach-Object { @($_.captures) }
@@ -908,12 +959,13 @@ else {
         $capturesAttempted = [int]$captures.Count
         $capturesSuccess = [int]@($captures | Where-Object { $_.status -eq 'ok' }).Count
         $capturesFailed = [int]($capturesAttempted - $capturesSuccess)
-        $pagesAttempted = [int]$visualManifest.requested_pages
+        $pagesAttempted = [int]$selectedRoutesCount
+        $pagesProcessed = [int]$manifestProcessedPages
+        $pagesFailed = [int]$manifestFailedPages
         $pagesSuccess = [int]@(
             $manifestPages |
             Where-Object { @($_.captures | Where-Object { $_.status -eq 'ok' }).Count -gt 0 }
         ).Count
-        $pagesFailed = [int]($pagesAttempted - $pagesSuccess)
         $failTypes = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
         foreach ($capture in ($captures | Where-Object { $_.status -ne 'ok' })) {
             if (-not [string]::IsNullOrWhiteSpace([string]$capture.status)) {
@@ -935,12 +987,14 @@ else {
         $report.capture_report = [ordered]@{
             status = $captureReportStatus
             pages_attempted = $pagesAttempted
+            pages_processed = $pagesProcessed
             pages_success = $pagesSuccess
             pages_failed = $pagesFailed
             captures_attempted = $capturesAttempted
             captures_success = $capturesSuccess
             captures_failed = $capturesFailed
             fail_types = @($failTypes)
+            counter_mismatch = [bool]$counterMismatchDetected
         }
 
         try {
@@ -1106,6 +1160,30 @@ else {
                 }
             }
         }
+        if ($counterMismatchDetected) {
+            $report.status = 'FAIL'
+            $report.execution_status = 'FAILED'
+            $report.execution_report.final_outcome = 'FAIL'
+            $report.execution_report.status_detail = 'FAIL'
+            $report.summary = 'Run failed: COUNTER_INCONSISTENCY'
+            $report.next_step = 'counter_inconsistency'
+            $report.decision_allowed = $false
+            $report.decision_disabled = $true
+            $report.capture_report.status = 'FAIL'
+            $report.capture_report.counter_mismatch = $true
+            $report.failure_or_limit_report = [ordered]@{
+                kind = 'FAILURE'
+                failure_summary = ''
+                notes = @('counter_inconsistency')
+                reason = 'counter_inconsistency'
+            }
+            $report.trust_boundary.visual_evidence = 'invalid'
+            $report.trust_boundary.reason = 'counter_inconsistency'
+            $shouldFail = $true
+            $errorCode = 'COUNTER_INCONSISTENCY'
+            $errorMessage = 'counter_inconsistency'
+        }
+
         $report.trust_boundary.decision_allowed = [bool]$report.decision_allowed
         $report.produced_artifacts = @($producedArtifacts)
     }
