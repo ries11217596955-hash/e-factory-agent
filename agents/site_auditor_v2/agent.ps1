@@ -147,16 +147,7 @@ function Get-ShallowRoutes {
         $rootResponse = Invoke-WebRequest -Uri $RootUrl -Method Get -MaximumRedirection 5
         $rootHtml = [string]$rootResponse.Content
         $fetchDebug.status_code = [string][int]$rootResponse.StatusCode
-        $fetchDebug.final_url = if (
-            $null -ne $rootResponse.BaseResponse -and
-            $null -ne $rootResponse.BaseResponse.RequestMessage -and
-            $null -ne $rootResponse.BaseResponse.RequestMessage.RequestUri
-        ) {
-            [string]$rootResponse.BaseResponse.RequestMessage.RequestUri.AbsoluteUri
-        }
-        else {
-            $RootUrl
-        }
+        $fetchDebug.final_url = $RootUrl
         $fetchDebug.html_length = [int]$rootHtml.Length
         $fetchDebug.body_present = (-not [string]::IsNullOrWhiteSpace($rootHtml))
         if (($fetchDebug.status_code -eq '200') -and ($fetchDebug.html_length -eq 0)) {
