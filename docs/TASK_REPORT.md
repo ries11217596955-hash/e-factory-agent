@@ -1,5 +1,5 @@
 ## Summary
-Implemented a canonical `operator_memory_bridge` block in LINK-mode `RUN_REPORT.json` output that deterministically unifies static operator identity anchors, dynamic run-state/learning anchors, must-read contract fields, and next operator posture.
+Consolidated operator-facing context so `operator_memory_bridge` is the single source of truth for identity, state, learning, must-read contract, and next-operator actions in LINK-mode `RUN_REPORT.json` output.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
@@ -12,10 +12,10 @@ Implemented a canonical `operator_memory_bridge` block in LINK-mode `RUN_REPORT.
 ## Current entrypoints/paths
 - Agent entrypoint remains `agents/site_auditor_v2/agent.ps1` (LINK mode).
 - RUN_REPORT schema remains `agents/site_auditor_v2/contracts/run_report.schema.json`.
-- `RUN_REPORT.json` now includes mandatory `operator_memory_bridge` as canonical operator-context block while retaining `operator_memory_core` and `operator_handoff` for compatibility.
-- `operator_memory_bridge.must_read_contract` now carries `must_read_files`, `read_order`, `first_file_to_open`, `why_read`, and `minimum_context_after_read`.
-- `operator_memory_bridge` is seeded with static SSOT identity anchors and dynamic runtime state/learning fields; dynamic fields stay empty when not derivable.
+- Top-level `truth_files` and `read_order` context blocks are removed from report construction; must-read context lives in `operator_memory_bridge.must_read_contract`.
+- `operator_memory_bridge.next_operator_posture` now carries `must_do_before_next_task`, `what_to_inspect_next`, and `do_not_do_yet`.
+- `operator_handoff` is retained only as compatibility mirror (`deprecated: true`, `mirrors_operator_memory_bridge: true`) and is populated from `operator_memory_bridge` values.
 
 ## Risks/blockers
-- Compatibility fields are intentionally retained to avoid downstream contract breakage while transitioning canonical context to `operator_memory_bridge`.
-- `minimum_context_after_read` is deterministic and constrained to current LINK/report-layer capabilities; deeper interpretation remains explicitly out of scope.
+- Compatibility mirror fields remain to avoid downstream contract breakage; consumers should migrate reads to `operator_memory_bridge` only.
+- This change assumes downstream readers tolerate additional mirrored legacy keys (`deprecated`, `mirrors_operator_memory_bridge`, mirrored next-step arrays).

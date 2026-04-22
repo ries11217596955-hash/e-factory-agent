@@ -766,58 +766,24 @@ $report = [ordered]@{
         [ordered]@{ name = 'visual_manifest'; path = $visualManifestPath },
         [ordered]@{ name = 'screenshots'; path = $screenshotsPath }
     )
-    truth_files = [ordered]@{
-        primary = @(
-            'RUN_REPORT.json',
-            'LINK_SUMMARY.json',
-            'ROUTES_SUMMARY.json',
-            'AUDIT_SUMMARY.json',
-            'ACTION_SUMMARY.json',
-            'visual_manifest.json',
-            'failure_summary.json'
-        )
-        context = @(
-            'agents/site_auditor_v2/agent.ps1',
-            '.github/workflows/site-auditor-v2-link.yml'
-        )
-    }
-    read_order = @(
-        'RUN_REPORT.json',
-        'LINK_SUMMARY.json',
-        'ROUTES_SUMMARY.json',
-        'AUDIT_SUMMARY.json',
-        'ACTION_SUMMARY.json',
-        'visual_manifest.json',
-        'failure_summary.json',
-        'agents/site_auditor_v2/agent.ps1',
-        '.github/workflows/site-auditor-v2-link.yml'
-    )
     problem_targets = @()
     operator_handoff = [ordered]@{
+        deprecated = $true
         reader_role = 'ChatGPT decision/orchestration layer'
-        must_do_before_next_task = @(
-            'read RUN_REPORT.json first',
-            'confirm produced_artifacts are present',
-            'inspect ACTION_REPORT.txt and ACTION_SUMMARY.json'
-        )
-        what_to_inspect_next = @(
-            'RUN_REPORT.json',
-            'ACTION_REPORT.txt',
-            'ACTION_SUMMARY.json'
-        )
+        mirrors_operator_memory_bridge = $true
+        must_do_before_next_task = @()
+        what_to_inspect_next = @()
+        truth_files = @()
+        read_order = @()
+        first_file_to_open = ''
+        exact_reason = ''
+        do_not_do_yet = @()
         forbidden_moves = @(
             'do not guess parameter names',
             'do not generate task without reading truth_files',
             'do not patch unrelated files'
         )
         if_missing_artifact = 'Request exact missing file; do not proceed'
-        primary_problem = 'structure unclear'
-        focus_files = @(
-            'ROUTES_SUMMARY.json',
-            'AUDIT_SUMMARY.json'
-        )
-        next_task_shape = 'refine actions only'
-        scope_constraint = 'expand LINK capture only'
     }
     summary = 'LINK mode executes live fetch, route checks, and screenshot evidence capture.'
     next_step = 'Stabilize screenshot evidence quality in LINK mode.'
@@ -881,6 +847,8 @@ $report = [ordered]@{
         }
         next_operator_posture = [ordered]@{
             next_system_move = ''
+            must_do_before_next_task = @()
+            what_to_inspect_next = @()
             do_not_do_yet = @()
         }
     }
@@ -1307,31 +1275,30 @@ else {
         }
 
         if ($problemTargets.Count -eq 0) {
-            $report.operator_handoff.must_do_before_next_task = @(
+            $report.operator_memory_bridge.next_operator_posture.must_do_before_next_task = @(
                 'review ROUTES_SUMMARY.json route coverage',
                 'confirm AUDIT_SUMMARY.json counts',
                 'verify ACTION_SUMMARY.json is empty'
             )
-            $report.operator_handoff.what_to_inspect_next = @(
+            $report.operator_memory_bridge.next_operator_posture.what_to_inspect_next = @(
                 'ROUTES_SUMMARY.json',
                 'AUDIT_SUMMARY.json',
                 'ACTION_SUMMARY.json'
             )
         }
         else {
-            $report.operator_handoff.must_do_before_next_task = @(
+            $report.operator_memory_bridge.next_operator_posture.must_do_before_next_task = @(
                 'open problem_targets pages',
                 'inspect their structure',
                 'compare thin vs ok pages'
             )
-            $report.operator_handoff.what_to_inspect_next = @(
+            $report.operator_memory_bridge.next_operator_posture.what_to_inspect_next = @(
                 'open problem_targets pages',
                 'inspect their structure',
                 'compare thin vs ok pages'
             )
         }
 
-        $report.operator_handoff.next_task_shape = 'refine actions only'
         $report.execution_report.final_outcome = 'PASS'
         $limitNotes = [System.Collections.Generic.List[string]]::new()
         if ($thinCount -gt 0) { $limitNotes.Add("thin_pages=$thinCount") }
@@ -1768,15 +1735,21 @@ else {
                 next_capability_to_build = [string]$operatorMemoryCore.next_capability_to_build
             }
             must_read_contract = [ordered]@{
-                must_read_files = @($report.operator_handoff.truth_files)
-                read_order = @($report.operator_handoff.read_order)
-                first_file_to_open = [string]$report.operator_handoff.first_file_to_open
-                why_read = [string]$report.operator_handoff.exact_reason
+                must_read_files = @('RUN_REPORT.json', 'ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json', 'ACTION_SUMMARY.json', 'visual_manifest.json')
+                read_order = @('RUN_REPORT.json', 'ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json', 'ACTION_SUMMARY.json', 'visual_manifest.json')
+                first_file_to_open = 'RUN_REPORT.json'
+                why_read = 'RUN_REPORT.json now contains deterministic findings, priorities, and route verdicts anchored to existing artifacts.'
                 minimum_context_after_read = 'visual truth is trusted within sampled coverage, route selection is stable in-budget, report layer exists with deterministic findings, and deeper interpretation remains limited without interaction/decision layers.'
             }
             next_operator_posture = [ordered]@{
                 next_system_move = [string]$report.operator_feed.next_system_move
-                do_not_do_yet = @($report.operator_handoff.do_not_do_yet)
+                must_do_before_next_task = @($report.operator_memory_bridge.next_operator_posture.must_do_before_next_task)
+                what_to_inspect_next = @($report.operator_memory_bridge.next_operator_posture.what_to_inspect_next)
+                do_not_do_yet = @(
+                    'do not infer UX/conversion outcomes',
+                    'do not grade CTA quality',
+                    'do not claim monetization readiness beyond observable LINK evidence'
+                )
             }
         }
         $report.page_verdicts = @($pageVerdicts)
@@ -1836,28 +1809,16 @@ else {
 
         $report.next_step = [string]$report.next_action_contract.next_task_objective
         $report.operator_handoff = [ordered]@{
+            deprecated = $true
             reader_role = 'ChatGPT decision/orchestration layer'
-            truth_files = @(
-                'RUN_REPORT.json',
-                'ROUTES_SUMMARY.json',
-                'AUDIT_SUMMARY.json',
-                'ACTION_SUMMARY.json',
-                'visual_manifest.json'
-            )
-            read_order = @(
-                'RUN_REPORT.json',
-                'ROUTES_SUMMARY.json',
-                'AUDIT_SUMMARY.json',
-                'ACTION_SUMMARY.json',
-                'visual_manifest.json'
-            )
-            first_file_to_open = 'RUN_REPORT.json'
-            exact_reason = 'RUN_REPORT.json now contains deterministic findings, priorities, and route verdicts anchored to existing artifacts.'
-            do_not_do_yet = @(
-                'do not infer UX/conversion outcomes',
-                'do not grade CTA quality',
-                'do not claim monetization readiness beyond observable LINK evidence'
-            )
+            mirrors_operator_memory_bridge = $true
+            truth_files = @($report.operator_memory_bridge.must_read_contract.must_read_files)
+            read_order = @($report.operator_memory_bridge.must_read_contract.read_order)
+            first_file_to_open = [string]$report.operator_memory_bridge.must_read_contract.first_file_to_open
+            exact_reason = [string]$report.operator_memory_bridge.must_read_contract.why_read
+            do_not_do_yet = @($report.operator_memory_bridge.next_operator_posture.do_not_do_yet)
+            must_do_before_next_task = @($report.operator_memory_bridge.next_operator_posture.must_do_before_next_task)
+            what_to_inspect_next = @($report.operator_memory_bridge.next_operator_posture.what_to_inspect_next)
             forbidden_moves = @(
                 'do not guess parameter names',
                 'do not generate task without reading truth_files',
@@ -1865,18 +1826,6 @@ else {
             )
             if_missing_artifact = 'Request exact missing file; do not proceed'
         }
-        $report.operator_memory_bridge.must_read_contract = [ordered]@{
-            must_read_files = @($report.operator_handoff.truth_files)
-            read_order = @($report.operator_handoff.read_order)
-            first_file_to_open = [string]$report.operator_handoff.first_file_to_open
-            why_read = [string]$report.operator_handoff.exact_reason
-            minimum_context_after_read = 'visual truth is trusted within sampled coverage, route selection is stable in-budget, report layer exists with deterministic findings, and deeper interpretation remains limited without interaction/decision layers.'
-        }
-        $report.operator_memory_bridge.next_operator_posture = [ordered]@{
-            next_system_move = [string]$report.operator_feed.next_system_move
-            do_not_do_yet = @($report.operator_handoff.do_not_do_yet)
-        }
-
         $report.trust_boundary.decision_allowed = [bool]$report.decision_allowed
         $report.produced_artifacts = @($producedArtifacts)
     }
