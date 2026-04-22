@@ -226,6 +226,67 @@ function Get-NormalizedRouteResult {
     }
 }
 
+function Get-CanonicalRouteKeyResult {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RouteValue,
+        [string]$BaseUrl = ''
+    )
+
+    $value = [string]$RouteValue
+    if ([string]::IsNullOrWhiteSpace($value)) {
+        return [ordered]@{
+            status = 'failed'
+            canonical_route = ''
+            source_value = $RouteValue
+            error = 'route value is empty'
+        }
+    }
+
+    $trimmedValue = $value.Trim()
+    $candidateUrl = $trimmedValue
+
+    if (-not ($trimmedValue -match '^[a-z][a-z0-9+\-.]*://')) {
+        if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
+            return [ordered]@{
+                status = 'failed'
+                canonical_route = ''
+                source_value = $RouteValue
+                error = 'base URL is required to normalize relative route values'
+            }
+        }
+
+        try {
+            $candidateUrl = [Uri]::new([Uri]$BaseUrl, $trimmedValue).AbsoluteUri
+        }
+        catch {
+            return [ordered]@{
+                status = 'failed'
+                canonical_route = ''
+                source_value = $RouteValue
+                error = [string]$_.Exception.Message
+            }
+        }
+    }
+
+    $normalizedResult = Get-NormalizedRouteResult -Url $candidateUrl
+    if ($normalizedResult.status -eq 'failed') {
+        return [ordered]@{
+            status = 'failed'
+            canonical_route = ''
+            source_value = $RouteValue
+            error = [string]$normalizedResult.error
+        }
+    }
+
+    return [ordered]@{
+        status = 'ok'
+        canonical_route = [string]$normalizedResult.normalized_route
+        source_value = $RouteValue
+        error = ''
+    }
+}
+
 function Get-VisualTargets {
     param(
         [Parameter(Mandatory = $true)]
@@ -910,12 +971,26 @@ else {
         $manifestPages = @($visualManifest.pages)
 
         $selectedRouteKeys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        $routeNormalizationErrors = [System.Collections.Generic.List[object]]::new()
         foreach ($target in $selectedRoutes) {
-            $normalizedRoute = [string]$target.route
-            if ([string]::IsNullOrWhiteSpace($normalizedRoute)) {
-                $normalizedRoute = [string](Get-NormalizedRouteResult -Url ([string]$target.url)).normalized_route
+            $selectedRouteValue = if (-not [string]::IsNullOrWhiteSpace([string]$target.route)) {
+                [string]$target.route
             }
-            $null = $selectedRouteKeys.Add($normalizedRoute)
+            else {
+                [string]$target.url
+            }
+
+            $canonicalResult = Get-CanonicalRouteKeyResult -RouteValue $selectedRouteValue -BaseUrl $BaseUrl
+            if ($canonicalResult.status -eq 'ok') {
+                $null = $selectedRouteKeys.Add([string]$canonicalResult.canonical_route)
+                continue
+            }
+
+            $routeNormalizationErrors.Add([ordered]@{
+                    source = 'selected_route'
+                    value = $selectedRouteValue
+                    error = [string]$canonicalResult.error
+                })
         }
 
         $manifestRouteKeys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
@@ -930,14 +1005,25 @@ else {
                 ''
             }
             if (-not [string]::IsNullOrWhiteSpace($manifestPageUrl)) {
-                $null = $manifestRouteKeys.Add([string](Get-NormalizedRouteResult -Url $manifestPageUrl).normalized_route)
+                $canonicalResult = Get-CanonicalRouteKeyResult -RouteValue $manifestPageUrl -BaseUrl $BaseUrl
+                if ($canonicalResult.status -eq 'ok') {
+                    $null = $manifestRouteKeys.Add([string]$canonicalResult.canonical_route)
+                }
+                else {
+                    $routeNormalizationErrors.Add([ordered]@{
+                            source = 'manifest_route'
+                            value = $manifestPageUrl
+                            error = [string]$canonicalResult.error
+                        })
+                }
             }
         }
 
         $missingManifestRoutes = @($selectedRouteKeys | Where-Object { -not $manifestRouteKeys.Contains($_) })
         $extraManifestRoutes = @($manifestRouteKeys | Where-Object { -not $selectedRouteKeys.Contains($_) })
+        $normalizationErrorDetected = ($routeNormalizationErrors.Count -gt 0)
 
-        if ($selectedRoutesCount -ne $manifestRequestedPages -or $manifestPages.Count -ne $selectedRoutesCount -or $missingManifestRoutes.Count -gt 0 -or $extraManifestRoutes.Count -gt 0) {
+        if ($normalizationErrorDetected -or $selectedRoutesCount -ne $manifestRequestedPages -or $manifestPages.Count -ne $selectedRoutesCount -or $missingManifestRoutes.Count -gt 0 -or $extraManifestRoutes.Count -gt 0) {
             $counterMismatchDetected = $true
             $report.capture_summary.counter_mismatch = $true
             if ($report.capture_summary.status -eq 'PASS') {
@@ -945,10 +1031,14 @@ else {
             }
             $report.capture_summary.counter_mismatch_details = [ordered]@{
                 selected_routes = $selectedRoutesCount
+                selected_route_keys = [int]$selectedRouteKeys.Count
                 manifest_requested_pages = $manifestRequestedPages
                 manifest_pages = [int]$manifestPages.Count
+                manifest_route_keys = [int]$manifestRouteKeys.Count
                 missing_routes = @($missingManifestRoutes)
                 extra_routes = @($extraManifestRoutes)
+                normalization_error = $normalizationErrorDetected
+                normalization_errors = @($routeNormalizationErrors)
             }
         }
 
