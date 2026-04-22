@@ -1,8 +1,9 @@
 ## Summary
-Added operator-readable `ACTION_REPORT.txt` generation from `problem_targets`, added summary header counts, and updated `RUN_REPORT` artifact/link lists to include `ACTION_REPORT.txt`.
+Aligned LINK run artifact publication with `RUN_REPORT` truth by making `produced_artifacts` runtime-accurate, adding truthful empty-target handoff guidance, and enforcing pre-upload artifact assertions in workflow.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
+- `.github/workflows/site-auditor-v2-link.yml`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
@@ -10,9 +11,10 @@ Added operator-readable `ACTION_REPORT.txt` generation from `problem_targets`, a
 
 ## Current entrypoints/paths
 - Agent entrypoint: `agents/site_auditor_v2/agent.ps1`
-- New artifact output: `ACTION_REPORT.txt`
-- Existing artifact output retained: `ACTION_SUMMARY.json`
-- Updated run report outputs: `RUN_REPORT.json -> produced_artifacts`, `RUN_REPORT.json -> linked_artifacts`
+- Workflow entrypoint: `.github/workflows/site-auditor-v2-link.yml`
+- Published bundle source: `site_auditor_v2_artifact_bundle/` (created at workflow runtime)
+- `RUN_REPORT.produced_artifacts` now reflects only artifacts generated in the current run
+- `operator_handoff` now avoids `problem_targets` page-inspection directives when `problem_targets` is empty
 
 ## Risks/blockers
 - None.

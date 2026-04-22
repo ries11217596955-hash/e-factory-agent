@@ -193,6 +193,9 @@ $learningBacklog = @(
     'Add decision synthesis contract after quality signals stabilize.'
 )
 
+$producedArtifacts = [System.Collections.Generic.List[string]]::new()
+$null = $producedArtifacts.Add('RUN_REPORT.json')
+
 $report = [ordered]@{
     mode = $normalizedMode
     base_url = $BaseUrl
@@ -202,14 +205,7 @@ $report = [ordered]@{
     timestamp_utc = $timestamp
     capability_status = $capabilityStatus
     learning_backlog = $learningBacklog
-    produced_artifacts = @(
-        'RUN_REPORT.json',
-        'LINK_SUMMARY.json',
-        'ROUTES_SUMMARY.json',
-        'AUDIT_SUMMARY.json',
-        'ACTION_SUMMARY.json',
-        'ACTION_REPORT.txt'
-    )
+    produced_artifacts = @($producedArtifacts)
     linked_artifacts = @(
         [ordered]@{ name = 'run_report'; path = $runReportPath },
         [ordered]@{ name = 'link_summary'; path = $linkSummaryPath },
@@ -293,6 +289,7 @@ if ($shouldFail) {
     $report.status = 'FAIL'
     $report.summary = "Run failed: $errorCode"
     $report.next_step = $errorMessage
+    $report.produced_artifacts = @($producedArtifacts)
     $report.linked_artifacts = @(
         [ordered]@{ name = 'run_report'; path = $runReportPath },
         [ordered]@{ name = 'failure_summary'; path = $failurePath }
@@ -303,6 +300,7 @@ else {
         $linkSummary = Get-LinkSignals -Url $BaseUrl
         Write-JsonFile -Path $linkSummaryPath -Data $linkSummary
         Copy-Item -LiteralPath $linkSummaryPath -Destination $deterministicLinkSummaryPath -Force
+        $null = $producedArtifacts.Add('LINK_SUMMARY.json')
 
         $routesSummary = Get-ShallowRoutes -RootUrl $BaseUrl -MaxRoutes 10
         foreach ($route in $routesSummary.routes) {
@@ -319,6 +317,7 @@ else {
         }
         Write-JsonFile -Path $routesSummaryPath -Data $routesSummary
         Copy-Item -LiteralPath $routesSummaryPath -Destination $deterministicRoutesSummaryPath -Force
+        $null = $producedArtifacts.Add('ROUTES_SUMMARY.json')
 
         $brokenTargets = @(
             $routesSummary.routes |
@@ -361,6 +360,7 @@ else {
         )
         Write-JsonFile -Path $actionSummaryPath -Data $actionSummary
         Copy-Item -LiteralPath $actionSummaryPath -Destination $deterministicActionSummaryPath -Force
+        $null = $producedArtifacts.Add('ACTION_SUMMARY.json')
 
         $okCount = @($routesSummary.routes | Where-Object { $_.classification -eq 'ok' }).Count
         $thinCount = @($routesSummary.routes | Where-Object { $_.classification -eq 'thin' }).Count
@@ -373,6 +373,7 @@ else {
         }
         Write-JsonFile -Path $auditSummaryPath -Data $auditSummary
         Copy-Item -LiteralPath $auditSummaryPath -Destination $deterministicAuditSummaryPath -Force
+        $null = $producedArtifacts.Add('AUDIT_SUMMARY.json')
 
         $actionReportLines = [System.Collections.Generic.List[string]]::new()
         $actionReportLines.Add("Site: $BaseUrl")
@@ -390,8 +391,23 @@ else {
         $actionReportContent = [string]::Join([Environment]::NewLine, $actionReportLines)
         [System.IO.File]::WriteAllText($actionReportPath, $actionReportContent)
         Copy-Item -LiteralPath $actionReportPath -Destination $deterministicActionReportPath -Force
+        $null = $producedArtifacts.Add('ACTION_REPORT.txt')
+
+        if ($problemTargets.Count -eq 0) {
+            $report.operator_handoff.must_do_before_next_task = @(
+                'review ROUTES_SUMMARY.json route coverage',
+                'confirm AUDIT_SUMMARY.json counts',
+                'verify ACTION_SUMMARY.json is empty'
+            )
+            $report.operator_handoff.what_to_inspect_next = @(
+                'ROUTES_SUMMARY.json',
+                'AUDIT_SUMMARY.json',
+                'ACTION_SUMMARY.json'
+            )
+        }
 
         $report.operator_handoff.next_task_shape = 'refine actions only'
+        $report.produced_artifacts = @($producedArtifacts)
     }
     catch {
         $shouldFail = $true
@@ -400,6 +416,7 @@ else {
         $report.status = 'FAIL'
         $report.summary = "Run failed: $errorCode"
         $report.next_step = $errorMessage
+        $report.produced_artifacts = @($producedArtifacts)
         $report.linked_artifacts = @(
             [ordered]@{ name = 'run_report'; path = $runReportPath },
             [ordered]@{ name = 'failure_summary'; path = $failurePath }
@@ -422,6 +439,9 @@ if ($shouldFail) {
     }
     Write-JsonFile -Path $failurePath -Data $failure
     Copy-Item -LiteralPath $failurePath -Destination $deterministicFailurePath -Force
+    $report.produced_artifacts = @($producedArtifacts + 'failure_summary.json')
+    Write-JsonFile -Path $runReportPath -Data $report
+    Copy-Item -LiteralPath $runReportPath -Destination $deterministicRunReportPath -Force
     exit 1
 }
 
