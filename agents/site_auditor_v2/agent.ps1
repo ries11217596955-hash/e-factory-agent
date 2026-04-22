@@ -277,6 +277,55 @@ function Get-VisualTargets {
         }
     }
 
+    function Get-SafeRouteClassification {
+        param(
+            [Parameter(Mandatory = $true)]
+            [string]$RouteKey
+        )
+
+        $defaultClassification = [ordered]@{ type = 'CONTENT'; priority = 2 }
+
+        try {
+            $classification = Get-RouteTypeAndPriority -RouteKey $RouteKey
+            if (-not $classification) {
+                return $defaultClassification
+            }
+
+            $classificationType = if ($classification.PSObject.Properties['type']) {
+                [string]$classification.type
+            }
+            else {
+                'CONTENT'
+            }
+
+            $classificationPriority = if ($classification.PSObject.Properties['priority'] -and $classification.priority -as [int]) {
+                [int]$classification.priority
+            }
+            else {
+                switch ($classificationType) {
+                    'ROOT' { 1 }
+                    'DECISION' { 1 }
+                    'LOW_VALUE' { 3 }
+                    default { 2 }
+                }
+            }
+
+            $safeClassification = [ordered]@{
+                type = $classificationType
+                priority = $classificationPriority
+            }
+
+            if ($classification.PSObject.Properties['hard_exclude']) {
+                $safeClassification.hard_exclude = [bool]$classification.hard_exclude
+            }
+
+            return $safeClassification
+        }
+        catch {
+            return $defaultClassification
+        }
+    }
+
     $baseUri = [Uri]$BaseUrl
     $rootBuilder = [UriBuilder]::new($baseUri)
     $rootBuilder.Path = '/'
@@ -284,8 +333,8 @@ function Get-VisualTargets {
     $rootBuilder.Fragment = ''
     $baseNormalized = Get-NormalizedRouteResult -Url $rootBuilder.Uri.AbsoluteUri
     if ($seenRoutes.Add($baseNormalized.normalized_route)) {
-        $baseClassification = Get-RouteTypeAndPriority -RouteKey $baseNormalized.normalized_route
-        if (-not $baseClassification.ContainsKey('hard_exclude')) {
+        $baseClassification = Get-SafeRouteClassification -RouteKey $baseNormalized.normalized_route
+        if (-not $baseClassification.PSObject.Properties['hard_exclude'] -or -not [bool]$baseClassification.hard_exclude) {
             $tierOne.Add([ordered]@{
                     route = $baseNormalized.normalized_route
                     type = [string]$baseClassification.type
@@ -311,8 +360,8 @@ function Get-VisualTargets {
             continue
         }
 
-        $classification = Get-RouteTypeAndPriority -RouteKey $routeKey
-        if ($classification.ContainsKey('hard_exclude')) {
+        $classification = Get-SafeRouteClassification -RouteKey $routeKey
+        if ($classification.PSObject.Properties['hard_exclude'] -and [bool]$classification.hard_exclude) {
             continue
         }
         if ($classification.type -eq 'LOW_VALUE') {

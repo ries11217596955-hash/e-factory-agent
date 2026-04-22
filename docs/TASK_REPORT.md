@@ -1,5 +1,5 @@
 ## Summary
-Implemented deterministic LINK-mode route prioritization for visual capture input. Routes are now classified as ROOT, DECISION, CONTENT, or LOW_VALUE and selected by priority tiers with a hard max of 5 routes. Added hard exclusions for `/feed`, `/rss`, and pagination routes (`/page/<n>`), and propagated only selected routes to screenshot input plus RUN_REPORT metadata.
+Applied a bounded hotfix for `Get-VisualTargets` in LINK mode to remove the `ContainsKey` runtime crash against ordered route classification results. Replaced invalid dictionary-method access with PowerShell-safe property checks, and added a fail-safe classification wrapper that defaults malformed/unsafe metadata to `CONTENT` without terminating the run.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
@@ -10,10 +10,10 @@ Implemented deterministic LINK-mode route prioritization for visual capture inpu
 
 ## Current entrypoints/paths
 - Agent runtime entrypoint: `agents/site_auditor_v2/agent.ps1`
-- Route prioritization path: `Get-VisualTargets` (classification, tiering, sampling, hard exclusions)
-- Screenshot input path: `Invoke-VisualCapture` call site now uses selected prioritized URLs only
-- RUN_REPORT propagation path: `selected_routes` field reflects filtered route set sent to screenshot layer
+- Route prioritization path: `Get-VisualTargets` (ROOT/DECISION tier 1, CONTENT tier 2, LOW_VALUE exclusion, hard excludes, max-routes cap)
+- Route classification path: `Get-RouteTypeAndPriority` + `Get-SafeRouteClassification` fail-safe access wrapper
+- RUN_REPORT propagation path: `selected_routes` remains sourced from visual target selection output
 
 ## Risks/blockers
-- Tier-1 routes are capped by `max_routes=5` to enforce processing limit; in edge cases with more than 5 tier-1 candidates, only the first deterministic subset is processed.
-- `pwsh` runtime validation is not executable in this environment, so behavior was validated statically by code inspection only.
+- Validation in this environment is limited to static/script-level checks; a full external LINK-mode run artifact was not executed here.
+- Fail-safe intentionally coerces malformed classification metadata to `CONTENT` to prevent run-ending exceptions, which may reduce specificity for malformed items while preserving pipeline continuity.
