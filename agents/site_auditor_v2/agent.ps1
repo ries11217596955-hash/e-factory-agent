@@ -285,6 +285,7 @@ $report = [ordered]@{
     mode = $normalizedMode
     base_url = $BaseUrl
     status = 'PASS'
+    execution_status = 'SUCCESS'
     run_id = $runKey
     output_folder = $outputRoot
     timestamp_utc = $timestamp
@@ -388,6 +389,7 @@ if ($normalizedMode -ne 'LINK') {
 
 if ($shouldFail) {
     $report.status = 'FAIL'
+    $report.execution_status = 'FAILED'
     $report.summary = "Run failed: $errorCode"
     $report.next_step = $errorMessage
     $report.execution_report.final_outcome = 'FAIL'
@@ -526,6 +528,48 @@ else {
             exit_code = [int]$captureExitCode
         }
         $report.capture_summary = $captureSummary
+        $manifestPages = @($visualManifest.pages)
+        $captures = @(
+            $manifestPages |
+            ForEach-Object { @($_.captures) }
+        )
+        $capturesAttempted = [int]$captures.Count
+        $capturesSuccess = [int]@($captures | Where-Object { $_.status -eq 'ok' }).Count
+        $capturesFailed = [int]($capturesAttempted - $capturesSuccess)
+        $pagesAttempted = [int]$visualManifest.requested_pages
+        $pagesSuccess = [int]@(
+            $manifestPages |
+            Where-Object { @($_.captures | Where-Object { $_.status -eq 'ok' }).Count -gt 0 }
+        ).Count
+        $pagesFailed = [int]($pagesAttempted - $pagesSuccess)
+        $failTypes = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($capture in ($captures | Where-Object { $_.status -ne 'ok' })) {
+            if (-not [string]::IsNullOrWhiteSpace([string]$capture.status)) {
+                $null = $failTypes.Add([string]$capture.status)
+            }
+        }
+        foreach ($manifestPage in ($manifestPages | Where-Object { $_.status -eq 'FAIL' })) {
+            $null = $failTypes.Add('render_fail')
+        }
+
+        $captureReportStatus = 'PASS'
+        if ($pagesSuccess -eq 0) {
+            $captureReportStatus = 'FAIL'
+        }
+        elseif ($capturesFailed -gt 0) {
+            $captureReportStatus = 'PARTIAL'
+        }
+
+        $report.capture_report = [ordered]@{
+            status = $captureReportStatus
+            pages_attempted = $pagesAttempted
+            pages_success = $pagesSuccess
+            pages_failed = $pagesFailed
+            captures_attempted = $capturesAttempted
+            captures_success = $capturesSuccess
+            captures_failed = $capturesFailed
+            fail_types = @($failTypes)
+        }
 
         if ($problemTargets.Count -eq 0) {
             $report.operator_handoff.must_do_before_next_task = @(
@@ -557,10 +601,28 @@ else {
         $limitNotes = [System.Collections.Generic.List[string]]::new()
         if ($thinCount -gt 0) { $limitNotes.Add("thin_pages=$thinCount") }
         if ($brokenCount -gt 0) { $limitNotes.Add("broken_pages=$brokenCount") }
-        if ($captureStatus -eq 'FAIL') { $limitNotes.Add('capture_status=FAIL') }
-        elseif ($captureStatus -eq 'PARTIAL') { $limitNotes.Add('capture_status=PARTIAL') }
+        if ($report.capture_report.status -eq 'FAIL') {
+            $limitNotes.Add('capture_status=FAIL')
+            $limitNotes.Add('incomplete visual coverage: no page had a valid screenshot capture')
+        }
+        elseif ($report.capture_report.status -eq 'PARTIAL') {
+            $limitNotes.Add('capture_status=PARTIAL')
+            $limitNotes.Add('incomplete visual coverage: some screenshot captures failed validation')
+        }
 
-        if ($limitNotes.Count -gt 0) {
+        if ($report.capture_report.status -eq 'FAIL') {
+            $report.status = 'FAIL'
+            $report.execution_status = 'FAILED'
+            $report.execution_report.final_outcome = 'FAIL'
+            $report.execution_report.status_detail = 'FAIL'
+            $report.failure_or_limit_report = [ordered]@{
+                kind = 'FAILURE'
+                failure_summary = ''
+                notes = @($limitNotes)
+            }
+        }
+        elseif ($limitNotes.Count -gt 0) {
+            $report.execution_status = 'PARTIAL'
             $report.execution_report.status_detail = 'PASS_WITH_LIMITS'
             $report.failure_or_limit_report = [ordered]@{
                 kind = 'LIMITS'
@@ -569,6 +631,7 @@ else {
             }
         }
         else {
+            $report.execution_status = 'SUCCESS'
             $report.execution_report.status_detail = $passStatus
         }
         $report.produced_artifacts = @($producedArtifacts)
@@ -578,6 +641,7 @@ else {
         $errorCode = 'LINK_FETCH_FAILED'
         $errorMessage = $_.Exception.Message
         $report.status = 'FAIL'
+        $report.execution_status = 'FAILED'
         $report.summary = "Run failed: $errorCode"
         $report.next_step = $errorMessage
         $report.execution_report.final_outcome = 'FAIL'
