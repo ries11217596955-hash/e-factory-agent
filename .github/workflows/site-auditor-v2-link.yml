@@ -64,12 +64,43 @@ jobs:
             cp "${target_path}" "site_auditor_v2_artifact_bundle/${artifact}"
           done
 
-          if [ -f "agents/site_auditor_v2/failure_summary.json" ] && ! printf '%s\n' "${ARTIFACTS[@]}" | grep -qx 'failure_summary.json'; then
-            cp "agents/site_auditor_v2/failure_summary.json" "site_auditor_v2_artifact_bundle/failure_summary.json"
-          fi
-
           echo "Artifacts staged for upload:"
           ls -1 site_auditor_v2_artifact_bundle
+
+      - name: Regression check (contract + artifact consistency)
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN_REPORT="agents/site_auditor_v2/RUN_REPORT.json"
+          ACTION_REPORT="agents/site_auditor_v2/ACTION_REPORT.txt"
+
+          test -f "${RUN_REPORT}" || { echo "Missing RUN_REPORT.json"; exit 1; }
+          test -f "${ACTION_REPORT}" || { echo "Missing ACTION_REPORT.txt"; exit 1; }
+
+          mapfile -t ARTIFACTS < <(jq -r '.produced_artifacts[]' "${RUN_REPORT}")
+          printf '%s\n' "${ARTIFACTS[@]}" | grep -qx 'RUN_REPORT.json' || { echo "RUN_REPORT.json not declared in produced_artifacts"; exit 1; }
+          printf '%s\n' "${ARTIFACTS[@]}" | grep -qx 'ACTION_REPORT.txt' || { echo "ACTION_REPORT.txt not declared in produced_artifacts"; exit 1; }
+
+          for artifact in "${ARTIFACTS[@]}"; do
+            test -f "agents/site_auditor_v2/${artifact}" || { echo "Listed artifact missing: ${artifact}"; exit 1; }
+          done
+
+          STATUS="$(jq -r '.status' "${RUN_REPORT}")"
+          PASS_LABEL="$(jq -r '.execution_report.status_detail' "${RUN_REPORT}")"
+
+          if [ "${STATUS}" = "PASS" ]; then
+            if [ "${PASS_LABEL}" != "PASS" ] && [ "${PASS_LABEL}" != "PASS_WITH_LIMITS" ]; then
+              echo "PASS run must explicitly declare PASS or PASS_WITH_LIMITS in execution_report.status_detail"
+              exit 1
+            fi
+          fi
+
+          if [ "${STATUS}" = "FAIL" ]; then
+            test -f "agents/site_auditor_v2/failure_summary.json" || { echo "FAIL run missing failure_summary.json"; exit 1; }
+            printf '%s\n' "${ARTIFACTS[@]}" | grep -qx 'failure_summary.json' || { echo "FAIL run must include failure_summary.json in produced_artifacts"; exit 1; }
+            jq -e '.failure_or_limit_report.failure_summary == "failure_summary.json"' "${RUN_REPORT}" >/dev/null || { echo "FAIL run must reference failure_summary.json"; exit 1; }
+          fi
 
       - name: Upload run outputs artifact
         if: always()
