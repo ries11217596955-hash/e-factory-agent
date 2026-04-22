@@ -232,12 +232,18 @@ $report = [ordered]@{
         'agents/site_auditor_v2/agent.ps1',
         '.github/workflows/site-auditor-v2-link.yml'
     )
+    problem_targets = @()
     operator_handoff = [ordered]@{
         reader_role = 'ChatGPT decision/orchestration layer'
         must_do_before_next_task = @(
-            'inspect routes with classification = thin',
-            'check html_length distribution',
-            'verify link structure of broken pages'
+            'open problem_targets pages',
+            'inspect their structure',
+            'compare thin vs ok pages'
+        )
+        what_to_inspect_next = @(
+            'open problem_targets pages',
+            'inspect their structure',
+            'compare thin vs ok pages'
         )
         forbidden_moves = @(
             'do not guess parameter names',
@@ -303,6 +309,33 @@ else {
         }
         Write-JsonFile -Path $routesSummaryPath -Data $routesSummary
         Copy-Item -LiteralPath $routesSummaryPath -Destination $deterministicRoutesSummaryPath -Force
+
+        $brokenTargets = @(
+            $routesSummary.routes |
+            Where-Object { $_.classification -eq 'broken' } |
+            ForEach-Object {
+                [ordered]@{
+                    url = $_.url
+                    classification = 'broken'
+                    reason = 'status_code not 200'
+                }
+            }
+        )
+        $thinTargets = @(
+            $routesSummary.routes |
+            Where-Object { $_.classification -eq 'thin' } |
+            Sort-Object html_length, url |
+            Select-Object -First 3 |
+            ForEach-Object {
+                [ordered]@{
+                    url = $_.url
+                    classification = 'thin'
+                    reason = 'low html_length'
+                }
+            }
+        )
+        $problemTargets = @($brokenTargets + $thinTargets)
+        $report.problem_targets = $problemTargets
 
         $okCount = @($routesSummary.routes | Where-Object { $_.classification -eq 'ok' }).Count
         $thinCount = @($routesSummary.routes | Where-Object { $_.classification -eq 'thin' }).Count
