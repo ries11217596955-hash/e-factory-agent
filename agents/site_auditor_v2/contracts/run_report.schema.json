@@ -18,6 +18,7 @@
     "findings",
     "operator_feed",
     "operator_memory_core",
+    "operator_memory_bridge",
     "priority_summary",
     "page_verdicts",
     "business_impact",
@@ -175,6 +176,67 @@
         "agent_cannot_yet": { "type": "array", "items": { "type": "string" } },
         "agent_misleading_risk": { "type": "array", "items": { "type": "string" } },
         "next_capability_to_build": { "type": "string" }
+      }
+    },
+    "operator_memory_bridge": {
+      "type": "object",
+      "required": [
+        "identity_anchor",
+        "state_anchor",
+        "learning_anchor",
+        "must_read_contract",
+        "next_operator_posture"
+      ],
+      "properties": {
+        "identity_anchor": {
+          "type": "object",
+          "required": ["who_am_i", "what_system_is_being_built", "primary_asset", "end_goal"],
+          "properties": {
+            "who_am_i": { "type": "string" },
+            "what_system_is_being_built": { "type": "string" },
+            "primary_asset": { "type": "string" },
+            "end_goal": { "type": "string" }
+          }
+        },
+        "state_anchor": {
+          "type": "object",
+          "required": ["current_stage", "current_focus", "what_is_stable", "what_is_unstable"],
+          "properties": {
+            "current_stage": { "type": "string" },
+            "current_focus": { "type": "string" },
+            "what_is_stable": { "type": "array", "items": { "type": "string" } },
+            "what_is_unstable": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "learning_anchor": {
+          "type": "object",
+          "required": ["agent_learned", "agent_cannot_yet", "agent_misleading_risk", "next_capability_to_build"],
+          "properties": {
+            "agent_learned": { "type": "array", "items": { "type": "string" } },
+            "agent_cannot_yet": { "type": "array", "items": { "type": "string" } },
+            "agent_misleading_risk": { "type": "array", "items": { "type": "string" } },
+            "next_capability_to_build": { "type": "string" }
+          }
+        },
+        "must_read_contract": {
+          "type": "object",
+          "required": ["must_read_files", "read_order", "first_file_to_open", "why_read", "minimum_context_after_read"],
+          "properties": {
+            "must_read_files": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+            "read_order": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+            "first_file_to_open": { "type": "string" },
+            "why_read": { "type": "string" },
+            "minimum_context_after_read": { "type": "string" }
+          }
+        },
+        "next_operator_posture": {
+          "type": "object",
+          "required": ["next_system_move", "do_not_do_yet"],
+          "properties": {
+            "next_system_move": { "type": "string" },
+            "do_not_do_yet": { "type": "array", "items": { "type": "string" } }
+          }
+        }
       }
     },
     "priority_summary": {
