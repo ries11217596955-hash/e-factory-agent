@@ -4,9 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       base_url:
-        description: "Base URL to audit in LINK mode"
+        description: "Target site URL"
         required: true
-        type: string
 
 jobs:
   site-auditor-v2-link:
@@ -18,9 +17,9 @@ jobs:
       - name: Run site_auditor_v2 in LINK mode
         shell: pwsh
         run: |
-          ./agents/site_auditor_v2/agent.ps1 \
-            -MODE LINK \
-            -BASE_URL "${{ inputs.base_url }}"
+          ./agents/site_auditor_v2/agent.ps1 `
+            -MODE LINK `
+            -BASE_URL "${{ github.event.inputs.base_url }}"
 
       - name: Print run output paths
         if: always()
