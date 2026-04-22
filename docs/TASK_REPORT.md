@@ -1,25 +1,23 @@
 ## Summary
-Enforced reconciliation as the strict final gate for visual capture truth in LINK mode. `RUN_REPORT.capture_report.status` is now always set directly from reconciliation status, non-PASS capture now hard-locks decisions via `decision_allowed = false`, and reconciliation enforcement is explicitly logged.
+Implemented reconciliation as the final authority for RUN_REPORT status controls in LINK mode. Final `capture_report.status`, `execution_status`, and `decision_allowed` are now derived strictly from `evidence_reconciliation.status`, with explicit hard-fail behavior when reconciliation fails or does not execute.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
+- `agents/site_auditor_v2/contracts/run_report.schema.json`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- Agent entrypoint: `agents/site_auditor_v2/agent.ps1`
-- Visual capture runtime entrypoint: `agents/site_auditor_v2/tools/capture_visuals.mjs`
-- Deterministic outputs retained:
-  - `agents/site_auditor_v2/RUN_REPORT.json`
-  - `agents/site_auditor_v2/visual_manifest.json`
-  - `agents/site_auditor_v2/screenshots/*.png`
-- Run-scoped outputs retained:
-  - `agents/site_auditor_v2/output/<run_id>/RUN_REPORT.json`
-  - `agents/site_auditor_v2/output/<run_id>/visual_manifest.json`
-  - `agents/site_auditor_v2/output/<run_id>/screenshots/*.png`
+- Agent runtime entrypoint: `agents/site_auditor_v2/agent.ps1`
+- Visual capture tool: `agents/site_auditor_v2/tools/capture_visuals.mjs`
+- Reconciliation authority output fields in `RUN_REPORT.json`:
+  - `capture_report.status`
+  - `execution_status`
+  - `decision_allowed`
+  - `trust_boundary`
 
 ## Risks/blockers
-- Reconciliation now compares manifest pages, filesystem screenshots, and RUN_REPORT counters; any counter drift introduces explicit reconciliation issues and can force non-PASS outcomes.
-- If reconciliation returns an unsupported status or throws, execution is hard-failed with decision lock and no PASS fallback.
+- `pwsh` is not available in this execution environment, so runtime validation scenarios could not be executed end-to-end locally.
+- `status` now allows `PARTIAL` in the schema; downstream consumers expecting only PASS/FAIL may need to handle the additional value.

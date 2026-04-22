@@ -19,7 +19,7 @@
   "properties": {
     "mode": { "type": "string" },
     "base_url": { "type": "string" },
-    "status": { "type": "string", "enum": ["PASS", "FAIL"] },
+    "status": { "type": "string", "enum": ["PASS", "PARTIAL", "FAIL"] },
     "run_id": { "type": "string" },
     "output_folder": { "type": "string" },
     "timestamp_utc": { "type": "string", "format": "date-time" },
