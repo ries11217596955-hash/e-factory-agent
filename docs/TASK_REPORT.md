@@ -1,9 +1,8 @@
 ## Summary
-Consolidated operator-facing context so `operator_memory_bridge` is the single source of truth for identity, state, learning, must-read contract, and next-operator actions in LINK-mode `RUN_REPORT.json` output.
+Implemented LINK-mode BaseUrl canonicalization so scheme-less input is converted to an absolute URL (`https://...`) before any URL parsing/fetch logic runs, and invalid URLs now fail early with `INVALID_BASE_URL`.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
-- `agents/site_auditor_v2/contracts/run_report.schema.json`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
@@ -11,11 +10,9 @@ Consolidated operator-facing context so `operator_memory_bridge` is the single s
 
 ## Current entrypoints/paths
 - Agent entrypoint remains `agents/site_auditor_v2/agent.ps1` (LINK mode).
-- RUN_REPORT schema remains `agents/site_auditor_v2/contracts/run_report.schema.json`.
-- Top-level `truth_files` and `read_order` context blocks are removed from report construction; must-read context lives in `operator_memory_bridge.must_read_contract`.
-- `operator_memory_bridge.next_operator_posture` now carries `must_do_before_next_task`, `what_to_inspect_next`, and `do_not_do_yet`.
-- `operator_handoff` is retained only as compatibility mirror (`deprecated: true`, `mirrors_operator_memory_bridge: true`) and is populated from `operator_memory_bridge` values.
+- New canonicalization gate: `Resolve-CanonicalBaseUrl` is evaluated before LINK fetch/route/screenshot target logic is executed.
+- Canonical BaseUrl is propagated as single source to live fetch, route normalization, visual target selection, `RUN_REPORT.base_url`, and `LINK_SUMMARY.root` (via shared `BaseUrl` usage after canonicalization).
 
 ## Risks/blockers
-- Compatibility mirror fields remain to avoid downstream contract breakage; consumers should migrate reads to `operator_memory_bridge` only.
-- This change assumes downstream readers tolerate additional mirrored legacy keys (`deprecated`, `mirrors_operator_memory_bridge`, mirrored next-step arrays).
+- Canonical URL persistence uses trimmed input + optional `https://` prefix; it does not aggressively reformat host/path casing or force trailing slash normalization.
+- Inputs that parse as absolute non-http(s) URLs are now explicitly rejected with `INVALID_BASE_URL`.

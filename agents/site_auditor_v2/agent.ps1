@@ -27,6 +27,57 @@ function Get-DeterministicRunKey {
     return "{0}_{1}" -f $Mode.Trim().ToLowerInvariant(), $hash.Substring(0, 12)
 }
 
+function Resolve-CanonicalBaseUrl {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$BaseUrl
+    )
+
+    $trimmedBaseUrl = [string]$BaseUrl
+    if (-not [string]::IsNullOrWhiteSpace($trimmedBaseUrl)) {
+        $trimmedBaseUrl = $trimmedBaseUrl.Trim()
+    }
+
+    if ([string]::IsNullOrWhiteSpace($trimmedBaseUrl)) {
+        return [ordered]@{
+            status = 'failed'
+            canonical_url = ''
+            error = 'BaseUrl must be non-empty.'
+        }
+    }
+
+    $candidateUrl = if ($trimmedBaseUrl -match '^[a-z][a-z0-9+\-.]*://') {
+        $trimmedBaseUrl
+    }
+    else {
+        "https://$trimmedBaseUrl"
+    }
+
+    $absoluteUri = $null
+    $isAbsolute = [Uri]::TryCreate($candidateUrl, [UriKind]::Absolute, [ref]$absoluteUri)
+    if (-not $isAbsolute -or $null -eq $absoluteUri) {
+        return [ordered]@{
+            status = 'failed'
+            canonical_url = ''
+            error = 'BaseUrl is not a valid absolute URL.'
+        }
+    }
+
+    if ($absoluteUri.Scheme -notin @('http', 'https') -or [string]::IsNullOrWhiteSpace([string]$absoluteUri.Host)) {
+        return [ordered]@{
+            status = 'failed'
+            canonical_url = ''
+            error = 'BaseUrl must be an absolute http/https URL.'
+        }
+    }
+
+    return [ordered]@{
+        status = 'ok'
+        canonical_url = $candidateUrl
+        error = ''
+    }
+}
+
 function Get-LinkSignals {
     param(
         [Parameter(Mandatory = $true)]
@@ -681,7 +732,9 @@ function Invoke-EvidenceReconciliation {
 $normalizedMode = $Mode.Trim().ToUpperInvariant()
 $maxRoutes = 5
 $timestamp = Get-IsoUtcNow
-$runKey = Get-DeterministicRunKey -Mode $Mode -BaseUrl $BaseUrl
+$canonicalBaseUrlResult = Resolve-CanonicalBaseUrl -BaseUrl $BaseUrl
+$effectiveBaseUrl = if ($canonicalBaseUrlResult.status -eq 'ok') { [string]$canonicalBaseUrlResult.canonical_url } else { [string]$BaseUrl }
+$runKey = Get-DeterministicRunKey -Mode $Mode -BaseUrl $effectiveBaseUrl
 $outputRoot = Join-Path $PSScriptRoot (Join-Path 'output' $runKey)
 $runReportPath = Join-Path $outputRoot 'RUN_REPORT.json'
 $linkSummaryPath = Join-Path $outputRoot 'LINK_SUMMARY.json'
@@ -886,10 +939,14 @@ $errorMessage = ''
 $reconciliationCompleted = $false
 $counterMismatchDetected = $false
 
-if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
+if ($canonicalBaseUrlResult.status -ne 'ok') {
     $shouldFail = $true
     $errorCode = 'INVALID_BASE_URL'
-    $errorMessage = 'BaseUrl must be non-empty.'
+    $errorMessage = [string]$canonicalBaseUrlResult.error
+}
+else {
+    $BaseUrl = [string]$canonicalBaseUrlResult.canonical_url
+    $report.base_url = $BaseUrl
 }
 
 if ($normalizedMode -ne 'LINK') {
