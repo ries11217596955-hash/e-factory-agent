@@ -523,6 +523,7 @@ $report = [ordered]@{
 $shouldFail = $false
 $errorCode = ''
 $errorMessage = ''
+$reconciliationCompleted = $false
 
 if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
     $shouldFail = $true
@@ -735,15 +736,23 @@ else {
                 throw "Reconciliation returned unsupported status '$([string]$reconciliation.status)'."
             }
 
+            $reconciliationCompleted = $true
             $report.capture_report.status = [string]$reconciliation.status
-            if ($reconciliation.status -eq 'PARTIAL') {
-                $report.trust_boundary = [ordered]@{
-                    visual_coverage = 'incomplete'
-                    note = 'Some screenshots missing or invalid'
-                }
+
+            $visualEvidence = switch ([string]$reconciliation.status) {
+                'PASS' { 'trusted' }
+                'PARTIAL' { 'partial' }
+                default { 'invalid' }
             }
-            elseif ($null -ne $report.PSObject.Properties['trust_boundary']) {
-                $report.PSObject.Properties.Remove('trust_boundary')
+            $report.trust_boundary = [ordered]@{
+                visual_evidence = $visualEvidence
+                decision_allowed = $false
+                reason = 'reconciliation_result'
+            }
+
+            if ($reconciliation.status -eq 'PARTIAL') {
+                $report.trust_boundary.visual_truth = 'partial'
+                $report.trust_boundary.impact = 'downstream analysis limited'
             }
         }
         catch {
@@ -771,6 +780,25 @@ else {
             $shouldFail = $true
             $errorCode = 'EVIDENCE_RECONCILIATION_FAILED'
             $errorMessage = $_.Exception.Message
+        }
+
+        if (-not $reconciliationCompleted) {
+            $report.status = 'FAIL'
+            $report.execution_status = 'FAILED'
+            $report.execution_report.final_outcome = 'FAIL'
+            $report.execution_report.status_detail = 'FAIL'
+            $report.decision_disabled = $true
+            $report.decision_allowed = $false
+            $report.trust_boundary = [ordered]@{
+                visual_evidence = 'invalid'
+                decision_allowed = $false
+                reason = 'reconciliation_result'
+            }
+            $shouldFail = $true
+            if ([string]::IsNullOrWhiteSpace($errorCode)) {
+                $errorCode = 'EVIDENCE_RECONCILIATION_NOT_EXECUTED'
+                $errorMessage = 'Evidence reconciliation did not execute.'
+            }
         }
 
         if ($problemTargets.Count -eq 0) {
@@ -812,38 +840,51 @@ else {
             $limitNotes.Add('incomplete visual coverage: some screenshot captures failed validation')
         }
 
-        if ($report.capture_report.status -eq 'FAIL') {
-            $report.status = 'FAIL'
-            $report.execution_status = 'FAILED'
-            $report.execution_report.final_outcome = 'FAIL'
-            $report.execution_report.status_detail = 'FAIL'
-            $report.failure_or_limit_report = [ordered]@{
-                kind = 'FAILURE'
-                failure_summary = ''
-                notes = @($limitNotes)
+        $reconciliationStatus = [string]$report.evidence_reconciliation.status
+        switch ($reconciliationStatus) {
+            'PASS' {
+                $report.status = 'PASS'
+                $report.execution_status = 'SUCCESS'
+                $report.execution_report.final_outcome = 'PASS'
+                $report.execution_report.status_detail = $passStatus
+                $report.decision_allowed = $true
+                $report.decision_disabled = $false
+                if ($limitNotes.Count -gt 0) {
+                    $report.failure_or_limit_report = [ordered]@{
+                        kind = 'LIMITS'
+                        failure_summary = ''
+                        notes = @($limitNotes)
+                    }
+                }
+            }
+            'PARTIAL' {
+                $report.status = 'PARTIAL'
+                $report.execution_status = 'PARTIAL'
+                $report.execution_report.final_outcome = 'PARTIAL'
+                $report.execution_report.status_detail = 'PARTIAL'
+                $report.decision_allowed = $false
+                $report.decision_disabled = $true
+                $report.failure_or_limit_report = [ordered]@{
+                    kind = 'LIMITS'
+                    failure_summary = ''
+                    notes = @($limitNotes + @('reconciliation_status=PARTIAL', 'downstream analysis limited'))
+                }
+            }
+            default {
+                $report.status = 'FAIL'
+                $report.execution_status = 'FAILED'
+                $report.execution_report.final_outcome = 'FAIL'
+                $report.execution_report.status_detail = 'FAIL'
+                $report.decision_allowed = $false
+                $report.decision_disabled = $true
+                $report.failure_or_limit_report = [ordered]@{
+                    kind = 'FAILURE'
+                    failure_summary = ''
+                    notes = @($limitNotes + @('reconciliation_status=FAIL'))
+                }
             }
         }
-        elseif ($limitNotes.Count -gt 0) {
-            $report.execution_status = 'PARTIAL'
-            $report.execution_report.status_detail = 'PASS_WITH_LIMITS'
-            $report.failure_or_limit_report = [ordered]@{
-                kind = 'LIMITS'
-                failure_summary = ''
-                notes = @($limitNotes)
-            }
-        }
-        else {
-            $report.execution_status = 'SUCCESS'
-            $report.execution_report.status_detail = $passStatus
-        }
-        if ($report.capture_report.status -ne 'PASS') {
-            $report.decision_allowed = $false
-            $report.decision_disabled = $true
-        }
-        else {
-            $report.decision_allowed = $true
-            $report.decision_disabled = $false
-        }
+        $report.trust_boundary.decision_allowed = [bool]$report.decision_allowed
         $report.produced_artifacts = @($producedArtifacts)
     }
     catch {
@@ -868,9 +909,6 @@ else {
         )
     }
 }
-
-Write-JsonFile -Path $runReportPath -Data $report
-Copy-Item -LiteralPath $runReportPath -Destination $deterministicRunReportPath -Force
 
 if (-not (Test-Path -LiteralPath $actionReportPath)) {
     $fallbackActionReport = @(
@@ -900,5 +938,8 @@ if ($shouldFail) {
     Copy-Item -LiteralPath $runReportPath -Destination $deterministicRunReportPath -Force
     exit 1
 }
+
+Write-JsonFile -Path $runReportPath -Data $report
+Copy-Item -LiteralPath $runReportPath -Destination $deterministicRunReportPath -Force
 
 exit 0
