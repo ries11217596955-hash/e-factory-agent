@@ -1,9 +1,8 @@
 ## Summary
-Implemented reconciliation as the final authority for RUN_REPORT status controls in LINK mode. Final `capture_report.status`, `execution_status`, and `decision_allowed` are now derived strictly from `evidence_reconciliation.status`, with explicit hard-fail behavior when reconciliation fails or does not execute.
+Implemented LINK-mode route normalization before visual capture so equivalent routes resolve to one canonical key (`normalized_route`) and deduplicate to one logical page. Added fallback behavior that preserves original routes on normalization errors and marks `route_normalization` as `failed` in `RUN_REPORT`.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
-- `agents/site_auditor_v2/contracts/run_report.schema.json`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
@@ -11,13 +10,10 @@ Implemented reconciliation as the final authority for RUN_REPORT status controls
 
 ## Current entrypoints/paths
 - Agent runtime entrypoint: `agents/site_auditor_v2/agent.ps1`
-- Visual capture tool: `agents/site_auditor_v2/tools/capture_visuals.mjs`
-- Reconciliation authority output fields in `RUN_REPORT.json`:
-  - `capture_report.status`
-  - `execution_status`
-  - `decision_allowed`
-  - `trust_boundary`
+- Route collection path: `Get-ShallowRoutes` (normalization + dedup)
+- Visual target selection path: `Get-VisualTargets` (canonical dedup keys)
+- Screenshot capture tool (unchanged logic): `agents/site_auditor_v2/tools/capture_visuals.mjs`
 
 ## Risks/blockers
-- `pwsh` is not available in this execution environment, so runtime validation scenarios could not be executed end-to-end locally.
-- `status` now allows `PARTIAL` in the schema; downstream consumers expecting only PASS/FAIL may need to handle the additional value.
+- `pwsh` is not available in this execution environment, so end-to-end LINK-mode runtime validation could not be executed locally.
+- Path lowercasing is now part of canonicalization; environments with case-sensitive URL routing may intentionally serve different content by path case.

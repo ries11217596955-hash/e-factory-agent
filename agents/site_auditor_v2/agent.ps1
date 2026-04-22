@@ -71,8 +71,10 @@ function Get-ShallowRoutes {
     $rootResponse = Invoke-WebRequest -Uri $RootUrl -Method Get -MaximumRedirection 5
     $rootHtml = [string]$rootResponse.Content
     $hrefMatches = [regex]::Matches($rootHtml, '(?is)<a\b[^>]*href\s*=\s*("([^"]*)"|''([^'']*)''|([^\s>]+))')
-    $uniqueUrls = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    $routeUrls = [System.Collections.Generic.List[string]]::new()
+    $uniqueRouteKeys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $routeUrls = [System.Collections.Generic.List[object]]::new()
+    $normalizationFailed = $false
+    $normalizationErrors = [System.Collections.Generic.List[string]]::new()
 
     foreach ($match in $hrefMatches) {
         $rawHref = if (-not [string]::IsNullOrWhiteSpace($match.Groups[2].Value)) {
@@ -109,13 +111,14 @@ function Get-ShallowRoutes {
             continue
         }
 
-        $sanitizedUrl = $resolvedUri.GetLeftPart([System.UriPartial]::Path)
-        if (-not [string]::IsNullOrWhiteSpace($resolvedUri.Query)) {
-            $sanitizedUrl = "{0}{1}" -f $sanitizedUrl, $resolvedUri.Query
+        $normalizationResult = Get-NormalizedRouteResult -Url $resolvedUri.AbsoluteUri
+        if ($normalizationResult.status -eq 'failed') {
+            $normalizationFailed = $true
+            $normalizationErrors.Add("route=$($resolvedUri.AbsoluteUri); reason=$($normalizationResult.error)")
         }
 
-        if ($uniqueUrls.Add($sanitizedUrl)) {
-            $routeUrls.Add($sanitizedUrl)
+        if ($uniqueRouteKeys.Add($normalizationResult.normalized_route)) {
+            $routeUrls.Add($normalizationResult)
         }
 
         if ($routeUrls.Count -ge $MaxRoutes) {
@@ -124,9 +127,9 @@ function Get-ShallowRoutes {
     }
 
     $routes = [System.Collections.Generic.List[object]]::new()
-    foreach ($routeUrl in $routeUrls) {
+    foreach ($routeTarget in $routeUrls) {
         try {
-            $routeResponse = Invoke-WebRequest -Uri $routeUrl -Method Get -MaximumRedirection 5
+            $routeResponse = Invoke-WebRequest -Uri $routeTarget.url -Method Get -MaximumRedirection 5
             $routeHtml = [string]$routeResponse.Content
             $routeTitleMatch = [regex]::Match($routeHtml, '(?is)<title[^>]*>(.*?)</title>')
             $routeTitle = if ($routeTitleMatch.Success) {
@@ -137,7 +140,8 @@ function Get-ShallowRoutes {
             }
 
             $routes.Add([ordered]@{
-                    url = $routeUrl
+                    url = $routeTarget.url
+                    normalized_route = $routeTarget.normalized_route
                     status_code = [int]$routeResponse.StatusCode
                     title = $routeTitle
                     html_length = [int]$routeHtml.Length
@@ -145,7 +149,8 @@ function Get-ShallowRoutes {
         }
         catch {
             $routes.Add([ordered]@{
-                    url = $routeUrl
+                    url = $routeTarget.url
+                    normalized_route = $routeTarget.normalized_route
                     status_code = -1
                     title = ''
                     html_length = 0
@@ -156,6 +161,68 @@ function Get-ShallowRoutes {
     return [ordered]@{
         root = $RootUrl
         routes = $routes
+        route_normalization = if ($normalizationFailed) { 'failed' } else { 'ok' }
+        route_normalization_errors = @($normalizationErrors)
+    }
+}
+
+function Get-NormalizedRouteResult {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Url
+    )
+
+    try {
+        $uri = [Uri]$Url
+        $path = [string]$uri.AbsolutePath
+        if ([string]::IsNullOrWhiteSpace($path)) {
+            $path = '/'
+        }
+
+        $normalizedPath = $path.Trim()
+        $normalizedPath = $normalizedPath.ToLowerInvariant()
+        $normalizedPath = [regex]::Replace($normalizedPath, '/index\.html$', '/')
+
+        if (($normalizedPath.Length -gt 1) -and $normalizedPath.EndsWith('/')) {
+            $normalizedPath = $normalizedPath.TrimEnd('/')
+        }
+        if ([string]::IsNullOrWhiteSpace($normalizedPath)) {
+            $normalizedPath = '/'
+        }
+        if (-not $normalizedPath.StartsWith('/')) {
+            $normalizedPath = "/$normalizedPath"
+        }
+
+        $query = [string]$uri.Query
+        $normalizedRoute = if ([string]::IsNullOrWhiteSpace($query)) {
+            $normalizedPath
+        }
+        else {
+            "{0}{1}" -f $normalizedPath, $query
+        }
+
+        $builder = [UriBuilder]::new($uri)
+        $builder.Path = $normalizedPath
+        $builder.Query = $query.TrimStart('?')
+        $builder.Fragment = ''
+        $normalizedUrl = $builder.Uri.AbsoluteUri
+
+        return [ordered]@{
+            status = 'ok'
+            url = $normalizedUrl
+            normalized_route = $normalizedRoute
+            source_url = $Url
+            error = ''
+        }
+    }
+    catch {
+        return [ordered]@{
+            status = 'failed'
+            url = $Url
+            normalized_route = $Url
+            source_url = $Url
+            error = [string]$_.Exception.Message
+        }
     }
 }
 
@@ -168,11 +235,12 @@ function Get-VisualTargets {
         [int]$MaxPages = 5
     )
 
-    $targets = [System.Collections.Generic.List[object]]::new()
-    $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $targets = [System.Collections.Generic.List[string]]::new()
+    $seenRoutes = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 
-    if ($seen.Add($BaseUrl)) {
-        $targets.Add($BaseUrl)
+    $baseNormalized = Get-NormalizedRouteResult -Url $BaseUrl
+    if ($seenRoutes.Add($baseNormalized.normalized_route)) {
+        $targets.Add($baseNormalized.url)
     }
 
     foreach ($route in $RoutesSummary.routes) {
@@ -182,8 +250,15 @@ function Get-VisualTargets {
         if ($route.status_code -ne 200) {
             continue
         }
-        if ($seen.Add($route.url)) {
-            $targets.Add($route.url)
+        $routeKey = if ($route.PSObject.Properties['normalized_route']) {
+            [string]$route.normalized_route
+        }
+        else {
+            [string]$route.url
+        }
+
+        if ($seenRoutes.Add($routeKey)) {
+            $targets.Add([string]$route.url)
         }
     }
 
@@ -518,6 +593,7 @@ $report = [ordered]@{
     next_step = 'Stabilize screenshot evidence quality in LINK mode.'
     decision_allowed = $true
     reconciliation_enforced = $false
+    route_normalization = 'ok'
 }
 
 $shouldFail = $false
@@ -563,6 +639,7 @@ else {
         $null = $producedArtifacts.Add('LINK_SUMMARY.json')
 
         $routesSummary = Get-ShallowRoutes -RootUrl $BaseUrl -MaxRoutes 10
+        $report.route_normalization = [string]$routesSummary.route_normalization
         foreach ($route in $routesSummary.routes) {
             $classification = if ($route.status_code -ne 200) {
                 'broken'
