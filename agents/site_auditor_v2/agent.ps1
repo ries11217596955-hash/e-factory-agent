@@ -1102,8 +1102,8 @@ $report = [ordered]@{
             must_read_files = @('RUN_REPORT.json', 'ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json', 'ACTION_SUMMARY.json', 'visual_manifest.json')
             read_order = @('RUN_REPORT.json', 'ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json', 'ACTION_SUMMARY.json', 'visual_manifest.json')
             first_file_to_open = 'RUN_REPORT.json'
-            why_read = 'RUN_REPORT.json contains deterministic findings, priorities, route verdicts, and report-state constraints anchored to generated artifacts.'
-            minimum_context_after_read = 'visual truth is trusted within sampled coverage, route selection is stable in-budget, report layer exists with deterministic findings, and deeper interpretation remains limited without interaction/decision layers.'
+            why_read = 'RUN_REPORT.json is the source of truth for current report state, sampled route evidence, and report-layer constraints.'
+            minimum_context_after_read = 'visual truth is bounded to sampled LINK coverage, route selection is stable in-budget, and deeper interpretation remains limited without interaction/decision layers.'
         }
         next_operator_posture = [ordered]@{
             next_system_move = ''
@@ -1252,16 +1252,23 @@ else {
         $problemTargets = @($brokenTargets + $thinTargets)
         $report.problem_targets = $problemTargets
 
-        $actionSummary = @(
-            $problemTargets |
-            ForEach-Object {
-                [ordered]@{
-                    url = $_.url
-                    issue = $_.classification
-                    action = $_.action
+        $actionSummary = [ordered]@{
+            status = if ($problemTargets.Count -gt 0) { 'FINDINGS_PRESENT' } else { 'CLEAN' }
+            finding_count = [int]$problemTargets.Count
+            actions = @(
+                $problemTargets |
+                ForEach-Object {
+                    [ordered]@{
+                        route = [string]$_.url
+                        finding_type = ([string]$_.classification).ToUpperInvariant() + '_ROUTE'
+                        priority = if ([string]$_.classification -eq 'broken') { 'P1' } else { 'P2' }
+                        action = [string]$_.action
+                        evidence_refs = @('ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json')
+                    }
                 }
-            }
-        )
+            )
+            reason = if ($problemTargets.Count -gt 0) { 'deterministic_route_classifications_detected' } else { 'no_material_findings_in_sampled_scope' }
+        }
         Write-JsonFile -Path $actionSummaryPath -Data $actionSummary
         Copy-Item -LiteralPath $actionSummaryPath -Destination $deterministicActionSummaryPath -Force
         $null = $producedArtifacts.Add('ACTION_SUMMARY.json')
@@ -1587,7 +1594,7 @@ else {
             $report.operator_memory_bridge.next_operator_posture.must_do_before_next_task = @(
                 'review ROUTES_SUMMARY.json route coverage',
                 'confirm AUDIT_SUMMARY.json counts',
-                'verify ACTION_SUMMARY.json is empty'
+                'verify ACTION_SUMMARY.json status and reason'
             )
             $report.operator_memory_bridge.next_operator_posture.what_to_inspect_next = @(
                 'ROUTES_SUMMARY.json',
@@ -1713,7 +1720,7 @@ else {
                 $findingsList.Add([ordered]@{
                         finding_id = $findingId
                         route = $routeKey
-                        issue_type = 'broken_route'
+                        issue_type = 'BROKEN_ROUTE'
                         severity = 'P1'
                         evidence_refs = @('ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json')
                         why_it_matters = 'Broken route evidence blocks page access in current sampled route set.'
@@ -1727,9 +1734,9 @@ else {
                 $findingsList.Add([ordered]@{
                         finding_id = $findingId
                         route = $routeKey
-                        issue_type = 'thin_route'
+                        issue_type = 'THIN_ROUTE'
                         severity = 'P2'
-                        evidence_refs = @('ROUTES_SUMMARY.json', 'ACTION_SUMMARY.json')
+                        evidence_refs = @('ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json')
                         why_it_matters = 'Thin HTML evidence reduces confidence for downstream audit interpretation.'
                         recommended_action = 'Expand route content and rerun LINK capture before deeper audit interpretation.'
                     })
@@ -1741,7 +1748,6 @@ else {
         $captureStatus = [string]$report.capture_report.status
         if ($counterMismatchDetected -or $captureStatus -eq 'FAIL' -or $captureStatus -eq 'PARTIAL') {
             $visualSeverity = if ($counterMismatchDetected -or $captureStatus -eq 'FAIL') { 'P0' } else { 'P1' }
-            $visualIssueType = if ($counterMismatchDetected) { 'visual_counter_mismatch' } elseif ($captureStatus -eq 'FAIL') { 'visual_capture_failed' } else { 'visual_capture_partial' }
             $visualWhy = if ($captureStatus -eq 'FAIL') {
                 'Visual evidence is not complete enough to support reliable page-level interpretation.'
             }
@@ -1763,12 +1769,27 @@ else {
             $findingsList.Add([ordered]@{
                     finding_id = "F-{0:d3}" -f $findingIndex
                     route = '_run_scope'
-                    issue_type = $visualIssueType
+                    issue_type = 'CAPTURE_FAILURE'
                     severity = $visualSeverity
+                    capture_status = $captureStatus
                     evidence_refs = @('visual_manifest.json', 'RUN_REPORT.json')
                     why_it_matters = $visualWhy
                     recommended_action = $visualAction
                 })
+            $findingIndex += 1
+        }
+
+        if ([int]$report.run_budget.overflow_routes -gt 0) {
+            $findingsList.Add([ordered]@{
+                    finding_id = "F-{0:d3}" -f $findingIndex
+                    route = '_run_scope'
+                    issue_type = 'ROUTE_OVERFLOW_ONLY'
+                    severity = 'P2'
+                    evidence_refs = @('RUN_REPORT.json', 'ROUTES_SUMMARY.json')
+                    why_it_matters = 'Current max_routes budget leaves additional discovered routes outside sampled coverage.'
+                    recommended_action = 'If broader deterministic coverage is needed, run controlled route-sample expansion within LINK constraints.'
+                })
+            $findingIndex += 1
         }
 
         $manifestByRoute = @{}
@@ -1880,12 +1901,7 @@ else {
                 'PARTIAL' { 'W2.5 visual evidence partial' }
                 default { 'W2 visual evidence unstable' }
             }
-            $systemChange = if (@($report.findings).Count -gt 0) {
-                'report layer now includes findings and operator_feed'
-            }
-            else {
-                'report layer now includes operator_feed with no material findings'
-            }
+            $systemChange = if (@($report.findings).Count -gt 0) { 'report layer includes deterministic findings and action mapping' } else { 'report layer is clean for sampled scope with deterministic action summary' }
 
             $whatIsReliable = [System.Collections.Generic.List[string]]::new()
             if ($report.capture_report.captures_success -gt 0 -and $reconciliationStatus -ne 'FAIL') {
@@ -1911,7 +1927,6 @@ else {
             if ($report.decision_allowed -eq $false) {
                 $null = $whatIsNotReliable.Add('decision automation layer')
             }
-            $null = $whatIsNotReliable.Add('findings-to-action automation')
 
             $primaryConstraint = if ($counterMismatchDetected) {
                 'route-manifest counter mismatch blocks trustworthy downstream interpretation'
@@ -1926,20 +1941,32 @@ else {
                 'route budget overflow limits deterministic sampled coverage'
             }
             else {
-                'findings-to-action automation is not implemented'
+                'sampled scope may miss issues outside current max_routes budget'
             }
 
             $nextSystemMove = if ($counterMismatchDetected -or $captureStatus -eq 'FAIL' -or $captureStatus -eq 'PARTIAL') {
                 'stabilize visual evidence integrity checks in report outputs'
             }
+            elseif (@($report.findings).Count -eq 0 -and [int]$report.run_budget.overflow_routes -gt 0) {
+                'optionally expand deterministic route sample with controlled max_routes increase'
+            }
+            elseif (@($report.findings).Count -eq 0) {
+                'keep current CLEAN mode and rerun only when scope changes'
+            }
             else {
-                'implement deterministic findings-to-action mapping in report layer'
+                [string]$allFindings[0].recommended_action
             }
             $whyThisMove = if ($counterMismatchDetected -or $captureStatus -eq 'FAIL' -or $captureStatus -eq 'PARTIAL') {
                 'stable visual truth is required before higher-level system interpretation can be trusted'
             }
+            elseif (@($report.findings).Count -eq 0 -and [int]$report.run_budget.overflow_routes -gt 0) {
+                'clean sampled evidence is bounded; broader deterministic coverage requires a larger controlled sample'
+            }
+            elseif (@($report.findings).Count -eq 0) {
+                'no material findings were observed in sampled routes'
+            }
             else {
-                'mapping findings to deterministic system actions unlocks reliable operator sequencing'
+                'highest-severity deterministic finding should be resolved first'
             }
 
             $doNotDoYet = [System.Collections.Generic.List[string]]::new()
@@ -1965,8 +1992,8 @@ else {
             }
 
             $whatIsUnstable = [System.Collections.Generic.List[string]]::new()
-            if (@($report.findings).Count -eq 0) {
-                $null = $whatIsUnstable.Add('findings depth')
+            if (@($report.findings).Count -eq 0 -and [int]$report.run_budget.overflow_routes -gt 0) {
+                $null = $whatIsUnstable.Add('coverage beyond sampled max_routes')
             }
             if ($report.decision_allowed -eq $false) {
                 $null = $whatIsUnstable.Add('decision layer')
@@ -2012,7 +2039,7 @@ else {
             $operatorMemoryCore.agent_learned = @($agentLearned)
             $operatorMemoryCore.agent_cannot_yet = @($agentCannotYet)
             $operatorMemoryCore.agent_misleading_risk = @($agentMisleadingRisk)
-            $operatorMemoryCore.next_capability_to_build = 'structured findings → action mapping'
+            $operatorMemoryCore.next_capability_to_build = if (@($report.findings).Count -eq 0 -and [int]$report.run_budget.overflow_routes -gt 0) { 'controlled route-sample expansion (optional)' } else { 'none required for findings-to-action layer in current scope' }
 
             $report.operator_feed = [ordered]@{
                 system_state = "$stableLayer, $systemChange"
@@ -2049,8 +2076,8 @@ else {
                 must_read_files = @('RUN_REPORT.json', 'ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json', 'ACTION_SUMMARY.json', 'visual_manifest.json')
                 read_order = @('RUN_REPORT.json', 'ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json', 'ACTION_SUMMARY.json', 'visual_manifest.json')
                 first_file_to_open = 'RUN_REPORT.json'
-                why_read = 'RUN_REPORT.json now contains deterministic findings, priorities, and route verdicts anchored to existing artifacts.'
-                minimum_context_after_read = 'visual truth is trusted within sampled coverage, route selection is stable in-budget, report layer exists with deterministic findings, and deeper interpretation remains limited without interaction/decision layers.'
+                why_read = if ($allFindings.Count -gt 0) { 'RUN_REPORT.json contains deterministic findings, priorities, route verdicts, and action mapping anchored to existing artifacts.' } else { 'RUN_REPORT.json confirms CLEAN sampled scope, coverage bounds, and deterministic no-finding action summary.' }
+                minimum_context_after_read = if ($allFindings.Count -gt 0) { 'visual truth is trusted within sampled coverage, route selection is stable in-budget, and findings are bounded to observable LINK evidence.' } else { 'visual truth is trusted within sampled coverage, no material findings were observed, and deeper interpretation remains limited without interaction/decision layers.' }
             }
             next_operator_posture = [ordered]@{
                 next_system_move = [string]$report.operator_feed.next_system_move
@@ -2087,8 +2114,11 @@ else {
         else {
             'PROBLEM: findings present in sampled LINK evidence'
         }
-        $strongestMove = if ($allFindings.Count -eq 0) {
+        $strongestMove = if ($allFindings.Count -eq 0 -and [int]$report.run_budget.overflow_routes -gt 0) {
             'Expand sampled route set only if operator needs broader coverage.'
+        }
+        elseif ($allFindings.Count -eq 0) {
+            'No immediate action required; keep current LINK sample unless scope changes.'
         }
         else {
             [string]$allFindings[0].recommended_action
@@ -2109,14 +2139,43 @@ else {
 
         $report.next_action_contract = [ordered]@{
             next_task_id = 'SITE_AUDITOR_V2_FINDINGS_REPAIR_001'
-            next_task_objective = if ($allFindings.Count -eq 0) { 'maintain CLEAN report mode and optionally expand deterministic route sample' } else { 'resolve highest-severity findings using referenced truth artifacts only' }
-            why_this_first = if ($allFindings.Count -eq 0) { 'current sampled evidence is clean; next value is controlled scope expansion only if requested' } else { 'highest-severity findings are directly evidenced and block confident downstream interpretation' }
+            next_task_objective = if ($allFindings.Count -eq 0 -and [int]$report.run_budget.overflow_routes -gt 0) { 'maintain CLEAN report mode and optionally expand deterministic route sample' } elseif ($allFindings.Count -eq 0) { 'maintain CLEAN report mode with no immediate remediation tasks' } else { 'resolve highest-severity findings using referenced truth artifacts only' }
+            why_this_first = if ($allFindings.Count -eq 0 -and [int]$report.run_budget.overflow_routes -gt 0) { 'current sampled evidence is clean; next value is controlled scope expansion only if requested' } elseif ($allFindings.Count -eq 0) { 'sampled evidence is clean and in-budget with no material finding to remediate' } else { 'highest-severity findings are directly evidenced and block confident downstream interpretation' }
             forbidden_before_done = @(
                 'do not add interaction layer',
                 'do not add decision automation',
                 'do not expand crawler depth beyond current LINK-mode budget'
             )
         }
+        $actionSummaryActions = @(
+            $allFindings |
+            Sort-Object @{ Expression = {
+                    switch ([string]$_.severity) {
+                        'P0' { 0 }
+                        'P1' { 1 }
+                        default { 2 }
+                    }
+                }
+            }, finding_id |
+            ForEach-Object {
+                [ordered]@{
+                    finding_id = [string]$_.finding_id
+                    route = [string]$_.route
+                    finding_type = [string]$_.issue_type
+                    priority = [string]$_.severity
+                    action = [string]$_.recommended_action
+                    evidence_refs = @($_.evidence_refs)
+                }
+            }
+        )
+        $finalActionSummary = [ordered]@{
+            status = if ($allFindings.Count -gt 0) { 'FINDINGS_PRESENT' } else { 'CLEAN' }
+            finding_count = [int]$allFindings.Count
+            actions = @($actionSummaryActions)
+            reason = if ($allFindings.Count -gt 0) { 'deterministic_findings_generated_from_link_truth_artifacts' } else { 'no_material_findings_in_sampled_scope' }
+        }
+        Write-JsonFile -Path $actionSummaryPath -Data $finalActionSummary
+        Copy-Item -LiteralPath $actionSummaryPath -Destination $deterministicActionSummaryPath -Force
 
         $report.next_step = [string]$report.next_action_contract.next_task_objective
         $report.operator_handoff = [ordered]@{
@@ -2201,6 +2260,18 @@ if (-not (Test-Path -LiteralPath $actionReportPath)) {
     ) -join [Environment]::NewLine
     [System.IO.File]::WriteAllText($actionReportPath, $fallbackActionReport)
     Copy-Item -LiteralPath $actionReportPath -Destination $deterministicActionReportPath -Force
+}
+
+$actionSummaryMissingOrEmpty = (-not (Test-Path -LiteralPath $actionSummaryPath)) -or ((Get-Item -LiteralPath $actionSummaryPath).Length -le 2)
+if ($actionSummaryMissingOrEmpty) {
+    $fallbackActionSummary = [ordered]@{
+        status = if ($shouldFail) { 'FAILED' } else { 'CLEAN' }
+        finding_count = 0
+        actions = @()
+        reason = if ($shouldFail) { 'action_summary_not_generated_before_failure' } else { 'no_material_findings_in_sampled_scope' }
+    }
+    Write-JsonFile -Path $actionSummaryPath -Data $fallbackActionSummary
+    Copy-Item -LiteralPath $actionSummaryPath -Destination $deterministicActionSummaryPath -Force
 }
 
 if ($shouldFail) {
