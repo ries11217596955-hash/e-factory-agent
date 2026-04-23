@@ -1008,7 +1008,8 @@ else {
             $actionReportLines.Add("Action: $($target.action)")
         }
 
-        $actionReportContent = [string]::Join([Environment]::NewLine, $actionReportLines)
+        [string[]]$actionReportLinesArray = $actionReportLines.ToArray()
+        $actionReportContent = [string]::Join([Environment]::NewLine, $actionReportLinesArray)
         [System.IO.File]::WriteAllText($actionReportPath, $actionReportContent)
         Copy-Item -LiteralPath $actionReportPath -Destination $deterministicActionReportPath -Force
         $null = $producedArtifacts.Add('ACTION_REPORT.txt')
