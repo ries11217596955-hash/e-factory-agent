@@ -1411,12 +1411,13 @@ else {
                 $report.execution_report.status_detail = $passStatus
                 $report.decision_allowed = $true
                 $report.decision_disabled = $false
+                $notes = @($limitNotesArray)
                 Write-Host 'RECON: NOTES_PASS_READY'
                 if ($limitNotes.Count -gt 0) {
                     $report.failure_or_limit_report = [ordered]@{
                         kind = 'LIMITS'
                         failure_summary = ''
-                        notes = @($limitNotesArray)
+                        notes = $notes
                     }
                 }
             }
@@ -1428,17 +1429,17 @@ else {
                 $report.execution_report.status_detail = 'PARTIAL'
                 $report.decision_allowed = $false
                 $report.decision_disabled = $true
-                $notesOut = New-Object System.Collections.Generic.List[string]
-                foreach ($n in @($limitNotesArray)) {
-                    $null = $notesOut.Add([string]$n)
-                }
-                $null = $notesOut.Add('reconciliation_status=PARTIAL')
-                $null = $notesOut.Add('downstream analysis limited')
+                $partialNotes = @(
+                    @($limitNotesArray)
+                    'reconciliation_status=PARTIAL'
+                    'downstream analysis limited'
+                )
+                $notes = $partialNotes
                 Write-Host 'RECON: NOTES_PARTIAL_READY'
                 $report.failure_or_limit_report = [ordered]@{
                     kind = 'LIMITS'
                     failure_summary = ''
-                    notes = @($notesOut.ToArray())
+                    notes = $notes
                 }
             }
             default {
@@ -1449,16 +1450,16 @@ else {
                 $report.execution_report.status_detail = 'FAIL'
                 $report.decision_allowed = $false
                 $report.decision_disabled = $true
-                $notesOut = New-Object System.Collections.Generic.List[string]
-                foreach ($n in @($limitNotesArray)) {
-                    $null = $notesOut.Add([string]$n)
-                }
-                $null = $notesOut.Add('reconciliation_status=FAIL')
+                $failNotes = @(
+                    @($limitNotesArray)
+                    'reconciliation_status=FAIL'
+                )
+                $notes = $failNotes
                 Write-Host 'RECON: NOTES_FAIL_READY'
                 $report.failure_or_limit_report = [ordered]@{
                     kind = 'FAILURE'
                     failure_summary = 'failure_summary.json'
-                    notes = @($notesOut.ToArray())
+                    notes = $notes
                 }
             }
         }
