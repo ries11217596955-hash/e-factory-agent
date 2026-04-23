@@ -41,10 +41,10 @@ function Get-DefectPriorityByIssueType {
     )
 
     switch ($IssueType) {
+        'BROKEN_ROUTE' { return 'P0' }
         'PROCESS_FIRST' { return 'P1' }
         'NO_VALUE_FIRST_SCREEN' { return 'P1' }
         'NO_ACTION_PATH' { return 'P2' }
-        'MICRO_CLUSTER' { return 'P1' }
         default { return 'P2' }
     }
 }
@@ -97,7 +97,7 @@ function Test-PageTypeRequiresAnswer {
 function Get-FindingTypeSortRank {
     param([Parameter(Mandatory = $true)][string]$IssueType)
     switch ([string]$IssueType) {
-        'MICRO_CLUSTER' { return 0 }
+        'BROKEN_ROUTE' { return 0 }
         'PROCESS_FIRST' { return 1 }
         'NO_VALUE_FIRST_SCREEN' { return 2 }
         'NO_ACTION_PATH' { return 3 }
@@ -2167,17 +2167,48 @@ else {
             $pageType = [string]$routeSignals.page_type
             $evidenceText = Get-EvidenceSnippet -Text ([string]$routeSignals.first_screen_text_sample)
             $evidenceScreenshot = if ([bool]$routeSignals.top_screenshot_ok) { [string]$routeSignals.top_screenshot_file } else { '' }
-            $evidencePresent = (-not [string]::IsNullOrWhiteSpace($evidenceText)) -and (-not [string]::IsNullOrWhiteSpace($evidenceScreenshot))
+            $statusEvidenceText = "HTTP status code: $([int]$routeSignals.status_code)."
+            $textEvidencePresent = -not [string]::IsNullOrWhiteSpace($evidenceText)
+            $statusEvidencePresent = ([int]$routeSignals.status_code -gt 0)
             $processCondition = [bool]$routeSignals.first_screen_is_process_like -and (-not [bool]$routeSignals.value_before_process) -and (-not [bool]$routeSignals.broken_candidate)
             $noValueCondition = (-not [bool]$routeSignals.first_screen_has_value) -and (-not [bool]$routeSignals.broken_candidate)
             $noActionCondition = (-not [bool]$routeSignals.first_screen_has_action) -and (-not [bool]$routeSignals.broken_candidate)
+            $brokenRouteCondition = ([bool]$routeSignals.broken_candidate) -or ([int]$routeSignals.status_code -ne 200)
 
-            $processConfidence = Test-HighSignalConfidence -ConditionMet $processCondition -EvidencePresent $evidencePresent
-            $noValueConfidence = Test-HighSignalConfidence -ConditionMet $noValueCondition -EvidencePresent $evidencePresent
-            $noActionConfidence = Test-HighSignalConfidence -ConditionMet $noActionCondition -EvidencePresent $evidencePresent
+            $brokenRouteConfidence = Test-HighSignalConfidence -ConditionMet $brokenRouteCondition -EvidencePresent $statusEvidencePresent
+            $processConfidence = Test-HighSignalConfidence -ConditionMet $processCondition -EvidencePresent $textEvidencePresent
+            $noValueConfidence = Test-HighSignalConfidence -ConditionMet $noValueCondition -EvidencePresent $textEvidencePresent
+            $noActionConfidence = Test-HighSignalConfidence -ConditionMet $noActionCondition -EvidencePresent $textEvidencePresent
 
             if (-not $routeIssueMap.ContainsKey($canonicalRoute)) { $routeIssueMap[$canonicalRoute] = [System.Collections.Generic.List[string]]::new() }
             $defectCandidates = [System.Collections.Generic.List[string]]::new()
+
+            if ($brokenRouteConfidence -eq 'HIGH') {
+                $issueType = 'BROKEN_ROUTE'
+                $priority = Get-DefectPriorityByIssueType -IssueType $issueType
+                $findingId = "F-{0:d3}" -f $findingIndex
+                $findingsList.Add([ordered]@{
+                        finding_id = $findingId
+                        route = $canonicalRoute
+                        signal_type = $issueType
+                        type = $issueType
+                        issue_type = $issueType
+                        category = 'DEFECT'
+                        priority = $priority
+                        severity = $priority
+                        confidence = 'HIGH'
+                        evidence_text = [string]$statusEvidenceText
+                        evidence_type = 'status'
+                        evidence_ref = 'ROUTES_SUMMARY.json:status_code'
+                        evidence_screenshot = [string]$evidenceScreenshot
+                        evidence_refs = @('ROUTES_SUMMARY.json:status_code', "visual_manifest.json:$evidenceScreenshot")
+                        why_it_matters = 'Route is not reachable in current run, so page flow breaks before user can act.'
+                        recommended_action = Get-ActionTextByOwnership -OwnershipMode $ownershipMode -OwnedAction 'Fix failing route so it returns HTTP 200 and loads the intended page' -ExternalAction 'Document failing route pattern and avoid sending traffic to broken paths'
+                    })
+                $routeIssueMap[$canonicalRoute].Add($findingId)
+                $null = $defectCandidates.Add($issueType)
+                $findingIndex += 1
+            }
 
             if ($processConfidence -eq 'HIGH') {
                 $issueType = 'PROCESS_FIRST'
@@ -2194,6 +2225,8 @@ else {
                         severity = $priority
                         confidence = 'HIGH'
                         evidence_text = [string]$evidenceText
+                        evidence_type = 'text'
+                        evidence_ref = 'AUDIT_SUMMARY.json:first_screen_text_sample'
                         evidence_screenshot = [string]$evidenceScreenshot
                         evidence_refs = @('ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json:first_screen_text_sample', "visual_manifest.json:$evidenceScreenshot")
                         why_it_matters = 'Key message starts with process/instructions before value is explained.'
@@ -2219,6 +2252,8 @@ else {
                         severity = $priority
                         confidence = 'HIGH'
                         evidence_text = [string]$evidenceText
+                        evidence_type = 'text'
+                        evidence_ref = 'AUDIT_SUMMARY.json:first_screen_text_sample'
                         evidence_screenshot = [string]$evidenceScreenshot
                         evidence_refs = @('ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json:first_screen_text_sample', "visual_manifest.json:$evidenceScreenshot")
                         why_it_matters = 'First screen does not clearly state what value the page provides.'
@@ -2244,6 +2279,8 @@ else {
                         severity = $priority
                         confidence = 'HIGH'
                         evidence_text = [string]$evidenceText
+                        evidence_type = 'text'
+                        evidence_ref = 'AUDIT_SUMMARY.json:first_screen_text_sample'
                         evidence_screenshot = [string]$evidenceScreenshot
                         evidence_refs = @('ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json:first_screen_text_sample', "visual_manifest.json:$evidenceScreenshot")
                         why_it_matters = 'First screen has no clear action element.'
@@ -2267,54 +2304,13 @@ else {
         }
 
         $allFindings = @($findingsList)
-        $microClusters = [System.Collections.Generic.List[object]]::new()
-        $clusterSignals = @('PROCESS_FIRST', 'NO_VALUE_FIRST_SCREEN', 'NO_ACTION_PATH')
-        foreach ($clusterSignal in $clusterSignals) {
-            $clusterRoutes = @(
-                $allFindings |
-                Where-Object { [string]$_.signal_type -eq $clusterSignal -and [string]$_.confidence -eq 'HIGH' } |
-                ForEach-Object { [string]$_.route } |
-                Select-Object -Unique
-            )
-            if ($clusterRoutes.Count -ge 2) {
-                $clusterPriority = if ($clusterSignal -eq 'PROCESS_FIRST') { 'P1' } else { 'P2' }
-                $clusterFindingId = "F-{0:d3}" -f $findingIndex
-                $microClusters.Add([ordered]@{
-                        signal_type = [string]$clusterSignal
-                        count = [int]$clusterRoutes.Count
-                        routes = @($clusterRoutes | Select-Object -First 5)
-                    })
-                $allFindings += [ordered]@{
-                    finding_id = $clusterFindingId
-                    route = '_micro_cluster'
-                    signal_type = 'MICRO_CLUSTER'
-                    type = 'MICRO_CLUSTER'
-                    issue_type = 'MICRO_CLUSTER'
-                    category = 'DEFECT'
-                    priority = $clusterPriority
-                    severity = $clusterPriority
-                    confidence = 'HIGH'
-                    evidence_text = "$clusterSignal repeated on $([int]$clusterRoutes.Count) pages."
-                    evidence_screenshot = ''
-                    evidence_refs = @('RUN_REPORT.json')
-                    cluster = [ordered]@{
-                        signal_type = [string]$clusterSignal
-                        count = [int]$clusterRoutes.Count
-                        routes = @($clusterRoutes | Select-Object -First 5)
-                    }
-                    why_it_matters = 'Same strong signal appears across multiple pages and indicates a repeated pattern.'
-                    recommended_action = if ($clusterSignal -eq 'PROCESS_FIRST') { Get-ActionTextByOwnership -OwnershipMode $ownershipMode -OwnedAction 'Rewrite first screen: show value before instructions' -ExternalAction 'Study pages that start with instructions instead of value' } elseif ($clusterSignal -eq 'NO_VALUE_FIRST_SCREEN') { Get-ActionTextByOwnership -OwnershipMode $ownershipMode -OwnedAction 'Add clear value statement to first screen' -ExternalAction 'Study pages missing a clear value statement on first screen' } else { Get-ActionTextByOwnership -OwnershipMode $ownershipMode -OwnedAction 'Add clear action path in first screen' -ExternalAction 'Study pages with no first-screen action path' }
-                }
-                $findingIndex += 1
-            }
-        }
-        $report.micro_clusters = @($microClusters)
+        $report.micro_clusters = @()
         $defectFindings = @($allFindings | Where-Object { [string]$_.category -eq 'DEFECT' })
         $limitationFindings = [System.Collections.Generic.List[object]]::new()
         if ([int]$report.run_budget.overflow_routes -gt 0) {
             $limitationFindings.Add([ordered]@{
                     finding_id = 'limitation_route_overflow'
-                    route = $null
+                    route = '_audit_scope'
                     signal_type = 'ROUTE_OVERFLOW_ONLY'
                     type = 'ROUTE_OVERFLOW_ONLY'
                     issue_type = 'ROUTE_OVERFLOW_ONLY'
@@ -2323,6 +2319,8 @@ else {
                     severity = 'NONE'
                     confidence = [string]$report.audit_confidence
                     evidence_text = "Route budget excluded $([int]$report.run_budget.overflow_routes) discovered routes from this run."
+                    evidence_type = 'status'
+                    evidence_ref = 'ROUTES_SUMMARY.json:overflow_routes'
                     evidence_screenshot = ''
                     evidence_refs = @('ROUTES_SUMMARY.json')
                     why_it_matters = 'Sampled coverage is bounded and can miss page-level defects outside the checked scope.'
@@ -2665,9 +2663,8 @@ else {
             'Keep monitoring and rerun when the site scope changes.'
         }
         $decisionReasoning = if ($null -ne $primaryDefectFinding) {
-            if ([string]$primaryDefectFinding.issue_type -eq 'MICRO_CLUSTER') {
-                $clusterSignal = [string]$primaryDefectFinding.cluster.signal_type
-                if ($clusterSignal -eq 'PROCESS_FIRST') { 'Key pages start with process instead of explaining value.' } elseif ($clusterSignal -eq 'NO_VALUE_FIRST_SCREEN') { 'Multiple key pages miss a clear first-screen value statement.' } else { 'Multiple key pages miss a clear first-screen action path.' }
+            if ([string]$primaryDefectFinding.issue_type -eq 'BROKEN_ROUTE') {
+                'Primary route is broken (non-200), so users cannot progress.'
             }
             elseif ([string]$primaryDefectFinding.issue_type -eq 'PROCESS_FIRST') {
                 'Key pages start with process instead of explaining value.'
@@ -2781,8 +2778,8 @@ else {
         $null = $producedArtifacts.Add('HUMAN_REPORT_RU.html')
         $null = $producedArtifacts.Add('HUMAN_REPORT_EN.html')
 
-        $mainFindingEn = if ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'MICRO_CLUSTER') {
-            [string]$report.decision_summary.reasoning
+        $mainFindingEn = if ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'BROKEN_ROUTE') {
+            'Route failed to load with HTTP 200.'
         }
         elseif ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'NO_ACTION_PATH') {
             'User has no clear next step.'
@@ -2802,8 +2799,8 @@ else {
         else {
             'No page-level defects were confirmed in the checked scope.'
         }
-        $mainFindingRu = if ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'MICRO_CLUSTER') {
-            [string]$report.decision_summary.reasoning
+        $mainFindingRu = if ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'BROKEN_ROUTE') {
+            'Маршрут не загрузился со статусом HTTP 200.'
         }
         elseif ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'NO_ACTION_PATH') {
             'У пользователя нет понятного следующего шага.'
@@ -2842,9 +2839,14 @@ else {
             [ordered]@{ label = 'Максимальный приоритет'; value = [string]$report.decision_summary.priority },
             [ordered]@{ label = 'Уверенность'; value = [string]$report.audit_confidence }
         )
-        $supportingExamples = @($sortedFindings | Where-Object { [string]$_.route -ne '_micro_cluster' } | Select-Object -First 2)
-        $supportingLinesEn = if ($supportingExamples.Count -gt 0) { @($supportingExamples | ForEach-Object { "Example: $([string]$_.route) — $([string]$_.issue_type)." }) } else { @('No strong issue examples in sampled scope.') }
-        $supportingLinesRu = if ($supportingExamples.Count -gt 0) { @($supportingExamples | ForEach-Object { "Пример: $([string]$_.route) — $([string]$_.issue_type)." }) } else { @('В проверенном объёме нет подтверждённых сильных дефектов.') }
+        $supportingExamples = @($sortedFindings | Select-Object -First 2)
+        $primaryEvidenceSnippet = if ($null -ne $primaryDefectFinding) { [string]$primaryDefectFinding.evidence_text } else { '' }
+        if (-not [string]::IsNullOrWhiteSpace($primaryEvidenceSnippet)) {
+            $mainFindingEn = "$mainFindingEn Evidence: `"$primaryEvidenceSnippet`"."
+            $mainFindingRu = "$mainFindingRu Доказательство: `"$primaryEvidenceSnippet`"."
+        }
+        $supportingLinesEn = if ($supportingExamples.Count -gt 0) { @($supportingExamples | ForEach-Object { "Evidence: $([string]$_.route) — $([string]$_.issue_type) — `"$([string]$_.evidence_text)`"." }) } else { @('No strong issue examples in sampled scope.') }
+        $supportingLinesRu = if ($supportingExamples.Count -gt 0) { @($supportingExamples | ForEach-Object { "Доказательство: $([string]$_.route) — $([string]$_.issue_type) — `"$([string]$_.evidence_text)`"." }) } else { @('В проверенном объёме нет подтверждённых сильных дефектов.') }
         $reportPayloadEn = [ordered]@{
             executive_lines = @(
                 "Current status: $overallVerdict.",
