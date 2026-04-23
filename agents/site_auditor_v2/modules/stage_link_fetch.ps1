@@ -252,21 +252,12 @@ function Get-ShallowRoutes {
         if (($fetchDebug.body_present -eq $false) -or [string]::IsNullOrWhiteSpace($fetchDebug.content_sample)) {
             throw 'FETCH_BODY_VALIDATION_FAILED'
         }
+        Write-Host 'ROUTE_EXTRACTION:ROOT_FETCH_OK'
         $hrefMatches = [regex]::Matches($rootHtml, '(?is)<a\b[^>]*href\s*=\s*("([^"]*)"|''([^'']*)''|([^\s>]+))')
+        Write-Host 'ROUTE_EXTRACTION:HREF_MATCHES_READY'
     }
     catch {
-        return [ordered]@{
-            root = $RootUrl
-            routes = @()
-            route_normalization = 'failed'
-            route_normalization_errors = @('route_fetch_failed')
-            fetch_debug = $fetchDebug
-            raw_links_found = 0
-            internal_links = 0
-            filter_reason = @('fetch_failed', [string]$_.Exception.Message)
-            html_snapshot = ''
-            link_extraction_failed = $false
-        }
+        throw "ROUTE_EXTRACTION_ROOT_FETCH_EXCEPTION: $([string]$_.Exception.Message)"
     }
 
     $rawLinksFound = [int]$hrefMatches.Count
@@ -280,62 +271,69 @@ function Get-ShallowRoutes {
     $sampleRejectedHrefs = New-Object System.Collections.Generic.List[object]
     $sampleInternalHrefs = New-Object System.Collections.Generic.List[object]
 
-    foreach ($match in $hrefMatches) {
-        $rawHref = if (-not [string]::IsNullOrWhiteSpace($match.Groups[2].Value)) {
-            $match.Groups[2].Value
-        }
-        elseif (-not [string]::IsNullOrWhiteSpace($match.Groups[3].Value)) {
-            $match.Groups[3].Value
-        }
-        else {
-            $match.Groups[4].Value
-        }
-
-        $resolution = Get-HrefResolutionResult -RootUri $rootUri -Href ([string]$rawHref)
-        if ($resolution.status -ne 'ok') {
-            $reasonKey = [string]$resolution.classification
-            if (-not $rejectionReasonCounts.ContainsKey($reasonKey)) {
-                $rejectionReasonCounts[$reasonKey] = 0
+    try {
+        foreach ($match in $hrefMatches) {
+            $rawHref = if (-not [string]::IsNullOrWhiteSpace($match.Groups[2].Value)) {
+                $match.Groups[2].Value
             }
-            $rejectionReasonCounts[$reasonKey] = [int]$rejectionReasonCounts[$reasonKey] + 1
-            if ($sampleRejectedHrefs.Count -lt 3) {
-                $sampleRejectedHrefs.Add([ordered]@{
+            elseif (-not [string]::IsNullOrWhiteSpace($match.Groups[3].Value)) {
+                $match.Groups[3].Value
+            }
+            else {
+                $match.Groups[4].Value
+            }
+
+            $resolution = Get-HrefResolutionResult -RootUri $rootUri -Href ([string]$rawHref)
+            if ($resolution.status -ne 'ok') {
+                $reasonKey = [string]$resolution.classification
+                if (-not $rejectionReasonCounts.ContainsKey($reasonKey)) {
+                    $rejectionReasonCounts[$reasonKey] = 0
+                }
+                $rejectionReasonCounts[$reasonKey] = [int]$rejectionReasonCounts[$reasonKey] + 1
+                if ($sampleRejectedHrefs.Count -lt 3) {
+                    $sampleRejectedHrefs.Add([ordered]@{
+                            href = [string]$rawHref
+                            reason = $reasonKey
+                        })
+                }
+                continue
+            }
+            $resolvedUri = [Uri]$resolution.resolved_uri
+
+            $route = ([uri]$resolvedUri.AbsoluteUri).AbsolutePath
+            if ([string]::IsNullOrWhiteSpace($route)) {
+                $route = '/'
+            }
+
+            $internalLinkCount += 1
+            if ($sampleInternalHrefs.Count -lt 3) {
+                $sampleInternalHrefs.Add([ordered]@{
                         href = [string]$rawHref
-                        reason = $reasonKey
+                        classification = [string]$resolution.classification
+                        resolved_url = [string]$resolvedUri.AbsoluteUri
                     })
             }
-            continue
-        }
-        $resolvedUri = [Uri]$resolution.resolved_uri
 
-        $route = ([uri]$resolvedUri.AbsoluteUri).AbsolutePath
-        if ([string]::IsNullOrWhiteSpace($route)) {
-            $route = '/'
+            if (($routeUrls.Count -lt $MaxRoutes) -and (Add-KeyIfMissing -Map $uniqueRouteKeys -Key ([string]$route))) {
+                $routeUrls.Add([ordered]@{
+                        status = 'ok'
+                        url = [string]$resolvedUri.AbsoluteUri
+                        normalized_route = [string]$route
+                        source_url = [string]$resolvedUri.AbsoluteUri
+                        error = ''
+                    })
+            }
         }
-
-        $internalLinkCount += 1
-        if ($sampleInternalHrefs.Count -lt 3) {
-            $sampleInternalHrefs.Add([ordered]@{
-                    href = [string]$rawHref
-                    classification = [string]$resolution.classification
-                    resolved_url = [string]$resolvedUri.AbsoluteUri
-                })
-        }
-
-        if (($routeUrls.Count -lt $MaxRoutes) -and (Add-KeyIfMissing -Map $uniqueRouteKeys -Key ([string]$route))) {
-            $routeUrls.Add([ordered]@{
-                    status = 'ok'
-                    url = [string]$resolvedUri.AbsoluteUri
-                    normalized_route = [string]$route
-                    source_url = [string]$resolvedUri.AbsoluteUri
-                    error = ''
-                })
-        }
+        Write-Host 'ROUTE_EXTRACTION:HREF_FILTER_LOOP_OK'
+    }
+    catch {
+        throw "ROUTE_EXTRACTION_HREF_LOOP_EXCEPTION: $([string]$_.Exception.Message)"
     }
 
     $routes = New-Object System.Collections.Generic.List[object]
-    foreach ($routeTarget in $routeUrls) {
-        try {
+    try {
+        foreach ($routeTarget in $routeUrls) {
+            try {
             $routeResponse = Invoke-WebRequest -Uri $routeTarget.url -Method Get -MaximumRedirection 5
             $routeHtml = Get-ResponseHtml -Response $routeResponse -FetchMethod 'Invoke-WebRequest'
             $routeTitleMatch = [regex]::Match($routeHtml, '(?is)<title[^>]*>(.*?)</title>')
@@ -474,9 +472,9 @@ function Get-ShallowRoutes {
                     broken_candidate = [bool]$brokenCandidate
                     classification = $classification
                 })
-        }
-        catch {
-            $routes.Add([ordered]@{
+            }
+            catch {
+                $routes.Add([ordered]@{
                     url = $routeTarget.url
                     normalized_route = $routeTarget.normalized_route
                     status_code = -1
@@ -498,8 +496,13 @@ function Get-ShallowRoutes {
                     shell_like_candidate = $false
                     broken_candidate = $true
                     classification = 'broken'
-                })
+                    })
+            }
         }
+        Write-Host 'ROUTE_EXTRACTION:ROUTE_DETAIL_LOOP_OK'
+    }
+    catch {
+        throw "ROUTE_EXTRACTION_ROUTE_DETAIL_EXCEPTION: $([string]$_.Exception.Message)"
     }
 
     $topRejectionReasons = @(
@@ -514,19 +517,25 @@ function Get-ShallowRoutes {
             }
     )
 
-    return [ordered]@{
-        root = $RootUrl
-        routes = $routes
-        route_normalization = if ($normalizationFailed) { 'failed' } else { 'ok' }
-        route_normalization_errors = @($normalizationErrors)
-        fetch_debug = $fetchDebug
-        raw_links_found = [int]$rawLinksFound
-        internal_links = [int]$internalLinkCount
-        filter_reason = @($topRejectionReasons | ForEach-Object { [string]$_.reason })
-        top_rejection_reasons = @($topRejectionReasons)
-        sample_rejected_hrefs = @($sampleRejectedHrefs)
-        sample_internal_hrefs = @($sampleInternalHrefs)
-        html_snapshot = $htmlSnapshot
-        link_extraction_failed = [bool](($fetchDebug.html_length -gt 0) -and ($rawLinksFound -eq 0))
+    try {
+        Write-Host 'ROUTE_EXTRACTION:RETURN_READY'
+        return [ordered]@{
+            root = $RootUrl
+            routes = $routes
+            route_normalization = if ($normalizationFailed) { 'failed' } else { 'ok' }
+            route_normalization_errors = @($normalizationErrors)
+            fetch_debug = $fetchDebug
+            raw_links_found = [int]$rawLinksFound
+            internal_links = [int]$internalLinkCount
+            filter_reason = @($topRejectionReasons | ForEach-Object { [string]$_.reason })
+            top_rejection_reasons = @($topRejectionReasons)
+            sample_rejected_hrefs = @($sampleRejectedHrefs)
+            sample_internal_hrefs = @($sampleInternalHrefs)
+            html_snapshot = $htmlSnapshot
+            link_extraction_failed = [bool](($fetchDebug.html_length -gt 0) -and ($rawLinksFound -eq 0))
+        }
+    }
+    catch {
+        throw "ROUTE_EXTRACTION_RETURN_ASSEMBLY_EXCEPTION: $([string]$_.Exception.Message)"
     }
 }
