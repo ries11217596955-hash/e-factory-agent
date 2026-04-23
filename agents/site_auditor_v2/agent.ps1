@@ -953,7 +953,8 @@ else {
         $failurePhase = 'ROUTE_EXTRACTION'
         $currentFailureStage = $failurePhase
         Write-BootstrapStageTrace -Stage 'ROUTE_EXTRACTION'
-        $routesSummary = Get-ShallowRoutes -RootUrl $BaseUrl -MaxRoutes 10
+        $routeExtraction = Get-ShallowRoutes -RootUrl $BaseUrl -MaxRoutes 10
+        $routesSummary = $routeExtraction
         if ([int]$routesSummary.raw_links_found -le 0) {
             throw 'ROUTE_EXTRACTION_FAILED_NO_RAW_LINKS'
         }
@@ -1088,25 +1089,13 @@ else {
         $currentFailureStage = $failurePhase
         Write-BootstrapStageTrace -Stage 'ROUTE_SELECTION'
         Write-Host 'ROUTE_SELECTION: START'
-        $routes = $null
-        if ($null -ne $routesSummary -and $routesSummary.PSObject.Properties['routes']) {
-            $routes = $routesSummary.routes
-        }
-        if (-not $routes) {
+        Write-Host 'ROUTE_SELECTION: BIND_INPUT_START'
+        $routes = @($routeExtraction.routes)
+        Write-Host ("ROUTE_SELECTION: BIND_INPUT_OK count=" + [int]$routes.Count)
+        if (-not $routes -or $routes.Count -eq 0) {
             Write-Host "ROUTE_SELECTION: NO_ROUTES_INPUT"
             Write-Host 'ROUTE_SELECTION: FAIL_NO_ROUTES'
-            $shouldFail = $true
-            $errorCode = 'NO_ROUTES_AVAILABLE'
-            $errorMessage = 'ROUTE_SELECTION received no routes input.'
-            $failurePhase = 'ROUTE_SELECTION'
-            $currentFailureStage = $failurePhase
-            if ($shouldFail) {
-                throw $errorMessage
-            }
-        }
-        if ($routes -isnot [System.Array]) {
-            Write-Host "ROUTE_SELECTION: NORMALIZING_TO_ARRAY"
-            $routes = @($routes)
+            throw 'ROUTE_SELECTION received zero routes after binding from route extraction output.'
         }
         Write-Host ("ROUTE_SELECTION: ROUTES_COUNT=" + $routes.Count)
         Write-Host 'ROUTE_SELECTION: BEFORE_FILTER'
