@@ -18,6 +18,7 @@
     "executive_answer",
     "findings_count",
     "limitation_count",
+    "audit_confidence",
     "findings",
     "operator_feed",
     "operator_memory_core",
@@ -114,6 +115,7 @@
     },
     "findings_count": { "type": "integer", "minimum": 0 },
     "limitation_count": { "type": "integer", "minimum": 0 },
+    "audit_confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
     "findings": {
       "type": "array",
       "items": {

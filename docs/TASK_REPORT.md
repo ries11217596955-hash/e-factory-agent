@@ -1,9 +1,14 @@
 ## Summary
-- Added `ownership_mode` to SITE_AUDITOR_V2 report state with a hardcoded safe default of `EXTERNAL`.
-- Updated findings/action text generation so `EXTERNAL` mode only emits analyze/learn/replicate-style actions, while `OWNED` mode keeps fix/update/optimize remediation wording.
-- Added `ownership_mode` to `RUN_REPORT.json` and extended `operator_handoff` with ownership context and explicit action-scope explanation.
-- Updated run report schema to require and validate the new ownership fields.
-- No findings detection, route sampling, or evidence reconciliation logic was changed; only report/action phrasing and scope constraints were updated.
+- Added `audit_confidence` to SITE_AUDITOR_V2 `RUN_REPORT` output with enum values `HIGH`, `MEDIUM`, and `LOW`.
+- Implemented confidence mapping that keeps findings logic unchanged and evaluates confidence from coverage and limitation signals:
+  - `LOW` when sampled routes are below run budget (`routes_checked < max_routes`) or when limitation findings exist (for example `ROUTE_OVERFLOW_ONLY`).
+  - `HIGH` when confidence is not low, no defects are detected, and near/full coverage is present (`routes_checked / max_routes >= 0.9`).
+  - `MEDIUM` for remaining cases (moderate coverage without major limitations).
+- Updated wording gates so low-confidence clean outcomes never claim the site is clean:
+  - `operator_handoff.exact_reason` now emits `No issues found in sampled scope. Audit coverage is limited.` when confidence is `LOW`.
+  - `operator_handoff.exact_reason` can emit `No defects detected.` only when confidence is `HIGH` and no defects are present.
+- Updated clean-run `ACTION_SUMMARY` guidance via `executive_answer.strongest_next_move` so low-confidence clean runs recommend increasing coverage instead of asserting cleanliness.
+- Updated run report schema contract to require and validate `audit_confidence`.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
@@ -19,8 +24,8 @@
 - Report artifacts remain under `agents/site_auditor_v2/output/<run_id>/` with deterministic mirrors in `agents/site_auditor_v2/`.
 
 ## Risks/blockers
-- `ownership_mode` is currently hardcoded to `EXTERNAL`; producing `OWNED` output requires a future explicit input/plumbing change.
-- Downstream consumers validating `RUN_REPORT.json` must use the updated schema that includes `ownership_mode` and new `operator_handoff` fields.
+- Downstream consumers that validate `RUN_REPORT.json` must adopt the schema update requiring `audit_confidence`.
+- Confidence uses route-budget coverage as a deterministic proxy (`selected_routes` vs `max_routes`), which can conservatively classify naturally small sites as lower confidence when route count stays under budget.
 - Rollback instructions:
   1. `git revert <commit_sha>`
   2. Or restore files directly: `git checkout -- agents/site_auditor_v2/agent.ps1 agents/site_auditor_v2/contracts/run_report.schema.json docs/TASK_REPORT.md`
