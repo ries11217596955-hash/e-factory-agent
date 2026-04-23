@@ -554,21 +554,32 @@ function Get-ShallowRoutes {
 
     try {
         Write-Host 'ROUTE_EXTRACTION:RETURN_READY'
-        return [ordered]@{
+        $routesArray = @($routes.ToArray())
+        $normalizationErrorsArray = @($normalizationErrors.ToArray())
+        $topRejectionReasonsArray = @($topRejectionReasons)
+        $filterReasonsArray = @($topRejectionReasonsArray | ForEach-Object { [string]$_.reason })
+        $sampleRejectedHrefsArray = @($sampleRejectedHrefs.ToArray())
+        $sampleInternalHrefsArray = @($sampleInternalHrefs.ToArray())
+        Write-Host 'ROUTE_EXTRACTION:RETURN_BUILD_ARRAYS_READY'
+
+        $result = [ordered]@{
             root = $RootUrl
-            routes = $routes
+            routes = $routesArray
             route_normalization = if ($normalizationFailed) { 'failed' } else { 'ok' }
-            route_normalization_errors = @($normalizationErrors)
+            route_normalization_errors = $normalizationErrorsArray
             fetch_debug = $fetchDebug
             raw_links_found = [int]$rawLinksFound
             internal_links = [int]$internalLinkCount
-            filter_reason = @($topRejectionReasons | ForEach-Object { [string]$_.reason })
-            top_rejection_reasons = @($topRejectionReasons)
-            sample_rejected_hrefs = @($sampleRejectedHrefs)
-            sample_internal_hrefs = @($sampleInternalHrefs)
+            filter_reason = $filterReasonsArray
+            top_rejection_reasons = $topRejectionReasonsArray
+            sample_rejected_hrefs = $sampleRejectedHrefsArray
+            sample_internal_hrefs = $sampleInternalHrefsArray
             html_snapshot = $htmlSnapshot
             link_extraction_failed = [bool](($fetchDebug.html_length -gt 0) -and ($rawLinksFound -eq 0))
         }
+        Write-Host 'ROUTE_EXTRACTION:RETURN_BUILD_OBJECT_READY'
+        Write-Host 'ROUTE_EXTRACTION:RETURN_DISPATCH_READY'
+        return $result
     }
     catch {
         throw "ROUTE_EXTRACTION_RETURN_ASSEMBLY_EXCEPTION: $([string]$_.Exception.Message)"
