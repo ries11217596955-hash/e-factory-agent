@@ -576,6 +576,53 @@ function Invoke-EvidenceReconciliation {
     }
 }
 
+function Get-LocalizedErrorFromExceptionMessage {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Message
+    )
+
+    $parsed = [ordered]@{
+        code = ''
+        detail = [string]$Message
+    }
+
+    $match = [regex]::Match([string]$Message, '^\s*(ROUTE_EXTRACTION_[A-Z0-9_]+)\s*:\s*(.+)$')
+    if ($match.Success) {
+        $parsed.code = [string]$match.Groups[1].Value
+        $parsed.detail = [string]$match.Groups[2].Value
+        return $parsed
+    }
+
+    return $parsed
+}
+
+function Get-EffectiveFailureClass {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FailureStage,
+        [Parameter(Mandatory = $true)]
+        [string]$ErrorCode,
+        [Parameter(Mandatory = $true)]
+        [string]$ErrorMessage
+    )
+
+    $stage = ([string]$FailureStage).ToUpperInvariant()
+    $code = ([string]$ErrorCode).ToUpperInvariant()
+    $message = ([string]$ErrorMessage).ToUpperInvariant()
+    $isRouteRuntimeException = (
+        ($stage -eq 'ROUTE_EXTRACTION') -and (
+            $code.StartsWith('ROUTE_EXTRACTION_') -or
+            $message.Contains('ARGUMENT TYPES DO NOT MATCH')
+        )
+    )
+    if ($isRouteRuntimeException) {
+        return 'AGENT_DEFECT'
+    }
+
+    return (Get-FailureClass -FailureStage $FailureStage -ErrorCode $ErrorCode)
+}
+
 $normalizedMode = $Mode.Trim().ToUpperInvariant()
 $maxRoutes = 5
 $timestamp = Get-IsoUtcNow
@@ -879,7 +926,7 @@ if ($shouldFail) {
     $report.execution_report.status_detail = 'FAIL'
     $report.last_completed_stage = [string]$lastCompletedStage
     $report.current_failure_stage = [string]$failurePhase
-    $failureClass = Get-FailureClass -FailureStage $failurePhase -ErrorCode $errorCode
+    $failureClass = Get-EffectiveFailureClass -FailureStage $failurePhase -ErrorCode $errorCode -ErrorMessage $errorMessage
     $report.failure_or_limit_report = [ordered]@{
         kind = 'FAILURE'
         failure_summary = 'failure_summary.json'
@@ -2139,6 +2186,11 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
     catch {
         $shouldFail = $true
         $errorMessage = $_.Exception.Message
+        $localizedError = Get-LocalizedErrorFromExceptionMessage -Message ([string]$errorMessage)
+        if (-not [string]::IsNullOrWhiteSpace([string]$localizedError.code)) {
+            $errorCode = [string]$localizedError.code
+            $errorMessage = [string]$localizedError.detail
+        }
         $failurePhaseValue = if ([string]::IsNullOrWhiteSpace([string]$failurePhase)) { 'UNKNOWN' } else { [string]$failurePhase }
         $operatorFailureNote = switch ($failurePhaseValue) {
             'ENTRY' { 'entry validation failure' }
@@ -2150,6 +2202,11 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
             'SURFACE_CONTEXT' { 'surface context failure' }
             'REPORT_LAYER' { 'report layer failure' }
             default { 'internal exception' }
+        }
+        if ([string]::IsNullOrWhiteSpace([string]$errorCode)) {
+            if ($failurePhaseValue -eq 'ROUTE_EXTRACTION' -and ([string]$errorMessage).ToUpperInvariant().Contains('ARGUMENT TYPES DO NOT MATCH')) {
+                $errorCode = 'ROUTE_EXTRACTION_RUNTIME_EXCEPTION'
+            }
         }
         if ([string]::IsNullOrWhiteSpace([string]$errorCode)) {
             switch ([string]$failurePhase) {
@@ -2173,7 +2230,7 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
         $report.next_step = $errorMessage
         $report.execution_report.final_outcome = 'FAIL'
         $report.execution_report.status_detail = 'FAIL'
-        $failureClass = Get-FailureClass -FailureStage $failurePhaseValue -ErrorCode $errorCode
+        $failureClass = Get-EffectiveFailureClass -FailureStage $failurePhaseValue -ErrorCode $errorCode -ErrorMessage $errorMessage
         $report.failure_or_limit_report = [ordered]@{
             kind = 'FAILURE'
             failure_summary = 'failure_summary.json'
@@ -2285,7 +2342,7 @@ if ($shouldFail) {
             $null = $producedArtifacts.Add([string]$artifact)
         }
     }
-    $failureClass = Get-FailureClass -FailureStage $failurePhaseValue -ErrorCode $errorCode
+    $failureClass = Get-EffectiveFailureClass -FailureStage $failurePhaseValue -ErrorCode $errorCode -ErrorMessage $errorMessage
     if (-not $report.failure_or_limit_report -or [string]$report.failure_or_limit_report.kind -ne 'FAILURE') {
         $report.failure_or_limit_report = [ordered]@{
             kind = 'FAILURE'
