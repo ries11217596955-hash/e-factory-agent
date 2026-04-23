@@ -1,63 +1,81 @@
 ## Summary
-- Implemented PACK 3 systemization in `SITE_AUDITOR_V2`: high-signal findings are now grouped into deterministic micro-clusters (`PROCESS_FIRST`, `NO_VALUE_FIRST_SCREEN`, `NO_ACTION_PATH`, `BROKEN_ROUTE`) when at least 2 routes are affected.
-- Added cluster metrics for each qualifying cluster: affected route count, up to 5 route examples, and share of checked pages.
-- Added a `system_problem` layer (when applicable) that maps clustered issues to system-level problem types (`VALUE_STRUCTURE`, `VALUE_CLARITY`, `ACTION_PATH`) with scope and severity.
-- Added decision override logic so `decision_summary` prioritizes system-level conclusions/actions when a qualifying system problem exists; otherwise it falls back to existing page-level behavior.
-- Updated HUMAN_REPORT generation so it starts with the system problem statement and then provides 1–2 concrete route examples.
+- Implemented PACK 4 for `SITE_AUDITOR_V2` to synthesize one deterministic `system_problem` from HIGH-confidence findings and drive the full decision/action chain from that object.
+- Added universal surface normalization (`entry_surface`, `explanation_surface`, `decision_surface`, `action_surface`, `terminal_surface`, `unknown_surface`) and attached `surface_type` to findings and page verdicts.
+- Added compact `interaction_explanation` into `system_problem` with observable chain fields: entry surface, expected outcome, actual outcome, failure point, and why it matters.
+- Rebuilt RU/EN human reports to compressed structure: single main system problem, max 3 evidence items, max 3 action bullets, optional single limitation block, compact technical snapshot.
+- Added stronger consistency lock checks for strongest action synchronization across `system_problem`, `decision_summary`, `next_strongest_move`, `ACTION_SUMMARY`, and human reports.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
-  - Added `Get-SystemProblemMapping` for deterministic issue→system-problem translation.
-  - Added `micro_clusters` generation with count, route examples, and share-of-pages metrics.
-  - Added `system_problem` synthesis with severity and scope rules.
-  - Added decision override behavior to drive `decision_summary` from system problem when present.
-  - Added system-level action mapping:
-    - VALUE domains → rewrite first screen across key pages.
-    - ACTION_PATH domain → add consistent CTA across key pages.
-  - Updated HUMAN_REPORT wording and supporting examples to present system-level framing first.
+  - **Surface normalization block**: added `Get-SurfaceTypeByPageType` and propagated `surface_type` into findings/page verdicts.
+  - **System problem synthesis block**: replaced micro-cluster-only logic with deterministic `system_problem` synthesis rules:
+    - repeated HIGH finding type across >=2 surfaces => one system problem,
+    - otherwise fallback to strongest single defect,
+    - limitation-only => LIMITATION,
+    - no defects => CLEAN.
+  - **Decision override block**: decision summary now derives primary issue/action from `system_problem` title/strongest action.
+  - **Interaction explanation block**: added compact universal behavior explanation inside `system_problem.interaction_explanation`.
+  - **Human report rendering block**: replaced long-form sections with compressed order and limits.
+  - **Consistency lock block**: added action-chain strict equality checks and max-item guardrails for actions/evidence.
+  - **Fallback report block**: updated fallback payload fields to match new compact report schema.
 - `docs/TASK_REPORT.md`
-  - Replaced content for PACK 3 systemization report.
+  - Replaced with PACK 4 implementation report.
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/site_auditor_v2/agent.ps1`.
-- Route discovery unchanged.
-- Screenshot engine unchanged (`agents/site_auditor_v2/tools/capture_visuals.mjs` untouched).
-- Ownership logic unchanged (ownership mode and owned/external action routing preserved).
-- Confidence logic unchanged at signal level (still evidence-gated high-signal findings); PACK 3 adds only post-finding system aggregation.
+- Route discovery core unchanged.
+- Screenshot engine core unchanged.
+- Memory files unchanged.
+- ZIP/REPO modes unchanged.
 
 ## Risks/blockers
-- `BROKEN_ROUTE` clusters are tracked in `micro_clusters`, but no system-problem mapping is applied for them by design; decisions may remain page-level if only broken-route clustering is present.
-- System-problem severity escalates to `HIGH` when 3+ pages are affected or major page types (`HOME`, `DECISION`, `TOOL`) are included; this can change top-level recommendations compared with single-finding prioritization.
-- External-ownership recommendations remain benchmarking-oriented; operators expecting direct remediation phrasing for external sites should align with ownership constraints.
-- No blockers encountered.
+- PowerShell runtime is not available in this environment (`pwsh` missing), so live execution validation could not be performed.
+- RU/EN report bodies are compressed and structurally aligned, but style tuning may still need minor copy edits after runtime samples.
+- Stronger consistency lock can now fail generation on wording/field mismatches that previously passed; this is intentional but stricter operationally.
+- No protected/forbidden paths were modified.
 
-### Clustering logic
-- Eligible issue types: `PROCESS_FIRST`, `NO_VALUE_FIRST_SCREEN`, `NO_ACTION_PATH`, `BROKEN_ROUTE`.
-- Cluster threshold: at least 2 unique affected routes.
-- Per-cluster metrics emitted:
-  - `count`
-  - `routes` (max 5)
-  - `share_of_checked_pages` (count / checked routes)
+## Universal surface normalization rules
+- `HOME` -> `entry_surface`
+- `ARTICLE` -> `explanation_surface`
+- `DECISION` -> `decision_surface`
+- `TOOL` -> `action_surface`
+- `HUB` -> `terminal_surface`
+- any unknown type -> `unknown_surface`
+- Existing route/page fields are preserved for compatibility; `surface_type` is additive.
 
-### System problem rules
-- Mapping rules:
-  - `PROCESS_FIRST` → `VALUE_STRUCTURE`
-  - `NO_VALUE_FIRST_SCREEN` → `VALUE_CLARITY`
-  - `NO_ACTION_PATH` → `ACTION_PATH`
-- Severity:
-  - `HIGH` when affected routes >= 3 OR major pages are affected.
-  - `MEDIUM` when affected routes = 2.
-  - `LOW` is ignored (not emitted as system problem).
-- Decision override:
-  - If `system_problem` exists, `decision_summary` uses system-level issue/reasoning/action.
-  - If no qualifying mapped cluster exists, existing page-level logic remains active.
+## System problem synthesis rules
+- Input set: HIGH-confidence findings only.
+- If same finding type repeats across >=2 normalized surfaces: synthesize one DEFECT system problem.
+- If no multi-surface repeat but at least one defect: fallback to strongest single defect as system problem.
+- If no defects but limitations exist: system problem category LIMITATION.
+- If no defects and no limitations: system problem category CLEAN.
+- System problem output fields:
+  - `problem_type`
+  - `category`
+  - `title`
+  - `description`
+  - `affected_surfaces_count`
+  - `representative_examples` (max 3)
+  - `strongest_action`
+  - `confidence`
+  - `interaction_explanation`
 
-### Rollback
-1. Remove `Get-SystemProblemMapping` from `agents/site_auditor_v2/agent.ps1`.
-2. Remove micro-cluster synthesis and restore `report.micro_clusters` to empty output.
-3. Remove `system_problem` generation and decision override branches.
-4. Restore HUMAN_REPORT main-finding logic to page-level-first wording.
-5. Restore previous `docs/TASK_REPORT.md` content for PACK 2.
+## Report compression rules
+- One main system problem only.
+- Supporting evidence max 3 lines.
+- Actions max 3 bullets (main action first).
+- Limitation section max 1 line and rendered only when needed.
+- No duplicate explanation sections.
+- Human report omits weak/noisy intermediate artifacts and raw route dumps.
+
+## Rollback instructions by file/block
+1. `agents/site_auditor_v2/agent.ps1`:
+   - Remove `Get-SurfaceTypeByPageType` and all `surface_type` assignments in findings/page verdicts.
+   - Restore pre-PACK4 micro-cluster/system-problem block (cluster summary + previous override logic).
+   - Restore previous human report payload schema (`checked_lines`, `main_finding`) and previous `New-ClientReportHtml` layout.
+   - Remove newly added consistency checks for strongest-action chain and report compression limits.
+2. `docs/TASK_REPORT.md`:
+   - Restore previous task report content from git history.

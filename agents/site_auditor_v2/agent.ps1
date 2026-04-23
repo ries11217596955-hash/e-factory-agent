@@ -185,20 +185,20 @@ function New-ClientReportHtml {
         [hashtable]$ReportPayload
     )
 
-    $title = if ($Language -eq 'RU') { 'Отчёт аудита сайта' } else { 'Website Audit Report' }
-    $executiveHeader = if ($Language -eq 'RU') { 'Итог' } else { 'Executive Verdict' }
-    $checkedHeader = if ($Language -eq 'RU') { 'Что проверено' } else { 'What Was Checked' }
-    $mainFindingHeader = if ($Language -eq 'RU') { 'Главное наблюдение' } else { 'Main Finding' }
+    $title = if ($Language -eq 'RU') { 'Краткий системный аудит' } else { 'Concise System Audit' }
+    $executiveHeader = if ($Language -eq 'RU') { 'Краткий вердикт' } else { 'Executive Verdict' }
+    $mainProblemHeader = if ($Language -eq 'RU') { 'Главная системная проблема' } else { 'Main System Problem' }
+    $impactHeader = if ($Language -eq 'RU') { 'К чему это приводит' } else { 'What This Causes' }
     $nextHeader = if ($Language -eq 'RU') { 'Что делать дальше' } else { 'What To Do Next' }
-    $impactHeader = if ($Language -eq 'RU') { 'Почему это важно' } else { 'Why It Matters' }
-    $limitsHeader = if ($Language -eq 'RU') { 'Ограничения' } else { 'Limitations' }
+    $evidenceHeader = if ($Language -eq 'RU') { 'Подтверждающие примеры' } else { 'Supporting Evidence' }
+    $limitsHeader = if ($Language -eq 'RU') { 'Ограничения аудита' } else { 'Audit Limits' }
     $snapshotHeader = if ($Language -eq 'RU') { 'Технический срез' } else { 'Technical Snapshot' }
 
-    $executiveLines = @($ReportPayload.executive_lines | ForEach-Object { "<p>$(Escape-HtmlText -Text ([string]$_))</p>" }) -join ''
-    $checkedLines = @($ReportPayload.checked_lines | ForEach-Object { "<li>$(Escape-HtmlText -Text ([string]$_))</li>" }) -join ''
-    $impactLines = @($ReportPayload.impact_lines | ForEach-Object { "<li>$(Escape-HtmlText -Text ([string]$_))</li>" }) -join ''
-    $limitationLines = @($ReportPayload.limitations_lines | ForEach-Object { "<li>$(Escape-HtmlText -Text ([string]$_))</li>" }) -join ''
-    $actionLines = @($ReportPayload.actions_lines | ForEach-Object { "<li>$(Escape-HtmlText -Text ([string]$_))</li>" }) -join ''
+    $executiveLines = @($ReportPayload.executive_lines | Select-Object -First 4 | ForEach-Object { "<p>$(Escape-HtmlText -Text ([string]$_))</p>" }) -join ''
+    $impactLines = @($ReportPayload.impact_lines | Select-Object -First 3 | ForEach-Object { "<li>$(Escape-HtmlText -Text ([string]$_))</li>" }) -join ''
+    $limitationLines = @($ReportPayload.limitations_lines | Select-Object -First 1 | ForEach-Object { "<li>$(Escape-HtmlText -Text ([string]$_))</li>" }) -join ''
+    $actionLines = @($ReportPayload.actions_lines | Select-Object -First 3 | ForEach-Object { "<li>$(Escape-HtmlText -Text ([string]$_))</li>" }) -join ''
+    $evidenceLines = @($ReportPayload.evidence_lines | Select-Object -First 3 | ForEach-Object { "<li>$(Escape-HtmlText -Text ([string]$_))</li>" }) -join ''
     $snapshotRows = @($ReportPayload.snapshot_rows | ForEach-Object {
             "<tr><th>$(Escape-HtmlText -Text ([string]$_.label))</th><td>$(Escape-HtmlText -Text ([string]$_.value))</td></tr>"
         }) -join ''
@@ -229,21 +229,15 @@ function New-ClientReportHtml {
     $executiveLines
   </section>
   <section>
-    <h2>$(Escape-HtmlText -Text $checkedHeader)</h2>
-    <ul>$checkedLines</ul>
+    <h2>$(Escape-HtmlText -Text $mainProblemHeader)</h2>
+    <p>$(Escape-HtmlText -Text ([string]$ReportPayload.main_problem))</p>
   </section>
-  <section>
-    <h2>$(Escape-HtmlText -Text $mainFindingHeader)</h2>
-    <p>$(Escape-HtmlText -Text ([string]$ReportPayload.main_finding))</p>
-  </section>
+  <section><h2>$(Escape-HtmlText -Text $impactHeader)</h2><ul>$impactLines</ul></section>
   <section>
     <h2>$(Escape-HtmlText -Text $nextHeader)</h2>
     <ul>$actionLines</ul>
   </section>
-  <section>
-    <h2>$(Escape-HtmlText -Text $impactHeader)</h2>
-    <ul>$impactLines</ul>
-  </section>
+  <section><h2>$(Escape-HtmlText -Text $evidenceHeader)</h2><ul>$evidenceLines</ul></section>
   $(if ($ReportPayload.include_limitations) { "<section><h2>$(Escape-HtmlText -Text $limitsHeader)</h2><ul>$limitationLines</ul></section>" } else { '' })
   <section>
     <h2>$(Escape-HtmlText -Text $snapshotHeader)</h2>
@@ -252,6 +246,19 @@ function New-ClientReportHtml {
 </body>
 </html>
 "@
+}
+
+function Get-SurfaceTypeByPageType {
+    param([string]$PageType)
+
+    switch ([string]$PageType) {
+        'HOME' { return 'entry_surface' }
+        'ARTICLE' { return 'explanation_surface' }
+        'DECISION' { return 'decision_surface' }
+        'TOOL' { return 'action_surface' }
+        'HUB' { return 'terminal_surface' }
+        default { return 'unknown_surface' }
+    }
 }
 
 function Get-DeterministicRunKey {
@@ -2198,6 +2205,7 @@ else {
             }
 
             $pageType = [string]$routeSignals.page_type
+            $surfaceType = Get-SurfaceTypeByPageType -PageType $pageType
             $evidenceText = Get-EvidenceSnippet -Text ([string]$routeSignals.first_screen_text_sample)
             $evidenceScreenshot = if ([bool]$routeSignals.top_screenshot_ok) { [string]$routeSignals.top_screenshot_file } else { '' }
             $statusEvidenceText = "HTTP status code: $([int]$routeSignals.status_code)."
@@ -2230,6 +2238,7 @@ else {
                         priority = $priority
                         severity = $priority
                         confidence = 'HIGH'
+                        surface_type = [string]$surfaceType
                         evidence_text = [string]$statusEvidenceText
                         evidence_type = 'status'
                         evidence_ref = 'ROUTES_SUMMARY.json:status_code'
@@ -2257,6 +2266,7 @@ else {
                         priority = $priority
                         severity = $priority
                         confidence = 'HIGH'
+                        surface_type = [string]$surfaceType
                         evidence_text = [string]$evidenceText
                         evidence_type = 'text'
                         evidence_ref = 'AUDIT_SUMMARY.json:first_screen_text_sample'
@@ -2284,6 +2294,7 @@ else {
                         priority = $priority
                         severity = $priority
                         confidence = 'HIGH'
+                        surface_type = [string]$surfaceType
                         evidence_text = [string]$evidenceText
                         evidence_type = 'text'
                         evidence_ref = 'AUDIT_SUMMARY.json:first_screen_text_sample'
@@ -2311,6 +2322,7 @@ else {
                         priority = $priority
                         severity = $priority
                         confidence = 'HIGH'
+                        surface_type = [string]$surfaceType
                         evidence_text = [string]$evidenceText
                         evidence_type = 'text'
                         evidence_ref = 'AUDIT_SUMMARY.json:first_screen_text_sample'
@@ -2330,6 +2342,7 @@ else {
                     route = $canonicalRoute
                     classification = $classification
                     signals = $routeSignals
+                    surface_type = [string]$surfaceType
                     defect_candidates = @($defectCandidates)
                     evidence_refs = @('ROUTES_SUMMARY.json', 'visual_manifest.json')
                     confidence = if ($defectCandidates.Count -gt 0) { 'HIGH' } elseif ($visualStatus -eq 'ok') { 'MEDIUM' } else { 'LOW' }
@@ -2351,6 +2364,7 @@ else {
                     priority = 'NONE'
                     severity = 'NONE'
                     confidence = [string]$report.audit_confidence
+                    surface_type = 'unknown_surface'
                     evidence_text = "Route budget excluded $([int]$report.run_budget.overflow_routes) discovered routes from this run."
                     evidence_type = 'status'
                     evidence_ref = 'ROUTES_SUMMARY.json:overflow_routes'
@@ -2639,61 +2653,41 @@ else {
         $clusterTypes = @('PROCESS_FIRST', 'NO_VALUE_FIRST_SCREEN', 'NO_ACTION_PATH', 'BROKEN_ROUTE')
         $microClusters = [System.Collections.Generic.List[object]]::new()
         foreach ($clusterType in $clusterTypes) {
-            $clusterFindings = @($sortedFindings | Where-Object { [string]$_.issue_type -eq $clusterType })
+            $clusterFindings = @($sortedFindings | Where-Object { [string]$_.issue_type -eq $clusterType -and [string]$_.confidence -eq 'HIGH' })
+            $clusterSurfaces = @($clusterFindings | ForEach-Object { [string]$_.surface_type } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
             $clusterRoutes = @($clusterFindings | ForEach-Object { [string]$_.route } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
-            $clusterCount = [int]$clusterRoutes.Count
-            if ($clusterCount -lt 2) { continue }
-            $clusterShare = if ($routesChecked -gt 0) { [Math]::Round(([double]$clusterCount / [double]$routesChecked), 4) } else { 0.0 }
+            if ($clusterSurfaces.Count -lt 2) { continue }
+            $clusterShare = if ($routesChecked -gt 0) { [Math]::Round(([double]$clusterRoutes.Count / [double]$routesChecked), 4) } else { 0.0 }
             $microClusters.Add([ordered]@{
                     cluster_type = [string]$clusterType
-                    count = $clusterCount
+                    count = [int]$clusterRoutes.Count
+                    surfaces_count = [int]$clusterSurfaces.Count
+                    surfaces = @($clusterSurfaces)
                     routes = @($clusterRoutes | Select-Object -First 5)
                     share_of_checked_pages = $clusterShare
                 })
         }
         $report.micro_clusters = @($microClusters)
 
-        $systemProblem = $null
-        if ($report.micro_clusters.Count -gt 0) {
-            $priorityOrder = @{ PROCESS_FIRST = 0; NO_VALUE_FIRST_SCREEN = 1; NO_ACTION_PATH = 2; BROKEN_ROUTE = 3 }
-            $candidateClusters = @(
-                $report.micro_clusters |
-                Sort-Object @{ Expression = {
-                        $clusterType = [string]$_.cluster_type
-                        if ($priorityOrder.ContainsKey($clusterType)) { [int]$priorityOrder[$clusterType] } else { 9 }
-                    }
-                }, @{ Expression = { -1 * [int]$_.count } }
-            )
-            foreach ($candidate in $candidateClusters) {
-                $mapping = Get-SystemProblemMapping -IssueType ([string]$candidate.cluster_type)
-                if ($null -eq $mapping) { continue }
-                $candidateRoutes = @($candidate.routes | ForEach-Object { [string]$_ } | Select-Object -Unique)
-                $majorPagesAffected = @(
-                    $candidateRoutes |
-                    Where-Object {
-                        $routeKey = [string]$_
-                        $routeSignalMap.ContainsKey($routeKey) -and @('HOME', 'DECISION', 'TOOL') -contains [string]$routeSignalMap[$routeKey].page_type
-                    }
-                ).Count -gt 0
-                $severity = if ([int]$candidate.count -ge 3 -or $majorPagesAffected) { 'HIGH' } else { 'MEDIUM' }
-                if ($severity -eq 'LOW') { continue }
-                $scopeText = "{0} of {1} checked pages ({2:P0})" -f [int]$candidate.count, $routesChecked, [double]$candidate.share_of_checked_pages
-                $systemProblem = [ordered]@{
-                    problem_type = [string]$mapping.problem_type
-                    source_cluster = [string]$candidate.cluster_type
-                    description = [string]$mapping.description_en
-                    description_ru = [string]$mapping.description_ru
-                    scope = $scopeText
-                    severity = $severity
-                    route_examples = @($candidateRoutes | Select-Object -First 5)
-                    count = [int]$candidate.count
-                    share_of_checked_pages = [double]$candidate.share_of_checked_pages
-                    action_domain = [string]$mapping.action_domain
-                }
-                break
+        $systemProblem = [ordered]@{
+            problem_type = 'NO_CONFIRMED_SYSTEM_DEFECT'
+            category = 'CLEAN'
+            title = 'No confirmed system-level defects in checked scope'
+            description = 'No repeated HIGH-confidence defect pattern was observed across normalized surfaces in the checked scope.'
+            description_ru = 'Повторяющийся дефект высокого уровня уверенности по нормализованным поверхностям в проверенном объёме не выявлен.'
+            affected_surfaces_count = 0
+            representative_examples = @()
+            strongest_action = if (@('LOW', 'MEDIUM') -contains [string]$report.audit_confidence) { 'Expand route sample and rerun LINK mode for broader coverage.' } else { 'Keep monitoring and rerun when scope changes.' }
+            confidence = [string]$report.audit_confidence
+            source_cluster = 'NONE'
+            interaction_explanation = [ordered]@{
+                entry_surface = 'unknown_surface'
+                expected_outcome = 'Stable behavior across checked surfaces.'
+                actual_outcome = 'No confirmed repeated defect pattern in current checked scope.'
+                failure_point = 'none_confirmed'
+                why_this_matters = 'Current scope does not provide evidence for a system-level repair action.'
             }
         }
-        $report.system_problem = $systemProblem
 
         $primaryProblem = if ($sortedFindings.Count -gt 0) { [string]$sortedFindings[0].issue_type } else { 'no_material_findings_in_sampled_scope' }
         $hasP0Defect = ($p0Count -gt 0)
@@ -2712,88 +2706,132 @@ else {
         }
         $primaryLimitationFinding = if ($sortedLimitationFindings.Count -gt 0) { $sortedLimitationFindings[0] } else { $null }
 
-        $decisionPriority = if ($null -ne $report.system_problem) {
-            if ([string]$report.system_problem.severity -eq 'HIGH') { 'P0' } else { 'P1' }
+        if ($report.micro_clusters.Count -gt 0) {
+            $priorityOrder = @{ BROKEN_ROUTE = 0; PROCESS_FIRST = 1; NO_VALUE_FIRST_SCREEN = 2; NO_ACTION_PATH = 3 }
+            $selectedCluster = @(
+                $report.micro_clusters |
+                Sort-Object @{ Expression = {
+                        $clusterType = [string]$_.cluster_type
+                        if ($priorityOrder.ContainsKey($clusterType)) { [int]$priorityOrder[$clusterType] } else { 9 }
+                    }
+                }, @{ Expression = { -1 * [int]$_.surfaces_count } }, @{ Expression = { -1 * [int]$_.count } }
+            )[0]
+            $clusterType = [string]$selectedCluster.cluster_type
+            $systemTitle = switch ($clusterType) {
+                'BROKEN_ROUTE' { 'Repeated route reachability failure across surfaces' }
+                'PROCESS_FIRST' { 'Process-first framing appears before value across surfaces' }
+                'NO_VALUE_FIRST_SCREEN' { 'Value proposition is missing on first screen across surfaces' }
+                default { 'Action path is missing on first screen across surfaces' }
+            }
+            $systemDescriptionEn = switch ($clusterType) {
+                'BROKEN_ROUTE' { 'Multiple surfaces fail to return a reachable route, so flow breaks before interaction.' }
+                'PROCESS_FIRST' { 'Multiple surfaces start with process guidance before explaining value.' }
+                'NO_VALUE_FIRST_SCREEN' { 'Multiple surfaces do not explain the value outcome on first screen.' }
+                default { 'Multiple surfaces do not expose a clear next action on first screen.' }
+            }
+            $systemDescriptionRu = switch ($clusterType) {
+                'BROKEN_ROUTE' { 'Несколько поверхностей не дают доступный маршрут, поэтому поток прерывается до взаимодействия.' }
+                'PROCESS_FIRST' { 'На нескольких поверхностях сначала показывается процесс, а не ценность.' }
+                'NO_VALUE_FIRST_SCREEN' { 'На нескольких поверхностях не объясняется ценность на первом экране.' }
+                default { 'На нескольких поверхностях нет явного следующего действия на первом экране.' }
+            }
+            $clusterExamples = @(
+                $sortedFindings |
+                Where-Object { [string]$_.issue_type -eq $clusterType } |
+                Select-Object -First 3 |
+                ForEach-Object {
+                    [ordered]@{
+                        route = [string]$_.route
+                        surface_type = [string]$_.surface_type
+                        evidence = [string]$_.evidence_text
+                    }
+                }
+            )
+            $clusterAction = [string](@($sortedFindings | Where-Object { [string]$_.issue_type -eq $clusterType } | Select-Object -First 1)[0].recommended_action)
+            $clusterEntrySurface = if ($clusterExamples.Count -gt 0) { [string]$clusterExamples[0].surface_type } else { 'unknown_surface' }
+            $systemProblem = [ordered]@{
+                problem_type = [string]$clusterType
+                category = 'DEFECT'
+                title = $systemTitle
+                description = $systemDescriptionEn
+                description_ru = $systemDescriptionRu
+                affected_surfaces_count = [int]$selectedCluster.surfaces_count
+                representative_examples = @($clusterExamples)
+                strongest_action = [string]$clusterAction
+                confidence = 'HIGH'
+                source_cluster = [string]$clusterType
+                interaction_explanation = [ordered]@{
+                    entry_surface = [string]$clusterEntrySurface
+                    expected_outcome = 'Surface should guide to value and next action without flow break.'
+                    actual_outcome = [string]$systemDescriptionEn
+                    failure_point = [string]$clusterType
+                    why_this_matters = 'Users lose clarity or progress before outcome is reached.'
+                }
+            }
         }
         elseif ($null -ne $primaryDefectFinding) {
-            [string]$primaryDefectFinding.priority
+            $singleExample = [ordered]@{
+                route = [string]$primaryDefectFinding.route
+                surface_type = [string]$primaryDefectFinding.surface_type
+                evidence = [string]$primaryDefectFinding.evidence_text
+            }
+            $systemProblem = [ordered]@{
+                problem_type = [string]$primaryDefectFinding.issue_type
+                category = 'DEFECT'
+                title = "Single strongest defect: $([string]$primaryDefectFinding.issue_type)"
+                description = [string]$primaryDefectFinding.why_it_matters
+                description_ru = [string]$primaryDefectFinding.why_it_matters
+                affected_surfaces_count = 1
+                representative_examples = @($singleExample)
+                strongest_action = [string]$primaryDefectFinding.recommended_action
+                confidence = [string]$primaryDefectFinding.confidence
+                source_cluster = [string]$primaryDefectFinding.issue_type
+                interaction_explanation = [ordered]@{
+                    entry_surface = [string]$primaryDefectFinding.surface_type
+                    expected_outcome = 'Surface should support a clear move to outcome.'
+                    actual_outcome = [string]$primaryDefectFinding.why_it_matters
+                    failure_point = [string]$primaryDefectFinding.issue_type
+                    why_this_matters = 'The strongest observed defect blocks reliable progression.'
+                }
+            }
+        }
+        elseif ($null -ne $primaryLimitationFinding) {
+            $systemProblem = [ordered]@{
+                problem_type = 'AUDIT_SCOPE_LIMIT'
+                category = 'LIMITATION'
+                title = 'Checked scope is limited by route budget'
+                description = 'Coverage boundary prevented full surface verification in this run.'
+                description_ru = 'Граница охвата не позволила проверить все поверхности в этом запуске.'
+                affected_surfaces_count = 0
+                representative_examples = @([ordered]@{ route = '_audit_scope'; surface_type = 'unknown_surface'; evidence = [string]$primaryLimitationFinding.evidence_text })
+                strongest_action = 'Expand route sample and rerun LINK mode for broader coverage.'
+                confidence = [string]$report.audit_confidence
+                source_cluster = [string]$primaryLimitationFinding.issue_type
+                interaction_explanation = [ordered]@{
+                    entry_surface = 'unknown_surface'
+                    expected_outcome = 'All relevant surfaces are included in checked scope.'
+                    actual_outcome = 'Run coverage ended before all discovered routes were checked.'
+                    failure_point = 'coverage_boundary'
+                    why_this_matters = 'Boundary limits confidence and requires expanded coverage, not repair.'
+                }
+            }
+        }
+        $report.system_problem = $systemProblem
+
+        $decisionIssueType = [string]$report.system_problem.category
+        $decisionPriority = if ($decisionIssueType -eq 'DEFECT') {
+            if ([string]$report.system_problem.problem_type -eq 'BROKEN_ROUTE') { 'P0' } else { 'P1' }
+        }
+        elseif ($decisionIssueType -eq 'LIMITATION') {
+            'P2'
         }
         else {
             'NONE'
         }
-        $decisionIssueType = if ($null -ne $primaryDefectFinding) {
-            'DEFECT'
-        }
-        elseif ($null -ne $primaryLimitationFinding) {
-            'LIMITATION'
-        }
-        else {
-            'CLEAN'
-        }
-        $primaryIssueValue = if ($null -ne $report.system_problem) {
-            [string]$report.system_problem.problem_type
-        }
-        elseif ($null -ne $primaryDefectFinding) {
-            [string]$primaryDefectFinding.issue_type
-        }
-        elseif ($null -ne $primaryLimitationFinding) {
-            [string]$primaryLimitationFinding.issue_type
-        }
-        else {
-            'NONE'
-        }
-        $primaryRouteValue = if ($null -ne $report.system_problem) {
-            '_system'
-        }
-        elseif ($null -ne $primaryDefectFinding) {
-            [string]$primaryDefectFinding.route
-        }
-        else {
-            $null
-        }
-        $decisionRecommendedAction = if ($null -ne $report.system_problem) {
-            if ([string]$report.system_problem.action_domain -eq 'ACTION_PATH') {
-                Get-ActionTextByOwnership -OwnershipMode $ownershipMode -OwnedAction 'Add consistent CTA across key pages' -ExternalAction 'Benchmark consistent CTA patterns across key pages'
-            }
-            else {
-                Get-ActionTextByOwnership -OwnershipMode $ownershipMode -OwnedAction 'Rewrite first screen across key pages' -ExternalAction 'Benchmark first-screen value framing across key pages'
-            }
-        }
-        elseif ($null -ne $primaryDefectFinding) {
-            [string]$primaryDefectFinding.recommended_action
-        }
-        elseif ($null -ne $primaryLimitationFinding) {
-            [string]$primaryLimitationFinding.recommended_action
-        }
-        elseif (@('LOW', 'MEDIUM') -contains [string]$report.audit_confidence) {
-            'Expand route sample and rerun LINK mode for broader coverage.'
-        }
-        else {
-            'Keep monitoring and rerun when the site scope changes.'
-        }
-        $decisionReasoning = if ($null -ne $report.system_problem) {
-            "System problem: $([string]$report.system_problem.description) Scope: $([string]$report.system_problem.scope)."
-        }
-        elseif ($null -ne $primaryDefectFinding) {
-            if ([string]$primaryDefectFinding.issue_type -eq 'BROKEN_ROUTE') {
-                'Primary route is broken (non-200), so users cannot progress.'
-            }
-            elseif ([string]$primaryDefectFinding.issue_type -eq 'PROCESS_FIRST') {
-                'Key pages start with process instead of explaining value.'
-            }
-            elseif ([string]$primaryDefectFinding.issue_type -eq 'NO_VALUE_FIRST_SCREEN') {
-                'Key pages do not clearly explain first-screen value.'
-            }
-            else {
-                'Key pages do not provide a clear first-screen action path.'
-            }
-        }
-        elseif ($null -ne $primaryLimitationFinding) {
-            'No page-level defect was detected, but sampled coverage limits confidence.'
-        }
-        else {
-            if ([string]$report.audit_confidence -eq 'HIGH') { 'No page-level defects were confirmed in the checked scope.' } else { 'No page-level defects were confirmed in the checked scope.' }
-        }
+        $primaryIssueValue = [string]$report.system_problem.title
+        $primaryRouteValue = if ($decisionIssueType -eq 'DEFECT' -and @($report.system_problem.representative_examples).Count -gt 0) { [string]$report.system_problem.representative_examples[0].route } else { $null }
+        $decisionRecommendedAction = [string]$report.system_problem.strongest_action
+        $decisionReasoning = [string]$report.system_problem.description
         $report.decision_summary = [ordered]@{
             issue_type = [string]$decisionIssueType
             primary_issue = [string]$primaryIssueValue
@@ -2815,10 +2853,10 @@ else {
             'LIMITATION: audit scope constraints limit coverage certainty'
         }
         elseif ([string]$report.audit_confidence -eq 'HIGH') {
-            'CLEAN: No page-level defects were confirmed in the checked scope'
+            'CLEAN: No confirmed system-level defects were identified in the checked scope.'
         }
         else {
-            'CLEAN: No page-level defects were confirmed in the checked scope (coverage confidence limited)'
+            'CLEAN: No confirmed system-level defects were identified in the checked scope.'
         }
         $report.executive_answer = [ordered]@{
             overall_verdict = $overallVerdict
@@ -2890,123 +2928,128 @@ else {
         $null = $producedArtifacts.Add('HUMAN_REPORT_RU.html')
         $null = $producedArtifacts.Add('HUMAN_REPORT_EN.html')
 
-        $mainFindingEn = if ($null -ne $report.system_problem) {
-            "System problem: $([string]$report.system_problem.description) Scope: $([string]$report.system_problem.scope)."
-        }
-        elseif ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'BROKEN_ROUTE') {
-            'Route failed to load with HTTP 200.'
-        }
-        elseif ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'NO_ACTION_PATH') {
-            'User has no clear next step.'
-        }
-        elseif ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'NO_VALUE_FIRST_SCREEN') {
-            'Page does not clearly explain first-screen value.'
-        }
-        elseif ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'PROCESS_FIRST') {
-            'Page starts with instructions instead of explanation.'
-        }
-        elseif ($decisionIssueType -eq 'DEFECT') {
-            "Confirmed defect: $([string]$report.decision_summary.primary_issue)."
-        }
-        elseif ($decisionIssueType -eq 'LIMITATION') {
-            "Coverage limitation: this is an audit scope constraint, not a page defect ($([string]$report.decision_summary.primary_issue))."
-        }
-        else {
-            'No page-level defects were confirmed in the checked scope.'
-        }
-        $mainFindingRu = if ($null -ne $report.system_problem) {
-            "Системная проблема: $([string]$report.system_problem.description_ru) Охват: $([string]$report.system_problem.scope)."
-        }
-        elseif ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'BROKEN_ROUTE') {
-            'Маршрут не загрузился со статусом HTTP 200.'
-        }
-        elseif ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'NO_ACTION_PATH') {
-            'У пользователя нет понятного следующего шага.'
-        }
-        elseif ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'NO_VALUE_FIRST_SCREEN') {
-            'Страница не объясняет ценность на первом экране.'
-        }
-        elseif ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'PROCESS_FIRST') {
-            'Страница начинается с инструкций вместо объяснения ценности.'
-        }
-        elseif ($decisionIssueType -eq 'DEFECT') {
-            "Подтверждён дефект: $([string]$report.decision_summary.primary_issue)."
-        }
-        elseif ($decisionIssueType -eq 'LIMITATION') {
-            "Ограничение покрытия: это ограничение аудита, а не дефект страницы ($([string]$report.decision_summary.primary_issue))."
-        }
-        else {
-            'Дефекты уровня страницы в проверенном объёме не подтверждены.'
-        }
-        $limitationsCommon = [System.Collections.Generic.List[string]]::new()
-        if ([string]$report.audit_confidence -ne 'HIGH' -or $limitationFindings.Count -gt 0) {
-            $limitationsCommon.Add('Checked scope may be partial and may not cover all site pages.')
-            if ([int]$report.run_budget.overflow_routes -gt 0) {
-                $limitationsCommon.Add("Route budget excluded $([int]$report.run_budget.overflow_routes) discovered routes from this run.")
+        $mainProblemEn = [string]$report.system_problem.title
+        $mainProblemRu = if ($decisionIssueType -eq 'CLEAN') {
+            if (@('LOW', 'MEDIUM') -contains [string]$report.audit_confidence) {
+                'No confirmed system-level defects were identified in the checked scope.'
+            }
+            else {
+                'Подтверждённых системных дефектов в проверенном объёме не выявлено.'
             }
         }
+        else {
+            [string]$report.system_problem.description_ru
+        }
+
+        $limitationsCommon = [System.Collections.Generic.List[string]]::new()
+        if ($decisionIssueType -eq 'LIMITATION') {
+            $limitationsCommon.Add('Coverage boundary: not all discovered routes were checked in this run.')
+        }
+        elseif ([string]$report.audit_confidence -ne 'HIGH' -and [int]$report.run_budget.overflow_routes -gt 0) {
+            $limitationsCommon.Add("Checked scope is partial: $([int]$report.run_budget.overflow_routes) discovered routes were outside current route budget.")
+        }
+
         $snapshotRowsEn = @(
             [ordered]@{ label = 'Pages checked'; value = [string]$routesChecked },
-            [ordered]@{ label = 'Findings count'; value = [string]$allFindings.Count },
-            [ordered]@{ label = 'Highest priority'; value = [string]$report.decision_summary.priority },
+            [ordered]@{ label = 'High-confidence findings'; value = [string]$defectFindings.Count },
+            [ordered]@{ label = 'Primary category'; value = [string]$decisionIssueType },
             [ordered]@{ label = 'Confidence'; value = [string]$report.audit_confidence }
         )
         $snapshotRowsRu = @(
             [ordered]@{ label = 'Проверено страниц'; value = [string]$routesChecked },
-            [ordered]@{ label = 'Количество находок'; value = [string]$allFindings.Count },
-            [ordered]@{ label = 'Максимальный приоритет'; value = [string]$report.decision_summary.priority },
+            [ordered]@{ label = 'Находки высокой уверенности'; value = [string]$defectFindings.Count },
+            [ordered]@{ label = 'Категория'; value = [string]$decisionIssueType },
             [ordered]@{ label = 'Уверенность'; value = [string]$report.audit_confidence }
         )
-        $supportingExamples = if ($null -ne $report.system_problem) {
-            @(
-                $sortedFindings |
-                Where-Object { [string]$_.issue_type -eq [string]$report.system_problem.source_cluster } |
-                Select-Object -First 2
-            )
+
+        $supportingExamples = @($report.system_problem.representative_examples | Select-Object -First 3)
+        $supportingLinesEn = if ($supportingExamples.Count -gt 0) {
+            @($supportingExamples | ForEach-Object { "$([string]$_.route) ($([string]$_.surface_type)): $([string]$_.evidence)" })
         }
         else {
-            @($sortedFindings | Select-Object -First 2)
+            @('No high-confidence supporting examples in checked scope.')
         }
-        $primaryEvidenceSnippet = if ($null -ne $primaryDefectFinding -and $null -eq $report.system_problem) { [string]$primaryDefectFinding.evidence_text } else { '' }
-        if (-not [string]::IsNullOrWhiteSpace($primaryEvidenceSnippet)) {
-            $mainFindingEn = "$mainFindingEn Evidence: `"$primaryEvidenceSnippet`"."
-            $mainFindingRu = "$mainFindingRu Доказательство: `"$primaryEvidenceSnippet`"."
+        $supportingLinesRu = if ($supportingExamples.Count -gt 0) {
+            @($supportingExamples | ForEach-Object { "$([string]$_.route) ($([string]$_.surface_type)): $([string]$_.evidence)" })
         }
-        $supportingLinesEn = if ($supportingExamples.Count -gt 0) { @($supportingExamples | ForEach-Object { "Example: $([string]$_.route) — $([string]$_.issue_type) — `"$([string]$_.evidence_text)`"." }) } else { @('No strong issue examples in sampled scope.') }
-        $supportingLinesRu = if ($supportingExamples.Count -gt 0) { @($supportingExamples | ForEach-Object { "Пример: $([string]$_.route) — $([string]$_.issue_type) — `"$([string]$_.evidence_text)`"." }) } else { @('В проверенном объёме нет подтверждённых сильных дефектов.') }
+        else {
+            @('В проверенном объёме нет примеров высокой уверенности.')
+        }
+
+        $impactLinesEn = if ($decisionIssueType -eq 'DEFECT') {
+            @(
+                'Users face repeated friction before reaching the expected outcome.',
+                'Critical surfaces lose consistency, reducing decision confidence.',
+                'The same failure pattern scales across multiple surfaces.'
+            )
+        }
+        elseif ($decisionIssueType -eq 'LIMITATION') {
+            @('Coverage is incomplete, so defect absence cannot be confirmed for full scope.')
+        }
+        else {
+            @('No confirmed system-level defects were identified in the checked scope.')
+        }
+        $impactLinesRu = if ($decisionIssueType -eq 'DEFECT') {
+            @(
+                'Пользователь сталкивается с повторяющимся барьером до результата.',
+                'Ключевые поверхности работают несогласованно и снижают доверие к выбору.',
+                'Один и тот же сбой повторяется на нескольких поверхностях.'
+            )
+        }
+        elseif ($decisionIssueType -eq 'LIMITATION') {
+            @('Охват неполный, поэтому отсутствие дефектов нельзя подтвердить для всего объёма.')
+        }
+        else {
+            @('Подтверждённых системных дефектов в проверенном объёме не выявлено.')
+        }
+
+        $supportingActions = [System.Collections.Generic.List[string]]::new()
+        if ($decisionIssueType -eq 'DEFECT') {
+            foreach ($finding in @($sortedFindings | Select-Object -First 3)) {
+                if ([string]$finding.recommended_action -ne [string]$report.system_problem.strongest_action -and $supportingActions.Count -lt 2) {
+                    $supportingActions.Add([string]$finding.recommended_action)
+                }
+            }
+        }
+        elseif ($decisionIssueType -eq 'LIMITATION') {
+            $supportingActions.Add('Validate uncovered routes in a controlled follow-up run.')
+        }
+
+        $actionsEn = [System.Collections.Generic.List[string]]::new()
+        $actionsEn.Add([string]$report.system_problem.strongest_action)
+        foreach ($a in $supportingActions | Select-Object -First 2) { $actionsEn.Add([string]$a) }
+
+        $actionsRu = [System.Collections.Generic.List[string]]::new()
+        $actionsRu.Add([string]$report.system_problem.strongest_action)
+        foreach ($a in $supportingActions | Select-Object -First 2) { $actionsRu.Add([string]$a) }
+
         $reportPayloadEn = [ordered]@{
             executive_lines = @(
-                "Current status: $overallVerdict.",
+                "Verdict: $overallVerdict.",
+                "Main issue category: $decisionIssueType.",
                 "Confidence: $([string]$report.audit_confidence).",
-                "Ownership context: $ownershipMode.",
-                "Main conclusion: $([string]$report.decision_summary.recommended_action)"
+                "Main action: $([string]$report.system_problem.strongest_action)"
             )
-            checked_lines = @(
-                "Checked routes/pages: $routesChecked.",
-                "Screenshots captured: $([string]$report.capture_report.captures_success) successful of $([string]$report.capture_report.captures_attempted) attempted."
-            )
-            main_finding = $mainFindingEn
-            actions_lines = @([string]$report.decision_summary.recommended_action)
-            impact_lines = @($supportingLinesEn)
-            limitations_lines = @($limitationsCommon)
+            main_problem = $mainProblemEn
+            impact_lines = @($impactLinesEn | Select-Object -First 3)
+            actions_lines = @($actionsEn | Select-Object -First 3)
+            evidence_lines = @($supportingLinesEn | Select-Object -First 3)
+            limitations_lines = @($limitationsCommon | Select-Object -First 1)
             include_limitations = ($limitationsCommon.Count -gt 0)
             snapshot_rows = $snapshotRowsEn
         }
         $reportPayloadRu = [ordered]@{
             executive_lines = @(
-                "Текущий статус: $overallVerdict.",
+                "Вердикт: $overallVerdict.",
+                "Категория: $decisionIssueType.",
                 "Уверенность: $([string]$report.audit_confidence).",
-                "Контекст владения: $ownershipMode.",
-                "Главный вывод: $([string]$report.decision_summary.recommended_action)"
+                "Главное действие: $([string]$report.system_problem.strongest_action)"
             )
-            checked_lines = @(
-                "Проверено маршрутов/страниц: $routesChecked.",
-                "Скриншоты: успешно $([string]$report.capture_report.captures_success) из $([string]$report.capture_report.captures_attempted)."
-            )
-            main_finding = $mainFindingRu
-            actions_lines = @([string]$report.decision_summary.recommended_action)
-            impact_lines = @($supportingLinesRu)
-            limitations_lines = @($limitationsCommon | ForEach-Object { if ($_ -eq 'Checked scope may be partial and may not cover all site pages.') { 'Проверенный объём может быть частичным и не охватывать все страницы сайта.' } else { "Бюджет маршрутов исключил $([int]$report.run_budget.overflow_routes) найденных маршрутов из этого запуска." } })
+            main_problem = if ($decisionIssueType -eq 'CLEAN' -and @('LOW', 'MEDIUM') -contains [string]$report.audit_confidence) { 'Подтверждённых системных дефектов в проверенном объёме не выявлено.' } else { [string]$mainProblemRu }
+            impact_lines = @($impactLinesRu | Select-Object -First 3)
+            actions_lines = @($actionsRu | Select-Object -First 3)
+            evidence_lines = @($supportingLinesRu | Select-Object -First 3)
+            limitations_lines = @($limitationsCommon | Select-Object -First 1)
             include_limitations = ($limitationsCommon.Count -gt 0)
             snapshot_rows = $snapshotRowsRu
         }
@@ -3027,8 +3070,11 @@ else {
         if ($decisionIssueType -eq 'LIMITATION' -and $defectFindings.Count -gt 0) { throw 'CONSISTENCY_LOCK_FAILED: limitation classified despite defect findings.' }
         if ($decisionIssueType -eq 'DEFECT' -and $defectFindings.Count -eq 0) { throw 'CONSISTENCY_LOCK_FAILED: defect classified without defect findings.' }
         if ($decisionIssueType -eq 'CLEAN' -and ($defectFindings.Count -gt 0 -or $limitationFindings.Count -gt 0)) { throw 'CONSISTENCY_LOCK_FAILED: clean classified despite findings.' }
-        if ($decisionIssueType -eq 'LIMITATION' -and [string]$reportPayloadEn.main_finding -match 'Confirmed defect') { throw 'CONSISTENCY_LOCK_FAILED: limitation presented as defect in EN report.' }
-        if ($decisionIssueType -eq 'LIMITATION' -and [string]$reportPayloadRu.main_finding -match 'Подтверждён дефект') { throw 'CONSISTENCY_LOCK_FAILED: limitation presented as defect in RU report.' }
+        if ($decisionIssueType -eq 'LIMITATION' -and [string]$reportPayloadEn.main_problem -match 'defect') { throw 'CONSISTENCY_LOCK_FAILED: limitation presented as defect in EN report.' }
+        if ($decisionIssueType -eq 'LIMITATION' -and [string]$reportPayloadRu.main_problem -match 'дефект') { throw 'CONSISTENCY_LOCK_FAILED: limitation presented as defect in RU report.' }
+        if (@($reportPayloadEn.evidence_lines).Count -gt 3 -or @($reportPayloadRu.evidence_lines).Count -gt 3) { throw 'CONSISTENCY_LOCK_FAILED: too many supporting examples.' }
+        if (@($reportPayloadEn.actions_lines).Count -gt 3 -or @($reportPayloadRu.actions_lines).Count -gt 3) { throw 'CONSISTENCY_LOCK_FAILED: too many action bullets.' }
+        if ([string]$report.system_problem.strongest_action -ne [string]$report.decision_summary.recommended_action -or [string]$report.system_problem.strongest_action -ne [string]$report.next_strongest_move -or [string]$report.system_problem.strongest_action -ne [string]$finalActionSummary.actions[0].action -or [string]$report.system_problem.strongest_action -ne [string]$reportPayloadEn.actions_lines[0] -or [string]$report.system_problem.strongest_action -ne [string]$reportPayloadRu.actions_lines[0]) { throw 'CONSISTENCY_LOCK_FAILED: strongest_action chain mismatch.' }
 
         $report.next_step = [string]$nextStrongestMove
         $isLimitationOnly = ($defectFindings.Count -eq 0 -and $limitationFindings.Count -gt 0)
@@ -3162,11 +3208,11 @@ if ($actionSummaryMissingOrEmpty) {
 
 if ((-not (Test-Path -LiteralPath $humanReportRuPath)) -or (-not (Test-Path -LiteralPath $humanReportEnPath))) {
     $fallbackPayloadEn = [ordered]@{
-        executive_lines = @("Current status: $([string]$report.summary).", "Confidence: $([string]$report.audit_confidence).", "Ownership context: $ownershipMode.", "Main conclusion: $([string]$report.decision_summary.recommended_action)")
-        checked_lines = @("Checked routes/pages: $([int]@($report.selected_routes).Count).", 'Screenshots captured: limited.', 'Coverage limited: yes.')
-        main_finding = 'Report generated from fallback path after incomplete run.'
+        executive_lines = @("Current status: $([string]$report.summary).", "Confidence: $([string]$report.audit_confidence).", "Main action: $([string]$report.decision_summary.recommended_action)")
+        main_problem = 'Fallback output: report generated after incomplete run.'
         actions_lines = @([string]$report.decision_summary.recommended_action)
-        impact_lines = @('Fallback report preserves a deterministic single next action.')
+        impact_lines = @('Fallback output preserves one deterministic next action.')
+        evidence_lines = @('Fallback mode: no additional supporting evidence block.')
         limitations_lines = @('Checked scope may be partial.')
         include_limitations = $true
         snapshot_rows = @(
@@ -3177,11 +3223,11 @@ if ((-not (Test-Path -LiteralPath $humanReportRuPath)) -or (-not (Test-Path -Lit
         )
     }
     $fallbackPayloadRu = [ordered]@{
-        executive_lines = @("Текущий статус: $([string]$report.summary).", "Уверенность: $([string]$report.audit_confidence).", "Контекст владения: $ownershipMode.", "Главный вывод: $([string]$report.decision_summary.recommended_action)")
-        checked_lines = @("Проверено маршрутов/страниц: $([int]@($report.selected_routes).Count).", 'Скриншоты: ограниченно.', 'Покрытие ограничено: да.')
-        main_finding = 'Отчёт сформирован в резервном режиме после неполного запуска.'
+        executive_lines = @("Текущий статус: $([string]$report.summary).", "Уверенность: $([string]$report.audit_confidence).", "Главное действие: $([string]$report.decision_summary.recommended_action)")
+        main_problem = 'Резервный режим: отчёт сформирован после неполного запуска.'
         actions_lines = @([string]$report.decision_summary.recommended_action)
-        impact_lines = @('Резервный отчёт сохраняет единое приоритетное действие.')
+        impact_lines = @('Резервный вывод сохраняет одно приоритетное действие.')
+        evidence_lines = @('Резервный режим: дополнительные примеры недоступны.')
         limitations_lines = @('Проверенный объём может быть частичным.')
         include_limitations = $true
         snapshot_rows = @(
