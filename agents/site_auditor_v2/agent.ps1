@@ -1055,6 +1055,8 @@ $report = [ordered]@{
         audit_scope = 'LINK mode / screenshot evidence baseline'
         strongest_next_move = 'derive deterministic findings from existing artifacts'
     }
+    findings_count = 0
+    limitation_count = 0
     next_strongest_move = 'expand_route_sample_within_budget'
     findings = @()
     operator_feed = [ordered]@{
@@ -1722,7 +1724,9 @@ else {
                 $findingsList.Add([ordered]@{
                         finding_id = $findingId
                         route = $routeKey
+                        type = 'BROKEN_ROUTE'
                         issue_type = 'BROKEN_ROUTE'
+                        category = 'DEFECT'
                         severity = 'P1'
                         evidence_refs = @('ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json')
                         why_it_matters = 'Broken route evidence blocks page access in current sampled route set.'
@@ -1736,7 +1740,9 @@ else {
                 $findingsList.Add([ordered]@{
                         finding_id = $findingId
                         route = $routeKey
+                        type = 'THIN_ROUTE'
                         issue_type = 'THIN_ROUTE'
+                        category = 'DEFECT'
                         severity = 'P2'
                         evidence_refs = @('ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json')
                         why_it_matters = 'Thin HTML evidence reduces confidence for downstream audit interpretation.'
@@ -1771,7 +1777,9 @@ else {
             $findingsList.Add([ordered]@{
                     finding_id = "F-{0:d3}" -f $findingIndex
                     route = '_run_scope'
+                    type = 'CAPTURE_FAILURE'
                     issue_type = 'CAPTURE_FAILURE'
+                    category = 'DEFECT'
                     severity = $visualSeverity
                     capture_status = $captureStatus
                     evidence_refs = @('visual_manifest.json', 'RUN_REPORT.json')
@@ -1785,7 +1793,9 @@ else {
             $findingsList.Add([ordered]@{
                     finding_id = "F-{0:d3}" -f $findingIndex
                     route = '_run_scope'
+                    type = 'ROUTE_OVERFLOW_ONLY'
                     issue_type = 'ROUTE_OVERFLOW_ONLY'
+                    category = 'LIMITATION'
                     severity = 'P2'
                     evidence_refs = @('RUN_REPORT.json', 'ROUTES_SUMMARY.json')
                     why_it_matters = 'Current max_routes budget leaves additional discovered routes outside sampled coverage.'
@@ -1852,11 +1862,15 @@ else {
         }
 
         $allFindings = @($findingsList)
-        $p0Count = [int]@($allFindings | Where-Object { $_.severity -eq 'P0' }).Count
-        $p1Count = [int]@($allFindings | Where-Object { $_.severity -eq 'P1' }).Count
-        $p2Count = [int]@($allFindings | Where-Object { $_.severity -eq 'P2' }).Count
+        $defectFindings = @($allFindings | Where-Object { [string]$_.category -eq 'DEFECT' })
+        $limitationFindings = @($allFindings | Where-Object { [string]$_.category -eq 'LIMITATION' })
+        $report.findings_count = [int]$defectFindings.Count
+        $report.limitation_count = [int]$limitationFindings.Count
+        $p0Count = [int]@($defectFindings | Where-Object { $_.severity -eq 'P0' }).Count
+        $p1Count = [int]@($defectFindings | Where-Object { $_.severity -eq 'P1' }).Count
+        $p2Count = [int]@($defectFindings | Where-Object { $_.severity -eq 'P2' }).Count
         $topIssues = @(
-            $allFindings |
+            $defectFindings |
             Sort-Object @{ Expression = {
                     switch ([string]$_.severity) {
                         'P0' { 0 }
@@ -2099,10 +2113,10 @@ else {
             p2_count = $p2Count
             top_issues = @($topIssues)
         }
-        $report.report_mode = if ($allFindings.Count -gt 0) { 'PROBLEM' } else { 'CLEAN' }
+        $report.report_mode = if ($defectFindings.Count -gt 0) { 'PROBLEM' } else { 'CLEAN' }
 
         $sortedFindings = @(
-            $allFindings |
+            $defectFindings |
             Sort-Object @{ Expression = {
                     switch ([string]$_.severity) {
                         'P0' { 0 }
@@ -2125,19 +2139,24 @@ else {
         else {
             ''
         }
-        $nextStrongestMove = if ($allFindings.Count -eq 0) {
+        $nextStrongestMove = if ($defectFindings.Count -eq 0 -and $limitationFindings.Count -gt 0) {
+            'increase_route_sample_or_adjust_budget'
+        }
+        elseif ($defectFindings.Count -eq 0) {
             'expand_route_sample_within_budget'
         }
         else {
             switch ($highestPriorityIssueType) {
-                'ROUTE_OVERFLOW_ONLY' { 'increase_route_sample_or_adjust_budget' }
                 'CAPTURE_FAILURE' { 'restore_capture_integrity_and_rerun_link_mode' }
                 'BROKEN_ROUTE' { 'repair_broken_routes_and_rerun_link_mode' }
                 'THIN_ROUTE' { 'expand_route_content_and_rerun_link_mode' }
                 default { 'resolve_highest_priority_finding_from_run_report' }
             }
         }
-        $overallVerdict = if ($allFindings.Count -eq 0) {
+        $overallVerdict = if ($defectFindings.Count -eq 0 -and $limitationFindings.Count -gt 0) {
+            'LIMITED: no page-level defects detected; audit limited by sampling'
+        }
+        elseif ($allFindings.Count -eq 0) {
             'CLEAN: sampled LINK evidence shows no material findings'
         }
         elseif ($report.status -eq 'PARTIAL' -or $report.status -eq 'FAIL') {
@@ -2146,7 +2165,10 @@ else {
         else {
             'PROBLEM: findings present in sampled LINK evidence'
         }
-        $strongestMove = if ($allFindings.Count -eq 0 -and [int]$report.run_budget.overflow_routes -gt 0) {
+        $strongestMove = if ($defectFindings.Count -eq 0 -and $limitationFindings.Count -gt 0) {
+            'Increase deterministic coverage by raising route budget or resampling key route groups.'
+        }
+        elseif ($allFindings.Count -eq 0 -and [int]$report.run_budget.overflow_routes -gt 0) {
             'Expand sampled route set only if operator needs broader coverage.'
         }
         elseif ($allFindings.Count -eq 0) {
@@ -2172,8 +2194,8 @@ else {
 
         $report.next_action_contract = [ordered]@{
             next_task_id = 'SITE_AUDITOR_V2_FINDINGS_REPAIR_001'
-            next_task_objective = if ($allFindings.Count -eq 0 -and [int]$report.run_budget.overflow_routes -gt 0) { 'maintain CLEAN report mode and optionally expand deterministic route sample' } elseif ($allFindings.Count -eq 0) { 'maintain CLEAN report mode with no immediate remediation tasks' } else { 'resolve highest-severity findings using referenced truth artifacts only' }
-            why_this_first = if ($allFindings.Count -eq 0 -and [int]$report.run_budget.overflow_routes -gt 0) { 'current sampled evidence is clean; next value is controlled scope expansion only if requested' } elseif ($allFindings.Count -eq 0) { 'sampled evidence is clean and in-budget with no material finding to remediate' } else { 'highest-severity findings are directly evidenced and block confident downstream interpretation' }
+            next_task_objective = if ($defectFindings.Count -eq 0 -and $limitationFindings.Count -gt 0) { 'increase deterministic route coverage by adjusting route budget or sample strategy' } elseif ($allFindings.Count -eq 0 -and [int]$report.run_budget.overflow_routes -gt 0) { 'maintain CLEAN report mode and optionally expand deterministic route sample' } elseif ($allFindings.Count -eq 0) { 'maintain CLEAN report mode with no immediate remediation tasks' } else { 'resolve highest-severity findings using referenced truth artifacts only' }
+            why_this_first = if ($defectFindings.Count -eq 0 -and $limitationFindings.Count -gt 0) { 'no page-level defects were detected in sampled routes, but sampling limits constrain coverage confidence' } elseif ($allFindings.Count -eq 0 -and [int]$report.run_budget.overflow_routes -gt 0) { 'current sampled evidence is clean; next value is controlled scope expansion only if requested' } elseif ($allFindings.Count -eq 0) { 'sampled evidence is clean and in-budget with no material finding to remediate' } else { 'highest-severity findings are directly evidenced and block confident downstream interpretation' }
             forbidden_before_done = @(
                 'do not add interaction layer',
                 'do not add decision automation',
@@ -2181,7 +2203,7 @@ else {
             )
         }
         $actionSummaryActions = @(
-            $allFindings |
+            $defectFindings |
             Sort-Object @{ Expression = {
                     switch ([string]$_.severity) {
                         'P0' { 0 }
@@ -2202,18 +2224,19 @@ else {
             }
         )
         $finalActionSummary = [ordered]@{
-            status = if ($allFindings.Count -gt 0) { 'FINDINGS_PRESENT' } else { 'CLEAN' }
-            finding_count = [int]$allFindings.Count
+            status = if ($defectFindings.Count -gt 0) { 'FINDINGS_PRESENT' } elseif ($limitationFindings.Count -gt 0) { 'LIMITATION_ONLY' } else { 'CLEAN' }
+            finding_count = [int]$defectFindings.Count
+            limitation_count = [int]$limitationFindings.Count
             actions = @($actionSummaryActions)
-            reason = if ($allFindings.Count -gt 0) { 'deterministic_findings_generated_from_link_truth_artifacts' } else { 'no_material_findings_in_sampled_scope' }
+            reason = if ($defectFindings.Count -gt 0) { 'deterministic_findings_generated_from_link_truth_artifacts' } elseif ($limitationFindings.Count -gt 0) { 'audit_limited_by_route_sampling_budget' } else { 'no_material_findings_in_sampled_scope' }
         }
         Write-JsonFile -Path $actionSummaryPath -Data $finalActionSummary
         Copy-Item -LiteralPath $actionSummaryPath -Destination $deterministicActionSummaryPath -Force
 
         $report.next_step = [string]$report.next_action_contract.next_task_objective
-        $isRouteOverflowOnlySingleFinding = ($allFindings.Count -eq 1 -and [string]$allFindings[0].issue_type -eq 'ROUTE_OVERFLOW_ONLY')
-        $operatorHandoffReason = if ($isRouteOverflowOnlySingleFinding) {
-            'Run completed successfully. One non-defect finding detected: route sample coverage limitation (ROUTE_OVERFLOW_ONLY). No confirmed page-level defects in sampled scope.'
+        $isLimitationOnly = ($defectFindings.Count -eq 0 -and $limitationFindings.Count -gt 0)
+        $operatorHandoffReason = if ($isLimitationOnly) {
+            'Run completed successfully: no page-level defects detected; audit limited by sampling and route budget constraints.'
         }
         elseif ($allFindings.Count -gt 0) {
             'RUN_REPORT.json contains sampled-scope findings, priority counts, and artifact-linked actions bounded to observable LINK evidence.'
@@ -2311,6 +2334,7 @@ if ($actionSummaryMissingOrEmpty) {
     $fallbackActionSummary = [ordered]@{
         status = if ($shouldFail) { 'FAILED' } else { 'CLEAN' }
         finding_count = 0
+        limitation_count = 0
         actions = @()
         reason = if ($shouldFail) { 'action_summary_not_generated_before_failure' } else { 'no_material_findings_in_sampled_scope' }
     }
