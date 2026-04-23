@@ -209,7 +209,7 @@ function New-ActionSummaryFromDecision {
         [Parameter(Mandatory = $true)][string]$AuditConfidence
     )
 
-    $actions = [System.Collections.Generic.List[object]]::new()
+    $actions = New-Object System.Collections.Generic.List[object]
     $actions.Add([ordered]@{
             action = [string]$DecisionSummary.recommended_action
             why = [string]$DecisionSummary.reasoning
@@ -257,7 +257,7 @@ function New-HumanReportPayloads {
     $mainProblemEn = if ($DecisionIssueType -eq 'CLEAN') { 'No confirmed system-level defect was established in the checked scope.' } else { [string]$Report.system_problem.title }
     $mainProblemRu = if ($DecisionIssueType -eq 'CLEAN') { 'Подтверждённый системный дефект в проверенном объёме не установлен.' } else { [string]$Report.system_problem.description_ru }
 
-    $limitationsCommon = [System.Collections.Generic.List[string]]::new()
+    $limitationsCommon = New-Object System.Collections.Generic.List[string]
     if ($DecisionIssueType -eq 'LIMITATION') {
         $limitationsCommon.Add('Coverage boundary: not all discovered routes were checked in this run.')
     }
@@ -288,7 +288,7 @@ function New-HumanReportPayloads {
         @('Подтверждённых системных дефектов в проверенном объёме не выявлено.')
     }
 
-    $supportingActions = [System.Collections.Generic.List[string]]::new()
+    $supportingActions = New-Object System.Collections.Generic.List[string]
     if ($DecisionIssueType -eq 'DEFECT') {
         foreach ($finding in @($SortedFindings | Select-Object -First 3)) {
             if ([string]$finding.recommended_action -ne [string]$Report.system_problem.strongest_action -and $supportingActions.Count -lt 2) {
@@ -300,11 +300,11 @@ function New-HumanReportPayloads {
         $supportingActions.Add('Validate uncovered routes in a controlled follow-up run.')
     }
 
-    $actionsEn = [System.Collections.Generic.List[string]]::new()
+    $actionsEn = New-Object System.Collections.Generic.List[string]
     $actionsEn.Add([string]$Report.system_problem.strongest_action)
     foreach ($a in $supportingActions | Select-Object -First 2) { $actionsEn.Add([string]$a) }
 
-    $actionsRu = [System.Collections.Generic.List[string]]::new()
+    $actionsRu = New-Object System.Collections.Generic.List[string]
     $actionsRu.Add([string]$Report.system_problem.strongest_action)
     foreach ($a in $supportingActions | Select-Object -First 2) { $actionsRu.Add([string]$a) }
 
