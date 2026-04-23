@@ -2466,7 +2466,11 @@ if ($shouldFail) {
 
     $report.self_build_protocol.build_ladder = Get-BuildLadderContract -HasTruthfulFailure $true -HasSelfDiagnostic $true -HasOperatorHandoff $true
     $report.self_build_protocol.feature_progress_allowed = [bool]$report.self_build_protocol.build_ladder.feature_progress_allowed
-    $report.produced_artifacts = @($producedArtifacts + 'failure_summary.json' + 'AGENT_FAILURE_REPORT.txt' + 'AGENT_OPERATOR_HANDOFF.json')
+    $producedArtifactsArray = @($producedArtifacts.ToArray())
+    $report.produced_artifacts = @(
+        $producedArtifactsArray +
+        @('failure_summary.json', 'AGENT_FAILURE_REPORT.txt', 'AGENT_OPERATOR_HANDOFF.json')
+    )
     $report.linked_artifacts = @(
         [ordered]@{ name = 'run_report'; path = $runReportPath },
         [ordered]@{ name = 'failure_summary'; path = $failurePath }
