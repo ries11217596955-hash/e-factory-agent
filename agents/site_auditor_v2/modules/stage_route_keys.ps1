@@ -297,7 +297,12 @@ function Get-VisualTargets {
         $selected.Add($target)
     }
 
-    $allRankedTargets = @($tierOne + $tierTwo)
+    Write-Host 'ROUTE_SELECTION: VISUAL_TARGETS_MERGE_READY'
+    $allRankedTargets = @(
+        @($tierOne.ToArray()) +
+        @($tierTwo.ToArray())
+    )
+    Write-Host 'ROUTE_SELECTION: VISUAL_TARGETS_OVERFLOW_READY'
     $overflow = @(
         $allRankedTargets |
         Select-Object -Skip $selected.Count |
