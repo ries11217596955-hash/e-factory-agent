@@ -489,13 +489,13 @@ function Invoke-EvidenceReconciliation {
                     $null = Add-KeyIfMissing -Map $issues -Key 'empty_capture'
                 }
                 if ([int]$capture.size_bytes -ne $actualSize) {
-                    $null = $issues.Add('size_mismatch')
+                    $null = Add-KeyIfMissing -Map $issues -Key 'size_mismatch'
                 }
             }
             catch {
                 $checksCompleted = $false
                 $fileStatus = 'reconciliation_error'
-                $null = $issues.Add('reconciliation_error')
+                $null = Add-KeyIfMissing -Map $issues -Key 'reconciliation_error'
                 $diagnostics.Add($_.Exception.Message)
             }
         }
@@ -520,11 +520,11 @@ function Invoke-EvidenceReconciliation {
     foreach ($png in $pngFiles) {
         $match = [regex]::Match($png.Name, $pageRegex)
         if ($match.Success) {
-            $null = $actualUniquePageKeys.Add($match.Groups['idx'].Value)
+            $null = Add-KeyIfMissing -Map $actualUniquePageKeys -Key ([string]$match.Groups['idx'].Value)
         }
     }
 
-    if (($RunReportPagesAttempted -ne $manifestPageCount) -or ($manifestPageCount -ne $actualUniquePageKeys.Count)) {
+    if (($RunReportPagesAttempted -ne $manifestPageCount) -or ($manifestPageCount -ne (Get-KeyMapCount -Map $actualUniquePageKeys))) {
         $null = Add-KeyIfMissing -Map $issues -Key 'RUN_REPORT_INCONSISTENT'
     }
     if (
@@ -539,17 +539,17 @@ function Invoke-EvidenceReconciliation {
     if ($validCount -eq 0 -and ($manifestCaptureCount -gt 0)) {
         $status = 'FAIL'
     }
-    elseif ($invalidCount -gt 0 -or $issues.Count -gt 0) {
+    elseif ($invalidCount -gt 0 -or (Get-KeyMapCount -Map $issues) -gt 0) {
         $status = 'PARTIAL'
     }
     elseif ($manifestCaptureCount -eq 0) {
         $status = 'FAIL'
-        $null = $issues.Add('no_captures')
+        $null = Add-KeyIfMissing -Map $issues -Key 'no_captures'
     }
 
     if (-not $checksCompleted) {
         $status = 'FAIL'
-        $null = $issues.Add('reconciliation_error')
+        $null = Add-KeyIfMissing -Map $issues -Key 'reconciliation_error'
     }
 
     if (
