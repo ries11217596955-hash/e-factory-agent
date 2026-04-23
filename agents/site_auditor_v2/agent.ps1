@@ -11,6 +11,7 @@ $ErrorActionPreference = 'Stop'
 
 . "$PSScriptRoot/modules/util_io.ps1"
 . "$PSScriptRoot/modules/util_json.ps1"
+. "$PSScriptRoot/modules/surface_context.ps1"
 
 function Get-OwnershipMode {
     return 'EXTERNAL'
@@ -84,90 +85,6 @@ function Get-PageTypeHeuristic {
 function Test-PageTypeRequiresAnswer {
     param([Parameter(Mandatory = $true)][string]$PageType)
     return @('LANDING', 'DECISION', 'TOOL') -contains [string]$PageType
-}
-
-function Get-NormalizedSurfaceType {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$RouteKey,
-        [Parameter(Mandatory = $true)]
-        [string]$Title,
-        [Parameter(Mandatory = $true)]
-        [int]$InternalLinkCount,
-        [Parameter(Mandatory = $true)]
-        [int]$ContentTagCount,
-        [Parameter(Mandatory = $true)]
-        [int]$WrapperTagCount,
-        [Parameter(Mandatory = $true)]
-        [int]$HeadlineCount,
-        [Parameter(Mandatory = $true)]
-        [int]$ArticleListCount,
-        [Parameter(Mandatory = $true)]
-        [double]$RepeatedLinkBlockRatio,
-        [Parameter(Mandatory = $true)]
-        [bool]$HasTimestampPatterns
-    )
-
-    $routeLower = ([string]$RouteKey).ToLowerInvariant()
-    $titleLower = ([string]$Title).ToLowerInvariant()
-    $newsLikeDensity = ($HeadlineCount -ge 5) -or ($ArticleListCount -ge 2) -or $HasTimestampPatterns
-
-    if ($routeLower -match '/(compare|vs|pricing|plans|choose|decision|selector|quiz)(/|$)' -or $titleLower -match '\b(compare|versus|pricing|plan|choose)\b') { return 'DECISION' }
-    if ($routeLower -match '/(tool|tools|calculator|generator|checker|estimator)(/|$)' -or $titleLower -match '\b(tool|calculator|generator|checker|estimator)\b') { return 'TOOL' }
-    if ($routeLower -match '/(directory|directories|catalog|listings|providers|companies|vendors)(/|$)' -or $titleLower -match '\b(directory|catalog|listing|providers|vendors)\b') { return 'DIRECTORY' }
-    if ($routeLower -match '/(article|story|stories|post|news|blog|insights|press|updates)/' -or $titleLower -match '\b(article|story|news|blog|insight|opinion)\b') { return 'ARTICLE' }
-
-    if ([string]::IsNullOrWhiteSpace($routeLower) -or $routeLower -eq '/') {
-        if ($newsLikeDensity -or $RepeatedLinkBlockRatio -ge 0.35) { return 'MEDIA_HOME' }
-        return 'LANDING'
-    }
-
-    if ($routeLower -match '/(news|blog|insights|stories|topics|section|sections|latest)(/|$)') {
-        if ($newsLikeDensity -or $RepeatedLinkBlockRatio -ge 0.25) { return 'MEDIA_SECTION' }
-        return 'LANDING'
-    }
-
-    if (($InternalLinkCount -ge 16 -and $RepeatedLinkBlockRatio -ge 0.3) -or ($ArticleListCount -ge 3)) {
-        if ($newsLikeDensity) { return 'MEDIA_SECTION' }
-        return 'DIRECTORY'
-    }
-
-    if ($ContentTagCount -ge 6 -and $InternalLinkCount -le 8 -and ($HeadlineCount -le 3)) { return 'ARTICLE' }
-    if ($WrapperTagCount -gt $ContentTagCount -and $InternalLinkCount -ge 10) { return 'DIRECTORY' }
-    if ($InternalLinkCount -le 5 -and $ContentTagCount -ge 4) { return 'LANDING' }
-
-    return 'UNKNOWN'
-}
-
-function Get-SurfaceExpectation {
-    param([Parameter(Mandatory = $true)][string]$SurfaceType)
-
-    switch ([string]$SurfaceType) {
-        'MEDIA_HOME' {
-            return [ordered]@{ expects_value_first = $false; expects_action_path = $false; allow_content_stream = $true; context_note_en = 'The checked pages behave primarily as a news/content stream.'; context_note_ru = 'Проверенные страницы ведут себя преимущественно как поток новостей/контента.' }
-        }
-        'MEDIA_SECTION' {
-            return [ordered]@{ expects_value_first = $false; expects_action_path = $false; allow_content_stream = $true; context_note_en = 'This surface type is expected to prioritize content listing over direct conversion action.'; context_note_ru = 'Для этого типа поверхности ожидаем приоритет списка контента, а не прямого конверсионного действия.' }
-        }
-        'ARTICLE' {
-            return [ordered]@{ expects_value_first = $false; expects_action_path = $false; allow_content_stream = $false; context_note_en = 'Article surfaces may satisfy value through headline plus lead text without a primary CTA.'; context_note_ru = 'Страница-статья может раскрывать ценность через заголовок и лид без основного CTA.' }
-        }
-        'DIRECTORY' {
-            return [ordered]@{ expects_value_first = $false; expects_action_path = $false; allow_content_stream = $false; context_note_en = 'Directory surfaces may satisfy value by presenting structured choices.'; context_note_ru = 'Поверхности-каталоги могут передавать ценность через структурированный выбор.' }
-        }
-        'DECISION' {
-            return [ordered]@{ expects_value_first = $true; expects_action_path = $true; allow_content_stream = $false; context_note_en = 'Decision surfaces should clarify value and offer a clear next action.'; context_note_ru = 'Поверхности выбора должны объяснять ценность и давать явный следующий шаг.' }
-        }
-        'TOOL' {
-            return [ordered]@{ expects_value_first = $true; expects_action_path = $true; allow_content_stream = $false; context_note_en = 'Tool surfaces should expose utility and a clear usage path on first screen.'; context_note_ru = 'Инструментальные поверхности должны показывать пользу и путь использования на первом экране.' }
-        }
-        'LANDING' {
-            return [ordered]@{ expects_value_first = $true; expects_action_path = $true; allow_content_stream = $false; context_note_en = 'Landing surfaces are expected to frame value first and provide an action path.'; context_note_ru = 'Лендинг должен сначала формулировать ценность и давать путь к действию.' }
-        }
-        default {
-            return [ordered]@{ expects_value_first = $false; expects_action_path = $false; allow_content_stream = $false; context_note_en = 'Surface type could not be normalized with high confidence.'; context_note_ru = 'Тип поверхности не удалось надёжно нормализовать.' }
-        }
-    }
 }
 
 function Get-FindingTypeSortRank {
@@ -1639,6 +1556,7 @@ $report = [ordered]@{
 $shouldFail = $false
 $errorCode = ''
 $errorMessage = ''
+$failurePhase = 'LINK_FETCH'
 $reconciliationCompleted = $false
 $counterMismatchDetected = $false
 
@@ -1680,6 +1598,7 @@ if ($shouldFail) {
 }
 else {
     try {
+        $failurePhase = 'LINK_FETCH'
         $linkSummary = Get-LinkSignals -Url $BaseUrl
         Write-JsonFile -Path $linkSummaryPath -Data $linkSummary
         Copy-Item -LiteralPath $linkSummaryPath -Destination $deterministicLinkSummaryPath -Force
@@ -2247,6 +2166,7 @@ else {
             }
         }
 
+        $failurePhase = 'SURFACE_CONTEXT'
         $pageVerdicts = [System.Collections.Generic.List[object]]::new()
         foreach ($selectedRoute in @($report.selected_routes)) {
             $routeValue = [string]$selectedRoute.route
@@ -2311,7 +2231,7 @@ else {
             }
 
             $pageType = [string]$routeSignals.page_type
-            $surfaceType = Get-SurfaceTypeByPageType -PageType $pageType
+            $surfaceType = Resolve-SurfaceType -SurfaceType (Get-SurfaceTypeByPageType -PageType $pageType)
             $surfaceExpectation = Get-SurfaceExpectation -SurfaceType $surfaceType
             $evidenceText = Get-EvidenceSnippet -Text ([string]$routeSignals.first_screen_text_sample)
             $evidenceScreenshot = if ([bool]$routeSignals.top_screenshot_ok) { [string]$routeSignals.top_screenshot_file } else { '' }
@@ -2325,26 +2245,20 @@ else {
             $isMediaSurface = @('MEDIA_HOME', 'MEDIA_SECTION') -contains $surfaceType
             $isArticleSurface = ($surfaceType -eq 'ARTICLE')
             $isDirectorySurface = ($surfaceType -eq 'DIRECTORY')
-            $mediaListingSignals = (
-                ([int]$routeSignals.headline_count -ge 5) -or
-                ([int]$routeSignals.article_list_count -ge 2) -or
-                ([bool]$routeSignals.has_timestamp_patterns) -or
-                ([double]$routeSignals.repeated_link_block_ratio -ge 0.25)
-            )
-            $articleValueSatisfied = $isArticleSurface -and [int]$routeSignals.first_screen_text_length -ge 70
-            $directoryValueSatisfied = $isDirectorySurface -and (
-                [int]$routeSignals.internal_link_count -ge 8 -or
-                [double]$routeSignals.repeated_link_block_ratio -ge 0.2
-            )
+            $mediaListingSignals = Test-SurfaceMediaListingSignals -HeadlineCount ([int]$routeSignals.headline_count) -ArticleListCount ([int]$routeSignals.article_list_count) -HasTimestampPatterns ([bool]$routeSignals.has_timestamp_patterns) -RepeatedLinkBlockRatio ([double]$routeSignals.repeated_link_block_ratio)
+            $articleValueSatisfied = $isArticleSurface -and (Test-SurfaceArticleValueSatisfied -FirstScreenTextLength ([int]$routeSignals.first_screen_text_length))
+            $directoryValueSatisfied = $isDirectorySurface -and (Test-SurfaceDirectoryValueSatisfied -InternalLinkCount ([int]$routeSignals.internal_link_count) -RepeatedLinkBlockRatio ([double]$routeSignals.repeated_link_block_ratio) )
 
+            $allowContextSpecificDefects = ($surfaceType -ne 'UNKNOWN')
             $brokenRouteConfidence = Test-HighSignalConfidence -ConditionMet $brokenRouteCondition -EvidencePresent $statusEvidencePresent
-            $processConfidence = Test-HighSignalConfidence -ConditionMet ($processCondition -and (-not $isMediaSurface)) -EvidencePresent $textEvidencePresent
+            $processConfidence = Test-HighSignalConfidence -ConditionMet ($processCondition -and (-not $isMediaSurface) -and $allowContextSpecificDefects) -EvidencePresent $textEvidencePresent
             $noValueAllowed = [bool]$surfaceExpectation.expects_value_first
             if ($isMediaSurface -and $mediaListingSignals) { $noValueAllowed = $false }
             if ($isDirectorySurface -and $directoryValueSatisfied) { $noValueAllowed = $false }
             if ($isArticleSurface -and $articleValueSatisfied) { $noValueAllowed = $false }
+            if (-not $allowContextSpecificDefects) { $noValueAllowed = $false }
             $noActionAllowed = [bool]$surfaceExpectation.expects_action_path
-            if ($isArticleSurface -or $isDirectorySurface -or $isMediaSurface) { $noActionAllowed = $false }
+            if ($isArticleSurface -or $isDirectorySurface -or $isMediaSurface -or (-not $allowContextSpecificDefects)) { $noActionAllowed = $false }
             $noValueConfidence = Test-HighSignalConfidence -ConditionMet ($noValueCondition -and $noValueAllowed) -EvidencePresent $textEvidencePresent
             $noActionConfidence = Test-HighSignalConfidence -ConditionMet ($noActionCondition -and $noActionAllowed) -EvidencePresent $textEvidencePresent
 
@@ -2477,6 +2391,7 @@ else {
                 })
         }
 
+        $failurePhase = 'REPORT_LAYER'
         $allFindings = @($findingsList)
         $report.micro_clusters = @()
         $defectFindings = @($allFindings | Where-Object { [string]$_.category -eq 'DEFECT' })
@@ -2882,13 +2797,13 @@ else {
                 ForEach-Object {
                     [ordered]@{
                         route = [string]$_.route
-                        surface_type = [string]$_.surface_type
+                        surface_type = Resolve-SurfaceType -SurfaceType ([string]$_.surface_type)
                         evidence = [string]$_.evidence_text
                     }
                 }
             )
             $clusterAction = [string](@($sortedFindings | Where-Object { [string]$_.issue_type -eq $clusterType } | Select-Object -First 1)[0].recommended_action)
-            $clusterEntrySurface = if ($clusterExamples.Count -gt 0) { [string]$clusterExamples[0].surface_type } else { 'UNKNOWN' }
+            $clusterEntrySurface = if ($clusterExamples.Count -gt 0) { Resolve-SurfaceType -SurfaceType ([string]$clusterExamples[0].surface_type) } else { 'UNKNOWN' }
             $systemProblem = [ordered]@{
                 problem_type = [string]$clusterType
                 category = 'DEFECT'
@@ -2912,7 +2827,7 @@ else {
         elseif ($null -ne $primaryDefectFinding) {
             $singleExample = [ordered]@{
                 route = [string]$primaryDefectFinding.route
-                surface_type = [string]$primaryDefectFinding.surface_type
+                surface_type = Resolve-SurfaceType -SurfaceType ([string]$primaryDefectFinding.surface_type)
                 evidence = [string]$primaryDefectFinding.evidence_text
             }
             $systemProblem = [ordered]@{
@@ -2927,7 +2842,7 @@ else {
                 confidence = [string]$primaryDefectFinding.confidence
                 source_cluster = [string]$primaryDefectFinding.issue_type
                 interaction_explanation = [ordered]@{
-                    entry_surface = [string]$primaryDefectFinding.surface_type
+                    entry_surface = Resolve-SurfaceType -SurfaceType ([string]$primaryDefectFinding.surface_type)
                     expected_outcome = 'Surface should support a clear move to outcome.'
                     actual_outcome = [string]$primaryDefectFinding.why_it_matters
                     failure_point = [string]$primaryDefectFinding.issue_type
@@ -3074,7 +2989,7 @@ else {
             Sort-Object -Property Count -Descending |
             Select-Object -First 1
         )
-        $dominantSurfaceType = if ($dominantSurface.Count -gt 0) { [string]$dominantSurface[0].Name } else { 'UNKNOWN' }
+        $dominantSurfaceType = if ($dominantSurface.Count -gt 0) { Resolve-SurfaceType -SurfaceType ([string]$dominantSurface[0].Name) } else { 'UNKNOWN' }
         $dominantSurfaceExpectation = Get-SurfaceExpectation -SurfaceType $dominantSurfaceType
         $mainProblemEn = if ($decisionIssueType -eq 'CLEAN') {
             'No confirmed system-level defect was established in the checked scope.'
@@ -3112,13 +3027,13 @@ else {
 
         $supportingExamples = @($report.system_problem.representative_examples | Select-Object -First 3)
         $supportingLinesEn = if ($supportingExamples.Count -gt 0) {
-            @($supportingExamples | ForEach-Object { "$([string]$_.route) ($([string]$_.surface_type)): $([string]$_.evidence)" })
+            @($supportingExamples | ForEach-Object { "$([string]$_.route) ($([string](Resolve-SurfaceType -SurfaceType ([string]$_.surface_type))): $([string]$_.evidence))" })
         }
         else {
             @('No high-confidence supporting examples in checked scope.')
         }
         $supportingLinesRu = if ($supportingExamples.Count -gt 0) {
-            @($supportingExamples | ForEach-Object { "$([string]$_.route) ($([string]$_.surface_type)): $([string]$_.evidence)" })
+            @($supportingExamples | ForEach-Object { "$([string]$_.route) ($([string](Resolve-SurfaceType -SurfaceType ([string]$_.surface_type))): $([string]$_.evidence))" })
         }
         else {
             @('В проверенном объёме нет примеров высокой уверенности.')
@@ -3303,8 +3218,15 @@ else {
     }
     catch {
         $shouldFail = $true
-        $errorCode = 'LINK_FETCH_FAILED'
         $errorMessage = $_.Exception.Message
+        if ([string]::IsNullOrWhiteSpace([string]$errorCode)) {
+            switch ([string]$failurePhase) {
+                'LINK_FETCH' { $errorCode = 'LINK_FETCH_FAILED' }
+                'SURFACE_CONTEXT' { $errorCode = 'SURFACE_CONTEXT_EXCEPTION' }
+                'REPORT_LAYER' { $errorCode = 'REPORT_LAYER_EXCEPTION' }
+                default { $errorCode = 'INTERNAL_EXCEPTION' }
+            }
+        }
         $report.status = 'FAIL'
         $report.execution_status = 'FAILED'
         $report.summary = "Run failed: $errorCode"
