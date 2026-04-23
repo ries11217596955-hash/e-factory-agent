@@ -183,6 +183,134 @@ function Escape-HtmlText {
     return [System.Net.WebUtility]::HtmlEncode($Text)
 }
 
+function Get-StageSequence {
+    return @('ENTRY', 'LINK_FETCH', 'ROUTE_EXTRACTION', 'ROUTE_SELECTION', 'CAPTURE', 'RECONCILIATION', 'SURFACE_CONTEXT', 'REPORT_LAYER')
+}
+
+function Get-NextStageName {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$LastCompletedStage
+    )
+
+    $sequence = @(Get-StageSequence)
+    $idx = [Array]::IndexOf($sequence, [string]$LastCompletedStage)
+    if ($idx -lt 0) { return 'ENTRY' }
+    if (($idx + 1) -ge $sequence.Count) { return 'COMPLETED' }
+    return [string]$sequence[$idx + 1]
+}
+
+function Get-FailureErrorClassification {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ErrorCode,
+        [Parameter(Mandatory = $true)]
+        [string]$ErrorMessage
+    )
+
+    $message = [string]$ErrorMessage
+    $code = [string]$ErrorCode
+    if ($code -eq 'ROUTE_CONTRACT_BREACH' -or $code -like '*CONTRACT*' -or $message -like '*CONSISTENCY_LOCK_FAILED*') {
+        return [ordered]@{
+            category = 'CONTRACT_VIOLATION'
+            error_type = 'contract'
+        }
+    }
+    if ($code -like '*LIMITATION*' -or $message -like '*NOT_IMPLEMENTED*') {
+        return [ordered]@{
+            category = 'OBJECT_LIMITATION'
+            error_type = 'object'
+        }
+    }
+    return [ordered]@{
+        category = 'RUNTIME_EXCEPTION'
+        error_type = 'runtime'
+    }
+}
+
+function Get-HumanFailureInterpretation {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ErrorMessage,
+        [Parameter(Mandatory = $true)]
+        [string]$FailureStage,
+        [Parameter(Mandatory = $true)]
+        [string]$NextStage
+    )
+
+    $message = [string]$ErrorMessage
+    if ($message -match 'Argument types do not match') {
+        return [ordered]@{
+            interpretation = 'PowerShell 5.1 constructor mismatch in runtime helper.'
+            likely_cause = 'A .NET constructor overload resolved differently in PS5.1 than expected.'
+            next_fix_step = 'Replace ambiguous constructor calls with runtime-safe helper factories and rerun from ENTRY.'
+        }
+    }
+    if ($message -match 'ROUTE_EXTRACTION_FAILED_NO_RAW_LINKS') {
+        return [ordered]@{
+            interpretation = 'Link fetch returned no raw links, so route extraction had no input.'
+            likely_cause = 'The fetched page content was empty, blocked, or not parsable as expected.'
+            next_fix_step = 'Inspect LINK_SUMMARY fetch_debug and confirm root HTML body is present before extraction.'
+        }
+    }
+    if ($message -match 'ROUTE_EXTRACTION_FAILED_NO_INTERNAL_LINKS') {
+        return [ordered]@{
+            interpretation = 'Route extraction found links but none were accepted as internal routes.'
+            likely_cause = 'Canonical base URL filtering rejected all discovered links.'
+            next_fix_step = 'Review URL canonicalization and internal-domain matching rules for LINK_FETCH output.'
+        }
+    }
+    if ($message -match 'CONSISTENCY_LOCK_FAILED') {
+        return [ordered]@{
+            interpretation = 'Report consistency lock detected a contract mismatch between output fields.'
+            likely_cause = 'Derived report chains diverged (decision/action/report payload out of sync).'
+            next_fix_step = 'Trace decision_summary to ACTION_SUMMARY/HUMAN_REPORT field mapping and align values.'
+        }
+    }
+
+    return [ordered]@{
+        interpretation = "Execution stopped at $FailureStage before $NextStage could complete."
+        likely_cause = 'Unhandled runtime exception interrupted the stage pipeline.'
+        next_fix_step = "Inspect stage artifacts for $FailureStage and patch the failing code path before rerun."
+    }
+}
+
+function Write-AgentFailureReport {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [string]$DeterministicPath,
+        [Parameter(Mandatory = $true)]
+        [string]$StageFailed,
+        [Parameter(Mandatory = $true)]
+        [string]$LastCompletedStage,
+        [Parameter(Mandatory = $true)]
+        [string]$ErrorCode,
+        [Parameter(Mandatory = $true)]
+        [string]$RawErrorMessage
+    )
+
+    $nextStage = Get-NextStageName -LastCompletedStage ([string]$LastCompletedStage)
+    $classification = Get-FailureErrorClassification -ErrorCode ([string]$ErrorCode) -ErrorMessage ([string]$RawErrorMessage)
+    $translation = Get-HumanFailureInterpretation -ErrorMessage ([string]$RawErrorMessage) -FailureStage ([string]$StageFailed) -NextStage ([string]$nextStage)
+
+    $lines = @(
+        "STAGE_FAILED: $StageFailed",
+        "LAST_COMPLETED_STAGE: $LastCompletedStage",
+        "EXPECTED_NEXT_STAGE: $nextStage",
+        "ERROR_CLASSIFICATION: $([string]$classification.category)",
+        "ERROR_TYPE: $([string]$classification.error_type)",
+        "RAW_ERROR_MESSAGE: $RawErrorMessage",
+        "INTERPRETATION: $([string]$translation.interpretation)",
+        "LIKELY_CAUSE: $([string]$translation.likely_cause)",
+        "NEXT_FIX_STEP: $([string]$translation.next_fix_step)"
+    ) -join [Environment]::NewLine
+
+    [System.IO.File]::WriteAllText($Path, [string]$lines, (New-SafeUtf8NoBom))
+    Copy-Item -LiteralPath $Path -Destination $DeterministicPath -Force
+}
+
 function New-ClientReportHtml {
     param(
         [Parameter(Mandatory = $true)]
@@ -594,6 +722,7 @@ $actionReportPath = Join-Path $outputRoot 'ACTION_REPORT.txt'
 $humanReportRuPath = Join-Path $outputRoot 'HUMAN_REPORT_RU.html'
 $humanReportEnPath = Join-Path $outputRoot 'HUMAN_REPORT_EN.html'
 $failurePath = Join-Path $outputRoot 'failure_summary.json'
+$agentFailureReportPath = Join-Path $outputRoot 'AGENT_FAILURE_REPORT.txt'
 $visualManifestPath = Join-Path $outputRoot 'visual_manifest.json'
 $visualInputPath = Join-Path $outputRoot 'visual_capture_input.json'
 $screenshotsPath = Join-Path $outputRoot 'screenshots'
@@ -606,6 +735,7 @@ $deterministicActionReportPath = Join-Path $PSScriptRoot 'ACTION_REPORT.txt'
 $deterministicHumanReportRuPath = Join-Path $PSScriptRoot 'HUMAN_REPORT_RU.html'
 $deterministicHumanReportEnPath = Join-Path $PSScriptRoot 'HUMAN_REPORT_EN.html'
 $deterministicFailurePath = Join-Path $PSScriptRoot 'failure_summary.json'
+$deterministicAgentFailureReportPath = Join-Path $PSScriptRoot 'AGENT_FAILURE_REPORT.txt'
 $deterministicVisualManifestPath = Join-Path $PSScriptRoot 'visual_manifest.json'
 $deterministicScreenshotsPath = Join-Path $PSScriptRoot 'screenshots'
 
@@ -2323,10 +2453,32 @@ if ($shouldFail) {
     if (Test-Path -LiteralPath $failurePath) {
         Copy-Item -LiteralPath $failurePath -Destination $deterministicFailurePath -Force
     }
-    $report.produced_artifacts = @($producedArtifacts + 'failure_summary.json')
+    try {
+        Write-AgentFailureReport -Path $agentFailureReportPath -DeterministicPath $deterministicAgentFailureReportPath -StageFailed ([string]$failurePhaseValue) -LastCompletedStage ([string]$lastCompletedStage) -ErrorCode ([string]$errorCode) -RawErrorMessage ([string]$errorMessage)
+    }
+    catch {
+        $fallbackStage = if ([string]::IsNullOrWhiteSpace([string]$failurePhaseValue)) { 'UNKNOWN' } else { [string]$failurePhaseValue }
+        $fallbackLast = if ([string]::IsNullOrWhiteSpace([string]$lastCompletedStage)) { 'UNKNOWN' } else { [string]$lastCompletedStage }
+        $fallbackRaw = if ([string]::IsNullOrWhiteSpace([string]$errorMessage)) { 'failure_report_write_failed' } else { [string]$errorMessage }
+        $fallbackTxt = @(
+            "STAGE_FAILED: $fallbackStage",
+            "LAST_COMPLETED_STAGE: $fallbackLast",
+            "EXPECTED_NEXT_STAGE: $(Get-NextStageName -LastCompletedStage $fallbackLast)",
+            'ERROR_CLASSIFICATION: RUNTIME_EXCEPTION',
+            'ERROR_TYPE: runtime',
+            "RAW_ERROR_MESSAGE: $fallbackRaw",
+            'INTERPRETATION: Failure report writer crashed; fallback report generated.',
+            'LIKELY_CAUSE: Diagnostic layer encountered an internal write error.',
+            'NEXT_FIX_STEP: Verify output folder permissions and rerun to collect full diagnostics.'
+        ) -join [Environment]::NewLine
+        [System.IO.File]::WriteAllText($agentFailureReportPath, [string]$fallbackTxt, (New-SafeUtf8NoBom))
+        Copy-Item -LiteralPath $agentFailureReportPath -Destination $deterministicAgentFailureReportPath -Force
+    }
+    $report.produced_artifacts = @($producedArtifacts + 'failure_summary.json' + 'AGENT_FAILURE_REPORT.txt')
     $report.linked_artifacts = @(
         [ordered]@{ name = 'run_report'; path = $runReportPath },
-        [ordered]@{ name = 'failure_summary'; path = $failurePath }
+        [ordered]@{ name = 'failure_summary'; path = $failurePath },
+        [ordered]@{ name = 'agent_failure_report'; path = $agentFailureReportPath }
     )
     Write-JsonFile -Path $runReportPath -Data $report
     Copy-Item -LiteralPath $runReportPath -Destination $deterministicRunReportPath -Force
