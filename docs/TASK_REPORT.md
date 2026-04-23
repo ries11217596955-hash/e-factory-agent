@@ -1,5 +1,5 @@
 ## Summary
-Hardened the active reconciliation corridor in `agents/site_auditor_v2/agent.ps1` for PS5.1-safe collection boundaries by normalizing `limitNotes` to a plain array before status-note assembly, keeping failure-tail `produced_artifacts` array-only, and adding explicit RECON trace markers for localization (`PREP_OK`, `EVIDENCE_OK`, `LIMIT_NOTES_READY`, `STATUS_SWITCH_START`, `STATUS_PASS|PARTIAL|FAIL`, `EXIT_READY`) without changing business logic.
+Applied a minimal PS5.1-safe reconciliation patch in `agents/site_auditor_v2/agent.ps1` so `limitNotes` is materialized to a plain array before status-note merges, and aligned trace markers to `RECON: LIMIT_NOTES_ARRAY_READY` and `RECON: STATUS_SWITCH_READY` in the same block.
 
 ## Changed files
 - agents/site_auditor_v2/agent.ps1
@@ -10,8 +10,8 @@ Hardened the active reconciliation corridor in `agents/site_auditor_v2/agent.ps1
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/site_auditor_v2/agent.ps1`.
-- Scope unchanged: reconciliation corridor + failure-tail artifact assembly in `agents/site_auditor_v2/agent.ps1`.
+- Modified scope: reconciliation status switch notes assembly only.
 
 ## Risks/blockers
-- Full end-to-end runtime was not executed in this environment.
-- Acceptance should be validated in a real run to confirm RECON marker progression and absence of `Argument types do not match` on active path merges.
+- End-to-end runtime verification was not executed in this environment.
+- Acceptance should be confirmed by running the agent and verifying reconciliation advances past the status switch without `Argument types do not match`.
