@@ -107,16 +107,50 @@ function Resolve-SafeUri {
         [string]$RelativeOrAbsolute
     )
 
+    $href = [string]$RelativeOrAbsolute
+    if (-not [string]::IsNullOrWhiteSpace($href)) {
+        $href = $href.Trim()
+    }
+
+    if ([string]::IsNullOrWhiteSpace($href)) {
+        throw "invalid uri reference: $RelativeOrAbsolute"
+    }
+
+    if ($href.StartsWith('#')) {
+        throw "anchor-only uri reference: $RelativeOrAbsolute"
+    }
+
+    if ($href -match '^(?i)(mailto|tel|javascript):') {
+        throw "unsupported scheme uri reference: $RelativeOrAbsolute"
+    }
+
     $candidate = $null
-    if ([Uri]::TryCreate($RelativeOrAbsolute, [UriKind]::Absolute, [ref]$candidate) -and $null -ne $candidate) {
+    if ($href -match '^[a-z][a-z0-9+\-.]*:') {
+        if (-not [Uri]::TryCreate($href, [UriKind]::Absolute, [ref]$candidate) -or $null -eq $candidate) {
+            throw "invalid uri reference: $RelativeOrAbsolute"
+        }
+
+        if ($candidate.Scheme -notin @('http', 'https')) {
+            throw "unsupported scheme uri reference: $RelativeOrAbsolute"
+        }
+
         return $candidate
     }
 
-    if ([Uri]::TryCreate($BaseUri, $RelativeOrAbsolute, [ref]$candidate) -and $null -ne $candidate) {
-        return $candidate
+    $reference = $href
+    if ($href.StartsWith('//')) {
+        $reference = "{0}:{1}" -f $BaseUri.Scheme, $href
     }
 
-    throw "invalid uri reference: $RelativeOrAbsolute"
+    if (-not [Uri]::TryCreate($BaseUri, $reference, [ref]$candidate) -or $null -eq $candidate) {
+        throw "invalid uri reference: $RelativeOrAbsolute"
+    }
+
+    if ($candidate.Scheme -notin @('http', 'https')) {
+        throw "unsupported scheme uri reference: $RelativeOrAbsolute"
+    }
+
+    return $candidate
 }
 
 function Get-NormalizedAbsoluteUriString {

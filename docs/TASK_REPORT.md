@@ -1,30 +1,34 @@
 ## Summary
-- Applied a targeted fix in `agents/site_auditor_v2/agent.ps1` to prevent post-`ROUTE_EXTRACTION` crash and allow stage progression to `ROUTE_SELECTION`.
-- Updated action report text assembly to call `[string]::Join([Environment]::NewLine, $actionReportLines.ToArray())` directly when `$actionReportLines` is a `List[string]`.
-- Added explicit route extraction guards to fail fast when route discovery is empty.
-- Added explicit `ROUTE_EXTRACTION_FAILED_NO_INTERNAL_LINKS` error when `internal_links` is `0` (or less), as required.
-- Kept scope strictly limited to requested targeted fix and task reporting.
+- Repaired href resolution for `SITE_AUDITOR_V2` route extraction by replacing fragile URI handling with deterministic parsing in `Resolve-SafeUri`.
+- Added explicit href taxonomy during route extraction: `anchor_only`, `unsupported_scheme`, `external_host`, `invalid_uri`, `internal_absolute`, `internal_relative`, and `normalization_failed`.
+- Restored same-host canonicalization flow (`href -> absolute same-host URL -> normalized_route`) so valid links can be counted as `internal_links`.
+- Added minimal route extraction diagnostics: `raw_links_found`, `internal_links`, `top_rejection_reasons`, `sample_rejected_hrefs` (max 3), and `sample_internal_hrefs` (max 3).
+- HREF_RESOLUTION_CONTRACT_RESTORED = YES
 
 ## Changed files
-- `agents/site_auditor_v2/agent.ps1`
-  - Replaced action report join call with direct `ToArray()` invocation.
-  - Added route extraction validation checks:
-    - throw `ROUTE_EXTRACTION_FAILED_NO_RAW_LINKS` when `raw_links_found <= 0`
-    - throw `ROUTE_EXTRACTION_FAILED_NO_INTERNAL_LINKS` when `internal_links <= 0`
+- `agents/site_auditor_v2/modules/runtime_safe.ps1`
+  - Updated `Resolve-SafeUri` to deterministically handle website href forms (`/`, `/path/`, `relative-path`, `./relative-path`, same-host absolute http/https) and reject unsupported forms.
+  - Root cause addressed: the prior generic/overload-led flow did not provide reliable href-class-aware handling, so valid same-host hrefs were frequently dropped before internal route counting.
+- `agents/site_auditor_v2/modules/stage_link_fetch.ps1`
+  - Added `Get-HrefResolutionResult` helper to classify and resolve hrefs before normalization.
+  - Updated route extraction loop to explicitly track rejection taxonomy and preserve internal href samples.
+  - Added `top_rejection_reasons`, `sample_rejected_hrefs`, and `sample_internal_hrefs` to summary output.
 - `docs/TASK_REPORT.md`
-  - Updated with this task's summary and risk notes.
+  - Replaced with this task report.
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- Entrypoint unchanged: `agents/site_auditor_v2/agent.ps1`.
-- Stage flow unchanged:
-  - `ENTRY`
-  - `LINK_FETCH`
-  - `ROUTE_EXTRACTION`
-  - `ROUTE_SELECTION`
+- Entrypoints unchanged.
+- Core extraction path remains:
+  - `Get-ShallowRoutes` in `agents/site_auditor_v2/modules/stage_link_fetch.ps1`
+  - `Resolve-SafeUri` in `agents/site_auditor_v2/modules/runtime_safe.ps1`
 
 ## Risks/blockers
-- Runtime verification of full Windows PowerShell 5.1 behavior is blocked in this Linux container.
-- The new extraction guard intentionally fails earlier when link extraction yields no usable internal links, which is required by task acceptance.
+- Runtime execution verification is blocked in this container because PowerShell (`pwsh`) is not installed.
+- Rollback instructions:
+  1. `git checkout -- agents/site_auditor_v2/modules/runtime_safe.ps1`
+  2. `git checkout -- agents/site_auditor_v2/modules/stage_link_fetch.ps1`
+  3. `git checkout -- docs/TASK_REPORT.md`
+  4. Re-run route extraction checks in the target runtime environment.

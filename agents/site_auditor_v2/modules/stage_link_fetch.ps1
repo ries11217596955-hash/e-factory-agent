@@ -169,6 +169,58 @@ function Get-NormalizedRouteResult {
     }
 }
 
+function Get-HrefResolutionResult {
+    param(
+        [Parameter(Mandatory = $true)]
+        [Uri]$RootUri,
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [string]$Href
+    )
+
+    $trimmedHref = [string]$Href
+    if (-not [string]::IsNullOrWhiteSpace($trimmedHref)) {
+        $trimmedHref = $trimmedHref.Trim()
+    }
+
+    if ([string]::IsNullOrWhiteSpace($trimmedHref)) {
+        return [ordered]@{ status = 'rejected'; classification = 'invalid_uri'; resolved_uri = $null }
+    }
+    if ($trimmedHref.StartsWith('#')) {
+        return [ordered]@{ status = 'rejected'; classification = 'anchor_only'; resolved_uri = $null }
+    }
+    if ($trimmedHref -match '^(?i)(mailto|tel|javascript):') {
+        return [ordered]@{ status = 'rejected'; classification = 'unsupported_scheme'; resolved_uri = $null }
+    }
+
+    $looksAbsolute = ($trimmedHref -match '^[a-z][a-z0-9+\-.]*:')
+    $classification = if ($looksAbsolute) { 'internal_absolute' } else { 'internal_relative' }
+
+    try {
+        $resolvedUri = Resolve-SafeUri -BaseUri $RootUri -RelativeOrAbsolute $trimmedHref
+    }
+    catch {
+        if ($looksAbsolute -and -not [Uri]::IsWellFormedUriString($trimmedHref, [UriKind]::Absolute)) {
+            return [ordered]@{ status = 'rejected'; classification = 'invalid_uri'; resolved_uri = $null }
+        }
+        return [ordered]@{ status = 'rejected'; classification = 'invalid_uri'; resolved_uri = $null }
+    }
+
+    if ($resolvedUri.Scheme -notin @('http', 'https')) {
+        return [ordered]@{ status = 'rejected'; classification = 'unsupported_scheme'; resolved_uri = $null }
+    }
+
+    if (-not [string]::Equals([string]$resolvedUri.Host, [string]$RootUri.Host, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return [ordered]@{ status = 'rejected'; classification = 'external_host'; resolved_uri = $null }
+    }
+
+    return [ordered]@{
+        status = 'ok'
+        classification = $classification
+        resolved_uri = $resolvedUri
+    }
+}
+
 function Get-ShallowRoutes {
     param(
         [Parameter(Mandatory = $true)]
@@ -222,7 +274,9 @@ function Get-ShallowRoutes {
     $normalizationFailed = $false
     $normalizationErrors = New-Object System.Collections.Generic.List[string]
     $internalLinkCount = 0
-    $filterReasons = New-CaseInsensitiveKeyMap
+    $rejectionReasonCounts = @{}
+    $sampleRejectedHrefs = New-Object System.Collections.Generic.List[object]
+    $sampleInternalHrefs = New-Object System.Collections.Generic.List[object]
 
     foreach ($match in $hrefMatches) {
         $rawHref = if (-not [string]::IsNullOrWhiteSpace($match.Groups[2].Value)) {
@@ -235,40 +289,39 @@ function Get-ShallowRoutes {
             $match.Groups[4].Value
         }
 
-        if ([string]::IsNullOrWhiteSpace($rawHref)) {
-            $null = Add-KeyIfMissing -Map $filterReasons -Key 'empty_href'
+        $resolution = Get-HrefResolutionResult -RootUri $rootUri -Href ([string]$rawHref)
+        if ($resolution.status -ne 'ok') {
+            $reasonKey = [string]$resolution.classification
+            if (-not $rejectionReasonCounts.ContainsKey($reasonKey)) {
+                $rejectionReasonCounts[$reasonKey] = 0
+            }
+            $rejectionReasonCounts[$reasonKey] = [int]$rejectionReasonCounts[$reasonKey] + 1
+            if ($sampleRejectedHrefs.Count -lt 3) {
+                $sampleRejectedHrefs.Add([ordered]@{
+                        href = [string]$rawHref
+                        reason = $reasonKey
+                    })
+            }
             continue
         }
-
-        $trimmedHref = $rawHref.Trim()
-        if ($trimmedHref.StartsWith('#')) {
-            $null = Add-KeyIfMissing -Map $filterReasons -Key 'invalid_format'
-            continue
-        }
-
-        try {
-            $resolvedUri = Resolve-SafeUri -BaseUri $rootUri -RelativeOrAbsolute $trimmedHref
-        }
-        catch {
-            $null = Add-KeyIfMissing -Map $filterReasons -Key 'invalid_format'
-            continue
-        }
-
-        if ($resolvedUri.Scheme -notin @('http', 'https')) {
-            $null = Add-KeyIfMissing -Map $filterReasons -Key 'invalid_format'
-            continue
-        }
-
-        if ($resolvedUri.Host -ne $rootUri.Host) {
-            $null = Add-KeyIfMissing -Map $filterReasons -Key 'all_external'
-            continue
-        }
+        $resolvedUri = [Uri]$resolution.resolved_uri
         $internalLinkCount += 1
+        if ($sampleInternalHrefs.Count -lt 3) {
+            $sampleInternalHrefs.Add([ordered]@{
+                    href = [string]$rawHref
+                    classification = [string]$resolution.classification
+                    resolved_url = [string]$resolvedUri.AbsoluteUri
+                })
+        }
 
         $normalizationResult = Get-NormalizedRouteResult -Url $resolvedUri.AbsoluteUri
         if ($normalizationResult.status -eq 'failed') {
             $normalizationFailed = $true
             $normalizationErrors.Add("route=$($resolvedUri.AbsoluteUri); reason=$($normalizationResult.error)")
+            if (-not $rejectionReasonCounts.ContainsKey('normalization_failed')) {
+                $rejectionReasonCounts['normalization_failed'] = 0
+            }
+            $rejectionReasonCounts['normalization_failed'] = [int]$rejectionReasonCounts['normalization_failed'] + 1
         }
 
         if (($routeUrls.Count -lt $MaxRoutes) -and (Add-KeyIfMissing -Map $uniqueRouteKeys -Key ([string]$normalizationResult.normalized_route))) {
@@ -445,6 +498,18 @@ function Get-ShallowRoutes {
         }
     }
 
+    $topRejectionReasons = @(
+        $rejectionReasonCounts.GetEnumerator() |
+            Sort-Object -Property Value -Descending |
+            Select-Object -First 3 |
+            ForEach-Object {
+                [ordered]@{
+                    reason = [string]$_.Key
+                    count = [int]$_.Value
+                }
+            }
+    )
+
     return [ordered]@{
         root = $RootUrl
         routes = $routes
@@ -453,7 +518,10 @@ function Get-ShallowRoutes {
         fetch_debug = $fetchDebug
         raw_links_found = [int]$rawLinksFound
         internal_links = [int]$internalLinkCount
-        filter_reason = if ($internalLinkCount -eq 0) { @(Get-KeyMapKeys -Map $filterReasons) } else { @() }
+        filter_reason = @($topRejectionReasons | ForEach-Object { [string]$_.reason })
+        top_rejection_reasons = @($topRejectionReasons)
+        sample_rejected_hrefs = @($sampleRejectedHrefs)
+        sample_internal_hrefs = @($sampleInternalHrefs)
         html_snapshot = $htmlSnapshot
         link_extraction_failed = [bool](($fetchDebug.html_length -gt 0) -and ($rawLinksFound -eq 0))
     }
