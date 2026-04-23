@@ -837,6 +837,7 @@ $lastCompletedStage = 'ENTRY'
 $currentFailureStage = 'ENTRY'
 $reconciliationCompleted = $false
 $counterMismatchDetected = $false
+Write-BootstrapStageTrace -Stage 'ENTRY'
 
 if ($canonicalBaseUrlResult.status -ne 'ok') {
     $shouldFail = $true
@@ -880,6 +881,7 @@ else {
     try {
         $failurePhase = 'LINK_FETCH'
         $currentFailureStage = $failurePhase
+        Write-BootstrapStageTrace -Stage 'LINK_FETCH'
         $linkSummary = Get-LinkSignals -Url $BaseUrl
         $lastCompletedStage = 'LINK_FETCH'
         Write-JsonFile -Path $linkSummaryPath -Data $linkSummary
@@ -888,6 +890,7 @@ else {
 
         $failurePhase = 'ROUTE_EXTRACTION'
         $currentFailureStage = $failurePhase
+        Write-BootstrapStageTrace -Stage 'ROUTE_EXTRACTION'
         $routesSummary = Get-ShallowRoutes -RootUrl $BaseUrl -MaxRoutes 10
         $lastCompletedStage = 'ROUTE_EXTRACTION'
         $report.route_normalization = [string]$routesSummary.route_normalization
@@ -1012,6 +1015,7 @@ else {
 
         $failurePhase = 'ROUTE_SELECTION'
         $currentFailureStage = $failurePhase
+        Write-BootstrapStageTrace -Stage 'ROUTE_SELECTION'
         $captureTargetPlan = Get-VisualTargets -BaseUrl $BaseUrl -RoutesSummary $routesSummary -MaxPages $maxRoutes
         $lastCompletedStage = 'ROUTE_SELECTION'
         $selectedRoutes = @($captureTargetPlan.selected_routes)
@@ -1079,7 +1083,7 @@ else {
 
             $manifestPage | Add-Member -NotePropertyName 'source_url' -NotePropertyValue $manifestRouteInput -Force
             $manifestPage | Add-Member -NotePropertyName 'route' -NotePropertyValue ([string]$manifestCanonicalResult.canonical_route) -Force
-            $manifestPage.url = (Resolve-SafeUriJoin -BaseUri ([Uri]$BaseUrl) -RelativeOrAbsolute ([string]$manifestCanonicalResult.canonical_route)).AbsoluteUri
+            $manifestPage.url = (Resolve-SafeUri -BaseUri ([Uri]$BaseUrl) -RelativeOrAbsolute ([string]$manifestCanonicalResult.canonical_route)).AbsoluteUri
         }
         Write-JsonFile -Path $visualManifestPath -Data $visualManifest
         Copy-Item -LiteralPath $visualManifestPath -Destination $deterministicVisualManifestPath -Force
@@ -2270,6 +2274,8 @@ if ($shouldFail) {
     else {
         $report.failure_or_limit_report.kind = 'FAILURE'
         $report.failure_or_limit_report.failure_summary = 'failure_summary.json'
+        $report.failure_or_limit_report.last_completed_stage = [string]$lastCompletedStage
+        $report.failure_or_limit_report.current_failure_stage = [string]$failurePhaseValue
         $report.failure_or_limit_report.notes = @("phase=$failurePhaseValue", "last_completed_stage=$lastCompletedStage", $operatorFailureNote, $errorMessage)
     }
     $report.last_completed_stage = [string]$lastCompletedStage

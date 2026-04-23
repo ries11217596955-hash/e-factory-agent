@@ -84,16 +84,22 @@ function New-SafeUtf8NoBom {
     return New-Object System.Text.UTF8Encoding -ArgumentList $false
 }
 
-function Resolve-SafeUriBuilder {
+function ConvertTo-SafeAbsoluteUri {
     param(
         [Parameter(Mandatory = $true)]
-        [Object]$Source
+        [AllowEmptyString()]
+        [string]$UriText
     )
 
-    return New-Object System.UriBuilder -ArgumentList $Source
+    $candidate = $null
+    if (-not [Uri]::TryCreate($UriText, [UriKind]::Absolute, [ref]$candidate) -or $null -eq $candidate) {
+        throw "invalid absolute uri: $UriText"
+    }
+
+    return $candidate
 }
 
-function Resolve-SafeUriJoin {
+function Resolve-SafeUri {
     param(
         [Parameter(Mandatory = $true)]
         [Uri]$BaseUri,
@@ -101,5 +107,62 @@ function Resolve-SafeUriJoin {
         [string]$RelativeOrAbsolute
     )
 
-    return New-Object System.Uri -ArgumentList $BaseUri, $RelativeOrAbsolute
+    $candidate = $null
+    if ([Uri]::TryCreate($RelativeOrAbsolute, [UriKind]::Absolute, [ref]$candidate) -and $null -ne $candidate) {
+        return $candidate
+    }
+
+    if ([Uri]::TryCreate($BaseUri, $RelativeOrAbsolute, [ref]$candidate) -and $null -ne $candidate) {
+        return $candidate
+    }
+
+    throw "invalid uri reference: $RelativeOrAbsolute"
+}
+
+function Get-NormalizedAbsoluteUriString {
+    param(
+        [Parameter(Mandatory = $true)]
+        [Uri]$Uri,
+        [string]$Path,
+        [string]$Query = '',
+        [string]$Fragment = ''
+    )
+
+    $safePath = if ([string]::IsNullOrWhiteSpace([string]$Path)) { '/' } else { [string]$Path }
+    if (-not $safePath.StartsWith('/')) {
+        $safePath = "/$safePath"
+    }
+
+    $builder = [System.Text.StringBuilder]::new()
+    $null = $builder.Append($Uri.Scheme)
+    $null = $builder.Append('://')
+    $null = $builder.Append($Uri.Authority)
+    $null = $builder.Append($safePath)
+
+    if (-not [string]::IsNullOrWhiteSpace([string]$Query)) {
+        $trimmedQuery = ([string]$Query).TrimStart('?')
+        if (-not [string]::IsNullOrWhiteSpace($trimmedQuery)) {
+            $null = $builder.Append('?')
+            $null = $builder.Append($trimmedQuery)
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace([string]$Fragment)) {
+        $trimmedFragment = ([string]$Fragment).TrimStart('#')
+        if (-not [string]::IsNullOrWhiteSpace($trimmedFragment)) {
+            $null = $builder.Append('#')
+            $null = $builder.Append($trimmedFragment)
+        }
+    }
+
+    return [string]$builder.ToString()
+}
+
+function Write-BootstrapStageTrace {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Stage
+    )
+
+    Write-Host "STAGE: $Stage"
 }
