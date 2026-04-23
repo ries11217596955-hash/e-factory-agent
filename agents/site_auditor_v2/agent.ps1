@@ -1083,6 +1083,7 @@ $report = [ordered]@{
     }
     findings_count = 0
     limitation_count = 0
+    audit_confidence = 'LOW'
     next_strongest_move = 'expand_route_sample_within_budget'
     findings = @()
     operator_feed = [ordered]@{
@@ -1892,6 +1893,13 @@ else {
         $limitationFindings = @($allFindings | Where-Object { [string]$_.category -eq 'LIMITATION' })
         $report.findings_count = [int]$defectFindings.Count
         $report.limitation_count = [int]$limitationFindings.Count
+        $routesChecked = [int]@($report.selected_routes).Count
+        $maxRoutesBudget = [int]$report.run_budget.max_routes
+        $coverageRatio = if ($maxRoutesBudget -gt 0) { [double]$routesChecked / [double]$maxRoutesBudget } else { 0.0 }
+        $hasLimitationFindings = ($limitationFindings.Count -gt 0)
+        $isLowConfidence = ($routesChecked -lt $maxRoutesBudget) -or $hasLimitationFindings
+        $isHighConfidence = (-not $isLowConfidence) -and ($defectFindings.Count -eq 0) -and ($coverageRatio -ge 0.9)
+        $report.audit_confidence = if ($isLowConfidence) { 'LOW' } elseif ($isHighConfidence) { 'HIGH' } else { 'MEDIUM' }
         $p0Count = [int]@($defectFindings | Where-Object { $_.severity -eq 'P0' }).Count
         $p1Count = [int]@($defectFindings | Where-Object { $_.severity -eq 'P1' }).Count
         $p2Count = [int]@($defectFindings | Where-Object { $_.severity -eq 'P2' }).Count
@@ -2192,6 +2200,12 @@ else {
         $overallVerdict = if ($defectFindings.Count -eq 0 -and $limitationFindings.Count -gt 0) {
             'LIMITED: no page-level defects detected; audit limited by sampling'
         }
+        elseif ($defectFindings.Count -eq 0 -and [string]$report.audit_confidence -eq 'LOW') {
+            'LIMITED: no issues found in sampled scope; audit coverage is limited'
+        }
+        elseif ($defectFindings.Count -eq 0 -and [string]$report.audit_confidence -eq 'HIGH') {
+            'CLEAN: no defects detected'
+        }
         elseif ($allFindings.Count -eq 0) {
             'CLEAN: sampled LINK evidence shows no material findings'
         }
@@ -2203,6 +2217,9 @@ else {
         }
         $strongestMove = if ($defectFindings.Count -eq 0 -and $limitationFindings.Count -gt 0) {
             'Increase deterministic coverage by raising route budget or resampling key route groups.'
+        }
+        elseif ($defectFindings.Count -eq 0 -and [string]$report.audit_confidence -eq 'LOW') {
+            'Increase coverage before claiming cleanliness; sampled scope is currently limited.'
         }
         elseif ($allFindings.Count -eq 0 -and [int]$report.run_budget.overflow_routes -gt 0) {
             'Expand sampled route set only if operator needs broader coverage.'
@@ -2274,7 +2291,13 @@ else {
 
         $report.next_step = [string]$report.next_action_contract.next_task_objective
         $isLimitationOnly = ($defectFindings.Count -eq 0 -and $limitationFindings.Count -gt 0)
-        $operatorHandoffReason = if ($isLimitationOnly) {
+        $operatorHandoffReason = if ([string]$report.audit_confidence -eq 'LOW') {
+            'No issues found in sampled scope. Audit coverage is limited.'
+        }
+        elseif ([string]$report.audit_confidence -eq 'HIGH' -and $defectFindings.Count -eq 0) {
+            'No defects detected.'
+        }
+        elseif ($isLimitationOnly) {
             'Run completed successfully: no page-level defects detected; audit limited by sampling and route budget constraints.'
         }
         elseif ($allFindings.Count -gt 0) {
