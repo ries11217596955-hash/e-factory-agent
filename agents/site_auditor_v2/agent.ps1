@@ -13,6 +13,7 @@ if ($PSVersionTable.PSVersion.Major -lt 6) {
     Write-Host "Running in PS5.1 compatibility mode"
 }
 
+. "$PSScriptRoot/modules/runtime_safe.ps1"
 . "$PSScriptRoot/modules/util_io.ps1"
 . "$PSScriptRoot/modules/util_json.ps1"
 . "$PSScriptRoot/modules/surface_context.ps1"
@@ -321,7 +322,7 @@ function Resolve-CanonicalBaseUrl {
         }
     }
 
-    $builder = [UriBuilder]::new($absoluteUri)
+    $builder = Resolve-SafeUriBuilder -Source $absoluteUri
     $normalizedPath = [string]$builder.Path
     if ([string]::IsNullOrWhiteSpace($normalizedPath)) {
         $normalizedPath = '/'
@@ -446,12 +447,12 @@ function Get-ShallowRoutes {
 
     $rawLinksFound = [int]$hrefMatches.Count
     $htmlSnapshot = if ($rootHtml.Length -gt 1000) { $rootHtml.Substring(0, 1000) } else { $rootHtml }
-    $uniqueRouteKeys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $uniqueRouteKeys = New-SafeHashSet -TypeName 'string' -Comparer ([System.StringComparer]::OrdinalIgnoreCase)
     $routeUrls = New-Object System.Collections.Generic.List[object]
     $normalizationFailed = $false
     $normalizationErrors = New-Object System.Collections.Generic.List[string]
     $internalLinkCount = 0
-    $filterReasons = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $filterReasons = New-SafeHashSet -TypeName 'string' -Comparer ([System.StringComparer]::OrdinalIgnoreCase)
 
     foreach ($match in $hrefMatches) {
         $rawHref = if (-not [string]::IsNullOrWhiteSpace($match.Groups[2].Value)) {
@@ -476,7 +477,7 @@ function Get-ShallowRoutes {
         }
 
         try {
-            $resolvedUri = [Uri]::new($rootUri, $trimmedHref)
+            $resolvedUri = Resolve-SafeUriJoin -BaseUri $rootUri -RelativeOrAbsolute $trimmedHref
         }
         catch {
             $null = $filterReasons.Add('invalid_format')
@@ -538,7 +539,7 @@ function Get-ShallowRoutes {
                 }
 
                 try {
-                    $resolvedRouteHref = [Uri]::new([Uri]$routeTarget.url, $rawRouteHref.Trim())
+                    $resolvedRouteHref = Resolve-SafeUriJoin -BaseUri ([Uri]$routeTarget.url) -RelativeOrAbsolute $rawRouteHref.Trim()
                     if ($resolvedRouteHref.Scheme -in @('http', 'https') -and $resolvedRouteHref.Host -eq $rootUri.Host) {
                         $internalRouteLinks += 1
                     }
@@ -717,7 +718,7 @@ function Get-NormalizedRouteResult {
 
         $normalizedRoute = $normalizedPath
 
-        $builder = [UriBuilder]::new($uri)
+        $builder = Resolve-SafeUriBuilder -Source $uri
         $builder.Path = $normalizedPath
         $builder.Query = [string]$uri.Query.TrimStart('?')
         $builder.Fragment = ''
@@ -879,7 +880,7 @@ function Get-CanonicalRouteKeyResult {
         }
 
         try {
-            $candidateUrl = [Uri]::new([Uri]$BaseUrl, $trimmedValue).AbsoluteUri
+            $candidateUrl = (Resolve-SafeUriJoin -BaseUri ([Uri]$BaseUrl) -RelativeOrAbsolute $trimmedValue).AbsoluteUri
         }
         catch {
             return [ordered]@{
@@ -919,7 +920,7 @@ function Get-VisualTargets {
     )
 
     $selected = New-Object System.Collections.Generic.List[object]
-    $seenRoutes = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $seenRoutes = New-SafeHashSet -TypeName 'string' -Comparer ([System.StringComparer]::OrdinalIgnoreCase)
     $tierOne = New-Object System.Collections.Generic.List[object]
     $tierTwo = New-Object System.Collections.Generic.List[object]
     $decisionKeywords = @('tool', 'best', 'how', 'guide')
@@ -1010,7 +1011,7 @@ function Get-VisualTargets {
     }
 
     $baseUri = [Uri]$BaseUrl
-    $rootBuilder = [UriBuilder]::new($baseUri)
+    $rootBuilder = Resolve-SafeUriBuilder -Source $baseUri
     $rootBuilder.Path = '/'
     $rootBuilder.Query = ''
     $rootBuilder.Fragment = ''
@@ -1074,7 +1075,7 @@ function Get-VisualTargets {
             route = $routeKey
             type = [string]$classification.type
             priority = [int]$classification.priority
-            url = [Uri]::new([Uri]$BaseUrl, $routeKey).AbsoluteUri
+            url = (Resolve-SafeUriJoin -BaseUri ([Uri]$BaseUrl) -RelativeOrAbsolute $routeKey).AbsoluteUri
             selection_reason = $selectionReason
         }
 
@@ -1189,7 +1190,7 @@ function Invoke-EvidenceReconciliation {
         @()
     }
 
-    $issues = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $issues = New-SafeHashSet -TypeName 'string' -Comparer ([System.StringComparer]::OrdinalIgnoreCase)
     $validCount = 0
     $invalidCount = 0
     $checksCompleted = $true
@@ -1246,7 +1247,7 @@ function Invoke-EvidenceReconciliation {
 
     $manifestPageCount = [int]$manifestPages.Count
     $pageRegex = '^page-(?<idx>\d{2})-'
-    $actualUniquePageKeys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $actualUniquePageKeys = New-SafeHashSet -TypeName 'string' -Comparer ([System.StringComparer]::OrdinalIgnoreCase)
     foreach ($png in $pngFiles) {
         $match = [regex]::Match($png.Name, $pageRegex)
         if ($match.Success) {
@@ -1795,7 +1796,7 @@ else {
 
             $manifestPage | Add-Member -NotePropertyName 'source_url' -NotePropertyValue $manifestRouteInput -Force
             $manifestPage | Add-Member -NotePropertyName 'route' -NotePropertyValue ([string]$manifestCanonicalResult.canonical_route) -Force
-            $manifestPage.url = [Uri]::new([Uri]$BaseUrl, [string]$manifestCanonicalResult.canonical_route).AbsoluteUri
+            $manifestPage.url = (Resolve-SafeUriJoin -BaseUri ([Uri]$BaseUrl) -RelativeOrAbsolute ([string]$manifestCanonicalResult.canonical_route)).AbsoluteUri
         }
         Write-JsonFile -Path $visualManifestPath -Data $visualManifest
         Copy-Item -LiteralPath $visualManifestPath -Destination $deterministicVisualManifestPath -Force
@@ -1814,7 +1815,7 @@ else {
         $report.capture_summary = $captureSummary
         $manifestPages = @($visualManifest.pages)
 
-        $selectedRouteKeys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        $selectedRouteKeys = New-SafeHashSet -TypeName 'string' -Comparer ([System.StringComparer]::OrdinalIgnoreCase)
         $routeNormalizationErrors = New-Object System.Collections.Generic.List[object]
         foreach ($target in $selectedRoutes) {
             $selectedRouteValue = if (-not [string]::IsNullOrWhiteSpace([string]$target.route)) {
@@ -1837,7 +1838,7 @@ else {
                 })
         }
 
-        $manifestRouteKeys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        $manifestRouteKeys = New-SafeHashSet -TypeName 'string' -Comparer ([System.StringComparer]::OrdinalIgnoreCase)
         foreach ($manifestPage in $manifestPages) {
             $manifestPageUrl = if ($manifestPage.PSObject.Properties['url']) {
                 [string]$manifestPage.url
@@ -1900,7 +1901,7 @@ else {
             $manifestPages |
             Where-Object { @($_.captures | Where-Object { $_.status -eq 'ok' }).Count -gt 0 }
         ).Count
-        $failTypes = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        $failTypes = New-SafeHashSet -TypeName 'string' -Comparer ([System.StringComparer]::OrdinalIgnoreCase)
         foreach ($capture in ($captures | Where-Object { $_.status -ne 'ok' })) {
             if (-not [string]::IsNullOrWhiteSpace([string]$capture.status)) {
                 $null = $failTypes.Add([string]$capture.status)
@@ -2800,8 +2801,8 @@ else {
         $reportPayloadRu = $reportPayloads.ru
         $ruHtml = New-ClientReportHtml -Language 'RU' -ReportPayload $reportPayloadRu
         $enHtml = New-ClientReportHtml -Language 'EN' -ReportPayload $reportPayloadEn
-        [System.IO.File]::WriteAllText($humanReportRuPath, $ruHtml, [System.Text.UTF8Encoding]::new($false))
-        [System.IO.File]::WriteAllText($humanReportEnPath, $enHtml, [System.Text.UTF8Encoding]::new($false))
+        [System.IO.File]::WriteAllText($humanReportRuPath, $ruHtml, (New-SafeUtf8NoBom))
+        [System.IO.File]::WriteAllText($humanReportEnPath, $enHtml, (New-SafeUtf8NoBom))
         Copy-Item -LiteralPath $humanReportRuPath -Destination $deterministicHumanReportRuPath -Force
         Copy-Item -LiteralPath $humanReportEnPath -Destination $deterministicHumanReportEnPath -Force
 
@@ -2993,8 +2994,8 @@ if ((-not $shouldFail) -and ((-not (Test-Path -LiteralPath $humanReportRuPath)) 
             [ordered]@{ label = 'Уверенность'; value = [string]$report.audit_confidence }
         )
     }
-    [System.IO.File]::WriteAllText($humanReportRuPath, (New-ClientReportHtml -Language 'RU' -ReportPayload $fallbackPayloadRu), [System.Text.UTF8Encoding]::new($false))
-    [System.IO.File]::WriteAllText($humanReportEnPath, (New-ClientReportHtml -Language 'EN' -ReportPayload $fallbackPayloadEn), [System.Text.UTF8Encoding]::new($false))
+    [System.IO.File]::WriteAllText($humanReportRuPath, (New-ClientReportHtml -Language 'RU' -ReportPayload $fallbackPayloadRu), (New-SafeUtf8NoBom))
+    [System.IO.File]::WriteAllText($humanReportEnPath, (New-ClientReportHtml -Language 'EN' -ReportPayload $fallbackPayloadEn), (New-SafeUtf8NoBom))
     Copy-Item -LiteralPath $humanReportRuPath -Destination $deterministicHumanReportRuPath -Force
     Copy-Item -LiteralPath $humanReportEnPath -Destination $deterministicHumanReportEnPath -Force
 }

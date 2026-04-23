@@ -22,5 +22,5 @@ function Write-JsonFile {
     $directory = Split-Path -Path $Path -Parent
     Ensure-Directory -Path $directory
     $json = $Data | ConvertTo-Json -Depth 16
-    [System.IO.File]::WriteAllText($Path, $json + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+    [System.IO.File]::WriteAllText($Path, $json + [Environment]::NewLine, (New-SafeUtf8NoBom))
 }
