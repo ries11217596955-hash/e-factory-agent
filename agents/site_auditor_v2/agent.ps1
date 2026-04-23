@@ -26,6 +26,7 @@ if ($PSVersionTable.PSVersion.Major -lt 6) {
 . "$PSScriptRoot/modules/stage_link_fetch.ps1"
 . "$PSScriptRoot/modules/stage_route_keys.ps1"
 . "$PSScriptRoot/modules/stage_capture_reconciliation.ps1"
+. "$PSScriptRoot/modules/self_build_protocol.ps1"
 
 function Get-OwnershipMode {
     return 'EXTERNAL'
@@ -594,6 +595,8 @@ $actionReportPath = Join-Path $outputRoot 'ACTION_REPORT.txt'
 $humanReportRuPath = Join-Path $outputRoot 'HUMAN_REPORT_RU.html'
 $humanReportEnPath = Join-Path $outputRoot 'HUMAN_REPORT_EN.html'
 $failurePath = Join-Path $outputRoot 'failure_summary.json'
+$agentFailureReportPath = Join-Path $outputRoot 'AGENT_FAILURE_REPORT.txt'
+$operatorHandoffPath = Join-Path $outputRoot 'AGENT_OPERATOR_HANDOFF.json'
 $visualManifestPath = Join-Path $outputRoot 'visual_manifest.json'
 $visualInputPath = Join-Path $outputRoot 'visual_capture_input.json'
 $screenshotsPath = Join-Path $outputRoot 'screenshots'
@@ -606,6 +609,8 @@ $deterministicActionReportPath = Join-Path $PSScriptRoot 'ACTION_REPORT.txt'
 $deterministicHumanReportRuPath = Join-Path $PSScriptRoot 'HUMAN_REPORT_RU.html'
 $deterministicHumanReportEnPath = Join-Path $PSScriptRoot 'HUMAN_REPORT_EN.html'
 $deterministicFailurePath = Join-Path $PSScriptRoot 'failure_summary.json'
+$deterministicAgentFailureReportPath = Join-Path $PSScriptRoot 'AGENT_FAILURE_REPORT.txt'
+$deterministicOperatorHandoffPath = Join-Path $PSScriptRoot 'AGENT_OPERATOR_HANDOFF.json'
 $deterministicVisualManifestPath = Join-Path $PSScriptRoot 'visual_manifest.json'
 $deterministicScreenshotsPath = Join-Path $PSScriptRoot 'screenshots'
 
@@ -678,7 +683,9 @@ $report = [ordered]@{
         [ordered]@{ name = 'human_report_ru'; path = $humanReportRuPath },
         [ordered]@{ name = 'human_report_en'; path = $humanReportEnPath },
         [ordered]@{ name = 'visual_manifest'; path = $visualManifestPath },
-        [ordered]@{ name = 'screenshots'; path = $screenshotsPath }
+        [ordered]@{ name = 'screenshots'; path = $screenshotsPath },
+        [ordered]@{ name = 'agent_failure_report'; path = $agentFailureReportPath },
+        [ordered]@{ name = 'agent_operator_handoff'; path = $operatorHandoffPath }
     )
     problem_targets = @()
     fetch_debug = [ordered]@{
@@ -819,6 +826,12 @@ $report = [ordered]@{
             'do not add decision automation'
         )
     }
+    self_build_protocol = [ordered]@{
+        failure_class_contract = @('AGENT_DEFECT', 'OBJECT_DEFECT', 'AUDIT_LIMITATION')
+        build_ladder = Get-BuildLadderContract -HasTruthfulFailure $false -HasSelfDiagnostic $false -HasOperatorHandoff $false
+        build_lock_message = 'Feature progress is blocked until layers 2-4 are READY.'
+        feature_progress_allowed = $false
+    }
     decision_allowed = $true
     reconciliation_enforced = $false
     route_normalization = 'ok'
@@ -866,9 +879,11 @@ if ($shouldFail) {
     $report.execution_report.status_detail = 'FAIL'
     $report.last_completed_stage = [string]$lastCompletedStage
     $report.current_failure_stage = [string]$failurePhase
+    $failureClass = Get-FailureClass -FailureStage $failurePhase -ErrorCode $errorCode
     $report.failure_or_limit_report = [ordered]@{
         kind = 'FAILURE'
         failure_summary = 'failure_summary.json'
+        failure_class = [string]$failureClass
         notes = @($errorMessage)
     }
     $report.produced_artifacts = @($producedArtifacts)
@@ -2158,12 +2173,14 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
         $report.next_step = $errorMessage
         $report.execution_report.final_outcome = 'FAIL'
         $report.execution_report.status_detail = 'FAIL'
+        $failureClass = Get-FailureClass -FailureStage $failurePhaseValue -ErrorCode $errorCode
         $report.failure_or_limit_report = [ordered]@{
             kind = 'FAILURE'
             failure_summary = 'failure_summary.json'
+            failure_class = [string]$failureClass
             last_completed_stage = [string]$lastCompletedStage
-        current_failure_stage = [string]$failurePhaseValue
-        notes = @("phase=$failurePhaseValue", "last_completed_stage=$lastCompletedStage", $operatorFailureNote, $errorMessage)
+            current_failure_stage = [string]$failurePhaseValue
+            notes = @("phase=$failurePhaseValue", "last_completed_stage=$lastCompletedStage", $operatorFailureNote, $errorMessage)
         }
         $report.produced_artifacts = @($producedArtifacts)
         $report.linked_artifacts = @(
@@ -2268,18 +2285,21 @@ if ($shouldFail) {
             $null = $producedArtifacts.Add([string]$artifact)
         }
     }
+    $failureClass = Get-FailureClass -FailureStage $failurePhaseValue -ErrorCode $errorCode
     if (-not $report.failure_or_limit_report -or [string]$report.failure_or_limit_report.kind -ne 'FAILURE') {
         $report.failure_or_limit_report = [ordered]@{
             kind = 'FAILURE'
             failure_summary = 'failure_summary.json'
+            failure_class = [string]$failureClass
             last_completed_stage = [string]$lastCompletedStage
-        current_failure_stage = [string]$failurePhaseValue
-        notes = @("phase=$failurePhaseValue", "last_completed_stage=$lastCompletedStage", $operatorFailureNote, $errorMessage)
+            current_failure_stage = [string]$failurePhaseValue
+            notes = @("phase=$failurePhaseValue", "last_completed_stage=$lastCompletedStage", $operatorFailureNote, $errorMessage)
         }
     }
     else {
         $report.failure_or_limit_report.kind = 'FAILURE'
         $report.failure_or_limit_report.failure_summary = 'failure_summary.json'
+        $report.failure_or_limit_report.failure_class = [string]$failureClass
         $report.failure_or_limit_report.last_completed_stage = [string]$lastCompletedStage
         $report.failure_or_limit_report.current_failure_stage = [string]$failurePhaseValue
         $report.failure_or_limit_report.notes = @("phase=$failurePhaseValue", "last_completed_stage=$lastCompletedStage", $operatorFailureNote, $errorMessage)
@@ -2292,7 +2312,7 @@ if ($shouldFail) {
         fail_phase = $failurePhaseValue
         operator_note = $operatorFailureNote
         error_message = $errorMessage
-        fail_class = 'FAILURE'
+        fail_class = [string]$failureClass
         last_completed_stage = [string]$lastCompletedStage
         current_failure_stage = [string]$failurePhaseValue
         notes = @("phase=$failurePhaseValue", "last_completed_stage=$lastCompletedStage", $operatorFailureNote, $errorMessage)
@@ -2314,7 +2334,7 @@ if ($shouldFail) {
             error_code = if ([string]::IsNullOrWhiteSpace($errorCode)) { 'FAILURE_SUMMARY_WRITE_FAILED' } else { $errorCode }
             fail_reason = if ([string]::IsNullOrWhiteSpace($errorCode)) { 'FAILURE_SUMMARY_WRITE_FAILED' } else { $errorCode }
             error_message = if ([string]::IsNullOrWhiteSpace($errorMessage)) { 'failure_summary_write_failed' } else { $errorMessage }
-            fail_class = 'FAILURE'
+            fail_class = [string]$failureClass
             notes = @('failure_summary_write_failed')
             must_read_files = @('RUN_REPORT.json', 'visual_manifest.json')
         }
@@ -2323,7 +2343,17 @@ if ($shouldFail) {
     if (Test-Path -LiteralPath $failurePath) {
         Copy-Item -LiteralPath $failurePath -Destination $deterministicFailurePath -Force
     }
-    $report.produced_artifacts = @($producedArtifacts + 'failure_summary.json')
+    $humanFailureReport = New-AgentFailureReportText -LastCompletedStage ([string]$lastCompletedStage) -CurrentFailureStage ([string]$failurePhaseValue) -FailureClass ([string]$failureClass) -RawError ([string]$errorMessage) -LikelyRootCause ([string]$operatorFailureNote) -FirstFixStep ([string]$report.next_step)
+    [System.IO.File]::WriteAllText($agentFailureReportPath, $humanFailureReport + [Environment]::NewLine, (New-SafeUtf8NoBom))
+    Copy-Item -LiteralPath $agentFailureReportPath -Destination $deterministicAgentFailureReportPath -Force
+
+    $operatorHandoffContract = New-OperatorHandoffContract -FailureClass ([string]$failureClass) -CurrentFailureStage ([string]$failurePhaseValue)
+    Write-JsonFile -Path $operatorHandoffPath -Data $operatorHandoffContract
+    Copy-Item -LiteralPath $operatorHandoffPath -Destination $deterministicOperatorHandoffPath -Force
+
+    $report.self_build_protocol.build_ladder = Get-BuildLadderContract -HasTruthfulFailure $true -HasSelfDiagnostic $true -HasOperatorHandoff $true
+    $report.self_build_protocol.feature_progress_allowed = [bool]$report.self_build_protocol.build_ladder.feature_progress_allowed
+    $report.produced_artifacts = @($producedArtifacts + 'failure_summary.json' + 'AGENT_FAILURE_REPORT.txt' + 'AGENT_OPERATOR_HANDOFF.json')
     $report.linked_artifacts = @(
         [ordered]@{ name = 'run_report'; path = $runReportPath },
         [ordered]@{ name = 'failure_summary'; path = $failurePath }
@@ -2333,6 +2363,8 @@ if ($shouldFail) {
     exit 1
 }
 
+$report.self_build_protocol.build_ladder = Get-BuildLadderContract -HasTruthfulFailure $true -HasSelfDiagnostic $true -HasOperatorHandoff $true
+$report.self_build_protocol.feature_progress_allowed = [bool]$report.self_build_protocol.build_ladder.feature_progress_allowed
 $report.last_completed_stage = 'REPORT_LAYER'
 $report.current_failure_stage = ''
 Write-JsonFile -Path $runReportPath -Data $report
