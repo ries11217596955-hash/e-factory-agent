@@ -1,8 +1,8 @@
 ## Summary
-Adjusted `ROUTE_SELECTION` input binding in `agents/site_auditor_v2/agent.ps1` so selection now binds directly to the actual `Get-ShallowRoutes()` output object via `$routeExtraction.routes`, then normalizes with `@(...)` before guards. Added explicit bind markers (`BIND_INPUT_START`, `BIND_INPUT_OK count=<N>`) and updated the no-routes guard to throw only after this direct binding.
+Fixed `Get-VisualTargets()` generic list merge failure in PowerShell 5.1 by explicitly materializing tier lists to arrays before concatenation, then emitting stage markers for merge and overflow readiness without changing ranking/selection semantics.
 
 ## Changed files
-- agents/site_auditor_v2/agent.ps1
+- agents/site_auditor_v2/modules/stage_route_keys.ps1
 - docs/TASK_REPORT.md
 
 ## Moved files/folders
@@ -10,8 +10,7 @@ Adjusted `ROUTE_SELECTION` input binding in `agents/site_auditor_v2/agent.ps1` s
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/site_auditor_v2/agent.ps1`.
-- Functional change limited to `ROUTE_EXTRACTION` output handoff and `ROUTE_SELECTION` input binding/guard logging.
+- Functional change limited to `Get-VisualTargets()` in `agents/site_auditor_v2/modules/stage_route_keys.ps1` around tier merge and overflow materialization.
 
 ## Risks/blockers
-- No live run was executed in this task, so runtime confirmation of the new bind markers and non-zero route count is pending next pipeline run.
-- If `Get-ShallowRoutes()` returns a schema without `.routes`, the new explicit binding guard will fail fast with a clear message.
+- No end-to-end pipeline run was executed in this task, so marker visibility (`VISUAL_TARGETS_MERGE_READY`, `VISUAL_TARGETS_OVERFLOW_READY`) and absence of runtime merge errors remain to be verified in the next orchestrator execution.
