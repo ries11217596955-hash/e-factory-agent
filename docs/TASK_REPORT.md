@@ -1,12 +1,12 @@
 ## Summary
-- Fixed the `Get-ShallowRoutes` href filtering loop crash by removing unsafe URI-object construction in the loop path.
-- Replaced href resolution with string-only absolute URL assembly and filtering for root-relative and http(s) links.
-- Added host filtering and route extraction using regex/string replacement only (no `[uri]` conversion in the href loop).
-- Preserved route/internal-link accounting flow so route selection can continue with internal links collected.
-- Kept change minimal and scoped to runtime hot path plus this report.
+- Applied a targeted post-route fix in `SITE_AUDITOR_V2` to prevent a PS5.1 join-type mismatch during ACTION_REPORT assembly.
+- Updated ACTION_REPORT join call to explicitly materialize a string array using `@($actionReportLines.ToArray())`.
+- Added minimal post-route micro traces immediately after writing key artifacts to isolate any remaining failure point.
+- Kept stage flow unchanged so execution continues from `ROUTE_EXTRACTION` into `ROUTE_SELECTION` without architectural changes.
+- Scope was limited to `agent.ps1` plus this mandatory task report.
 
 ## Changed files
-- `agents/site_auditor_v2/modules/stage_link_fetch.ps1`
+- `agents/site_auditor_v2/agent.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
@@ -14,8 +14,11 @@
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/site_auditor_v2/agent.ps1`
-- Updated runtime path: `agents/site_auditor_v2/modules/stage_link_fetch.ps1` (`Get-ShallowRoutes` href loop)
+- Post-route write path updated (no logic redesign):
+  - `ROUTES_SUMMARY.json` write checkpoint trace
+  - `AUDIT_SUMMARY.json` write checkpoint trace
+  - `ACTION_REPORT.txt` write checkpoint trace
 
 ## Risks/blockers
-- Host regex match uses direct host interpolation; unusual host strings containing regex metacharacters could affect matching behavior.
-- `pwsh` is not available in this container, so full runtime acceptance execution could not be run locally.
+- Local runtime verification is limited because this environment does not provide a direct PowerShell 5.1 runtime; behavior is validated by deterministic code-path inspection only.
+- Added traces use `Write-Host`; if stdout consumers are strict, output ordering may slightly change, but no execution-stage logic was altered.

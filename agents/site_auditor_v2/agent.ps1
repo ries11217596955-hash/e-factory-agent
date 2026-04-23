@@ -981,6 +981,7 @@ else {
         Write-JsonFile -Path $routesSummaryPath -Data $routesSummary
         Copy-Item -LiteralPath $routesSummaryPath -Destination $deterministicRoutesSummaryPath -Force
         $null = $producedArtifacts.Add('ROUTES_SUMMARY.json')
+        Write-Host 'POST_ROUTE:ROUTES_SUMMARY_WRITTEN'
 
         $brokenTargets = @(
             $routesSummary.routes |
@@ -1061,6 +1062,7 @@ else {
         Write-JsonFile -Path $auditSummaryPath -Data $auditSummary
         Copy-Item -LiteralPath $auditSummaryPath -Destination $deterministicAuditSummaryPath -Force
         $null = $producedArtifacts.Add('AUDIT_SUMMARY.json')
+        Write-Host 'POST_ROUTE:AUDIT_SUMMARY_WRITTEN'
 
         $actionReportLines = New-Object System.Collections.Generic.List[string]
         $actionReportLines.Add("Site: $BaseUrl")
@@ -1076,10 +1078,11 @@ else {
             $actionReportLines.Add("Action: $($target.action)")
         }
 
-        $actionReportContent = [string]::Join([Environment]::NewLine, $actionReportLines.ToArray())
+        $actionReportContent = [string]::Join([Environment]::NewLine, @($actionReportLines.ToArray()))
         [System.IO.File]::WriteAllText($actionReportPath, $actionReportContent)
         Copy-Item -LiteralPath $actionReportPath -Destination $deterministicActionReportPath -Force
         $null = $producedArtifacts.Add('ACTION_REPORT.txt')
+        Write-Host 'POST_ROUTE:ACTION_REPORT_WRITTEN'
 
         $failurePhase = 'ROUTE_SELECTION'
         $currentFailureStage = $failurePhase
