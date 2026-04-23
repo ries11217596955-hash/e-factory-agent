@@ -48,6 +48,93 @@ function Get-DefectPriorityByIssueType {
     }
 }
 
+function Escape-HtmlText {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Text
+    )
+
+    return [System.Net.WebUtility]::HtmlEncode($Text)
+}
+
+function New-ClientReportHtml {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('RU', 'EN')]
+        [string]$Language,
+        [Parameter(Mandatory = $true)]
+        [hashtable]$ReportPayload
+    )
+
+    $title = if ($Language -eq 'RU') { 'Отчёт аудита сайта' } else { 'Website Audit Report' }
+    $executiveHeader = if ($Language -eq 'RU') { 'Итог' } else { 'Executive Verdict' }
+    $checkedHeader = if ($Language -eq 'RU') { 'Что проверено' } else { 'What Was Checked' }
+    $mainFindingHeader = if ($Language -eq 'RU') { 'Главное наблюдение' } else { 'Main Finding' }
+    $nextHeader = if ($Language -eq 'RU') { 'Что делать дальше' } else { 'What To Do Next' }
+    $impactHeader = if ($Language -eq 'RU') { 'Почему это важно' } else { 'Why It Matters' }
+    $limitsHeader = if ($Language -eq 'RU') { 'Ограничения' } else { 'Limitations' }
+    $snapshotHeader = if ($Language -eq 'RU') { 'Технический срез' } else { 'Technical Snapshot' }
+
+    $executiveLines = @($ReportPayload.executive_lines | ForEach-Object { "<p>$(Escape-HtmlText -Text ([string]$_))</p>" }) -join ''
+    $checkedLines = @($ReportPayload.checked_lines | ForEach-Object { "<li>$(Escape-HtmlText -Text ([string]$_))</li>" }) -join ''
+    $impactLines = @($ReportPayload.impact_lines | ForEach-Object { "<li>$(Escape-HtmlText -Text ([string]$_))</li>" }) -join ''
+    $limitationLines = @($ReportPayload.limitations_lines | ForEach-Object { "<li>$(Escape-HtmlText -Text ([string]$_))</li>" }) -join ''
+    $actionLines = @($ReportPayload.actions_lines | ForEach-Object { "<li>$(Escape-HtmlText -Text ([string]$_))</li>" }) -join ''
+    $snapshotRows = @($ReportPayload.snapshot_rows | ForEach-Object {
+            "<tr><th>$(Escape-HtmlText -Text ([string]$_.label))</th><td>$(Escape-HtmlText -Text ([string]$_.value))</td></tr>"
+        }) -join ''
+
+    return @"
+<!doctype html>
+<html lang="$(if ($Language -eq 'RU') { 'ru' } else { 'en' })">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>$(Escape-HtmlText -Text $title)</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 28px; color: #1f2937; line-height: 1.45; }
+    h1 { font-size: 28px; margin-bottom: 12px; }
+    h2 { font-size: 18px; margin: 20px 0 8px; }
+    .box { border: 1px solid #d1d5db; background: #f9fafb; border-radius: 8px; padding: 12px 14px; }
+    ul { margin: 0; padding-left: 20px; }
+    p { margin: 6px 0; }
+    table { border-collapse: collapse; width: 100%; max-width: 560px; }
+    th, td { border: 1px solid #d1d5db; text-align: left; padding: 6px 8px; font-size: 14px; }
+    th { width: 45%; background: #f3f4f6; }
+  </style>
+</head>
+<body>
+  <h1>$(Escape-HtmlText -Text $title)</h1>
+  <section class="box">
+    <h2>$(Escape-HtmlText -Text $executiveHeader)</h2>
+    $executiveLines
+  </section>
+  <section>
+    <h2>$(Escape-HtmlText -Text $checkedHeader)</h2>
+    <ul>$checkedLines</ul>
+  </section>
+  <section>
+    <h2>$(Escape-HtmlText -Text $mainFindingHeader)</h2>
+    <p>$(Escape-HtmlText -Text ([string]$ReportPayload.main_finding))</p>
+  </section>
+  <section>
+    <h2>$(Escape-HtmlText -Text $nextHeader)</h2>
+    <ul>$actionLines</ul>
+  </section>
+  <section>
+    <h2>$(Escape-HtmlText -Text $impactHeader)</h2>
+    <ul>$impactLines</ul>
+  </section>
+  $(if ($ReportPayload.include_limitations) { "<section><h2>$(Escape-HtmlText -Text $limitsHeader)</h2><ul>$limitationLines</ul></section>" } else { '' })
+  <section>
+    <h2>$(Escape-HtmlText -Text $snapshotHeader)</h2>
+    <table>$snapshotRows</table>
+  </section>
+</body>
+</html>
+"@
+}
+
 function Get-DeterministicRunKey {
     param(
         [Parameter(Mandatory = $true)]
@@ -970,7 +1057,8 @@ $routesSummaryPath = Join-Path $outputRoot 'ROUTES_SUMMARY.json'
 $auditSummaryPath = Join-Path $outputRoot 'AUDIT_SUMMARY.json'
 $actionSummaryPath = Join-Path $outputRoot 'ACTION_SUMMARY.json'
 $actionReportPath = Join-Path $outputRoot 'ACTION_REPORT.txt'
-$humanReportPath = Join-Path $outputRoot 'HUMAN_REPORT.md'
+$humanReportRuPath = Join-Path $outputRoot 'HUMAN_REPORT_RU.html'
+$humanReportEnPath = Join-Path $outputRoot 'HUMAN_REPORT_EN.html'
 $failurePath = Join-Path $outputRoot 'failure_summary.json'
 $visualManifestPath = Join-Path $outputRoot 'visual_manifest.json'
 $visualInputPath = Join-Path $outputRoot 'visual_capture_input.json'
@@ -981,7 +1069,8 @@ $deterministicRoutesSummaryPath = Join-Path $PSScriptRoot 'ROUTES_SUMMARY.json'
 $deterministicAuditSummaryPath = Join-Path $PSScriptRoot 'AUDIT_SUMMARY.json'
 $deterministicActionSummaryPath = Join-Path $PSScriptRoot 'ACTION_SUMMARY.json'
 $deterministicActionReportPath = Join-Path $PSScriptRoot 'ACTION_REPORT.txt'
-$deterministicHumanReportPath = Join-Path $PSScriptRoot 'HUMAN_REPORT.md'
+$deterministicHumanReportRuPath = Join-Path $PSScriptRoot 'HUMAN_REPORT_RU.html'
+$deterministicHumanReportEnPath = Join-Path $PSScriptRoot 'HUMAN_REPORT_EN.html'
 $deterministicFailurePath = Join-Path $PSScriptRoot 'failure_summary.json'
 $deterministicVisualManifestPath = Join-Path $PSScriptRoot 'visual_manifest.json'
 $deterministicScreenshotsPath = Join-Path $PSScriptRoot 'screenshots'
@@ -1052,7 +1141,8 @@ $report = [ordered]@{
         [ordered]@{ name = 'audit_summary'; path = $auditSummaryPath },
         [ordered]@{ name = 'action_summary'; path = $actionSummaryPath },
         [ordered]@{ name = 'action_report'; path = $actionReportPath },
-        [ordered]@{ name = 'human_report'; path = $humanReportPath },
+        [ordered]@{ name = 'human_report_ru'; path = $humanReportRuPath },
+        [ordered]@{ name = 'human_report_en'; path = $humanReportEnPath },
         [ordered]@{ name = 'visual_manifest'; path = $visualManifestPath },
         [ordered]@{ name = 'screenshots'; path = $screenshotsPath }
     )
@@ -1104,8 +1194,11 @@ $report = [ordered]@{
     decision_summary = [ordered]@{
         primary_issue = 'NONE'
         issue_type = 'CLEAN'
+        priority = 'NONE'
         recommended_action = 'Expand audit coverage before making decisions.'
         reasoning = 'Initial placeholder before findings are synthesized.'
+        ownership_mode = $ownershipMode
+        audit_confidence = 'LOW'
     }
     next_strongest_move = 'Expand audit coverage before making decisions.'
     findings = @()
@@ -2197,18 +2290,7 @@ else {
             Sort-Object finding_id
         )
 
-        $primaryProblem = if ($sortedFindings.Count -gt 0) {
-            [string]$sortedFindings[0].issue_type
-        }
-        else {
-            'no_material_findings_in_sampled_scope'
-        }
-        $highestPriorityIssueType = if ($sortedFindings.Count -gt 0) {
-            [string]$sortedFindings[0].issue_type
-        }
-        else {
-            ''
-        }
+        $primaryProblem = if ($sortedFindings.Count -gt 0) { [string]$sortedFindings[0].issue_type } else { 'no_material_findings_in_sampled_scope' }
         $hasP0Defect = ($p0Count -gt 0)
         $hasP1Defect = ($p1Count -gt 0)
         $primaryDefectFinding = if ($hasP0Defect) {
@@ -2224,6 +2306,13 @@ else {
             $null
         }
         $primaryLimitationFinding = if ($sortedLimitationFindings.Count -gt 0) { $sortedLimitationFindings[0] } else { $null }
+
+        $decisionPriority = if ($null -ne $primaryDefectFinding) {
+            [string]$primaryDefectFinding.priority
+        }
+        else {
+            'NONE'
+        }
         $decisionIssueType = if ($null -ne $primaryDefectFinding) {
             'DEFECT'
         }
@@ -2261,38 +2350,18 @@ else {
             'No page-level defect was detected, but sampled coverage limits confidence.'
         }
         else {
-            'No findings were detected in sampled scope.'
-        }
-        $nextStrongestMove = if ($decisionIssueType -eq 'DEFECT' -and $hasP0Defect -and $ownershipMode -eq 'OWNED') {
-            'Fix broken pages first.'
-        }
-        elseif ($decisionIssueType -eq 'DEFECT' -and $hasP0Defect) {
-            'Analyze the highest-priority broken-page patterns first.'
-        }
-        elseif ($decisionIssueType -eq 'DEFECT' -and $ownershipMode -eq 'OWNED') {
-            'Fix the highest-priority defect route first.'
-        }
-        elseif ($decisionIssueType -eq 'DEFECT') {
-            'Analyze the highest-priority defect pattern first.'
-        }
-        elseif ($decisionIssueType -eq 'LIMITATION' -and $ownershipMode -eq 'EXTERNAL') {
-            'Analyze more pages to understand full structure.'
-        }
-        elseif ($decisionIssueType -eq 'LIMITATION') {
-            'Expand sampled coverage before taking remediation actions.'
-        }
-        elseif ([string]$report.audit_confidence -eq 'LOW') {
-            'Expand audit coverage before making decisions.'
-        }
-        else {
-            'Monitor sampled pages and rerun when scope changes.'
+            if ([string]$report.audit_confidence -eq 'HIGH') { 'No page-level defects were confirmed in the sampled scope.' } else { 'No page-level issues were confirmed in the checked scope.' }
         }
         $report.decision_summary = [ordered]@{
-            primary_issue = $primaryIssueValue
-            issue_type = $decisionIssueType
+            issue_type = [string]$decisionIssueType
+            primary_issue = [string]$primaryIssueValue
+            priority = [string]$decisionPriority
             recommended_action = [string]$decisionRecommendedAction
             reasoning = [string]$decisionReasoning
+            ownership_mode = [string]$ownershipMode
+            audit_confidence = [string]$report.audit_confidence
         }
+        $nextStrongestMove = [string]$report.decision_summary.recommended_action
         $overallVerdict = if ($defectFindings.Count -eq 0 -and $limitationFindings.Count -gt 0) {
             'LIMITED: no page-level defects detected; audit limited by sampling'
         }
@@ -2311,29 +2380,11 @@ else {
         else {
             'PROBLEM: findings present in sampled LINK evidence'
         }
-        $strongestMove = if ($defectFindings.Count -eq 0 -and $limitationFindings.Count -gt 0) {
-            'Increase deterministic coverage by raising route budget or resampling key route groups.'
-        }
-        elseif ($defectFindings.Count -eq 0 -and [string]$report.audit_confidence -eq 'LOW') {
-            'Increase coverage before claiming cleanliness; sampled scope is currently limited.'
-        }
-        elseif ($allFindings.Count -eq 0 -and [int]$report.run_budget.overflow_routes -gt 0) {
-            'Expand sampled route set only if operator needs broader coverage.'
-        }
-        elseif ($allFindings.Count -eq 0) {
-            'No immediate action required; keep current LINK sample unless scope changes.'
-        }
-        elseif ($ownershipMode -eq 'EXTERNAL') {
-            'Analyze findings for benchmarking and replication ideas; avoid direct page remediation actions.'
-        }
-        else {
-            [string]$sortedFindings[0].recommended_action
-        }
         $report.executive_answer = [ordered]@{
             overall_verdict = $overallVerdict
             primary_problem = $primaryProblem
             audit_scope = 'LINK mode / screenshot evidence baseline'
-            strongest_next_move = $strongestMove
+            strongest_next_move = [string]$nextStrongestMove
         }
         $report.next_strongest_move = [string]$nextStrongestMove
 
@@ -2355,30 +2406,36 @@ else {
             )
         }
         $actionSummaryActions = [System.Collections.Generic.List[object]]::new()
-        foreach ($finding in $sortedFindings) {
-            if ($actionSummaryActions.Count -ge 3) {
-                break
+        $actionSummaryActions.Add([ordered]@{
+                action = [string]$report.decision_summary.recommended_action
+                why = [string]$report.decision_summary.reasoning
+                priority = [string]$report.decision_summary.priority
+            })
+        if ($actionSummaryActions.Count -lt 3 -and $decisionIssueType -eq 'DEFECT' -and $sortedFindings.Count -gt 1) {
+            foreach ($finding in @($sortedFindings | Select-Object -Skip 1)) {
+                if ($actionSummaryActions.Count -ge 3) { break }
+                $actionSummaryActions.Add([ordered]@{
+                        action = [string]$finding.recommended_action
+                        why = [string]$finding.why_it_matters
+                        priority = [string]$finding.priority
+                    })
             }
-
-            $actionSummaryActions.Add([ordered]@{
-                    action = [string]$finding.recommended_action
-                    why = [string]$finding.why_it_matters
-                    priority = [string]$finding.priority
-                })
         }
-        if ($actionSummaryActions.Count -eq 0 -and $sortedLimitationFindings.Count -gt 0) {
-            $limitation = $sortedLimitationFindings[0]
-            $actionSummaryActions.Add([ordered]@{
-                    action = [string]$limitation.recommended_action
-                    why = [string]$limitation.why_it_matters
-                    priority = [string]$limitation.priority
-                })
+        elseif ($actionSummaryActions.Count -lt 3 -and $decisionIssueType -eq 'LIMITATION' -and $sortedLimitationFindings.Count -gt 1) {
+            foreach ($limitation in @($sortedLimitationFindings | Select-Object -Skip 1)) {
+                if ($actionSummaryActions.Count -ge 3) { break }
+                $actionSummaryActions.Add([ordered]@{
+                        action = [string]$limitation.recommended_action
+                        why = [string]$limitation.why_it_matters
+                        priority = [string]$limitation.priority
+                    })
+            }
         }
-        if ($actionSummaryActions.Count -eq 0) {
+        elseif ($actionSummaryActions.Count -lt 3 -and $decisionIssueType -eq 'CLEAN' -and [string]$report.audit_confidence -ne 'HIGH') {
             $actionSummaryActions.Add([ordered]@{
-                    action = [string]$nextStrongestMove
-                    why = 'No material finding was detected in sampled scope; this keeps confidence aligned with coverage.'
-                    priority = 'P3'
+                    action = 'Expand route sample and rerun LINK mode for broader coverage.'
+                    why = 'Current checked scope may not represent full site behavior.'
+                    priority = 'P2'
                 })
         }
         $finalActionSummary = [ordered]@{
@@ -2390,60 +2447,112 @@ else {
         }
         Write-JsonFile -Path $actionSummaryPath -Data $finalActionSummary
         Copy-Item -LiteralPath $actionSummaryPath -Destination $deterministicActionSummaryPath -Force
-        $null = $producedArtifacts.Add('HUMAN_REPORT.md')
+        $null = $producedArtifacts.Add('HUMAN_REPORT_RU.html')
+        $null = $producedArtifacts.Add('HUMAN_REPORT_EN.html')
 
-        $humanKeyFindings = [System.Collections.Generic.List[string]]::new()
-        if ($defectFindings.Count -gt 0) {
-            foreach ($finding in @($sortedFindings | Select-Object -First 3)) {
-                $humanKeyFindings.Add("- $([string]$finding.issue_type) ($([string]$finding.priority)): $([string]$finding.why_it_matters)")
-            }
+        $mainFindingEn = if ($decisionIssueType -eq 'DEFECT') {
+            "Confirmed defect: $([string]$report.decision_summary.primary_issue)."
         }
-        elseif ($limitationFindings.Count -gt 0) {
-            foreach ($finding in @($sortedLimitationFindings | Select-Object -First 2)) {
-                $humanKeyFindings.Add("- Limitation: $([string]$finding.why_it_matters)")
-            }
+        elseif ($decisionIssueType -eq 'LIMITATION') {
+            "Coverage limitation: this is an audit scope constraint, not a page defect ($([string]$report.decision_summary.primary_issue))."
+        }
+        elseif ([string]$report.audit_confidence -eq 'HIGH') {
+            'No page-level defects were confirmed in the checked scope.'
         }
         else {
-            $humanKeyFindings.Add('- No material defects were detected in sampled pages.')
+            'No page-level issues were confirmed in the checked scope.'
         }
-        $humanLimitations = [System.Collections.Generic.List[string]]::new()
-        if ([int]$report.run_budget.overflow_routes -gt 0) {
-            $humanLimitations.Add("- Route budget left $([int]$report.run_budget.overflow_routes) discovered routes outside sampled coverage.")
+        $mainFindingRu = if ($decisionIssueType -eq 'DEFECT') {
+            "Подтверждён дефект: $([string]$report.decision_summary.primary_issue)."
         }
-        if ([string]$report.audit_confidence -eq 'LOW') {
-            $humanLimitations.Add('- Confidence is low because sampled coverage is limited.')
+        elseif ($decisionIssueType -eq 'LIMITATION') {
+            "Ограничение покрытия: это ограничение аудита, а не дефект страницы ($([string]$report.decision_summary.primary_issue))."
         }
-        if ($humanLimitations.Count -eq 0) {
-            $humanLimitations.Add('- No major sampling limitation was observed in the current run.')
+        elseif ([string]$report.audit_confidence -eq 'HIGH') {
+            'В проверенном объёме дефекты страниц не подтверждены.'
         }
-        $humanReportLines = @(
-            '# HUMAN_REPORT',
-            '',
-            '## 1) Quick verdict',
-            "- Verdict: $overallVerdict",
-            "- Decision type: $decisionIssueType",
-            "- Confidence: $([string]$report.audit_confidence)",
-            '',
-            '## 2) What was checked',
-            "- Mode: $([string]$report.mode)",
-            "- Base URL: $([string]$report.base_url)",
-            "- Sampled routes: $routesChecked / budget $maxRoutesBudget",
-            '',
-            '## 3) Key findings',
-            @($humanKeyFindings),
-            '',
-            '## 4) What to do next (main block)',
-            "- Next strongest move: $nextStrongestMove",
-            "- Recommended action: $decisionRecommendedAction",
-            '',
-            '## 5) Why it matters',
-            "- $decisionReasoning",
-            '',
-            '## 6) Limitations',
-            @($humanLimitations)
+        else {
+            'В проверенном объёме проблемы страниц не подтверждены.'
+        }
+        $limitationsCommon = [System.Collections.Generic.List[string]]::new()
+        if ([string]$report.audit_confidence -ne 'HIGH' -or $limitationFindings.Count -gt 0) {
+            $limitationsCommon.Add('Checked scope may be partial and may not cover all site pages.')
+            if ([int]$report.run_budget.overflow_routes -gt 0) {
+                $limitationsCommon.Add("Route budget excluded $([int]$report.run_budget.overflow_routes) discovered routes from this run.")
+            }
+        }
+        $snapshotRowsEn = @(
+            [ordered]@{ label = 'Pages checked'; value = [string]$routesChecked },
+            [ordered]@{ label = 'Findings count'; value = [string]$allFindings.Count },
+            [ordered]@{ label = 'Highest priority'; value = [string]$report.decision_summary.priority },
+            [ordered]@{ label = 'Confidence'; value = [string]$report.audit_confidence }
         )
-        [System.IO.File]::WriteAllText($humanReportPath, ([string]::Join([Environment]::NewLine, $humanReportLines) + [Environment]::NewLine), [System.Text.UTF8Encoding]::new($false))
-        Copy-Item -LiteralPath $humanReportPath -Destination $deterministicHumanReportPath -Force
+        $snapshotRowsRu = @(
+            [ordered]@{ label = 'Проверено страниц'; value = [string]$routesChecked },
+            [ordered]@{ label = 'Количество находок'; value = [string]$allFindings.Count },
+            [ordered]@{ label = 'Максимальный приоритет'; value = [string]$report.decision_summary.priority },
+            [ordered]@{ label = 'Уверенность'; value = [string]$report.audit_confidence }
+        )
+        $reportPayloadEn = [ordered]@{
+            executive_lines = @(
+                "Current status: $overallVerdict.",
+                "Confidence: $([string]$report.audit_confidence).",
+                "Ownership context: $ownershipMode.",
+                "Main conclusion: $([string]$report.decision_summary.recommended_action)"
+            )
+            checked_lines = @(
+                "Checked routes/pages: $routesChecked.",
+                "Screenshots captured: $([string]$report.capture_report.captures_success) successful of $([string]$report.capture_report.captures_attempted) attempted.",
+                "Coverage limited: $(if ([string]$report.audit_confidence -eq 'HIGH' -and $limitationFindings.Count -eq 0) { 'no' } else { 'yes' })."
+            )
+            main_finding = $mainFindingEn
+            actions_lines = @($actionSummaryActions | ForEach-Object { [string]$_.action })
+            impact_lines = @(
+                'Prioritized action reduces avoidable risk in current sampled scope.',
+                'Aligned next step prevents contradictory delivery decisions.',
+                'Confidence-aware wording lowers overclaim risk for stakeholders.'
+            )
+            limitations_lines = @($limitationsCommon)
+            include_limitations = ($limitationsCommon.Count -gt 0)
+            snapshot_rows = $snapshotRowsEn
+        }
+        $reportPayloadRu = [ordered]@{
+            executive_lines = @(
+                "Текущий статус: $overallVerdict.",
+                "Уверенность: $([string]$report.audit_confidence).",
+                "Контекст владения: $ownershipMode.",
+                "Главный вывод: $([string]$report.decision_summary.recommended_action)"
+            )
+            checked_lines = @(
+                "Проверено маршрутов/страниц: $routesChecked.",
+                "Скриншоты: успешно $([string]$report.capture_report.captures_success) из $([string]$report.capture_report.captures_attempted).",
+                "Покрытие ограничено: $(if ([string]$report.audit_confidence -eq 'HIGH' -and $limitationFindings.Count -eq 0) { 'нет' } else { 'да' })."
+            )
+            main_finding = $mainFindingRu
+            actions_lines = @($actionSummaryActions | ForEach-Object { [string]$_.action })
+            impact_lines = @(
+                'Приоритетное действие снижает риск в текущем проверенном объёме.',
+                'Согласованный следующий шаг исключает противоречивые решения.',
+                'Формулировки с учётом уверенности уменьшают риск завышенных выводов.'
+            )
+            limitations_lines = @($limitationsCommon | ForEach-Object { if ($_ -eq 'Checked scope may be partial and may not cover all site pages.') { 'Проверенный объём может быть частичным и не охватывать все страницы сайта.' } else { "Бюджет маршрутов исключил $([int]$report.run_budget.overflow_routes) найденных маршрутов из этого запуска." } })
+            include_limitations = ($limitationsCommon.Count -gt 0)
+            snapshot_rows = $snapshotRowsRu
+        }
+        $ruHtml = New-ClientReportHtml -Language 'RU' -ReportPayload $reportPayloadRu
+        $enHtml = New-ClientReportHtml -Language 'EN' -ReportPayload $reportPayloadEn
+        [System.IO.File]::WriteAllText($humanReportRuPath, $ruHtml, [System.Text.UTF8Encoding]::new($false))
+        [System.IO.File]::WriteAllText($humanReportEnPath, $enHtml, [System.Text.UTF8Encoding]::new($false))
+        Copy-Item -LiteralPath $humanReportRuPath -Destination $deterministicHumanReportRuPath -Force
+        Copy-Item -LiteralPath $humanReportEnPath -Destination $deterministicHumanReportEnPath -Force
+
+        if ([string]$report.next_strongest_move -ne [string]$report.decision_summary.recommended_action) { throw 'CONSISTENCY_LOCK_FAILED: next_strongest_move mismatch.' }
+        if ($finalActionSummary.actions.Count -eq 0 -or [string]$finalActionSummary.actions[0].action -ne [string]$report.decision_summary.recommended_action) { throw 'CONSISTENCY_LOCK_FAILED: ACTION_SUMMARY first action mismatch.' }
+        if ([string]$reportPayloadRu.actions_lines[0] -ne [string]$report.decision_summary.recommended_action) { throw 'CONSISTENCY_LOCK_FAILED: RU main action mismatch.' }
+        if ([string]$reportPayloadEn.actions_lines[0] -ne [string]$report.decision_summary.recommended_action) { throw 'CONSISTENCY_LOCK_FAILED: EN main action mismatch.' }
+        if ([string]::IsNullOrWhiteSpace([string]$report.decision_summary.issue_type) -or [string]::IsNullOrWhiteSpace([string]$report.decision_summary.primary_issue) -or [string]::IsNullOrWhiteSpace([string]$report.decision_summary.priority) -or [string]::IsNullOrWhiteSpace([string]$report.decision_summary.recommended_action) -or [string]::IsNullOrWhiteSpace([string]$report.decision_summary.reasoning) -or [string]::IsNullOrWhiteSpace([string]$report.decision_summary.ownership_mode) -or [string]::IsNullOrWhiteSpace([string]$report.decision_summary.audit_confidence)) { throw 'CONSISTENCY_LOCK_FAILED: decision_summary has null critical fields.' }
+        if ($decisionIssueType -eq 'LIMITATION' -and $defectFindings.Count -gt 0) { throw 'CONSISTENCY_LOCK_FAILED: limitation classified despite defect findings.' }
+        if ($decisionIssueType -eq 'DEFECT' -and $defectFindings.Count -eq 0) { throw 'CONSISTENCY_LOCK_FAILED: defect classified without defect findings.' }
 
         $report.next_step = [string]$nextStrongestMove
         $isLimitationOnly = ($defectFindings.Count -eq 0 -and $limitationFindings.Count -gt 0)
@@ -2562,44 +2671,63 @@ if ($actionSummaryMissingOrEmpty) {
         status = if ($shouldFail) { 'FAILED' } else { 'CLEAN' }
         finding_count = 0
         limitation_count = 0
-        actions = @()
+        actions = @(
+            [ordered]@{
+                action = [string]$report.decision_summary.recommended_action
+                why = 'Fallback action generated to keep decision chain non-empty.'
+                priority = [string]$report.decision_summary.priority
+            }
+        )
         reason = if ($shouldFail) { 'action_summary_not_generated_before_failure' } else { 'no_material_findings_in_sampled_scope' }
     }
     Write-JsonFile -Path $actionSummaryPath -Data $fallbackActionSummary
     Copy-Item -LiteralPath $actionSummaryPath -Destination $deterministicActionSummaryPath -Force
 }
 
-if (-not (Test-Path -LiteralPath $humanReportPath)) {
-    $fallbackHumanReport = @(
-        '# HUMAN_REPORT',
-        '',
-        '## 1) Quick verdict',
-        "- Verdict: $([string]$report.summary)",
-        "- Decision type: $([string]$report.decision_summary.issue_type)",
-        "- Confidence: $([string]$report.audit_confidence)",
-        '',
-        '## 2) What was checked',
-        "- Mode: $([string]$report.mode)",
-        "- Base URL: $([string]$report.base_url)",
-        '',
-        '## 3) Key findings',
-        '- Detailed findings were not generated due to run failure or early exit.',
-        '',
-        '## 4) What to do next (main block)',
-        "- Next strongest move: $([string]$report.next_strongest_move)",
-        '',
-        '## 5) Why it matters',
-        '- The run did not produce complete deterministic evidence.',
-        '',
-        '## 6) Limitations',
-        '- Review failure_summary.json for failure details before taking action.'
-    ) -join [Environment]::NewLine
-    [System.IO.File]::WriteAllText($humanReportPath, $fallbackHumanReport + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
-    Copy-Item -LiteralPath $humanReportPath -Destination $deterministicHumanReportPath -Force
+if ((-not (Test-Path -LiteralPath $humanReportRuPath)) -or (-not (Test-Path -LiteralPath $humanReportEnPath))) {
+    $fallbackPayloadEn = [ordered]@{
+        executive_lines = @("Current status: $([string]$report.summary).", "Confidence: $([string]$report.audit_confidence).", "Ownership context: $ownershipMode.", "Main conclusion: $([string]$report.decision_summary.recommended_action)")
+        checked_lines = @("Checked routes/pages: $([int]@($report.selected_routes).Count).", 'Screenshots captured: limited.', 'Coverage limited: yes.')
+        main_finding = 'Report generated from fallback path after incomplete run.'
+        actions_lines = @([string]$report.decision_summary.recommended_action)
+        impact_lines = @('Fallback report preserves a deterministic single next action.')
+        limitations_lines = @('Checked scope may be partial.')
+        include_limitations = $true
+        snapshot_rows = @(
+            [ordered]@{ label = 'Pages checked'; value = [string][int]@($report.selected_routes).Count },
+            [ordered]@{ label = 'Findings count'; value = [string]([int]$report.findings_count + [int]$report.limitation_count) },
+            [ordered]@{ label = 'Highest priority'; value = [string]$report.decision_summary.priority },
+            [ordered]@{ label = 'Confidence'; value = [string]$report.audit_confidence }
+        )
+    }
+    $fallbackPayloadRu = [ordered]@{
+        executive_lines = @("Текущий статус: $([string]$report.summary).", "Уверенность: $([string]$report.audit_confidence).", "Контекст владения: $ownershipMode.", "Главный вывод: $([string]$report.decision_summary.recommended_action)")
+        checked_lines = @("Проверено маршрутов/страниц: $([int]@($report.selected_routes).Count).", 'Скриншоты: ограниченно.', 'Покрытие ограничено: да.')
+        main_finding = 'Отчёт сформирован в резервном режиме после неполного запуска.'
+        actions_lines = @([string]$report.decision_summary.recommended_action)
+        impact_lines = @('Резервный отчёт сохраняет единое приоритетное действие.')
+        limitations_lines = @('Проверенный объём может быть частичным.')
+        include_limitations = $true
+        snapshot_rows = @(
+            [ordered]@{ label = 'Проверено страниц'; value = [string][int]@($report.selected_routes).Count },
+            [ordered]@{ label = 'Количество находок'; value = [string]([int]$report.findings_count + [int]$report.limitation_count) },
+            [ordered]@{ label = 'Максимальный приоритет'; value = [string]$report.decision_summary.priority },
+            [ordered]@{ label = 'Уверенность'; value = [string]$report.audit_confidence }
+        )
+    }
+    [System.IO.File]::WriteAllText($humanReportRuPath, (New-ClientReportHtml -Language 'RU' -ReportPayload $fallbackPayloadRu), [System.Text.UTF8Encoding]::new($false))
+    [System.IO.File]::WriteAllText($humanReportEnPath, (New-ClientReportHtml -Language 'EN' -ReportPayload $fallbackPayloadEn), [System.Text.UTF8Encoding]::new($false))
+    Copy-Item -LiteralPath $humanReportRuPath -Destination $deterministicHumanReportRuPath -Force
+    Copy-Item -LiteralPath $humanReportEnPath -Destination $deterministicHumanReportEnPath -Force
 }
-if ((Test-Path -LiteralPath $humanReportPath) -and (-not ($producedArtifacts -contains 'HUMAN_REPORT.md'))) {
-    $null = $producedArtifacts.Add('HUMAN_REPORT.md')
+if ((Test-Path -LiteralPath $humanReportRuPath) -and (-not ($producedArtifacts -contains 'HUMAN_REPORT_RU.html'))) {
+    $null = $producedArtifacts.Add('HUMAN_REPORT_RU.html')
 }
+if ((Test-Path -LiteralPath $humanReportEnPath) -and (-not ($producedArtifacts -contains 'HUMAN_REPORT_EN.html'))) {
+    $null = $producedArtifacts.Add('HUMAN_REPORT_EN.html')
+}
+
+$report.produced_artifacts = @($producedArtifacts)
 
 if ($shouldFail) {
     if (-not $report.failure_or_limit_report -or [string]$report.failure_or_limit_report.kind -ne 'FAILURE') {
