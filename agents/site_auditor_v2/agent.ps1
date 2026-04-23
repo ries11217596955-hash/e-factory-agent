@@ -105,6 +105,38 @@ function Get-FindingTypeSortRank {
     }
 }
 
+function Get-SystemProblemMapping {
+    param([Parameter(Mandatory = $true)][string]$IssueType)
+
+    switch ([string]$IssueType) {
+        'PROCESS_FIRST' {
+            return [ordered]@{
+                problem_type = 'VALUE_STRUCTURE'
+                action_domain = 'VALUE'
+                description_en = 'Multiple pages start with process before clarifying value.'
+                description_ru = 'Несколько страниц начинают с процесса до объяснения ценности.'
+            }
+        }
+        'NO_VALUE_FIRST_SCREEN' {
+            return [ordered]@{
+                problem_type = 'VALUE_CLARITY'
+                action_domain = 'VALUE'
+                description_en = 'Multiple pages do not clearly explain value on the first screen.'
+                description_ru = 'Несколько страниц не объясняют ценность на первом экране.'
+            }
+        }
+        'NO_ACTION_PATH' {
+            return [ordered]@{
+                problem_type = 'ACTION_PATH'
+                action_domain = 'ACTION_PATH'
+                description_en = 'Multiple pages do not provide a clear first-screen action path.'
+                description_ru = 'Несколько страниц не дают понятного действия на первом экране.'
+            }
+        }
+        default { return $null }
+    }
+}
+
 function Get-EvidenceSnippet {
     param(
         [Parameter(Mandatory = $true)]
@@ -1405,6 +1437,7 @@ $report = [ordered]@{
         ownership_mode = $ownershipMode
         audit_confidence = 'LOW'
     }
+    system_problem = $null
     next_strongest_move = 'Expand audit coverage before making decisions.'
     findings = @()
     operator_feed = [ordered]@{
@@ -2603,6 +2636,65 @@ else {
             Sort-Object finding_id
         )
 
+        $clusterTypes = @('PROCESS_FIRST', 'NO_VALUE_FIRST_SCREEN', 'NO_ACTION_PATH', 'BROKEN_ROUTE')
+        $microClusters = [System.Collections.Generic.List[object]]::new()
+        foreach ($clusterType in $clusterTypes) {
+            $clusterFindings = @($sortedFindings | Where-Object { [string]$_.issue_type -eq $clusterType })
+            $clusterRoutes = @($clusterFindings | ForEach-Object { [string]$_.route } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
+            $clusterCount = [int]$clusterRoutes.Count
+            if ($clusterCount -lt 2) { continue }
+            $clusterShare = if ($routesChecked -gt 0) { [Math]::Round(([double]$clusterCount / [double]$routesChecked), 4) } else { 0.0 }
+            $microClusters.Add([ordered]@{
+                    cluster_type = [string]$clusterType
+                    count = $clusterCount
+                    routes = @($clusterRoutes | Select-Object -First 5)
+                    share_of_checked_pages = $clusterShare
+                })
+        }
+        $report.micro_clusters = @($microClusters)
+
+        $systemProblem = $null
+        if ($report.micro_clusters.Count -gt 0) {
+            $priorityOrder = @{ PROCESS_FIRST = 0; NO_VALUE_FIRST_SCREEN = 1; NO_ACTION_PATH = 2; BROKEN_ROUTE = 3 }
+            $candidateClusters = @(
+                $report.micro_clusters |
+                Sort-Object @{ Expression = {
+                        $clusterType = [string]$_.cluster_type
+                        if ($priorityOrder.ContainsKey($clusterType)) { [int]$priorityOrder[$clusterType] } else { 9 }
+                    }
+                }, @{ Expression = { -1 * [int]$_.count } }
+            )
+            foreach ($candidate in $candidateClusters) {
+                $mapping = Get-SystemProblemMapping -IssueType ([string]$candidate.cluster_type)
+                if ($null -eq $mapping) { continue }
+                $candidateRoutes = @($candidate.routes | ForEach-Object { [string]$_ } | Select-Object -Unique)
+                $majorPagesAffected = @(
+                    $candidateRoutes |
+                    Where-Object {
+                        $routeKey = [string]$_
+                        $routeSignalMap.ContainsKey($routeKey) -and @('HOME', 'DECISION', 'TOOL') -contains [string]$routeSignalMap[$routeKey].page_type
+                    }
+                ).Count -gt 0
+                $severity = if ([int]$candidate.count -ge 3 -or $majorPagesAffected) { 'HIGH' } else { 'MEDIUM' }
+                if ($severity -eq 'LOW') { continue }
+                $scopeText = "{0} of {1} checked pages ({2:P0})" -f [int]$candidate.count, $routesChecked, [double]$candidate.share_of_checked_pages
+                $systemProblem = [ordered]@{
+                    problem_type = [string]$mapping.problem_type
+                    source_cluster = [string]$candidate.cluster_type
+                    description = [string]$mapping.description_en
+                    description_ru = [string]$mapping.description_ru
+                    scope = $scopeText
+                    severity = $severity
+                    route_examples = @($candidateRoutes | Select-Object -First 5)
+                    count = [int]$candidate.count
+                    share_of_checked_pages = [double]$candidate.share_of_checked_pages
+                    action_domain = [string]$mapping.action_domain
+                }
+                break
+            }
+        }
+        $report.system_problem = $systemProblem
+
         $primaryProblem = if ($sortedFindings.Count -gt 0) { [string]$sortedFindings[0].issue_type } else { 'no_material_findings_in_sampled_scope' }
         $hasP0Defect = ($p0Count -gt 0)
         $hasP1Defect = ($p1Count -gt 0)
@@ -2620,7 +2712,10 @@ else {
         }
         $primaryLimitationFinding = if ($sortedLimitationFindings.Count -gt 0) { $sortedLimitationFindings[0] } else { $null }
 
-        $decisionPriority = if ($null -ne $primaryDefectFinding) {
+        $decisionPriority = if ($null -ne $report.system_problem) {
+            if ([string]$report.system_problem.severity -eq 'HIGH') { 'P0' } else { 'P1' }
+        }
+        elseif ($null -ne $primaryDefectFinding) {
             [string]$primaryDefectFinding.priority
         }
         else {
@@ -2635,7 +2730,10 @@ else {
         else {
             'CLEAN'
         }
-        $primaryIssueValue = if ($null -ne $primaryDefectFinding) {
+        $primaryIssueValue = if ($null -ne $report.system_problem) {
+            [string]$report.system_problem.problem_type
+        }
+        elseif ($null -ne $primaryDefectFinding) {
             [string]$primaryDefectFinding.issue_type
         }
         elseif ($null -ne $primaryLimitationFinding) {
@@ -2644,13 +2742,24 @@ else {
         else {
             'NONE'
         }
-        $primaryRouteValue = if ($null -ne $primaryDefectFinding) {
+        $primaryRouteValue = if ($null -ne $report.system_problem) {
+            '_system'
+        }
+        elseif ($null -ne $primaryDefectFinding) {
             [string]$primaryDefectFinding.route
         }
         else {
             $null
         }
-        $decisionRecommendedAction = if ($null -ne $primaryDefectFinding) {
+        $decisionRecommendedAction = if ($null -ne $report.system_problem) {
+            if ([string]$report.system_problem.action_domain -eq 'ACTION_PATH') {
+                Get-ActionTextByOwnership -OwnershipMode $ownershipMode -OwnedAction 'Add consistent CTA across key pages' -ExternalAction 'Benchmark consistent CTA patterns across key pages'
+            }
+            else {
+                Get-ActionTextByOwnership -OwnershipMode $ownershipMode -OwnedAction 'Rewrite first screen across key pages' -ExternalAction 'Benchmark first-screen value framing across key pages'
+            }
+        }
+        elseif ($null -ne $primaryDefectFinding) {
             [string]$primaryDefectFinding.recommended_action
         }
         elseif ($null -ne $primaryLimitationFinding) {
@@ -2662,7 +2771,10 @@ else {
         else {
             'Keep monitoring and rerun when the site scope changes.'
         }
-        $decisionReasoning = if ($null -ne $primaryDefectFinding) {
+        $decisionReasoning = if ($null -ne $report.system_problem) {
+            "System problem: $([string]$report.system_problem.description) Scope: $([string]$report.system_problem.scope)."
+        }
+        elseif ($null -ne $primaryDefectFinding) {
             if ([string]$primaryDefectFinding.issue_type -eq 'BROKEN_ROUTE') {
                 'Primary route is broken (non-200), so users cannot progress.'
             }
@@ -2778,7 +2890,10 @@ else {
         $null = $producedArtifacts.Add('HUMAN_REPORT_RU.html')
         $null = $producedArtifacts.Add('HUMAN_REPORT_EN.html')
 
-        $mainFindingEn = if ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'BROKEN_ROUTE') {
+        $mainFindingEn = if ($null -ne $report.system_problem) {
+            "System problem: $([string]$report.system_problem.description) Scope: $([string]$report.system_problem.scope)."
+        }
+        elseif ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'BROKEN_ROUTE') {
             'Route failed to load with HTTP 200.'
         }
         elseif ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'NO_ACTION_PATH') {
@@ -2799,7 +2914,10 @@ else {
         else {
             'No page-level defects were confirmed in the checked scope.'
         }
-        $mainFindingRu = if ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'BROKEN_ROUTE') {
+        $mainFindingRu = if ($null -ne $report.system_problem) {
+            "Системная проблема: $([string]$report.system_problem.description_ru) Охват: $([string]$report.system_problem.scope)."
+        }
+        elseif ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'BROKEN_ROUTE') {
             'Маршрут не загрузился со статусом HTTP 200.'
         }
         elseif ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'NO_ACTION_PATH') {
@@ -2839,14 +2957,23 @@ else {
             [ordered]@{ label = 'Максимальный приоритет'; value = [string]$report.decision_summary.priority },
             [ordered]@{ label = 'Уверенность'; value = [string]$report.audit_confidence }
         )
-        $supportingExamples = @($sortedFindings | Select-Object -First 2)
-        $primaryEvidenceSnippet = if ($null -ne $primaryDefectFinding) { [string]$primaryDefectFinding.evidence_text } else { '' }
+        $supportingExamples = if ($null -ne $report.system_problem) {
+            @(
+                $sortedFindings |
+                Where-Object { [string]$_.issue_type -eq [string]$report.system_problem.source_cluster } |
+                Select-Object -First 2
+            )
+        }
+        else {
+            @($sortedFindings | Select-Object -First 2)
+        }
+        $primaryEvidenceSnippet = if ($null -ne $primaryDefectFinding -and $null -eq $report.system_problem) { [string]$primaryDefectFinding.evidence_text } else { '' }
         if (-not [string]::IsNullOrWhiteSpace($primaryEvidenceSnippet)) {
             $mainFindingEn = "$mainFindingEn Evidence: `"$primaryEvidenceSnippet`"."
             $mainFindingRu = "$mainFindingRu Доказательство: `"$primaryEvidenceSnippet`"."
         }
-        $supportingLinesEn = if ($supportingExamples.Count -gt 0) { @($supportingExamples | ForEach-Object { "Evidence: $([string]$_.route) — $([string]$_.issue_type) — `"$([string]$_.evidence_text)`"." }) } else { @('No strong issue examples in sampled scope.') }
-        $supportingLinesRu = if ($supportingExamples.Count -gt 0) { @($supportingExamples | ForEach-Object { "Доказательство: $([string]$_.route) — $([string]$_.issue_type) — `"$([string]$_.evidence_text)`"." }) } else { @('В проверенном объёме нет подтверждённых сильных дефектов.') }
+        $supportingLinesEn = if ($supportingExamples.Count -gt 0) { @($supportingExamples | ForEach-Object { "Example: $([string]$_.route) — $([string]$_.issue_type) — `"$([string]$_.evidence_text)`"." }) } else { @('No strong issue examples in sampled scope.') }
+        $supportingLinesRu = if ($supportingExamples.Count -gt 0) { @($supportingExamples | ForEach-Object { "Пример: $([string]$_.route) — $([string]$_.issue_type) — `"$([string]$_.evidence_text)`"." }) } else { @('В проверенном объёме нет подтверждённых сильных дефектов.') }
         $reportPayloadEn = [ordered]@{
             executive_lines = @(
                 "Current status: $overallVerdict.",

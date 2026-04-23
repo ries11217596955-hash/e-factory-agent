@@ -1,20 +1,22 @@
 ## Summary
-- Built STRONG SIGNALS PACK in `SITE_AUDITOR_V2` to keep only four high-impact defect signals in the findings pipeline: `BROKEN_ROUTE`, `PROCESS_FIRST`, `NO_VALUE_FIRST_SCREEN`, and `NO_ACTION_PATH`.
-- Added strict evidence gating so findings are emitted only when explicit evidence exists, and each finding now carries `route`, `evidence_text`, `evidence_type`, and `evidence_ref`.
-- Enforced HIGH-confidence-only defect emission and removed micro-cluster synthetic findings to avoid collapsing or diluting direct page evidence.
-- Hardened prioritization and sorting so `BROKEN_ROUTE` and entry/decision-surface `PROCESS_FIRST` issues are ranked first and feed `decision_summary` deterministically.
-- Sharpened HUMAN_REPORT outputs to emphasize only the 1–2 strongest findings with concrete evidence snippets.
+- Implemented PACK 3 systemization in `SITE_AUDITOR_V2`: high-signal findings are now grouped into deterministic micro-clusters (`PROCESS_FIRST`, `NO_VALUE_FIRST_SCREEN`, `NO_ACTION_PATH`, `BROKEN_ROUTE`) when at least 2 routes are affected.
+- Added cluster metrics for each qualifying cluster: affected route count, up to 5 route examples, and share of checked pages.
+- Added a `system_problem` layer (when applicable) that maps clustered issues to system-level problem types (`VALUE_STRUCTURE`, `VALUE_CLARITY`, `ACTION_PATH`) with scope and severity.
+- Added decision override logic so `decision_summary` prioritizes system-level conclusions/actions when a qualifying system problem exists; otherwise it falls back to existing page-level behavior.
+- Updated HUMAN_REPORT generation so it starts with the system problem statement and then provides 1–2 concrete route examples.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
-  - Updated priority and finding-rank mappings to include `BROKEN_ROUTE` as top severity.
-  - Reworked findings synthesis to emit only strong-signal findings with explicit evidence fields.
-  - Added strict `BROKEN_ROUTE` detection (`non-200` / failure) with status-backed evidence.
-  - Removed MICRO_CLUSTER generation from defect findings to prevent aggregation-based dilution.
-  - Updated decision and human-report wording to prioritize strongest evidenced finding and include evidence snippets.
-  - Updated limitation evidence fields for structural consistency.
+  - Added `Get-SystemProblemMapping` for deterministic issue→system-problem translation.
+  - Added `micro_clusters` generation with count, route examples, and share-of-pages metrics.
+  - Added `system_problem` synthesis with severity and scope rules.
+  - Added decision override behavior to drive `decision_summary` from system problem when present.
+  - Added system-level action mapping:
+    - VALUE domains → rewrite first screen across key pages.
+    - ACTION_PATH domain → add consistent CTA across key pages.
+  - Updated HUMAN_REPORT wording and supporting examples to present system-level framing first.
 - `docs/TASK_REPORT.md`
-  - Replaced report content for PACK 2 implementation.
+  - Replaced content for PACK 3 systemization report.
 
 ## Moved files/folders
 - None.
@@ -23,41 +25,39 @@
 - Entrypoint unchanged: `agents/site_auditor_v2/agent.ps1`.
 - Route discovery unchanged.
 - Screenshot engine unchanged (`agents/site_auditor_v2/tools/capture_visuals.mjs` untouched).
-- Ownership logic unchanged (`Get-OwnershipMode` and ownership action selection preserved).
-- Confidence framework unchanged globally; PACK 2 only gates findings to HIGH-confidence evidence-backed signals.
+- Ownership logic unchanged (ownership mode and owned/external action routing preserved).
+- Confidence logic unchanged at signal level (still evidence-gated high-signal findings); PACK 3 adds only post-finding system aggregation.
 
 ## Risks/blockers
-- `PROCESS_FIRST`, `NO_VALUE_FIRST_SCREEN`, and `NO_ACTION_PATH` now require first-screen text evidence; pages with sparse/empty extractable text may produce fewer findings despite visible issues.
-- `BROKEN_ROUTE` now ranks highest and can dominate decision output when non-200 responses exist.
-- Existing consumers that relied on MICRO_CLUSTER findings will no longer receive that synthetic issue type.
+- `BROKEN_ROUTE` clusters are tracked in `micro_clusters`, but no system-problem mapping is applied for them by design; decisions may remain page-level if only broken-route clustering is present.
+- System-problem severity escalates to `HIGH` when 3+ pages are affected or major page types (`HOME`, `DECISION`, `TOOL`) are included; this can change top-level recommendations compared with single-finding prioritization.
+- External-ownership recommendations remain benchmarking-oriented; operators expecting direct remediation phrasing for external sites should align with ownership constraints.
 - No blockers encountered.
 
-### Signal definitions
-- `BROKEN_ROUTE`: route fails or returns non-200 status.
-- `PROCESS_FIRST`: first screen starts with process/instructions before value statement.
-- `NO_VALUE_FIRST_SCREEN`: first screen does not clearly communicate page value.
-- `NO_ACTION_PATH`: first screen lacks a clear visible next step.
+### Clustering logic
+- Eligible issue types: `PROCESS_FIRST`, `NO_VALUE_FIRST_SCREEN`, `NO_ACTION_PATH`, `BROKEN_ROUTE`.
+- Cluster threshold: at least 2 unique affected routes.
+- Per-cluster metrics emitted:
+  - `count`
+  - `routes` (max 5)
+  - `share_of_checked_pages` (count / checked routes)
 
-### Confidence rules
-- Signal confidence is `HIGH` only when:
-  - condition is true for the signal, and
-  - required evidence is present (`status` evidence for `BROKEN_ROUTE`, `text` evidence for first-screen signals).
-- Only `HIGH` confidence signals are promoted to defect findings.
-- Lower-confidence signals are discarded from the defect findings list.
-
-### Evidence rules
-- Every emitted finding includes:
-  - `route`
-  - `evidence_text`
-  - `evidence_type`
-  - `evidence_ref`
-- For first-screen signals, evidence is text snippet (first 1–2 lines).
-- For broken routes, evidence is status-based text (`HTTP status code: ...`).
-- Findings without required evidence are not emitted.
+### System problem rules
+- Mapping rules:
+  - `PROCESS_FIRST` → `VALUE_STRUCTURE`
+  - `NO_VALUE_FIRST_SCREEN` → `VALUE_CLARITY`
+  - `NO_ACTION_PATH` → `ACTION_PATH`
+- Severity:
+  - `HIGH` when affected routes >= 3 OR major pages are affected.
+  - `MEDIUM` when affected routes = 2.
+  - `LOW` is ignored (not emitted as system problem).
+- Decision override:
+  - If `system_problem` exists, `decision_summary` uses system-level issue/reasoning/action.
+  - If no qualifying mapped cluster exists, existing page-level logic remains active.
 
 ### Rollback
-1. Revert `agents/site_auditor_v2/agent.ps1` signal maps (`Get-DefectPriorityByIssueType`, `Get-FindingTypeSortRank`) to remove `BROKEN_ROUTE` and previous rank ordering.
-2. Revert findings synthesis block to prior signal conditions/evidence logic and remove `evidence_type`/`evidence_ref` fields.
-3. Restore MICRO_CLUSTER generation block if aggregate synthetic findings are required again.
-4. Revert decision reasoning/report wording updates tied to `BROKEN_ROUTE` and evidence-snippet output.
-5. Restore previous `docs/TASK_REPORT.md` content if PACK 2 report is rolled back.
+1. Remove `Get-SystemProblemMapping` from `agents/site_auditor_v2/agent.ps1`.
+2. Remove micro-cluster synthesis and restore `report.micro_clusters` to empty output.
+3. Remove `system_problem` generation and decision override branches.
+4. Restore HUMAN_REPORT main-finding logic to page-level-first wording.
+5. Restore previous `docs/TASK_REPORT.md` content for PACK 2.
