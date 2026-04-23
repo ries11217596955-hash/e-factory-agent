@@ -1035,6 +1035,7 @@ $report = [ordered]@{
         what_to_inspect_next = @()
         truth_files = @()
         read_order = @()
+        must_read_first = @('RUN_REPORT.json')
         first_file_to_open = ''
         exact_reason = ''
         do_not_do_yet = @()
@@ -1054,6 +1055,7 @@ $report = [ordered]@{
         audit_scope = 'LINK mode / screenshot evidence baseline'
         strongest_next_move = 'derive deterministic findings from existing artifacts'
     }
+    next_strongest_move = 'expand_route_sample_within_budget'
     findings = @()
     operator_feed = [ordered]@{
         system_state = ''
@@ -2099,11 +2101,41 @@ else {
         }
         $report.report_mode = if ($allFindings.Count -gt 0) { 'PROBLEM' } else { 'CLEAN' }
 
-        $primaryProblem = if ($allFindings.Count -gt 0) {
-            [string]$allFindings[0].issue_type
+        $sortedFindings = @(
+            $allFindings |
+            Sort-Object @{ Expression = {
+                    switch ([string]$_.severity) {
+                        'P0' { 0 }
+                        'P1' { 1 }
+                        default { 2 }
+                    }
+                }
+            }, finding_id
+        )
+
+        $primaryProblem = if ($sortedFindings.Count -gt 0) {
+            [string]$sortedFindings[0].issue_type
         }
         else {
             'no_material_findings_in_sampled_scope'
+        }
+        $highestPriorityIssueType = if ($sortedFindings.Count -gt 0) {
+            [string]$sortedFindings[0].issue_type
+        }
+        else {
+            ''
+        }
+        $nextStrongestMove = if ($allFindings.Count -eq 0) {
+            'expand_route_sample_within_budget'
+        }
+        else {
+            switch ($highestPriorityIssueType) {
+                'ROUTE_OVERFLOW_ONLY' { 'increase_route_sample_or_adjust_budget' }
+                'CAPTURE_FAILURE' { 'restore_capture_integrity_and_rerun_link_mode' }
+                'BROKEN_ROUTE' { 'repair_broken_routes_and_rerun_link_mode' }
+                'THIN_ROUTE' { 'expand_route_content_and_rerun_link_mode' }
+                default { 'resolve_highest_priority_finding_from_run_report' }
+            }
         }
         $overallVerdict = if ($allFindings.Count -eq 0) {
             'CLEAN: sampled LINK evidence shows no material findings'
@@ -2121,7 +2153,7 @@ else {
             'No immediate action required; keep current LINK sample unless scope changes.'
         }
         else {
-            [string]$allFindings[0].recommended_action
+            [string]$sortedFindings[0].recommended_action
         }
         $report.executive_answer = [ordered]@{
             overall_verdict = $overallVerdict
@@ -2129,6 +2161,7 @@ else {
             audit_scope = 'LINK mode / screenshot evidence baseline'
             strongest_next_move = $strongestMove
         }
+        $report.next_strongest_move = [string]$nextStrongestMove
 
         $report.business_impact = [ordered]@{
             trust = if ($report.capture_report.status -eq 'PASS') { 'no integrity defect detected in sampled visual evidence' } else { 'limited trust due to incomplete visual evidence' }
@@ -2178,14 +2211,25 @@ else {
         Copy-Item -LiteralPath $actionSummaryPath -Destination $deterministicActionSummaryPath -Force
 
         $report.next_step = [string]$report.next_action_contract.next_task_objective
+        $isRouteOverflowOnlySingleFinding = ($allFindings.Count -eq 1 -and [string]$allFindings[0].issue_type -eq 'ROUTE_OVERFLOW_ONLY')
+        $operatorHandoffReason = if ($isRouteOverflowOnlySingleFinding) {
+            'Run completed successfully. One non-defect finding detected: route sample coverage limitation (ROUTE_OVERFLOW_ONLY). No confirmed page-level defects in sampled scope.'
+        }
+        elseif ($allFindings.Count -gt 0) {
+            'RUN_REPORT.json contains sampled-scope findings, priority counts, and artifact-linked actions bounded to observable LINK evidence.'
+        }
+        else {
+            'RUN_REPORT.json confirms sampled-scope cleanliness in current LINK coverage and documents route budget limits.'
+        }
         $report.operator_handoff = [ordered]@{
             deprecated = $true
             reader_role = 'ChatGPT decision/orchestration layer'
             mirrors_operator_memory_bridge = $true
             truth_files = @($report.operator_memory_bridge.must_read_contract.must_read_files)
             read_order = @($report.operator_memory_bridge.must_read_contract.read_order)
+            must_read_first = @('RUN_REPORT.json')
             first_file_to_open = [string]$report.operator_memory_bridge.must_read_contract.first_file_to_open
-            exact_reason = [string]$report.operator_memory_bridge.must_read_contract.why_read
+            exact_reason = [string]$operatorHandoffReason
             do_not_do_yet = @($report.operator_memory_bridge.next_operator_posture.do_not_do_yet)
             must_do_before_next_task = @($report.operator_memory_bridge.next_operator_posture.must_do_before_next_task)
             what_to_inspect_next = @($report.operator_memory_bridge.next_operator_posture.what_to_inspect_next)
