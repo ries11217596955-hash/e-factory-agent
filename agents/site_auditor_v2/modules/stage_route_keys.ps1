@@ -313,8 +313,16 @@ function Get-VisualTargets {
     }
 
     $selectedTargets = @($allRankedTargets | Select-Object -First $MaxPages)
+    $overflowTargets = @()
+    if ($allRankedTargets.Count -gt $selectedTargets.Count) {
+        $overflowTargets = @($allRankedTargets | Select-Object -Skip $selectedTargets.Count)
+    }
     Write-Host ('ROUTE_SELECTION: SELECTED_COUNT=' + $selectedTargets.Count)
     Write-Host 'ROUTE_SELECTION: SELECTED_OK'
 
-    return @($selectedTargets)
+    return [ordered]@{
+        selected_routes = @($selectedTargets)
+        overflow_routes = @($overflowTargets)
+        selection_strategy = 'priority_ranked_top_n'
+    }
 }

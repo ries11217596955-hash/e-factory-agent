@@ -1,5 +1,5 @@
 ## Summary
-Hardened final visual target selection in `Get-VisualTargets` for PowerShell 5.1 by validating merged ranked targets, guarding empty post-validation collections, selecting safely with array materialization, and returning only an array of selected targets with new route-selection markers.
+Restored the `Get-VisualTargets` structured return contract for PowerShell 5.1 stage handoff stability by returning `selected_routes`, `overflow_routes`, and `selection_strategy` while preserving existing ranking/selection behavior and route-selection markers.
 
 ## Changed files
 - agents/site_auditor_v2/modules/stage_route_keys.ps1
@@ -10,7 +10,7 @@ Hardened final visual target selection in `Get-VisualTargets` for PowerShell 5.1
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/site_auditor_v2/agent.ps1`.
-- Change scope limited to final selection block inside `Get-VisualTargets` in `agents/site_auditor_v2/modules/stage_route_keys.ps1`.
+- Change scope limited to `Get-VisualTargets` return-shape block in `agents/site_auditor_v2/modules/stage_route_keys.ps1`.
 
 ## Risks/blockers
-- No full orchestrator run was executed here; runtime verification of marker ordering and downstream consumers expecting array-only return should be validated in integration execution.
+- No full end-to-end run was executed in this environment; integration execution should confirm downstream CAPTURE stage continuation with restored properties.
