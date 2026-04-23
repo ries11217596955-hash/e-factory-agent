@@ -1,8 +1,8 @@
 ## Summary
-Restored the `Get-VisualTargets` structured return contract for PowerShell 5.1 stage handoff stability by returning `selected_routes`, `overflow_routes`, and `selection_strategy` while preserving existing ranking/selection behavior and route-selection markers.
+Fixed the PowerShell 5.1 failure-path artifact merge crash by materializing the internal `System.Collections.Generic.List[string]` into a plain array before appending failure artifacts, preserving artifact names and failure finalization semantics.
 
 ## Changed files
-- agents/site_auditor_v2/modules/stage_route_keys.ps1
+- agents/site_auditor_v2/agent.ps1
 - docs/TASK_REPORT.md
 
 ## Moved files/folders
@@ -10,7 +10,7 @@ Restored the `Get-VisualTargets` structured return contract for PowerShell 5.1 s
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/site_auditor_v2/agent.ps1`.
-- Change scope limited to `Get-VisualTargets` return-shape block in `agents/site_auditor_v2/modules/stage_route_keys.ps1`.
+- Change scope limited to failure finalization artifact list assembly in `agents/site_auditor_v2/agent.ps1`.
 
 ## Risks/blockers
-- No full end-to-end run was executed in this environment; integration execution should confirm downstream CAPTURE stage continuation with restored properties.
+- No full runtime execution was performed in this environment; validate with a failure-path run to confirm absence of `Argument types do not match` and expected `RUN_REPORT.json` finalization output.
