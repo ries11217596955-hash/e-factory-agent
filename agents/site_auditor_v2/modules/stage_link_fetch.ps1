@@ -283,9 +283,9 @@ function Get-ShallowRoutes {
                 $match.Groups[4].Value
             }
 
-            $resolution = Get-HrefResolutionResult -RootUri $rootUri -Href ([string]$rawHref)
-            if ($resolution.status -ne 'ok') {
-                $reasonKey = [string]$resolution.classification
+            $trimmedHref = ([string]$rawHref).Trim()
+            if ([string]::IsNullOrWhiteSpace($trimmedHref)) {
+                $reasonKey = 'empty'
                 if (-not $rejectionReasonCounts.ContainsKey($reasonKey)) {
                     $rejectionReasonCounts[$reasonKey] = 0
                 }
@@ -298,9 +298,44 @@ function Get-ShallowRoutes {
                 }
                 continue
             }
-            $resolvedUri = [Uri]$resolution.resolved_uri
 
-            $route = ([uri]$resolvedUri.AbsoluteUri).AbsolutePath
+            if ($trimmedHref.StartsWith('/')) {
+                $absolute = "$($rootUri.Scheme)://$($rootUri.Host)$trimmedHref"
+            }
+            elseif ($trimmedHref.StartsWith('http')) {
+                $absolute = $trimmedHref
+            }
+            else {
+                $reasonKey = 'relative_non_root'
+                if (-not $rejectionReasonCounts.ContainsKey($reasonKey)) {
+                    $rejectionReasonCounts[$reasonKey] = 0
+                }
+                $rejectionReasonCounts[$reasonKey] = [int]$rejectionReasonCounts[$reasonKey] + 1
+                if ($sampleRejectedHrefs.Count -lt 3) {
+                    $sampleRejectedHrefs.Add([ordered]@{
+                            href = [string]$rawHref
+                            reason = $reasonKey
+                        })
+                }
+                continue
+            }
+
+            if ($absolute -notmatch "^https?://$($rootUri.Host)") {
+                $reasonKey = 'external'
+                if (-not $rejectionReasonCounts.ContainsKey($reasonKey)) {
+                    $rejectionReasonCounts[$reasonKey] = 0
+                }
+                $rejectionReasonCounts[$reasonKey] = [int]$rejectionReasonCounts[$reasonKey] + 1
+                if ($sampleRejectedHrefs.Count -lt 3) {
+                    $sampleRejectedHrefs.Add([ordered]@{
+                            href = [string]$rawHref
+                            reason = $reasonKey
+                        })
+                }
+                continue
+            }
+
+            $route = $absolute -replace "^https?://$($rootUri.Host)", ""
             if ([string]::IsNullOrWhiteSpace($route)) {
                 $route = '/'
             }
@@ -309,17 +344,17 @@ function Get-ShallowRoutes {
             if ($sampleInternalHrefs.Count -lt 3) {
                 $sampleInternalHrefs.Add([ordered]@{
                         href = [string]$rawHref
-                        classification = [string]$resolution.classification
-                        resolved_url = [string]$resolvedUri.AbsoluteUri
+                        classification = 'internal'
+                        resolved_url = [string]$absolute
                     })
             }
 
             if (($routeUrls.Count -lt $MaxRoutes) -and (Add-KeyIfMissing -Map $uniqueRouteKeys -Key ([string]$route))) {
                 $routeUrls.Add([ordered]@{
                         status = 'ok'
-                        url = [string]$resolvedUri.AbsoluteUri
+                        url = [string]$absolute
                         normalized_route = [string]$route
-                        source_url = [string]$resolvedUri.AbsoluteUri
+                        source_url = [string]$absolute
                         error = ''
                     })
             }
