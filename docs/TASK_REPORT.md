@@ -1,5 +1,5 @@
 ## Summary
-Applied a minimal PS5.1-safe reconciliation patch in `agents/site_auditor_v2/agent.ps1` to ensure reconciliation notes are assembled using explicit arrays for PASS/PARTIAL/FAIL branches. Removed the reconciliation notes append pattern that used `List[string]` in PARTIAL/FAIL and kept the RECON note-ready markers.
+Applied a minimal PowerShell 5.1-safe type fix in `Invoke-EvidenceReconciliation()` so the screenshot relative path normalization uses a matching `string,string` overload for `.Replace()`.
 
 ## Changed files
 - agents/site_auditor_v2/agent.ps1
@@ -10,8 +10,8 @@ Applied a minimal PS5.1-safe reconciliation patch in `agents/site_auditor_v2/age
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/site_auditor_v2/agent.ps1`.
-- Modified scope: reconciliation status switch notes assembly and related variables in that block only.
+- Modified scope limited to one normalization line inside `Invoke-EvidenceReconciliation()`.
 
 ## Risks/blockers
-- End-to-end runtime verification was not executed in this environment.
-- Acceptance should be confirmed by running the agent and verifying reconciliation advances past notes assembly without `Argument types do not match` in reconciliation.
+- Runtime execution was not performed in this environment, so acceptance needs validation in a normal run.
+- If downstream logic depends on platform-specific separators, behavior should now be deterministic via explicit string conversion.

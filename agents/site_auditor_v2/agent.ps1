@@ -474,7 +474,7 @@ function Invoke-EvidenceReconciliation {
             continue
         }
 
-        $normalizedRelative = $relativeFile.Replace('/', [System.IO.Path]::DirectorySeparatorChar)
+        $normalizedRelative = $relativeFile.Replace([string]'/', [string][System.IO.Path]::DirectorySeparatorChar)
         $expectedPath = Join-Path (Split-Path -Parent $ManifestPath) $normalizedRelative
         $fileStatus = 'ok'
 
