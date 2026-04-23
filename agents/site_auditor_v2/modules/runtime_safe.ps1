@@ -10,6 +10,9 @@ function New-SafeList {
 }
 
 function New-CaseInsensitiveKeyMap {
+    # CONTRACT: this structure is a case-insensitive key-map (normalized-string -> value),
+    # not a HashSet. Callers must use Add-KeyIfMissing/Test-KeyExists/Get-KeyMapKeys/Get-KeyMapCount
+    # and must not call raw .Add(value)/.Contains(value) methods directly.
     return @{}
 }
 
