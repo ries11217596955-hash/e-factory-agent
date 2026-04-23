@@ -34,6 +34,20 @@ function Get-ActionTextByOwnership {
     return $ExternalAction
 }
 
+function Get-DefectPriorityByIssueType {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$IssueType
+    )
+
+    switch ($IssueType) {
+        'BROKEN_ROUTE' { return 'P0' }
+        'CAPTURE_FAILURE' { return 'P0' }
+        'THIN_ROUTE' { return 'P1' }
+        default { return 'P2' }
+    }
+}
+
 function Get-DeterministicRunKey {
     param(
         [Parameter(Mandatory = $true)]
@@ -1292,7 +1306,7 @@ else {
                     [ordered]@{
                         route = [string]$_.url
                         finding_type = ([string]$_.classification).ToUpperInvariant() + '_ROUTE'
-                        priority = if ([string]$_.classification -eq 'broken') { 'P1' } else { 'P2' }
+                        priority = if ([string]$_.classification -eq 'broken') { 'P0' } else { 'P1' }
                         action = [string]$_.action
                         evidence_refs = @('ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json')
                     }
@@ -1747,14 +1761,17 @@ else {
             }
 
             if ($route.classification -eq 'broken') {
+                $issueType = 'BROKEN_ROUTE'
+                $priority = Get-DefectPriorityByIssueType -IssueType $issueType
                 $findingId = "F-{0:d3}" -f $findingIndex
                 $findingsList.Add([ordered]@{
                         finding_id = $findingId
                         route = $routeKey
-                        type = 'BROKEN_ROUTE'
-                        issue_type = 'BROKEN_ROUTE'
+                        type = $issueType
+                        issue_type = $issueType
                         category = 'DEFECT'
-                        severity = 'P1'
+                        priority = $priority
+                        severity = $priority
                         evidence_refs = @('ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json')
                         why_it_matters = 'Broken route evidence blocks page access in current sampled route set.'
                         recommended_action = Get-ActionTextByOwnership -OwnershipMode $ownershipMode -OwnedAction 'Fix route status or remove the broken link from internal navigation.' -ExternalAction 'Analyze broken-route patterns, benchmark healthier navigation structures, and replicate resilient linking patterns.'
@@ -1763,14 +1780,17 @@ else {
                 $findingIndex += 1
             }
             elseif ($route.classification -eq 'thin') {
+                $issueType = 'THIN_ROUTE'
+                $priority = Get-DefectPriorityByIssueType -IssueType $issueType
                 $findingId = "F-{0:d3}" -f $findingIndex
                 $findingsList.Add([ordered]@{
                         finding_id = $findingId
                         route = $routeKey
-                        type = 'THIN_ROUTE'
-                        issue_type = 'THIN_ROUTE'
+                        type = $issueType
+                        issue_type = $issueType
                         category = 'DEFECT'
-                        severity = 'P2'
+                        priority = $priority
+                        severity = $priority
                         evidence_refs = @('ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json')
                         why_it_matters = 'Thin HTML evidence reduces confidence for downstream audit interpretation.'
                         recommended_action = Get-ActionTextByOwnership -OwnershipMode $ownershipMode -OwnedAction 'Expand route content and rerun LINK capture before deeper audit interpretation.' -ExternalAction 'Learn from stronger pages, benchmark depth patterns, and replicate higher-information structures for future owned implementation.'
@@ -1782,7 +1802,8 @@ else {
 
         $captureStatus = [string]$report.capture_report.status
         if ($counterMismatchDetected -or $captureStatus -eq 'FAIL' -or $captureStatus -eq 'PARTIAL') {
-            $visualSeverity = if ($counterMismatchDetected -or $captureStatus -eq 'FAIL') { 'P0' } else { 'P1' }
+            $issueType = 'CAPTURE_FAILURE'
+            $priority = Get-DefectPriorityByIssueType -IssueType $issueType
             $visualWhy = if ($captureStatus -eq 'FAIL') {
                 'Visual evidence is not complete enough to support reliable page-level interpretation.'
             }
@@ -1804,10 +1825,11 @@ else {
             $findingsList.Add([ordered]@{
                     finding_id = "F-{0:d3}" -f $findingIndex
                     route = '_run_scope'
-                    type = 'CAPTURE_FAILURE'
-                    issue_type = 'CAPTURE_FAILURE'
+                    type = $issueType
+                    issue_type = $issueType
                     category = 'DEFECT'
-                    severity = $visualSeverity
+                    priority = $priority
+                    severity = $priority
                     capture_status = $captureStatus
                     evidence_refs = @('visual_manifest.json', 'RUN_REPORT.json')
                     why_it_matters = $visualWhy
@@ -1823,6 +1845,7 @@ else {
                     type = 'ROUTE_OVERFLOW_ONLY'
                     issue_type = 'ROUTE_OVERFLOW_ONLY'
                     category = 'LIMITATION'
+                    priority = 'P2'
                     severity = 'P2'
                     evidence_refs = @('RUN_REPORT.json', 'ROUTES_SUMMARY.json')
                     why_it_matters = 'Current max_routes budget leaves additional discovered routes outside sampled coverage.'
@@ -1900,13 +1923,13 @@ else {
         $isLowConfidence = ($routesChecked -lt $maxRoutesBudget) -or $hasLimitationFindings
         $isHighConfidence = (-not $isLowConfidence) -and ($defectFindings.Count -eq 0) -and ($coverageRatio -ge 0.9)
         $report.audit_confidence = if ($isLowConfidence) { 'LOW' } elseif ($isHighConfidence) { 'HIGH' } else { 'MEDIUM' }
-        $p0Count = [int]@($defectFindings | Where-Object { $_.severity -eq 'P0' }).Count
-        $p1Count = [int]@($defectFindings | Where-Object { $_.severity -eq 'P1' }).Count
-        $p2Count = [int]@($defectFindings | Where-Object { $_.severity -eq 'P2' }).Count
+        $p0Count = [int]@($defectFindings | Where-Object { [string]$_.priority -eq 'P0' }).Count
+        $p1Count = [int]@($defectFindings | Where-Object { [string]$_.priority -eq 'P1' }).Count
+        $p2Count = [int]@($defectFindings | Where-Object { [string]$_.priority -eq 'P2' }).Count
         $topIssues = @(
             $defectFindings |
             Sort-Object @{ Expression = {
-                    switch ([string]$_.severity) {
+                    switch ([string]$_.priority) {
                         'P0' { 0 }
                         'P1' { 1 }
                         default { 2 }
@@ -2152,7 +2175,7 @@ else {
         $sortedFindings = @(
             $defectFindings |
             Sort-Object @{ Expression = {
-                    switch ([string]$_.severity) {
+                    switch ([string]$_.priority) {
                         'P0' { 0 }
                         'P1' { 1 }
                         default { 2 }
@@ -2173,11 +2196,29 @@ else {
         else {
             ''
         }
-        $nextStrongestMove = if ($defectFindings.Count -eq 0 -and $limitationFindings.Count -gt 0) {
+        $hasP0Defect = ($p0Count -gt 0)
+        $hasP1Defect = ($p1Count -gt 0)
+        $nextStrongestMove = if ($hasP0Defect) {
+            if ($ownershipMode -eq 'OWNED') {
+                'resolve_p0_defect_first'
+            }
+            else {
+                'analyze_p0_defect_patterns_first'
+            }
+        }
+        elseif ($hasP1Defect) {
+            if ($ownershipMode -eq 'OWNED') {
+                'improve_p1_defect_routes_first'
+            }
+            else {
+                'analyze_p1_improvement_patterns_first'
+            }
+        }
+        elseif ($defectFindings.Count -eq 0 -and $limitationFindings.Count -gt 0) {
             'increase_route_sample_or_adjust_budget'
         }
-        elseif ($defectFindings.Count -eq 0) {
-            'expand_route_sample_within_budget'
+        elseif ($defectFindings.Count -eq 0 -and $limitationFindings.Count -eq 0) {
+            'clean_monitor_and_rerun_on_scope_change'
         }
         else {
             if ($ownershipMode -eq 'OWNED') {
@@ -2261,7 +2302,7 @@ else {
         $actionSummaryActions = @(
             $defectFindings |
             Sort-Object @{ Expression = {
-                    switch ([string]$_.severity) {
+                    switch ([string]$_.priority) {
                         'P0' { 0 }
                         'P1' { 1 }
                         default { 2 }
@@ -2273,7 +2314,7 @@ else {
                     finding_id = [string]$_.finding_id
                     route = [string]$_.route
                     finding_type = [string]$_.issue_type
-                    priority = [string]$_.severity
+                    priority = [string]$_.priority
                     action = [string]$_.recommended_action
                     evidence_refs = @($_.evidence_refs)
                 }
@@ -2306,6 +2347,8 @@ else {
         else {
             'RUN_REPORT.json confirms sampled-scope cleanliness in current LINK coverage and documents route budget limits.'
         }
+        $firstDefectAction = if ($actionSummaryActions.Count -gt 0) { [string]$actionSummaryActions[0].action } else { '' }
+        $highestPriorityIssue = if ($sortedFindings.Count -gt 0) { [string]$sortedFindings[0].issue_type } else { 'NONE' }
         $report.operator_handoff = [ordered]@{
             deprecated = $true
             reader_role = 'ChatGPT decision/orchestration layer'
@@ -2317,6 +2360,8 @@ else {
             must_read_first = @('RUN_REPORT.json')
             first_file_to_open = [string]$report.operator_memory_bridge.must_read_contract.first_file_to_open
             exact_reason = [string]$operatorHandoffReason
+            highest_priority_issue = $highestPriorityIssue
+            what_to_do_first = $firstDefectAction
             do_not_do_yet = @($report.operator_memory_bridge.next_operator_posture.do_not_do_yet)
             must_do_before_next_task = @($report.operator_memory_bridge.next_operator_posture.must_do_before_next_task)
             what_to_inspect_next = @($report.operator_memory_bridge.next_operator_posture.what_to_inspect_next)
