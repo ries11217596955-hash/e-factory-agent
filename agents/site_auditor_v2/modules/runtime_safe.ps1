@@ -9,20 +9,72 @@ function New-SafeList {
     return New-Object ("System.Collections.Generic.List[{0}]" -f $TypeName)
 }
 
-function New-SafeHashSet {
+function New-CaseInsensitiveKeyMap {
+    return @{}
+}
+
+function Get-NormalizedKey {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$TypeName,
-        [Parameter()]
-        [System.Collections.IEqualityComparer]$Comparer
+        [AllowEmptyString()]
+        [string]$Key
     )
 
-    $genericTypeName = "System.Collections.Generic.HashSet[{0}]" -f $TypeName
-    if ($null -ne $Comparer) {
-        return New-Object $genericTypeName -ArgumentList (, $Comparer)
+    return $Key.Trim().ToLowerInvariant()
+}
+
+function Add-KeyIfMissing {
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Map,
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [string]$Key,
+        [Parameter()]
+        [Object]$Value = $true
+    )
+
+    $normalizedKey = Get-NormalizedKey -Key $Key
+    if ([string]::IsNullOrWhiteSpace($normalizedKey)) {
+        return $false
     }
 
-    return New-Object $genericTypeName
+    if ($Map.ContainsKey($normalizedKey)) {
+        return $false
+    }
+
+    $Map[$normalizedKey] = $Value
+    return $true
+}
+
+function Test-KeyExists {
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Map,
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [string]$Key
+    )
+
+    return $Map.ContainsKey((Get-NormalizedKey -Key $Key))
+}
+
+function Get-KeyMapKeys {
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Map
+    )
+
+    return @($Map.Keys)
+}
+
+function Get-KeyMapCount {
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Map
+    )
+
+    return [int]$Map.Count
 }
 
 function New-SafeUtf8NoBom {

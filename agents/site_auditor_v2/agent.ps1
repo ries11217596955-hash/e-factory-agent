@@ -1,3 +1,7 @@
+# Runtime Contract: Windows PowerShell 5.1 compatible
+# - No ambiguous ::new(...) constructor usage in runtime-critical paths
+# - No comparer-based generic constructor overloads
+# - Use runtime-safe helper factories from modules/runtime_safe.ps1
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
@@ -19,6 +23,9 @@ if ($PSVersionTable.PSVersion.Major -lt 6) {
 . "$PSScriptRoot/modules/surface_context.ps1"
 . "$PSScriptRoot/modules/report_safe_helpers.ps1"
 . "$PSScriptRoot/modules/report_layer.ps1"
+. "$PSScriptRoot/modules/stage_link_fetch.ps1"
+. "$PSScriptRoot/modules/stage_route_keys.ps1"
+. "$PSScriptRoot/modules/stage_capture_reconciliation.ps1"
 
 function Get-OwnershipMode {
     return 'EXTERNAL'
@@ -278,471 +285,6 @@ function Get-DeterministicRunKey {
     return "{0}_{1}" -f $Mode.Trim().ToLowerInvariant(), $hash.Substring(0, 12)
 }
 
-function Resolve-CanonicalBaseUrl {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$BaseUrl
-    )
-
-    $trimmedBaseUrl = [string]$BaseUrl
-    if (-not [string]::IsNullOrWhiteSpace($trimmedBaseUrl)) {
-        $trimmedBaseUrl = $trimmedBaseUrl.Trim()
-    }
-
-    if ([string]::IsNullOrWhiteSpace($trimmedBaseUrl)) {
-        return [ordered]@{
-            status = 'failed'
-            canonical_url = ''
-            error = 'BaseUrl must be non-empty.'
-        }
-    }
-
-    $candidateUrl = if ($trimmedBaseUrl -match '^[a-z][a-z0-9+\-.]*://') {
-        $trimmedBaseUrl
-    }
-    else {
-        "https://$trimmedBaseUrl"
-    }
-
-    $absoluteUri = $null
-    $isAbsolute = [Uri]::TryCreate($candidateUrl, [UriKind]::Absolute, [ref]$absoluteUri)
-    if (-not $isAbsolute -or $null -eq $absoluteUri) {
-        return [ordered]@{
-            status = 'failed'
-            canonical_url = ''
-            error = 'BaseUrl is not a valid absolute URL.'
-        }
-    }
-
-    if ($absoluteUri.Scheme -notin @('http', 'https') -or [string]::IsNullOrWhiteSpace([string]$absoluteUri.Host)) {
-        return [ordered]@{
-            status = 'failed'
-            canonical_url = ''
-            error = 'BaseUrl must be an absolute http/https URL.'
-        }
-    }
-
-    $builder = Resolve-SafeUriBuilder -Source $absoluteUri
-    $normalizedPath = [string]$builder.Path
-    if ([string]::IsNullOrWhiteSpace($normalizedPath)) {
-        $normalizedPath = '/'
-    }
-
-    if (($normalizedPath.Length -gt 1) -and $normalizedPath.EndsWith('/')) {
-        $normalizedPath = $normalizedPath.TrimEnd('/')
-        if ([string]::IsNullOrWhiteSpace($normalizedPath)) {
-            $normalizedPath = '/'
-        }
-    }
-
-    $builder.Path = $normalizedPath
-    $canonicalUrl = $builder.Uri.AbsoluteUri
-
-    return [ordered]@{
-        status = 'ok'
-        canonical_url = $canonicalUrl
-        error = ''
-    }
-}
-
-function Get-ResponseHtml {
-    param(
-        [Parameter(Mandatory = $true)]
-        [object]$Response,
-        [Parameter(Mandatory = $true)]
-        [string]$FetchMethod
-    )
-
-    if ($FetchMethod -eq 'Invoke-WebRequest') {
-        return [string]$Response.Content
-    }
-    elseif ($FetchMethod -eq 'Invoke-RestMethod') {
-        return [string]$Response
-    }
-    elseif ($FetchMethod -eq 'HttpClient') {
-        return [string]$Response.Content.ReadAsStringAsync().Result
-    }
-
-    throw "UNSUPPORTED_FETCH_METHOD:$FetchMethod"
-}
-
-function Get-LinkSignals {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Url
-    )
-
-    $response = Invoke-WebRequest -Uri $Url -Method Get -MaximumRedirection 5
-    $statusCode = [int]$response.StatusCode
-    $html = Get-ResponseHtml -Response $response -FetchMethod 'Invoke-WebRequest'
-
-    $titleMatch = [regex]::Match($html, '(?is)<title[^>]*>(.*?)</title>')
-    $title = if ($titleMatch.Success) {
-        [System.Net.WebUtility]::HtmlDecode($titleMatch.Groups[1].Value).Trim()
-    }
-    else {
-        ''
-    }
-
-    $linkMatches = [regex]::Matches($html, '(?is)<a\b[^>]*href\s*=')
-    $linkCount = [int]$linkMatches.Count
-    $htmlLength = [int]$html.Length
-    $isThin = (($htmlLength -lt 500) -or ([string]::IsNullOrWhiteSpace($title)) -or ($linkCount -le 1))
-
-    return [ordered]@{
-        url = $Url
-        status_code = $statusCode
-        title = $title
-        html_length = $htmlLength
-        link_count = $linkCount
-        is_thin = $isThin
-    }
-}
-
-function Get-ShallowRoutes {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$RootUrl,
-        [int]$MaxRoutes = 10
-    )
-
-    $rootUri = [Uri]$RootUrl
-    $fetchDebug = [ordered]@{
-        status_code = ''
-        html_length = 0
-        body_present = $false
-        content_sample = ''
-    }
-    $rootHtml = ''
-    $hrefMatches = @()
-    try {
-        $rootResponse = Invoke-WebRequest -Uri $RootUrl -Method Get -MaximumRedirection 5
-        $rootHtml = Get-ResponseHtml -Response $rootResponse -FetchMethod 'Invoke-WebRequest'
-        $fetchDebug.status_code = [string][int]$rootResponse.StatusCode
-        $fetchDebug.html_length = [int]$rootHtml.Length
-        $fetchDebug.body_present = ($rootHtml.Length -gt 0)
-        $fetchDebug.content_sample = if ($rootHtml.Length -gt 200) { $rootHtml.Substring(0, 200) } else { $rootHtml }
-        if (($fetchDebug.status_code -eq '200') -and ($fetchDebug.html_length -eq 0)) {
-            throw 'FETCH_RETURNED_EMPTY_BODY'
-        }
-        if (($fetchDebug.body_present -eq $false) -or [string]::IsNullOrWhiteSpace($fetchDebug.content_sample)) {
-            throw 'FETCH_BODY_VALIDATION_FAILED'
-        }
-        $hrefMatches = [regex]::Matches($rootHtml, '(?is)<a\b[^>]*href\s*=\s*("([^"]*)"|''([^'']*)''|([^\s>]+))')
-    }
-    catch {
-        return [ordered]@{
-            root = $RootUrl
-            routes = @()
-            route_normalization = 'failed'
-            route_normalization_errors = @('route_fetch_failed')
-            fetch_debug = $fetchDebug
-            raw_links_found = 0
-            internal_links = 0
-            filter_reason = @('fetch_failed', [string]$_.Exception.Message)
-            html_snapshot = ''
-            link_extraction_failed = $false
-        }
-    }
-
-    $rawLinksFound = [int]$hrefMatches.Count
-    $htmlSnapshot = if ($rootHtml.Length -gt 1000) { $rootHtml.Substring(0, 1000) } else { $rootHtml }
-    $uniqueRouteKeys = New-SafeHashSet -TypeName 'string' -Comparer ([System.StringComparer]::OrdinalIgnoreCase)
-    $routeUrls = New-Object System.Collections.Generic.List[object]
-    $normalizationFailed = $false
-    $normalizationErrors = New-Object System.Collections.Generic.List[string]
-    $internalLinkCount = 0
-    $filterReasons = New-SafeHashSet -TypeName 'string' -Comparer ([System.StringComparer]::OrdinalIgnoreCase)
-
-    foreach ($match in $hrefMatches) {
-        $rawHref = if (-not [string]::IsNullOrWhiteSpace($match.Groups[2].Value)) {
-            $match.Groups[2].Value
-        }
-        elseif (-not [string]::IsNullOrWhiteSpace($match.Groups[3].Value)) {
-            $match.Groups[3].Value
-        }
-        else {
-            $match.Groups[4].Value
-        }
-
-        if ([string]::IsNullOrWhiteSpace($rawHref)) {
-            $null = $filterReasons.Add('empty_href')
-            continue
-        }
-
-        $trimmedHref = $rawHref.Trim()
-        if ($trimmedHref.StartsWith('#')) {
-            $null = $filterReasons.Add('invalid_format')
-            continue
-        }
-
-        try {
-            $resolvedUri = Resolve-SafeUriJoin -BaseUri $rootUri -RelativeOrAbsolute $trimmedHref
-        }
-        catch {
-            $null = $filterReasons.Add('invalid_format')
-            continue
-        }
-
-        if ($resolvedUri.Scheme -notin @('http', 'https')) {
-            $null = $filterReasons.Add('invalid_format')
-            continue
-        }
-
-        if ($resolvedUri.Host -ne $rootUri.Host) {
-            $null = $filterReasons.Add('all_external')
-            continue
-        }
-        $internalLinkCount += 1
-
-        $normalizationResult = Get-NormalizedRouteResult -Url $resolvedUri.AbsoluteUri
-        if ($normalizationResult.status -eq 'failed') {
-            $normalizationFailed = $true
-            $normalizationErrors.Add("route=$($resolvedUri.AbsoluteUri); reason=$($normalizationResult.error)")
-        }
-
-        if (($routeUrls.Count -lt $MaxRoutes) -and $uniqueRouteKeys.Add($normalizationResult.normalized_route)) {
-            $routeUrls.Add($normalizationResult)
-        }
-    }
-
-    $routes = New-Object System.Collections.Generic.List[object]
-    foreach ($routeTarget in $routeUrls) {
-        try {
-            $routeResponse = Invoke-WebRequest -Uri $routeTarget.url -Method Get -MaximumRedirection 5
-            $routeHtml = Get-ResponseHtml -Response $routeResponse -FetchMethod 'Invoke-WebRequest'
-            $routeTitleMatch = [regex]::Match($routeHtml, '(?is)<title[^>]*>(.*?)</title>')
-            $routeTitle = if ($routeTitleMatch.Success) {
-                [System.Net.WebUtility]::HtmlDecode($routeTitleMatch.Groups[1].Value).Trim()
-            }
-            else {
-                ''
-            }
-            $routeStatusCode = [int]$routeResponse.StatusCode
-            $routeHtmlLength = [int]$routeHtml.Length
-            $pageThresholds = Get-PageSignalThresholds
-
-            $internalRouteLinks = 0
-            $routeHrefMatches = [regex]::Matches($routeHtml, '(?is)<a\b[^>]*href\s*=\s*("([^"]*)"|''([^'']*)''|([^\s>]+))')
-            foreach ($routeHrefMatch in $routeHrefMatches) {
-                $rawRouteHref = if (-not [string]::IsNullOrWhiteSpace($routeHrefMatch.Groups[2].Value)) {
-                    $routeHrefMatch.Groups[2].Value
-                }
-                elseif (-not [string]::IsNullOrWhiteSpace($routeHrefMatch.Groups[3].Value)) {
-                    $routeHrefMatch.Groups[3].Value
-                }
-                else {
-                    $routeHrefMatch.Groups[4].Value
-                }
-                if ([string]::IsNullOrWhiteSpace($rawRouteHref)) {
-                    continue
-                }
-
-                try {
-                    $resolvedRouteHref = Resolve-SafeUriJoin -BaseUri ([Uri]$routeTarget.url) -RelativeOrAbsolute $rawRouteHref.Trim()
-                    if ($resolvedRouteHref.Scheme -in @('http', 'https') -and $resolvedRouteHref.Host -eq $rootUri.Host) {
-                        $internalRouteLinks += 1
-                    }
-                }
-                catch { }
-            }
-
-            $htmlWithoutNoise = [regex]::Replace($routeHtml, '(?is)<script\b[^>]*>.*?</script>|<style\b[^>]*>.*?</style>|<noscript\b[^>]*>.*?</noscript>', ' ')
-            $htmlWithoutTags = [regex]::Replace($htmlWithoutNoise, '(?is)<[^>]+>', ' ')
-            $normalizedText = [regex]::Replace([System.Net.WebUtility]::HtmlDecode($htmlWithoutTags), '\s+', ' ').Trim()
-            $firstScreenTextLength = if ($normalizedText.Length -gt [int]$pageThresholds.first_screen_text_max_length) { [int]$pageThresholds.first_screen_text_max_length } else { $normalizedText.Length }
-            $firstScreenTextSample = if ($firstScreenTextLength -gt 0) { $normalizedText.Substring(0, $firstScreenTextLength) } else { '' }
-            $firstScreenTextPresent = ($firstScreenTextSample.Length -ge [int]$pageThresholds.first_screen_text_min_length)
-            $firstScreenHtmlLength = if ($routeHtml.Length -gt [int]$pageThresholds.first_screen_html_max_length) { [int]$pageThresholds.first_screen_html_max_length } else { $routeHtml.Length }
-            $firstScreenHtmlSample = if ($firstScreenHtmlLength -gt 0) { $routeHtml.Substring(0, $firstScreenHtmlLength) } else { '' }
-
-            $contentTagCount = [int]([regex]::Matches($routeHtml, '(?is)<(main|article|section|p|h1|h2|h3)\b').Count)
-            $wrapperTagCount = [int]([regex]::Matches($routeHtml, '(?is)<(div|nav|header|footer)\b').Count)
-            $headlineCount = [int]([regex]::Matches($routeHtml, '(?is)<h[1-3]\b').Count)
-            $articleListCount = [int]([regex]::Matches($routeHtml, '(?is)<(article|li)\b').Count)
-            $timestampCount = [int]([regex]::Matches($routeHtml, '(?is)\b(\d{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\w*\.?,?\s+\d{4}|[12]\d{3}-\d{2}-\d{2}|updated|published)\b').Count)
-            $anchorTextMatches = [regex]::Matches($routeHtml, '(?is)<a\b[^>]*>(.*?)</a>')
-            $anchorTextCounter = @{}
-            foreach ($anchorTextMatch in $anchorTextMatches) {
-                $anchorText = [regex]::Replace([System.Net.WebUtility]::HtmlDecode([string]$anchorTextMatch.Groups[1].Value), '\s+', ' ').Trim().ToLowerInvariant()
-                if ([string]::IsNullOrWhiteSpace($anchorText) -or $anchorText.Length -lt 5) { continue }
-                if (-not $anchorTextCounter.ContainsKey($anchorText)) { $anchorTextCounter[$anchorText] = 0 }
-                $anchorTextCounter[$anchorText] = [int]$anchorTextCounter[$anchorText] + 1
-            }
-            $repeatedAnchorCount = 0
-            foreach ($entry in $anchorTextCounter.GetEnumerator()) {
-                if ([int]$entry.Value -ge 2) { $repeatedAnchorCount += [int]$entry.Value }
-            }
-            $repeatedLinkBlockRatio = if ($anchorTextMatches.Count -gt 0) { [Math]::Round(([double]$repeatedAnchorCount / [double]$anchorTextMatches.Count), 4) } else { 0.0 }
-            $titlePresent = (-not [string]::IsNullOrWhiteSpace($routeTitle))
-            $pageType = Get-NormalizedSurfaceType -RouteKey ([string]$routeTarget.normalized_route) -Title $routeTitle -InternalLinkCount $internalRouteLinks -ContentTagCount $contentTagCount -WrapperTagCount $wrapperTagCount -HeadlineCount $headlineCount -ArticleListCount $articleListCount -RepeatedLinkBlockRatio $repeatedLinkBlockRatio -HasTimestampPatterns ($timestampCount -gt 0)
-
-            $valuePattern = '\b(we help|help you|solution|solve|for teams|for businesses|for developers|what we offer|why choose|benefit|outcome|results?)\b'
-            $actionPattern = '(?is)<(a|button)\b|<input\b[^>]*type\s*=\s*["'']?(submit|button)'
-            $processPattern = '\b(step|steps|choose|select|follow|how it works|workflow|process)\b'
-            $firstScreenTextLower = $firstScreenTextSample.ToLowerInvariant()
-            $valueMatch = [regex]::Match($firstScreenTextLower, $valuePattern)
-            $processMatch = [regex]::Match($firstScreenTextLower, $processPattern)
-            $firstScreenHasValue = $valueMatch.Success
-            $firstScreenIsProcessLike = $processMatch.Success
-            $valueBeforeProcess = $false
-            if ($valueMatch.Success -and $processMatch.Success) {
-                $valueBeforeProcess = ($valueMatch.Index -lt $processMatch.Index)
-            }
-            elseif ($valueMatch.Success -and (-not $processMatch.Success)) {
-                $valueBeforeProcess = $true
-            }
-            $firstScreenHasAction = [regex]::IsMatch($firstScreenHtmlSample, $actionPattern)
-
-            $brokenCandidate = ($routeStatusCode -ne 200)
-            $thinCandidate = (
-                ($routeHtmlLength -lt [int]$pageThresholds.thin_html_length) -and
-                ($internalRouteLinks -le [int]$pageThresholds.thin_internal_links) -and
-                (-not $firstScreenTextPresent)
-            )
-            $shellLikeCandidate = (
-                (-not $brokenCandidate) -and
-                ($firstScreenTextSample.Length -le [int]$pageThresholds.shell_text_max_length) -and
-                ($wrapperTagCount -gt $contentTagCount) -and
-                ($contentTagCount -lt [int]$pageThresholds.shell_content_tag_min_count)
-            )
-
-            $classification = if ($brokenCandidate) {
-                'broken'
-            }
-            elseif ($shellLikeCandidate) {
-                'shell'
-            }
-            elseif ($thinCandidate) {
-                'thin'
-            }
-            else {
-                'ok'
-            }
-
-            $routes.Add([ordered]@{
-                    url = $routeTarget.url
-                    normalized_route = $routeTarget.normalized_route
-                    status_code = $routeStatusCode
-                    title = $routeTitle
-                    html_length = $routeHtmlLength
-                    title_present = [bool]$titlePresent
-                    internal_link_count = [int]$internalRouteLinks
-                    first_screen_text_length = [int]$firstScreenTextSample.Length
-                    first_screen_text_present = [bool]$firstScreenTextPresent
-                    content_tag_count = [int]$contentTagCount
-                    wrapper_tag_count = [int]$wrapperTagCount
-                    headline_count = [int]$headlineCount
-                    article_list_count = [int]$articleListCount
-                    repeated_link_block_ratio = [double]$repeatedLinkBlockRatio
-                    has_timestamp_patterns = [bool]($timestampCount -gt 0)
-                    page_type = [string]$pageType
-                    first_screen_text_sample = [string]$firstScreenTextSample
-                    first_screen_has_value = [bool]$firstScreenHasValue
-                    first_screen_has_action = [bool]$firstScreenHasAction
-                    first_screen_is_process_like = [bool]$firstScreenIsProcessLike
-                    value_before_process = [bool]$valueBeforeProcess
-                    thin_candidate = [bool]$thinCandidate
-                    shell_like_candidate = [bool]$shellLikeCandidate
-                    broken_candidate = [bool]$brokenCandidate
-                    classification = $classification
-                })
-        }
-        catch {
-            $routes.Add([ordered]@{
-                    url = $routeTarget.url
-                    normalized_route = $routeTarget.normalized_route
-                    status_code = -1
-                    title = ''
-                    html_length = 0
-                    title_present = $false
-                    internal_link_count = 0
-                    first_screen_text_length = 0
-                    first_screen_text_present = $false
-                    content_tag_count = 0
-                    wrapper_tag_count = 0
-                    page_type = 'UNKNOWN'
-                    first_screen_text_sample = ''
-                    first_screen_has_value = $false
-                    first_screen_has_action = $false
-                    first_screen_is_process_like = $false
-                    value_before_process = $false
-                    thin_candidate = $false
-                    shell_like_candidate = $false
-                    broken_candidate = $true
-                    classification = 'broken'
-                })
-        }
-    }
-
-    return [ordered]@{
-        root = $RootUrl
-        routes = $routes
-        route_normalization = if ($normalizationFailed) { 'failed' } else { 'ok' }
-        route_normalization_errors = @($normalizationErrors)
-        fetch_debug = $fetchDebug
-        raw_links_found = [int]$rawLinksFound
-        internal_links = [int]$internalLinkCount
-        filter_reason = if ($internalLinkCount -eq 0) { @($filterReasons) } else { @() }
-        html_snapshot = $htmlSnapshot
-        link_extraction_failed = [bool](($fetchDebug.html_length -gt 0) -and ($rawLinksFound -eq 0))
-    }
-}
-
-function Get-NormalizedRouteResult {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Url
-    )
-
-    try {
-        $uri = [Uri]$Url
-        $path = [string]$uri.AbsolutePath
-        if ([string]::IsNullOrWhiteSpace($path)) {
-            $path = '/'
-        }
-
-        $normalizedPath = $path.Trim()
-        $normalizedPath = $normalizedPath.ToLowerInvariant()
-        $normalizedPath = [regex]::Replace($normalizedPath, '/index\.html$', '/')
-
-        if (($normalizedPath.Length -gt 1) -and $normalizedPath.EndsWith('/')) {
-            $normalizedPath = $normalizedPath.TrimEnd('/')
-        }
-        if ([string]::IsNullOrWhiteSpace($normalizedPath)) {
-            $normalizedPath = '/'
-        }
-        if (-not $normalizedPath.StartsWith('/')) {
-            $normalizedPath = "/$normalizedPath"
-        }
-
-        $normalizedRoute = $normalizedPath
-
-        $builder = Resolve-SafeUriBuilder -Source $uri
-        $builder.Path = $normalizedPath
-        $builder.Query = [string]$uri.Query.TrimStart('?')
-        $builder.Fragment = ''
-        $normalizedUrl = $builder.Uri.AbsoluteUri
-
-        return [ordered]@{
-            status = 'ok'
-            url = $normalizedUrl
-            normalized_route = $normalizedRoute
-            source_url = $Url
-            error = ''
-        }
-    }
-    catch {
-        return [ordered]@{
-            status = 'failed'
-            url = $Url
-            normalized_route = $Url
-            source_url = $Url
-            error = [string]$_.Exception.Message
-        }
-    }
-}
-
 function Test-PrimaryRouteValue {
     param(
         [string]$Value
@@ -849,279 +391,6 @@ function Test-RouteContract {
     }
 }
 
-function Get-CanonicalRouteKeyResult {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$RouteValue,
-        [string]$BaseUrl = ''
-    )
-
-    $value = [string]$RouteValue
-    if ([string]::IsNullOrWhiteSpace($value)) {
-        return [ordered]@{
-            status = 'failed'
-            canonical_route = ''
-            source_value = $RouteValue
-            error = 'route value is empty'
-        }
-    }
-
-    $trimmedValue = $value.Trim()
-    $candidateUrl = $trimmedValue
-
-    if (-not ($trimmedValue -match '^[a-z][a-z0-9+\-.]*://')) {
-        if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
-            return [ordered]@{
-                status = 'failed'
-                canonical_route = ''
-                source_value = $RouteValue
-                error = 'base URL is required to normalize relative route values'
-            }
-        }
-
-        try {
-            $candidateUrl = (Resolve-SafeUriJoin -BaseUri ([Uri]$BaseUrl) -RelativeOrAbsolute $trimmedValue).AbsoluteUri
-        }
-        catch {
-            return [ordered]@{
-                status = 'failed'
-                canonical_route = ''
-                source_value = $RouteValue
-                error = [string]$_.Exception.Message
-            }
-        }
-    }
-
-    $normalizedResult = Get-NormalizedRouteResult -Url $candidateUrl
-    if ($normalizedResult.status -eq 'failed') {
-        return [ordered]@{
-            status = 'failed'
-            canonical_route = ''
-            source_value = $RouteValue
-            error = [string]$normalizedResult.error
-        }
-    }
-
-    return [ordered]@{
-        status = 'ok'
-        canonical_route = [string]$normalizedResult.normalized_route
-        source_value = $RouteValue
-        error = ''
-    }
-}
-
-function Get-VisualTargets {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$BaseUrl,
-        [Parameter(Mandatory = $true)]
-        [object]$RoutesSummary,
-        [int]$MaxPages = 5
-    )
-
-    $selected = New-Object System.Collections.Generic.List[object]
-    $seenRoutes = New-SafeHashSet -TypeName 'string' -Comparer ([System.StringComparer]::OrdinalIgnoreCase)
-    $tierOne = New-Object System.Collections.Generic.List[object]
-    $tierTwo = New-Object System.Collections.Generic.List[object]
-    $decisionKeywords = @('tool', 'best', 'how', 'guide')
-    $lowValueKeywords = @('tag', 'category', 'archive', 'page', 'feed')
-
-    function Get-RouteTypeAndPriority {
-        param(
-            [Parameter(Mandatory = $true)]
-            [string]$RouteKey
-        )
-
-        try {
-            $routeLower = $RouteKey.ToLowerInvariant()
-            if ($routeLower -eq '/') {
-                return [ordered]@{ type = 'ROOT'; priority = 1 }
-            }
-
-            if ($routeLower -match '(^|/)feed(/|$|\?)' -or $routeLower -match '(^|/)rss(/|$|\?)' -or $routeLower -match '(^|/)page/\d+(/|$|\?)') {
-                return [ordered]@{ type = 'LOW_VALUE'; priority = 3; hard_exclude = $true }
-            }
-
-            foreach ($keyword in $decisionKeywords) {
-                if ($routeLower.Contains($keyword)) {
-                    return [ordered]@{ type = 'DECISION'; priority = 1 }
-                }
-            }
-
-            foreach ($keyword in $lowValueKeywords) {
-                if ($routeLower.Contains($keyword)) {
-                    return [ordered]@{ type = 'LOW_VALUE'; priority = 3 }
-                }
-            }
-
-            return [ordered]@{ type = 'CONTENT'; priority = 2 }
-        }
-        catch {
-            return [ordered]@{ type = 'CONTENT'; priority = 2 }
-        }
-    }
-
-    function Get-SafeRouteClassification {
-        param(
-            [Parameter(Mandatory = $true)]
-            [string]$RouteKey
-        )
-
-        $defaultClassification = [ordered]@{ type = 'CONTENT'; priority = 2 }
-
-        try {
-            $classification = Get-RouteTypeAndPriority -RouteKey $RouteKey
-            if (-not $classification) {
-                return $defaultClassification
-            }
-
-            $classificationType = if ($classification.PSObject.Properties['type']) {
-                [string]$classification.type
-            }
-            else {
-                'CONTENT'
-            }
-
-            $classificationPriority = if ($classification.PSObject.Properties['priority'] -and $classification.priority -as [int]) {
-                [int]$classification.priority
-            }
-            else {
-                switch ($classificationType) {
-                    'ROOT' { 1 }
-                    'DECISION' { 1 }
-                    'LOW_VALUE' { 3 }
-                    default { 2 }
-                }
-            }
-
-            $safeClassification = [ordered]@{
-                type = $classificationType
-                priority = $classificationPriority
-            }
-
-            if ($classification.PSObject.Properties['hard_exclude']) {
-                $safeClassification.hard_exclude = [bool]$classification.hard_exclude
-            }
-
-            return $safeClassification
-        }
-        catch {
-            return $defaultClassification
-        }
-    }
-
-    $baseUri = [Uri]$BaseUrl
-    $rootBuilder = Resolve-SafeUriBuilder -Source $baseUri
-    $rootBuilder.Path = '/'
-    $rootBuilder.Query = ''
-    $rootBuilder.Fragment = ''
-    $baseNormalized = Get-NormalizedRouteResult -Url $rootBuilder.Uri.AbsoluteUri
-    if ($seenRoutes.Add($baseNormalized.normalized_route)) {
-        $baseClassification = Get-SafeRouteClassification -RouteKey $baseNormalized.normalized_route
-        if (-not $baseClassification.PSObject.Properties['hard_exclude'] -or -not [bool]$baseClassification.hard_exclude) {
-            $baseSelectionReason = switch ([string]$baseClassification.type) {
-                'ROOT' { 'tier_1_root_page' }
-                'DECISION' { 'tier_1_decision_page' }
-                'CONTENT' { 'tier_2_content_page' }
-                default { 'tier_2_content_page' }
-            }
-            $tierOne.Add([ordered]@{
-                    route = $baseNormalized.normalized_route
-                    type = [string]$baseClassification.type
-                    priority = [int]$baseClassification.priority
-                    url = $baseNormalized.url
-                    selection_reason = $baseSelectionReason
-                })
-        }
-    }
-
-    foreach ($route in $RoutesSummary.routes) {
-        if ($route.status_code -ne 200) {
-            continue
-        }
-
-        $routeValue = if ($route.PSObject.Properties['normalized_route']) {
-            [string]$route.normalized_route
-        }
-        else {
-            [string]$route.url
-        }
-        $canonicalRouteResult = Get-CanonicalRouteKeyResult -RouteValue $routeValue -BaseUrl $BaseUrl
-        if ($canonicalRouteResult.status -ne 'ok') {
-            continue
-        }
-        $routeKey = [string]$canonicalRouteResult.canonical_route
-
-        if (-not $seenRoutes.Add($routeKey)) {
-            continue
-        }
-
-        $classification = Get-SafeRouteClassification -RouteKey $routeKey
-        if ($classification.PSObject.Properties['hard_exclude'] -and [bool]$classification.hard_exclude) {
-            continue
-        }
-        if ($classification.type -eq 'LOW_VALUE') {
-            continue
-        }
-
-        $selectionReason = switch ([string]$classification.type) {
-            'ROOT' { 'tier_1_root_page' }
-            'DECISION' { 'tier_1_decision_page' }
-            'CONTENT' { 'tier_2_content_page' }
-            default { 'tier_2_content_page' }
-        }
-
-        $target = [ordered]@{
-            route = $routeKey
-            type = [string]$classification.type
-            priority = [int]$classification.priority
-            url = (Resolve-SafeUriJoin -BaseUri ([Uri]$BaseUrl) -RelativeOrAbsolute $routeKey).AbsoluteUri
-            selection_reason = $selectionReason
-        }
-
-        if ($classification.priority -eq 1) {
-            $tierOne.Add($target)
-        }
-        else {
-            $tierTwo.Add($target)
-        }
-    }
-
-    foreach ($target in $tierOne) {
-        if ($selected.Count -ge $MaxPages) {
-            break
-        }
-        $selected.Add($target)
-    }
-    foreach ($target in $tierTwo) {
-        if ($selected.Count -ge $MaxPages) {
-            break
-        }
-        $selected.Add($target)
-    }
-
-    $allRankedTargets = @($tierOne + $tierTwo)
-    $overflow = @(
-        $allRankedTargets |
-        Select-Object -Skip $selected.Count |
-        ForEach-Object {
-            [ordered]@{
-                route = [string]$_.route
-                type = [string]$_.type
-                priority = [int]$_.priority
-                selection_reason = [string]$_.selection_reason
-                exclusion_reason = 'over_max_routes_tiered_priority_cutoff'
-            }
-        }
-    )
-
-    return [ordered]@{
-        selected_routes = @($selected)
-        overflow_routes = @($overflow)
-        selection_strategy = 'tiered_priority'
-    }
-}
-
 function Invoke-VisualCapture {
     param(
         [Parameter(Mandatory = $true)]
@@ -1190,7 +459,7 @@ function Invoke-EvidenceReconciliation {
         @()
     }
 
-    $issues = New-SafeHashSet -TypeName 'string' -Comparer ([System.StringComparer]::OrdinalIgnoreCase)
+    $issues = New-CaseInsensitiveKeyMap
     $validCount = 0
     $invalidCount = 0
     $checksCompleted = $true
@@ -1200,7 +469,7 @@ function Invoke-EvidenceReconciliation {
         $relativeFile = [string]$capture.file
         if ([string]::IsNullOrWhiteSpace($relativeFile)) {
             $invalidCount += 1
-            $null = $issues.Add('manifest_mismatch')
+            $null = Add-KeyIfMissing -Map $issues -Key 'manifest_mismatch'
             continue
         }
 
@@ -1210,14 +479,14 @@ function Invoke-EvidenceReconciliation {
 
         if (-not (Test-Path -LiteralPath $expectedPath)) {
             $fileStatus = 'missing_capture'
-            $null = $issues.Add('missing_capture')
+            $null = Add-KeyIfMissing -Map $issues -Key 'missing_capture'
         }
         else {
             try {
                 $actualSize = [int](Get-Item -LiteralPath $expectedPath).Length
                 if ($actualSize -lt $sizeThresholdBytes) {
                     $fileStatus = 'empty_capture'
-                    $null = $issues.Add('empty_capture')
+                    $null = Add-KeyIfMissing -Map $issues -Key 'empty_capture'
                 }
                 if ([int]$capture.size_bytes -ne $actualSize) {
                     $null = $issues.Add('size_mismatch')
@@ -1242,12 +511,12 @@ function Invoke-EvidenceReconciliation {
     $manifestCaptureCount = [int]$captures.Count
     $actualCaptureCount = [int]$pngFiles.Count
     if ($manifestCaptureCount -ne $actualCaptureCount) {
-        $null = $issues.Add('manifest_mismatch')
+        $null = Add-KeyIfMissing -Map $issues -Key 'manifest_mismatch'
     }
 
     $manifestPageCount = [int]$manifestPages.Count
     $pageRegex = '^page-(?<idx>\d{2})-'
-    $actualUniquePageKeys = New-SafeHashSet -TypeName 'string' -Comparer ([System.StringComparer]::OrdinalIgnoreCase)
+    $actualUniquePageKeys = New-CaseInsensitiveKeyMap
     foreach ($png in $pngFiles) {
         $match = [regex]::Match($png.Name, $pageRegex)
         if ($match.Success) {
@@ -1256,14 +525,14 @@ function Invoke-EvidenceReconciliation {
     }
 
     if (($RunReportPagesAttempted -ne $manifestPageCount) -or ($manifestPageCount -ne $actualUniquePageKeys.Count)) {
-        $null = $issues.Add('RUN_REPORT_INCONSISTENT')
+        $null = Add-KeyIfMissing -Map $issues -Key 'RUN_REPORT_INCONSISTENT'
     }
     if (
         ($RunReportCapturesAttempted -ne $manifestCaptureCount) -or
         ($RunReportCapturesSuccess -ne $validCount) -or
         ($RunReportCapturesFailed -ne $invalidCount)
     ) {
-        $null = $issues.Add('RUN_REPORT_COUNTER_MISMATCH')
+        $null = Add-KeyIfMissing -Map $issues -Key 'RUN_REPORT_COUNTER_MISMATCH'
     }
 
     $status = 'PASS'
@@ -1284,9 +553,9 @@ function Invoke-EvidenceReconciliation {
     }
 
     if (
-        ($issues.Contains('missing_capture')) -or
-        ($issues.Contains('empty_capture')) -or
-        ($issues.Contains('manifest_mismatch'))
+        (Test-KeyExists -Map $issues -Key 'missing_capture') -or
+        (Test-KeyExists -Map $issues -Key 'empty_capture') -or
+        (Test-KeyExists -Map $issues -Key 'manifest_mismatch')
     ) {
         if ($status -eq 'PASS') {
             $status = 'PARTIAL'
@@ -1298,10 +567,10 @@ function Invoke-EvidenceReconciliation {
         files_checked = $manifestCaptureCount
         files_valid = [int]$validCount
         files_invalid = [int]$invalidCount
-        issues = @($issues)
+        issues = @(Get-KeyMapKeys -Map $issues)
         manifest_pages = $manifestPageCount
         run_report_pages_attempted = $RunReportPagesAttempted
-        actual_unique_pages = [int]$actualUniquePageKeys.Count
+        actual_unique_pages = Get-KeyMapCount -Map $actualUniquePageKeys
         diagnostics = @($diagnostics)
     }
 }
@@ -1563,7 +832,9 @@ $report = [ordered]@{
 $shouldFail = $false
 $errorCode = ''
 $errorMessage = ''
-$failurePhase = 'LINK_FETCH'
+$failurePhase = 'ENTRY'
+$lastCompletedStage = 'ENTRY'
+$currentFailureStage = 'ENTRY'
 $reconciliationCompleted = $false
 $counterMismatchDetected = $false
 
@@ -1592,6 +863,8 @@ if ($shouldFail) {
     $report.next_step = $errorMessage
     $report.execution_report.final_outcome = 'FAIL'
     $report.execution_report.status_detail = 'FAIL'
+    $report.last_completed_stage = [string]$lastCompletedStage
+    $report.current_failure_stage = [string]$failurePhase
     $report.failure_or_limit_report = [ordered]@{
         kind = 'FAILURE'
         failure_summary = 'failure_summary.json'
@@ -1606,12 +879,17 @@ if ($shouldFail) {
 else {
     try {
         $failurePhase = 'LINK_FETCH'
+        $currentFailureStage = $failurePhase
         $linkSummary = Get-LinkSignals -Url $BaseUrl
+        $lastCompletedStage = 'LINK_FETCH'
         Write-JsonFile -Path $linkSummaryPath -Data $linkSummary
         Copy-Item -LiteralPath $linkSummaryPath -Destination $deterministicLinkSummaryPath -Force
         $null = $producedArtifacts.Add('LINK_SUMMARY.json')
 
+        $failurePhase = 'ROUTE_EXTRACTION'
+        $currentFailureStage = $failurePhase
         $routesSummary = Get-ShallowRoutes -RootUrl $BaseUrl -MaxRoutes 10
+        $lastCompletedStage = 'ROUTE_EXTRACTION'
         $report.route_normalization = [string]$routesSummary.route_normalization
         $report.fetch_debug = [ordered]@{
             status_code = [string]$routesSummary.fetch_debug.status_code
@@ -1732,7 +1010,10 @@ else {
         Copy-Item -LiteralPath $actionReportPath -Destination $deterministicActionReportPath -Force
         $null = $producedArtifacts.Add('ACTION_REPORT.txt')
 
+        $failurePhase = 'ROUTE_SELECTION'
+        $currentFailureStage = $failurePhase
         $captureTargetPlan = Get-VisualTargets -BaseUrl $BaseUrl -RoutesSummary $routesSummary -MaxPages $maxRoutes
+        $lastCompletedStage = 'ROUTE_SELECTION'
         $selectedRoutes = @($captureTargetPlan.selected_routes)
         $overflowRoutes = @($captureTargetPlan.overflow_routes)
         $selectedRoutesCount = [int]$selectedRoutes.Count
@@ -1760,6 +1041,8 @@ else {
         if ($selectedRoutesCount -gt $maxRoutes) {
             throw "run_budget_violation: selected_routes_exceeded_max_routes"
         }
+        $failurePhase = 'CAPTURE'
+        $currentFailureStage = $failurePhase
         $captureToolPath = Join-Path $PSScriptRoot 'tools/capture_visuals.mjs'
         $captureExitCode = Invoke-VisualCapture -Pages $captureTargetUrls -ToolPath $captureToolPath -InputPath $visualInputPath -ManifestPath $visualManifestPath -ScreenshotsPath $screenshotsPath
         Copy-Item -LiteralPath $visualManifestPath -Destination $deterministicVisualManifestPath -Force
@@ -1814,113 +1097,41 @@ else {
         }
         $report.capture_summary = $captureSummary
         $manifestPages = @($visualManifest.pages)
+        $lastCompletedStage = 'CAPTURE'
 
-        $selectedRouteKeys = New-SafeHashSet -TypeName 'string' -Comparer ([System.StringComparer]::OrdinalIgnoreCase)
-        $routeNormalizationErrors = New-Object System.Collections.Generic.List[object]
-        foreach ($target in $selectedRoutes) {
-            $selectedRouteValue = if (-not [string]::IsNullOrWhiteSpace([string]$target.route)) {
-                [string]$target.route
-            }
-            else {
-                [string]$target.url
-            }
+        $failurePhase = 'RECONCILIATION'
+        $currentFailureStage = $failurePhase
+        $reconciliationPrep = Invoke-CaptureReconciliationPrepStage -SelectedRoutes @($selectedRoutes) -ManifestPages @($manifestPages) -BaseUrl $BaseUrl -SelectedRoutesCount $selectedRoutesCount -ManifestRequestedPages $manifestRequestedPages -ManifestProcessedPages $manifestProcessedPages -ManifestFailedPages $manifestFailedPages
+        $counterMismatchDetected = [bool]$reconciliationPrep.counter_mismatch_detected
 
-            $canonicalResult = Get-CanonicalRouteKeyResult -RouteValue $selectedRouteValue -BaseUrl $BaseUrl
-            if ($canonicalResult.status -eq 'ok') {
-                $null = $selectedRouteKeys.Add([string]$canonicalResult.canonical_route)
-                continue
-            }
-
-            $routeNormalizationErrors.Add([ordered]@{
-                    source = 'selected_route'
-                    value = $selectedRouteValue
-                    error = [string]$canonicalResult.error
-                })
-        }
-
-        $manifestRouteKeys = New-SafeHashSet -TypeName 'string' -Comparer ([System.StringComparer]::OrdinalIgnoreCase)
-        foreach ($manifestPage in $manifestPages) {
-            $manifestPageUrl = if ($manifestPage.PSObject.Properties['url']) {
-                [string]$manifestPage.url
-            }
-            elseif ($manifestPage.PSObject.Properties['source_url']) {
-                [string]$manifestPage.source_url
-            }
-            else {
-                ''
-            }
-            if (-not [string]::IsNullOrWhiteSpace($manifestPageUrl)) {
-                $canonicalResult = Get-CanonicalRouteKeyResult -RouteValue $manifestPageUrl -BaseUrl $BaseUrl
-                if ($canonicalResult.status -eq 'ok') {
-                    $null = $manifestRouteKeys.Add([string]$canonicalResult.canonical_route)
-                }
-                else {
-                    $routeNormalizationErrors.Add([ordered]@{
-                            source = 'manifest_route'
-                            value = $manifestPageUrl
-                            error = [string]$canonicalResult.error
-                        })
-                }
-            }
-        }
-
-        $missingManifestRoutes = @($selectedRouteKeys | Where-Object { -not $manifestRouteKeys.Contains($_) })
-        $extraManifestRoutes = @($manifestRouteKeys | Where-Object { -not $selectedRouteKeys.Contains($_) })
-        $normalizationErrorDetected = ($routeNormalizationErrors.Count -gt 0)
-
-        if ($normalizationErrorDetected -or $selectedRoutesCount -ne $manifestRequestedPages -or $manifestPages.Count -ne $selectedRoutesCount -or $missingManifestRoutes.Count -gt 0 -or $extraManifestRoutes.Count -gt 0) {
-            $counterMismatchDetected = $true
+        if ($counterMismatchDetected) {
             $report.capture_summary.counter_mismatch = $true
             if ($report.capture_summary.status -eq 'PASS') {
                 $report.capture_summary.status = 'PARTIAL'
             }
             $report.capture_summary.counter_mismatch_details = [ordered]@{
                 selected_routes = $selectedRoutesCount
-                selected_route_keys = [int]$selectedRouteKeys.Count
+                selected_route_keys = [int]$reconciliationPrep.selected_route_key_count
                 manifest_requested_pages = $manifestRequestedPages
                 manifest_pages = [int]$manifestPages.Count
-                manifest_route_keys = [int]$manifestRouteKeys.Count
-                missing_routes = @($missingManifestRoutes)
-                extra_routes = @($extraManifestRoutes)
-                normalization_error = $normalizationErrorDetected
-                normalization_errors = @($routeNormalizationErrors)
+                manifest_route_keys = [int]$reconciliationPrep.manifest_route_key_count
+                missing_routes = @($reconciliationPrep.missing_manifest_routes)
+                extra_routes = @($reconciliationPrep.extra_manifest_routes)
+                normalization_error = [bool]$reconciliationPrep.normalization_error_detected
+                normalization_errors = @($reconciliationPrep.route_normalization_errors)
             }
         }
 
-        $captures = @(
-            $manifestPages |
-            ForEach-Object { @($_.captures) }
-        )
-        $capturesAttempted = [int]$captures.Count
-        $capturesSuccess = [int]@($captures | Where-Object { $_.status -eq 'ok' }).Count
-        $capturesFailed = [int]($capturesAttempted - $capturesSuccess)
-        $pagesAttempted = [int]$selectedRoutesCount
-        $pagesProcessed = [int]$manifestProcessedPages
-        $pagesFailed = [int]$manifestFailedPages
-        $pagesSuccess = [int]@(
-            $manifestPages |
-            Where-Object { @($_.captures | Where-Object { $_.status -eq 'ok' }).Count -gt 0 }
-        ).Count
-        $failTypes = New-SafeHashSet -TypeName 'string' -Comparer ([System.StringComparer]::OrdinalIgnoreCase)
-        foreach ($capture in ($captures | Where-Object { $_.status -ne 'ok' })) {
-            if (-not [string]::IsNullOrWhiteSpace([string]$capture.status)) {
-                $null = $failTypes.Add([string]$capture.status)
-            }
-        }
-        foreach ($manifestPage in ($manifestPages | Where-Object { $_.status -eq 'FAIL' })) {
-            $null = $failTypes.Add('render_fail')
-        }
-
-        $captureReportStatus = 'PASS'
-        if ($pagesSuccess -eq 0) {
-            $captureReportStatus = 'FAIL'
-        }
-        elseif ($capturesFailed -gt 0) {
-            $captureReportStatus = 'PARTIAL'
-        }
+        $capturesAttempted = [int]$reconciliationPrep.captures_attempted
+        $capturesSuccess = [int]$reconciliationPrep.captures_success
+        $capturesFailed = [int]$reconciliationPrep.captures_failed
+        $pagesAttempted = [int]$reconciliationPrep.pages_attempted
+        $pagesProcessed = [int]$reconciliationPrep.pages_processed
+        $pagesFailed = [int]$reconciliationPrep.pages_failed
+        $pagesSuccess = [int]$reconciliationPrep.pages_success
 
         $report.capture_report = [ordered]@{
-            status = $captureReportStatus
+            status = [string]$reconciliationPrep.capture_report_status
             pages_attempted = $pagesAttempted
             pages_processed = $pagesProcessed
             pages_success = $pagesSuccess
@@ -1928,7 +1139,7 @@ else {
             captures_attempted = $capturesAttempted
             captures_success = $capturesSuccess
             captures_failed = $capturesFailed
-            fail_types = @($failTypes)
+            fail_types = @($reconciliationPrep.fail_types)
             counter_mismatch = [bool]$counterMismatchDetected
         }
 
@@ -1948,6 +1159,7 @@ else {
             }
 
             $reconciliationCompleted = $true
+            $lastCompletedStage = 'RECONCILIATION'
             $report.capture_report.status = [string]$reconciliation.status
 
             $visualEvidence = switch ([string]$reconciliation.status) {
@@ -2173,7 +1385,8 @@ else {
             }
         }
 
-        $failurePhase = 'SURFACE_CONTEXT'
+$failurePhase = 'SURFACE_CONTEXT'
+        $currentFailureStage = $failurePhase
         $pageVerdicts = New-Object System.Collections.Generic.List[object]
         foreach ($selectedRoute in @($report.selected_routes)) {
             $routeValue = [string]$selectedRoute.route
@@ -2398,7 +1611,9 @@ else {
                 })
         }
 
+$lastCompletedStage = 'SURFACE_CONTEXT'
         $failurePhase = 'REPORT_LAYER'
+        $currentFailureStage = $failurePhase
         $allFindings = @($findingsList)
         $report.micro_clusters = @()
         $defectFindings = @($allFindings | Where-Object { [string]$_.category -eq 'DEFECT' })
@@ -2901,14 +2116,24 @@ else {
         $errorMessage = $_.Exception.Message
         $failurePhaseValue = if ([string]::IsNullOrWhiteSpace([string]$failurePhase)) { 'UNKNOWN' } else { [string]$failurePhase }
         $operatorFailureNote = switch ($failurePhaseValue) {
-            'LINK_FETCH' { 'fetch failure' }
+            'ENTRY' { 'entry validation failure' }
+            'LINK_FETCH' { 'link fetch failure' }
+            'ROUTE_EXTRACTION' { 'route extraction failure' }
+            'ROUTE_SELECTION' { 'route selection failure' }
+            'CAPTURE' { 'capture stage failure' }
+            'RECONCILIATION' { 'reconciliation stage failure' }
             'SURFACE_CONTEXT' { 'surface context failure' }
             'REPORT_LAYER' { 'report layer failure' }
             default { 'internal exception' }
         }
         if ([string]::IsNullOrWhiteSpace([string]$errorCode)) {
             switch ([string]$failurePhase) {
+                'ENTRY' { $errorCode = 'ENTRY_FAILED' }
                 'LINK_FETCH' { $errorCode = 'LINK_FETCH_FAILED' }
+                'ROUTE_EXTRACTION' { $errorCode = 'ROUTE_EXTRACTION_FAILED' }
+                'ROUTE_SELECTION' { $errorCode = 'ROUTE_SELECTION_FAILED' }
+                'CAPTURE' { $errorCode = 'CAPTURE_STAGE_FAILED' }
+                'RECONCILIATION' { $errorCode = 'RECONCILIATION_STAGE_FAILED' }
                 'SURFACE_CONTEXT' { $errorCode = 'SURFACE_CONTEXT_EXCEPTION' }
                 'REPORT_LAYER' { $errorCode = 'REPORT_LAYER_EXCEPTION' }
                 default { $errorCode = 'INTERNAL_EXCEPTION' }
@@ -2916,6 +2141,9 @@ else {
         }
         $report.status = 'FAIL'
         $report.execution_status = 'FAILED'
+        $currentFailureStage = $failurePhaseValue
+        $report.last_completed_stage = [string]$lastCompletedStage
+        $report.current_failure_stage = [string]$currentFailureStage
         $report.summary = "Run failed: $errorCode (phase=$failurePhaseValue)"
         $report.next_step = $errorMessage
         $report.execution_report.final_outcome = 'FAIL'
@@ -2923,7 +2151,9 @@ else {
         $report.failure_or_limit_report = [ordered]@{
             kind = 'FAILURE'
             failure_summary = 'failure_summary.json'
-            notes = @("phase=$failurePhaseValue", $operatorFailureNote, $errorMessage)
+            last_completed_stage = [string]$lastCompletedStage
+        current_failure_stage = [string]$failurePhaseValue
+        notes = @("phase=$failurePhaseValue", "last_completed_stage=$lastCompletedStage", $operatorFailureNote, $errorMessage)
         }
         $report.produced_artifacts = @($producedArtifacts)
         $report.linked_artifacts = @(
@@ -3011,7 +2241,12 @@ $report.produced_artifacts = @($producedArtifacts)
 if ($shouldFail) {
     $failurePhaseValue = if ([string]::IsNullOrWhiteSpace([string]$failurePhase)) { 'UNKNOWN' } else { [string]$failurePhase }
     $operatorFailureNote = switch ($failurePhaseValue) {
-        'LINK_FETCH' { 'fetch failure' }
+        'ENTRY' { 'entry validation failure' }
+        'LINK_FETCH' { 'link fetch failure' }
+        'ROUTE_EXTRACTION' { 'route extraction failure' }
+        'ROUTE_SELECTION' { 'route selection failure' }
+        'CAPTURE' { 'capture stage failure' }
+        'RECONCILIATION' { 'reconciliation stage failure' }
         'SURFACE_CONTEXT' { 'surface context failure' }
         'REPORT_LAYER' { 'report layer failure' }
         default { 'internal exception' }
@@ -3027,14 +2262,18 @@ if ($shouldFail) {
         $report.failure_or_limit_report = [ordered]@{
             kind = 'FAILURE'
             failure_summary = 'failure_summary.json'
-            notes = @("phase=$failurePhaseValue", $operatorFailureNote, $errorMessage)
+            last_completed_stage = [string]$lastCompletedStage
+        current_failure_stage = [string]$failurePhaseValue
+        notes = @("phase=$failurePhaseValue", "last_completed_stage=$lastCompletedStage", $operatorFailureNote, $errorMessage)
         }
     }
     else {
         $report.failure_or_limit_report.kind = 'FAILURE'
         $report.failure_or_limit_report.failure_summary = 'failure_summary.json'
-        $report.failure_or_limit_report.notes = @("phase=$failurePhaseValue", $operatorFailureNote, $errorMessage)
+        $report.failure_or_limit_report.notes = @("phase=$failurePhaseValue", "last_completed_stage=$lastCompletedStage", $operatorFailureNote, $errorMessage)
     }
+    $report.last_completed_stage = [string]$lastCompletedStage
+    $report.current_failure_stage = [string]$failurePhaseValue
     $failure = [ordered]@{
         error_code = $errorCode
         fail_reason = $errorCode
@@ -3042,7 +2281,9 @@ if ($shouldFail) {
         operator_note = $operatorFailureNote
         error_message = $errorMessage
         fail_class = 'FAILURE'
-        notes = @("phase=$failurePhaseValue", $operatorFailureNote, $errorMessage)
+        last_completed_stage = [string]$lastCompletedStage
+        current_failure_stage = [string]$failurePhaseValue
+        notes = @("phase=$failurePhaseValue", "last_completed_stage=$lastCompletedStage", $operatorFailureNote, $errorMessage)
         must_read_files = @('RUN_REPORT.json', 'visual_manifest.json')
         mode = $normalizedMode
         base_url = $BaseUrl
@@ -3080,6 +2321,8 @@ if ($shouldFail) {
     exit 1
 }
 
+$report.last_completed_stage = 'REPORT_LAYER'
+$report.current_failure_stage = ''
 Write-JsonFile -Path $runReportPath -Data $report
 Copy-Item -LiteralPath $runReportPath -Destination $deterministicRunReportPath -Force
 
