@@ -1397,6 +1397,7 @@ $report = [ordered]@{
     audit_confidence = 'LOW'
     decision_summary = [ordered]@{
         primary_issue = 'NONE'
+        primary_route = $null
         issue_type = 'CLEAN'
         priority = 'NONE'
         recommended_action = 'Expand audit coverage before making decisions.'
@@ -1467,6 +1468,7 @@ $report = [ordered]@{
         p0_count = 0
         p1_count = 0
         p2_count = 0
+        limitation_count = 0
         top_issues = @()
     }
     page_verdicts = @()
@@ -2308,7 +2310,26 @@ else {
         }
         $report.micro_clusters = @($microClusters)
         $defectFindings = @($allFindings | Where-Object { [string]$_.category -eq 'DEFECT' })
-        $limitationFindings = @()
+        $limitationFindings = [System.Collections.Generic.List[object]]::new()
+        if ([int]$report.run_budget.overflow_routes -gt 0) {
+            $limitationFindings.Add([ordered]@{
+                    finding_id = 'limitation_route_overflow'
+                    route = $null
+                    signal_type = 'ROUTE_OVERFLOW_ONLY'
+                    type = 'ROUTE_OVERFLOW_ONLY'
+                    issue_type = 'ROUTE_OVERFLOW_ONLY'
+                    category = 'LIMITATION'
+                    priority = 'NONE'
+                    severity = 'NONE'
+                    confidence = [string]$report.audit_confidence
+                    evidence_text = "Route budget excluded $([int]$report.run_budget.overflow_routes) discovered routes from this run."
+                    evidence_screenshot = ''
+                    evidence_refs = @('ROUTES_SUMMARY.json')
+                    why_it_matters = 'Sampled coverage is bounded and can miss page-level defects outside the checked scope.'
+                    recommended_action = 'Expand route sample and rerun LINK mode for broader coverage.'
+                })
+        }
+        $limitationFindings = @($limitationFindings)
         $report.findings_count = [int]$defectFindings.Count
         $report.limitation_count = [int]$limitationFindings.Count
         $routesChecked = [int]@($report.selected_routes).Count
@@ -2335,7 +2356,7 @@ else {
             ForEach-Object { [string]$_.issue_type }
         )
 
-        $report.findings = $allFindings
+        $report.findings = @($defectFindings + $limitationFindings)
         $operatorMemoryCore = [ordered]@{
             who_am_i = 'system operator building site auditor agent'
             what_system_is_being_built = 'site audit agent → decision → action → monetization system'
@@ -2563,6 +2584,7 @@ else {
             p0_count = $p0Count
             p1_count = $p1Count
             p2_count = $p2Count
+            limitation_count = [int]$limitationFindings.Count
             top_issues = @($topIssues)
         }
         $report.report_mode = if ($defectFindings.Count -gt 0) { 'PROBLEM' } else { 'CLEAN' }
@@ -2624,14 +2646,20 @@ else {
         else {
             'NONE'
         }
+        $primaryRouteValue = if ($null -ne $primaryDefectFinding) {
+            [string]$primaryDefectFinding.route
+        }
+        else {
+            $null
+        }
         $decisionRecommendedAction = if ($null -ne $primaryDefectFinding) {
             [string]$primaryDefectFinding.recommended_action
         }
         elseif ($null -ne $primaryLimitationFinding) {
             [string]$primaryLimitationFinding.recommended_action
         }
-        elseif ([string]$report.audit_confidence -eq 'LOW') {
-            'No strong issues confirmed in sampled scope'
+        elseif (@('LOW', 'MEDIUM') -contains [string]$report.audit_confidence) {
+            'Expand route sample and rerun LINK mode for broader coverage.'
         }
         else {
             'Keep monitoring and rerun when the site scope changes.'
@@ -2655,11 +2683,12 @@ else {
             'No page-level defect was detected, but sampled coverage limits confidence.'
         }
         else {
-            if ([string]$report.audit_confidence -eq 'HIGH') { 'No strong issues confirmed in sampled scope.' } else { 'No strong issues confirmed in sampled scope.' }
+            if ([string]$report.audit_confidence -eq 'HIGH') { 'No page-level defects were confirmed in the checked scope.' } else { 'No page-level defects were confirmed in the checked scope.' }
         }
         $report.decision_summary = [ordered]@{
             issue_type = [string]$decisionIssueType
             primary_issue = [string]$primaryIssueValue
+            primary_route = $primaryRouteValue
             priority = [string]$decisionPriority
             recommended_action = [string]$decisionRecommendedAction
             reasoning = [string]$decisionReasoning
@@ -2667,24 +2696,24 @@ else {
             audit_confidence = [string]$report.audit_confidence
         }
         $nextStrongestMove = [string]$report.decision_summary.recommended_action
-        $overallVerdict = if ($defectFindings.Count -eq 0 -and [string]$report.audit_confidence -eq 'LOW') {
-            'CLEAN: No strong issues confirmed in sampled scope'
+        $overallVerdict = if ($decisionIssueType -eq 'DEFECT' -and ($report.status -eq 'PARTIAL' -or $report.status -eq 'FAIL')) {
+            'DEFECT: confirmed finding(s) with limited evidence confidence'
         }
-        elseif ($defectFindings.Count -eq 0 -and [string]$report.audit_confidence -eq 'HIGH') {
-            'CLEAN: no strong issues detected'
+        elseif ($decisionIssueType -eq 'DEFECT') {
+            'DEFECT: confirmed finding(s) in sampled LINK evidence'
         }
-        elseif ($allFindings.Count -eq 0) {
-            'CLEAN: no strong issues detected'
+        elseif ($decisionIssueType -eq 'LIMITATION') {
+            'LIMITATION: audit scope constraints limit coverage certainty'
         }
-        elseif ($report.status -eq 'PARTIAL' -or $report.status -eq 'FAIL') {
-            'PROBLEM: findings present and evidence confidence is limited'
+        elseif ([string]$report.audit_confidence -eq 'HIGH') {
+            'CLEAN: No page-level defects were confirmed in the checked scope'
         }
         else {
-            'PROBLEM: findings present in sampled LINK evidence'
+            'CLEAN: No page-level defects were confirmed in the checked scope (coverage confidence limited)'
         }
         $report.executive_answer = [ordered]@{
             overall_verdict = $overallVerdict
-            primary_problem = $primaryProblem
+            primary_problem = [string]$report.decision_summary.primary_issue
             audit_scope = 'LINK mode / screenshot evidence baseline'
             strongest_next_move = [string]$nextStrongestMove
         }
@@ -2699,7 +2728,7 @@ else {
 
         $report.next_action_contract = [ordered]@{
             next_task_id = 'SITE_AUDITOR_V2_FINDINGS_REPAIR_001'
-            next_task_objective = if ($defectFindings.Count -eq 0 -and $limitationFindings.Count -gt 0) { 'increase deterministic route coverage by adjusting route budget or sample strategy' } elseif ($allFindings.Count -eq 0 -and [int]$report.run_budget.overflow_routes -gt 0) { 'maintain CLEAN report mode and optionally expand deterministic route sample' } elseif ($allFindings.Count -eq 0) { 'maintain CLEAN report mode with no immediate remediation tasks' } elseif ($ownershipMode -eq 'EXTERNAL') { 'analyze highest-severity findings for benchmarking, replication patterns, and traffic insights using referenced truth artifacts only' } else { 'resolve highest-severity findings using referenced truth artifacts only' }
+            next_task_objective = [string]$report.decision_summary.recommended_action
             why_this_first = if ($defectFindings.Count -eq 0 -and $limitationFindings.Count -gt 0) { 'no page-level defects were detected in sampled routes, but sampling limits constrain coverage confidence' } elseif ($allFindings.Count -eq 0 -and [int]$report.run_budget.overflow_routes -gt 0) { 'current sampled evidence is clean; next value is controlled scope expansion only if requested' } elseif ($allFindings.Count -eq 0) { 'sampled evidence is clean and in-budget with no material finding to remediate' } elseif ($ownershipMode -eq 'EXTERNAL') { 'site is external, so findings must be converted into learnings and replication opportunities instead of direct remediation tasks' } else { 'highest-severity findings are directly evidenced and block confident downstream interpretation' }
             forbidden_before_done = @(
                 'do not add interaction layer',
@@ -2770,11 +2799,8 @@ else {
         elseif ($decisionIssueType -eq 'LIMITATION') {
             "Coverage limitation: this is an audit scope constraint, not a page defect ($([string]$report.decision_summary.primary_issue))."
         }
-        elseif ([string]$report.audit_confidence -eq 'HIGH') {
-            'No strong issues confirmed in sampled scope.'
-        }
         else {
-            'No strong issues confirmed in sampled scope.'
+            'No page-level defects were confirmed in the checked scope.'
         }
         $mainFindingRu = if ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'MICRO_CLUSTER') {
             [string]$report.decision_summary.reasoning
@@ -2794,11 +2820,8 @@ else {
         elseif ($decisionIssueType -eq 'LIMITATION') {
             "Ограничение покрытия: это ограничение аудита, а не дефект страницы ($([string]$report.decision_summary.primary_issue))."
         }
-        elseif ([string]$report.audit_confidence -eq 'HIGH') {
-            'В проверенном объёме сильные проблемы не подтверждены.'
-        }
         else {
-            'В проверенном объёме сильные проблемы не подтверждены.'
+            'Дефекты уровня страницы в проверенном объёме не подтверждены.'
         }
         $limitationsCommon = [System.Collections.Generic.List[string]]::new()
         if ([string]$report.audit_confidence -ne 'HIGH' -or $limitationFindings.Count -gt 0) {
@@ -2870,8 +2893,13 @@ else {
         if ([string]$reportPayloadRu.actions_lines[0] -ne [string]$report.decision_summary.recommended_action) { throw 'CONSISTENCY_LOCK_FAILED: RU main action mismatch.' }
         if ([string]$reportPayloadEn.actions_lines[0] -ne [string]$report.decision_summary.recommended_action) { throw 'CONSISTENCY_LOCK_FAILED: EN main action mismatch.' }
         if ([string]::IsNullOrWhiteSpace([string]$report.decision_summary.issue_type) -or [string]::IsNullOrWhiteSpace([string]$report.decision_summary.primary_issue) -or [string]::IsNullOrWhiteSpace([string]$report.decision_summary.priority) -or [string]::IsNullOrWhiteSpace([string]$report.decision_summary.recommended_action) -or [string]::IsNullOrWhiteSpace([string]$report.decision_summary.reasoning) -or [string]::IsNullOrWhiteSpace([string]$report.decision_summary.ownership_mode) -or [string]::IsNullOrWhiteSpace([string]$report.decision_summary.audit_confidence)) { throw 'CONSISTENCY_LOCK_FAILED: decision_summary has null critical fields.' }
+        if ([string]$report.decision_summary.issue_type -eq 'DEFECT' -and [string]::IsNullOrWhiteSpace([string]$report.decision_summary.primary_route)) { throw 'CONSISTENCY_LOCK_FAILED: defect decision missing primary_route.' }
+        if ([string]$report.decision_summary.issue_type -ne 'DEFECT' -and $null -ne $report.decision_summary.primary_route -and -not [string]::IsNullOrWhiteSpace([string]$report.decision_summary.primary_route)) { throw 'CONSISTENCY_LOCK_FAILED: non-defect decision must not set primary_route.' }
         if ($decisionIssueType -eq 'LIMITATION' -and $defectFindings.Count -gt 0) { throw 'CONSISTENCY_LOCK_FAILED: limitation classified despite defect findings.' }
         if ($decisionIssueType -eq 'DEFECT' -and $defectFindings.Count -eq 0) { throw 'CONSISTENCY_LOCK_FAILED: defect classified without defect findings.' }
+        if ($decisionIssueType -eq 'CLEAN' -and ($defectFindings.Count -gt 0 -or $limitationFindings.Count -gt 0)) { throw 'CONSISTENCY_LOCK_FAILED: clean classified despite findings.' }
+        if ($decisionIssueType -eq 'LIMITATION' -and [string]$reportPayloadEn.main_finding -match 'Confirmed defect') { throw 'CONSISTENCY_LOCK_FAILED: limitation presented as defect in EN report.' }
+        if ($decisionIssueType -eq 'LIMITATION' -and [string]$reportPayloadRu.main_finding -match 'Подтверждён дефект') { throw 'CONSISTENCY_LOCK_FAILED: limitation presented as defect in RU report.' }
 
         $report.next_step = [string]$nextStrongestMove
         $isLimitationOnly = ($defectFindings.Count -eq 0 -and $limitationFindings.Count -gt 0)
