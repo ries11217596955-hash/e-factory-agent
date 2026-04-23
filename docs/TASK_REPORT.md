@@ -1,47 +1,63 @@
 ## Summary
-- Built a deterministic decision spine in `SITE_AUDITOR_V2` so final outputs now resolve through one chain: findings → priority_summary → decision_summary → next_strongest_move → ACTION_SUMMARY → HUMAN_REPORT.
-- Normalized `priority_summary` to include `p0_count`, `p1_count`, `p2_count`, `limitation_count`, and defect-only `top_issues`.
-- Expanded `decision_summary` into the single source of truth with required fields (`issue_type`, `primary_issue`, `primary_route`, `priority`, `recommended_action`, `reasoning`, `ownership_mode`, `audit_confidence`).
-- Added explicit limitation handling (`ROUTE_OVERFLOW_ONLY`) and strict limitation-vs-defect locks in report generation consistency checks.
-- Enforced clean-state wording and synchronization checks so recommended action, ACTION_SUMMARY first action, and human report main action cannot diverge.
+- Built STRONG SIGNALS PACK in `SITE_AUDITOR_V2` to keep only four high-impact defect signals in the findings pipeline: `BROKEN_ROUTE`, `PROCESS_FIRST`, `NO_VALUE_FIRST_SCREEN`, and `NO_ACTION_PATH`.
+- Added strict evidence gating so findings are emitted only when explicit evidence exists, and each finding now carries `route`, `evidence_text`, `evidence_type`, and `evidence_ref`.
+- Enforced HIGH-confidence-only defect emission and removed micro-cluster synthetic findings to avoid collapsing or diluting direct page evidence.
+- Hardened prioritization and sorting so `BROKEN_ROUTE` and entry/decision-surface `PROCESS_FIRST` issues are ranked first and feed `decision_summary` deterministically.
+- Sharpened HUMAN_REPORT outputs to emphasize only the 1–2 strongest findings with concrete evidence snippets.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
-  - Updated report object defaults for decision spine completeness (`decision_summary.primary_route`, `priority_summary.limitation_count`).
-  - Added deterministic limitation finding generation for route overflow (`ROUTE_OVERFLOW_ONLY`) in findings-to-priority flow.
-  - Rewired decision derivation and downstream outputs to align with `decision_summary` as primary truth.
-  - Updated human-report verdict/finding wording to prevent overclaiming in low/medium confidence clean states.
-  - Added strict consistency locks for route/nullability, issue-type contradictions, and limitation-as-defect violations.
+  - Updated priority and finding-rank mappings to include `BROKEN_ROUTE` as top severity.
+  - Reworked findings synthesis to emit only strong-signal findings with explicit evidence fields.
+  - Added strict `BROKEN_ROUTE` detection (`non-200` / failure) with status-backed evidence.
+  - Removed MICRO_CLUSTER generation from defect findings to prevent aggregation-based dilution.
+  - Updated decision and human-report wording to prioritize strongest evidenced finding and include evidence snippets.
+  - Updated limitation evidence fields for structural consistency.
 - `docs/TASK_REPORT.md`
-  - Replaced with this PACK 1 decision-spine report.
+  - Replaced report content for PACK 2 implementation.
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/site_auditor_v2/agent.ps1`.
-- Route discovery unchanged (no crawler/route-selection core rewrites).
-- Screenshot engine core unchanged (no edits to `agents/site_auditor_v2/tools/capture_visuals.mjs`).
-- Ownership mode logic semantics unchanged (`Get-OwnershipMode`, ownership-sensitive action text selection preserved).
-- ZIP/REPO mode behavior unchanged (scope limited to LINK report decision/report chain wiring).
+- Route discovery unchanged.
+- Screenshot engine unchanged (`agents/site_auditor_v2/tools/capture_visuals.mjs` untouched).
+- Ownership logic unchanged (`Get-OwnershipMode` and ownership action selection preserved).
+- Confidence framework unchanged globally; PACK 2 only gates findings to HIGH-confidence evidence-backed signals.
 
 ## Risks/blockers
-- Limitation findings are currently generated from route overflow constraints (`ROUTE_OVERFLOW_ONLY`); future limitation categories may require the same lock wiring to stay consistent.
-- Existing downstream consumers that assumed `decision_summary` had no `primary_route` field must tolerate the added field.
-- Consistency locks intentionally fail report generation on mismatch; this is deterministic by design but can surface latent data-quality issues earlier.
-- No blockers encountered in allowed scope.
+- `PROCESS_FIRST`, `NO_VALUE_FIRST_SCREEN`, and `NO_ACTION_PATH` now require first-screen text evidence; pages with sparse/empty extractable text may produce fewer findings despite visible issues.
+- `BROKEN_ROUTE` now ranks highest and can dominate decision output when non-200 responses exist.
+- Existing consumers that relied on MICRO_CLUSTER findings will no longer receive that synthetic issue type.
+- No blockers encountered.
 
-### Rollback instructions by file/block
-1. `agents/site_auditor_v2/agent.ps1` — revert decision-spine defaults block in initial `$report` object:
-   - `decision_summary.primary_route`
-   - `priority_summary.limitation_count`
-2. `agents/site_auditor_v2/agent.ps1` — revert limitation derivation block after findings synthesis:
-   - `ROUTE_OVERFLOW_ONLY` limitation construction
-   - merged `report.findings = @($defectFindings + $limitationFindings)`
-3. `agents/site_auditor_v2/agent.ps1` — revert decision wiring block:
-   - `primary_route` derivation
-   - clean/limitation recommended action and reasoning normalization
-   - `overallVerdict` mapping from `decision_summary.issue_type`
-4. `agents/site_auditor_v2/agent.ps1` — revert synchronization/lock block:
-   - additional `CONSISTENCY_LOCK_FAILED` checks for `primary_route`, clean contradictions, and limitation-as-defect wording.
-5. `docs/TASK_REPORT.md` — restore prior task report content if needed.
+### Signal definitions
+- `BROKEN_ROUTE`: route fails or returns non-200 status.
+- `PROCESS_FIRST`: first screen starts with process/instructions before value statement.
+- `NO_VALUE_FIRST_SCREEN`: first screen does not clearly communicate page value.
+- `NO_ACTION_PATH`: first screen lacks a clear visible next step.
+
+### Confidence rules
+- Signal confidence is `HIGH` only when:
+  - condition is true for the signal, and
+  - required evidence is present (`status` evidence for `BROKEN_ROUTE`, `text` evidence for first-screen signals).
+- Only `HIGH` confidence signals are promoted to defect findings.
+- Lower-confidence signals are discarded from the defect findings list.
+
+### Evidence rules
+- Every emitted finding includes:
+  - `route`
+  - `evidence_text`
+  - `evidence_type`
+  - `evidence_ref`
+- For first-screen signals, evidence is text snippet (first 1–2 lines).
+- For broken routes, evidence is status-based text (`HTTP status code: ...`).
+- Findings without required evidence are not emitted.
+
+### Rollback
+1. Revert `agents/site_auditor_v2/agent.ps1` signal maps (`Get-DefectPriorityByIssueType`, `Get-FindingTypeSortRank`) to remove `BROKEN_ROUTE` and previous rank ordering.
+2. Revert findings synthesis block to prior signal conditions/evidence logic and remove `evidence_type`/`evidence_ref` fields.
+3. Restore MICRO_CLUSTER generation block if aggregate synthetic findings are required again.
+4. Revert decision reasoning/report wording updates tied to `BROKEN_ROUTE` and evidence-snippet output.
+5. Restore previous `docs/TASK_REPORT.md` content if PACK 2 report is rolled back.
