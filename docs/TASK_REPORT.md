@@ -1,5 +1,5 @@
 ## Summary
-Fixed the PowerShell 5.1 failure-path artifact merge crash by materializing the internal `System.Collections.Generic.List[string]` into a plain array before appending failure artifacts, preserving artifact names and failure finalization semantics.
+Hardened the active reconciliation corridor in `agents/site_auditor_v2/agent.ps1` for PS5.1-safe collection boundaries by normalizing `limitNotes` to a plain array before status-note assembly, keeping failure-tail `produced_artifacts` array-only, and adding explicit RECON trace markers for localization (`PREP_OK`, `EVIDENCE_OK`, `LIMIT_NOTES_READY`, `STATUS_SWITCH_START`, `STATUS_PASS|PARTIAL|FAIL`, `EXIT_READY`) without changing business logic.
 
 ## Changed files
 - agents/site_auditor_v2/agent.ps1
@@ -10,7 +10,8 @@ Fixed the PowerShell 5.1 failure-path artifact merge crash by materializing the 
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/site_auditor_v2/agent.ps1`.
-- Change scope limited to failure finalization artifact list assembly in `agents/site_auditor_v2/agent.ps1`.
+- Scope unchanged: reconciliation corridor + failure-tail artifact assembly in `agents/site_auditor_v2/agent.ps1`.
 
 ## Risks/blockers
-- No full runtime execution was performed in this environment; validate with a failure-path run to confirm absence of `Argument types do not match` and expected `RUN_REPORT.json` finalization output.
+- Full end-to-end runtime was not executed in this environment.
+- Acceptance should be validated in a real run to confirm RECON marker progression and absence of `Argument types do not match` on active path merges.
