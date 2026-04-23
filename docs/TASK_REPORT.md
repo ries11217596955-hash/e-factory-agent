@@ -1,25 +1,30 @@
 ## Summary
-- Implemented PACK 4 for `SITE_AUDITOR_V2` to synthesize one deterministic `system_problem` from HIGH-confidence findings and drive the full decision/action chain from that object.
-- Added universal surface normalization (`entry_surface`, `explanation_surface`, `decision_surface`, `action_surface`, `terminal_surface`, `unknown_surface`) and attached `surface_type` to findings and page verdicts.
-- Added compact `interaction_explanation` into `system_problem` with observable chain fields: entry surface, expected outcome, actual outcome, failure point, and why it matters.
-- Rebuilt RU/EN human reports to compressed structure: single main system problem, max 3 evidence items, max 3 action bullets, optional single limitation block, compact technical snapshot.
-- Added stronger consistency lock checks for strongest action synchronization across `system_problem`, `decision_summary`, `next_strongest_move`, `ACTION_SUMMARY`, and human reports.
+- Implemented PACK 5 context normalization in `SITE_AUDITOR_V2` by introducing normalized surface types: `MEDIA_HOME`, `MEDIA_SECTION`, `ARTICLE`, `LANDING`, `DECISION`, `TOOL`, `DIRECTORY`, `UNKNOWN`.
+- Added deterministic surface heuristics based on URL/title patterns, headline/list density, repeated link block ratio, and timestamp/news-listing patterns (no LLM inference).
+- Added a surface expectation model and applied it to findings generation so `NO_VALUE_FIRST_SCREEN`, `PROCESS_FIRST`, and `NO_ACTION_PATH` are emitted only when context-valid.
+- Added false-positive guards for media streams, article pages, and directory/listing surfaces to suppress inappropriate first-screen/value/action defects.
+- Added system-problem quality lock behavior and report wording/context updates so decisions and human reports stay aligned with context-valid findings.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
-  - **Surface normalization block**: added `Get-SurfaceTypeByPageType` and propagated `surface_type` into findings/page verdicts.
-  - **System problem synthesis block**: replaced micro-cluster-only logic with deterministic `system_problem` synthesis rules:
-    - repeated HIGH finding type across >=2 surfaces => one system problem,
-    - otherwise fallback to strongest single defect,
-    - limitation-only => LIMITATION,
-    - no defects => CLEAN.
-  - **Decision override block**: decision summary now derives primary issue/action from `system_problem` title/strongest action.
-  - **Interaction explanation block**: added compact universal behavior explanation inside `system_problem.interaction_explanation`.
-  - **Human report rendering block**: replaced long-form sections with compressed order and limits.
-  - **Consistency lock block**: added action-chain strict equality checks and max-item guardrails for actions/evidence.
-  - **Fallback report block**: updated fallback payload fields to match new compact report schema.
+  - Added normalized surface classifier (`Get-NormalizedSurfaceType`) using bounded heuristics.
+  - Added expectation model (`Get-SurfaceExpectation`) per normalized surface type.
+  - Updated page route extraction signals to include:
+    - `headline_count`
+    - `article_list_count`
+    - `repeated_link_block_ratio`
+    - `has_timestamp_patterns`
+  - Updated surface mapping to retain normalized surface names in findings/verdicts.
+  - Rebuilt findings conditions with context-aware gating:
+    - media guard
+    - article guard
+    - directory guard
+    - action/value expectation gating by surface type
+  - Updated system-problem synthesis to rely on context-valid HIGH findings and avoid strong synthesis from false-positive-prone surface clusters.
+  - Updated human report payload text with brief surface context explanation and clean-scope wording: `No confirmed system-level defect was established in the checked scope.`
+
 - `docs/TASK_REPORT.md`
-  - Replaced with PACK 4 implementation report.
+  - Replaced with PACK 5 implementation report.
 
 ## Moved files/folders
 - None.
@@ -28,54 +33,67 @@
 - Entrypoint unchanged: `agents/site_auditor_v2/agent.ps1`.
 - Route discovery core unchanged.
 - Screenshot engine core unchanged.
-- Memory files unchanged.
-- ZIP/REPO modes unchanged.
+- Decision spine structure preserved (logic inputs tightened to context-valid findings).
+- Bilingual report layout structure preserved (payload wording/context adjusted only).
 
 ## Risks/blockers
-- PowerShell runtime is not available in this environment (`pwsh` missing), so live execution validation could not be performed.
-- RU/EN report bodies are compressed and structurally aligned, but style tuning may still need minor copy edits after runtime samples.
-- Stronger consistency lock can now fail generation on wording/field mismatches that previously passed; this is intentional but stricter operationally.
-- No protected/forbidden paths were modified.
+- PowerShell runtime validation is blocked in this environment (`pwsh` unavailable), so runtime execution checks could not be performed.
+- Heuristics are deterministic but may need threshold tuning on edge-case hybrid surfaces.
+- Stronger guards may suppress borderline findings on ambiguous pages, favoring false-positive reduction over aggressive detection.
+- No protected paths were touched.
 
-## Universal surface normalization rules
-- `HOME` -> `entry_surface`
-- `ARTICLE` -> `explanation_surface`
-- `DECISION` -> `decision_surface`
-- `TOOL` -> `action_surface`
-- `HUB` -> `terminal_surface`
-- any unknown type -> `unknown_surface`
-- Existing route/page fields are preserved for compatibility; `surface_type` is additive.
+## New surface types
+- `MEDIA_HOME`
+- `MEDIA_SECTION`
+- `ARTICLE`
+- `LANDING`
+- `DECISION`
+- `TOOL`
+- `DIRECTORY`
+- `UNKNOWN`
 
-## System problem synthesis rules
-- Input set: HIGH-confidence findings only.
-- If same finding type repeats across >=2 normalized surfaces: synthesize one DEFECT system problem.
-- If no multi-surface repeat but at least one defect: fallback to strongest single defect as system problem.
-- If no defects but limitations exist: system problem category LIMITATION.
-- If no defects and no limitations: system problem category CLEAN.
-- System problem output fields:
-  - `problem_type`
-  - `category`
-  - `title`
-  - `description`
-  - `affected_surfaces_count`
-  - `representative_examples` (max 3)
-  - `strongest_action`
-  - `confidence`
-  - `interaction_explanation`
+## Expectation model
+- `MEDIA_HOME` / `MEDIA_SECTION`
+  - value-first slogan optional
+  - first screen can be editorial/content stream
+  - no automatic CTA/value defect on listing behavior
+- `ARTICLE`
+  - headline + lead can satisfy first-screen value
+  - CTA absence is not automatically defective
+- `DIRECTORY`
+  - structured listing/choice can satisfy value intent
+  - CTA absence is not automatically defective
+- `LANDING` / `DECISION` / `TOOL`
+  - retain strict value-first and clear action-path expectations
 
-## Report compression rules
-- One main system problem only.
-- Supporting evidence max 3 lines.
-- Actions max 3 bullets (main action first).
-- Limitation section max 1 line and rendered only when needed.
-- No duplicate explanation sections.
-- Human report omits weak/noisy intermediate artifacts and raw route dumps.
+## Context-aware defect rules
+- `NO_VALUE_FIRST_SCREEN`
+  - allowed primarily where `expects_value_first = true`
+  - suppressed for media/article/directory contexts when listing/lead signals are present
+- `PROCESS_FIRST`
+  - allowed for non-media contexts where process framing appears before value
+  - suppressed for normal media stream/listing surfaces
+- `NO_ACTION_PATH`
+  - allowed only where `expects_action_path = true`
+  - suppressed on media/article/directory surfaces
+- `BROKEN_ROUTE`
+  - unchanged high-signal route reachability rule
+
+## False-positive guards
+- MEDIA guard:
+  - listing/timestamp/headline stream patterns do not default to `NO_VALUE_FIRST_SCREEN`
+- ARTICLE guard:
+  - article-like lead coverage suppresses first-screen CTA/value defect assumptions
+- DIRECTORY guard:
+  - structured choice/listing patterns suppress value/action false positives
 
 ## Rollback instructions by file/block
-1. `agents/site_auditor_v2/agent.ps1`:
-   - Remove `Get-SurfaceTypeByPageType` and all `surface_type` assignments in findings/page verdicts.
-   - Restore pre-PACK4 micro-cluster/system-problem block (cluster summary + previous override logic).
-   - Restore previous human report payload schema (`checked_lines`, `main_finding`) and previous `New-ClientReportHtml` layout.
-   - Remove newly added consistency checks for strongest-action chain and report compression limits.
-2. `docs/TASK_REPORT.md`:
-   - Restore previous task report content from git history.
+1. `agents/site_auditor_v2/agent.ps1`
+   - Remove `Get-NormalizedSurfaceType` and `Get-SurfaceExpectation` functions.
+   - Restore prior page classification behavior (`HOME/HUB/...`) in route extraction block.
+   - Remove added route signals (`headline_count`, `article_list_count`, `repeated_link_block_ratio`, `has_timestamp_patterns`).
+   - Restore pre-PACK5 finding rules block (non-context-gated `PROCESS_FIRST`, `NO_VALUE_FIRST_SCREEN`, `NO_ACTION_PATH`).
+   - Restore pre-PACK5 system-problem cluster selection without false-positive-prone surface lock.
+   - Restore pre-PACK5 human report wording/context lines.
+2. `docs/TASK_REPORT.md`
+   - Restore previous content from git history.
