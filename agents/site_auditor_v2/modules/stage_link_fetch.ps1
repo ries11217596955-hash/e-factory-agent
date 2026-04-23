@@ -44,8 +44,7 @@ function Resolve-CanonicalBaseUrl {
         }
     }
 
-    $builder = Resolve-SafeUriBuilder -Source $absoluteUri
-    $normalizedPath = [string]$builder.Path
+    $normalizedPath = [string]$absoluteUri.AbsolutePath
     if ([string]::IsNullOrWhiteSpace($normalizedPath)) {
         $normalizedPath = '/'
     }
@@ -57,8 +56,7 @@ function Resolve-CanonicalBaseUrl {
         }
     }
 
-    $builder.Path = $normalizedPath
-    $canonicalUrl = $builder.Uri.AbsoluteUri
+    $canonicalUrl = Get-NormalizedAbsoluteUriString -Uri $absoluteUri -Path $normalizedPath
 
     return [ordered]@{
         status = 'ok'
@@ -150,11 +148,7 @@ function Get-NormalizedRouteResult {
 
         $normalizedRoute = $normalizedPath
 
-        $builder = Resolve-SafeUriBuilder -Source $uri
-        $builder.Path = $normalizedPath
-        $builder.Query = [string]$uri.Query.TrimStart('?')
-        $builder.Fragment = ''
-        $normalizedUrl = $builder.Uri.AbsoluteUri
+        $normalizedUrl = Get-NormalizedAbsoluteUriString -Uri $uri -Path $normalizedPath -Query ([string]$uri.Query.TrimStart('?'))
 
         return [ordered]@{
             status = 'ok'
@@ -253,7 +247,7 @@ function Get-ShallowRoutes {
         }
 
         try {
-            $resolvedUri = Resolve-SafeUriJoin -BaseUri $rootUri -RelativeOrAbsolute $trimmedHref
+            $resolvedUri = Resolve-SafeUri -BaseUri $rootUri -RelativeOrAbsolute $trimmedHref
         }
         catch {
             $null = Add-KeyIfMissing -Map $filterReasons -Key 'invalid_format'
@@ -315,7 +309,7 @@ function Get-ShallowRoutes {
                 }
 
                 try {
-                    $resolvedRouteHref = Resolve-SafeUriJoin -BaseUri ([Uri]$routeTarget.url) -RelativeOrAbsolute $rawRouteHref.Trim()
+                    $resolvedRouteHref = Resolve-SafeUri -BaseUri ([Uri]$routeTarget.url) -RelativeOrAbsolute $rawRouteHref.Trim()
                     if ($resolvedRouteHref.Scheme -in @('http', 'https') -and $resolvedRouteHref.Host -eq $rootUri.Host) {
                         $internalRouteLinks += 1
                     }

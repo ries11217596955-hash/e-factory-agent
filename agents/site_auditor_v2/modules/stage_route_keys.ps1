@@ -31,7 +31,7 @@ function Get-CanonicalRouteKeyResult {
         }
 
         try {
-            $candidateUrl = (Resolve-SafeUriJoin -BaseUri ([Uri]$BaseUrl) -RelativeOrAbsolute $trimmedValue).AbsoluteUri
+            $candidateUrl = (Resolve-SafeUri -BaseUri ([Uri]$BaseUrl) -RelativeOrAbsolute $trimmedValue).AbsoluteUri
         }
         catch {
             return [ordered]@{
@@ -211,11 +211,8 @@ function Get-VisualTargets {
     }
 
     $baseUri = [Uri]$BaseUrl
-    $rootBuilder = Resolve-SafeUriBuilder -Source $baseUri
-    $rootBuilder.Path = '/'
-    $rootBuilder.Query = ''
-    $rootBuilder.Fragment = ''
-    $baseNormalized = Get-NormalizedRouteResult -Url $rootBuilder.Uri.AbsoluteUri
+    $baseRootUrl = Get-NormalizedAbsoluteUriString -Uri $baseUri -Path '/'
+    $baseNormalized = Get-NormalizedRouteResult -Url $baseRootUrl
     if (Add-KeyIfMissing -Map $seenRoutes -Key ([string]$baseNormalized.normalized_route)) {
         $baseClassification = Get-SafeRouteClassification -RouteKey $baseNormalized.normalized_route
         if (-not $baseClassification.PSObject.Properties['hard_exclude'] -or -not [bool]$baseClassification.hard_exclude) {
@@ -275,7 +272,7 @@ function Get-VisualTargets {
             route = $routeKey
             type = [string]$classification.type
             priority = [int]$classification.priority
-            url = (Resolve-SafeUriJoin -BaseUri ([Uri]$BaseUrl) -RelativeOrAbsolute $routeKey).AbsoluteUri
+            url = (Resolve-SafeUri -BaseUri ([Uri]$BaseUrl) -RelativeOrAbsolute $routeKey).AbsoluteUri
             selection_reason = $selectionReason
         }
 
