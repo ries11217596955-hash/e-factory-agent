@@ -6,6 +6,7 @@
   "required": [
     "mode",
     "base_url",
+    "ownership_mode",
     "status",
     "run_id",
     "output_folder",
@@ -32,6 +33,7 @@
   "properties": {
     "mode": { "type": "string" },
     "base_url": { "type": "string" },
+    "ownership_mode": { "type": "string", "enum": ["OWNED", "EXTERNAL"] },
     "status": { "type": "string", "enum": ["PASS", "PARTIAL", "FAIL"] },
     "run_id": { "type": "string" },
     "output_folder": { "type": "string" },
@@ -296,6 +298,8 @@
       "required": [
         "deprecated",
         "mirrors_operator_memory_bridge",
+        "ownership_mode",
+        "action_scope_explanation",
         "truth_files",
         "read_order",
         "first_file_to_open",
@@ -307,6 +311,8 @@
       "properties": {
         "deprecated": { "type": "boolean" },
         "mirrors_operator_memory_bridge": { "type": "boolean" },
+        "ownership_mode": { "type": "string", "enum": ["OWNED", "EXTERNAL"] },
+        "action_scope_explanation": { "type": "string" },
         "truth_files": { "type": "array", "items": { "type": "string" } },
         "read_order": { "type": "array", "items": { "type": "string" } },
         "first_file_to_open": { "type": "string" },

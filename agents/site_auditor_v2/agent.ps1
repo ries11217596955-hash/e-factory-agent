@@ -12,6 +12,28 @@ $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot/modules/util_io.ps1"
 . "$PSScriptRoot/modules/util_json.ps1"
 
+function Get-OwnershipMode {
+    return 'EXTERNAL'
+}
+
+function Get-ActionTextByOwnership {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('OWNED', 'EXTERNAL')]
+        [string]$OwnershipMode,
+        [Parameter(Mandatory = $true)]
+        [string]$OwnedAction,
+        [Parameter(Mandatory = $true)]
+        [string]$ExternalAction
+    )
+
+    if ($OwnershipMode -eq 'OWNED') {
+        return $OwnedAction
+    }
+
+    return $ExternalAction
+}
+
 function Get-DeterministicRunKey {
     param(
         [Parameter(Mandatory = $true)]
@@ -926,6 +948,7 @@ $canonicalBaseUrlResult = Resolve-CanonicalBaseUrl -BaseUrl $originalBaseUrlInpu
 $canonicalBaseUrl = if ($canonicalBaseUrlResult.status -eq 'ok') { [string]$canonicalBaseUrlResult.canonical_url } else { '' }
 $runKeyBaseUrl = if ($canonicalBaseUrlResult.status -eq 'ok') { $canonicalBaseUrl } else { $originalBaseUrlInput.Trim() }
 $runKey = Get-DeterministicRunKey -Mode $Mode -BaseUrl $runKeyBaseUrl
+$ownershipMode = Get-OwnershipMode
 $outputRoot = Join-Path $PSScriptRoot (Join-Path 'output' $runKey)
 $runReportPath = Join-Path $outputRoot 'RUN_REPORT.json'
 $linkSummaryPath = Join-Path $outputRoot 'LINK_SUMMARY.json'
@@ -980,6 +1003,7 @@ $cannotDoYet = @(
 $report = [ordered]@{
     mode = $normalizedMode
     base_url = $canonicalBaseUrl
+    ownership_mode = $ownershipMode
     input_canonicalization = [ordered]@{
         original = $originalBaseUrlInput
         canonical = $canonicalBaseUrl
@@ -1031,6 +1055,8 @@ $report = [ordered]@{
         deprecated = $true
         reader_role = 'ChatGPT decision/orchestration layer'
         mirrors_operator_memory_bridge = $true
+        ownership_mode = $ownershipMode
+        action_scope_explanation = if ($ownershipMode -eq 'OWNED') { 'Owned site: fix/update/optimize actions are allowed when supported by findings.' } else { 'External site: actions are limited to analyze/benchmark/replicate insights, not direct page fixes.' }
         must_do_before_next_task = @()
         what_to_inspect_next = @()
         truth_files = @()
@@ -1235,7 +1261,7 @@ else {
                     url = $_.url
                     classification = 'broken'
                     reason = 'status_code not 200'
-                    action = 'fix or remove page'
+                    action = Get-ActionTextByOwnership -OwnershipMode $ownershipMode -OwnedAction 'fix or remove page' -ExternalAction 'analyze broken route pattern and benchmark alternatives'
                 }
             }
         )
@@ -1249,7 +1275,7 @@ else {
                     url = $_.url
                     classification = 'thin'
                     reason = 'low html_length'
-                    action = 'expand content'
+                    action = Get-ActionTextByOwnership -OwnershipMode $ownershipMode -OwnedAction 'expand content' -ExternalAction 'learn from richer competing pages and replicate content structure patterns'
                 }
             }
         )
@@ -1730,7 +1756,7 @@ else {
                         severity = 'P1'
                         evidence_refs = @('ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json')
                         why_it_matters = 'Broken route evidence blocks page access in current sampled route set.'
-                        recommended_action = 'Fix route status or remove the broken link from internal navigation.'
+                        recommended_action = Get-ActionTextByOwnership -OwnershipMode $ownershipMode -OwnedAction 'Fix route status or remove the broken link from internal navigation.' -ExternalAction 'Analyze broken-route patterns, benchmark healthier navigation structures, and replicate resilient linking patterns.'
                     })
                 $routeIssueMap[$routeKey].Add($findingId)
                 $findingIndex += 1
@@ -1746,7 +1772,7 @@ else {
                         severity = 'P2'
                         evidence_refs = @('ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json')
                         why_it_matters = 'Thin HTML evidence reduces confidence for downstream audit interpretation.'
-                        recommended_action = 'Expand route content and rerun LINK capture before deeper audit interpretation.'
+                        recommended_action = Get-ActionTextByOwnership -OwnershipMode $ownershipMode -OwnedAction 'Expand route content and rerun LINK capture before deeper audit interpretation.' -ExternalAction 'Learn from stronger pages, benchmark depth patterns, and replicate higher-information structures for future owned implementation.'
                     })
                 $routeIssueMap[$routeKey].Add($findingId)
                 $findingIndex += 1
@@ -2146,11 +2172,21 @@ else {
             'expand_route_sample_within_budget'
         }
         else {
-            switch ($highestPriorityIssueType) {
-                'CAPTURE_FAILURE' { 'restore_capture_integrity_and_rerun_link_mode' }
-                'BROKEN_ROUTE' { 'repair_broken_routes_and_rerun_link_mode' }
-                'THIN_ROUTE' { 'expand_route_content_and_rerun_link_mode' }
-                default { 'resolve_highest_priority_finding_from_run_report' }
+            if ($ownershipMode -eq 'OWNED') {
+                switch ($highestPriorityIssueType) {
+                    'CAPTURE_FAILURE' { 'restore_capture_integrity_and_rerun_link_mode' }
+                    'BROKEN_ROUTE' { 'repair_broken_routes_and_rerun_link_mode' }
+                    'THIN_ROUTE' { 'expand_route_content_and_rerun_link_mode' }
+                    default { 'resolve_highest_priority_finding_from_run_report' }
+                }
+            }
+            else {
+                switch ($highestPriorityIssueType) {
+                    'CAPTURE_FAILURE' { 'analyze_capture_integrity_limits_and_preserve_evidence_quality' }
+                    'BROKEN_ROUTE' { 'analyze_broken_route_patterns_and_replicate_resilient_navigation_ideas' }
+                    'THIN_ROUTE' { 'analyze_content_depth_gaps_and_replicate_high-information_patterns' }
+                    default { 'analyze_highest_priority_finding_and_benchmark_replication_ideas' }
+                }
             }
         }
         $overallVerdict = if ($defectFindings.Count -eq 0 -and $limitationFindings.Count -gt 0) {
@@ -2174,6 +2210,9 @@ else {
         elseif ($allFindings.Count -eq 0) {
             'No immediate action required; keep current LINK sample unless scope changes.'
         }
+        elseif ($ownershipMode -eq 'EXTERNAL') {
+            'Analyze findings for benchmarking and replication ideas; avoid direct page remediation actions.'
+        }
         else {
             [string]$sortedFindings[0].recommended_action
         }
@@ -2194,8 +2233,8 @@ else {
 
         $report.next_action_contract = [ordered]@{
             next_task_id = 'SITE_AUDITOR_V2_FINDINGS_REPAIR_001'
-            next_task_objective = if ($defectFindings.Count -eq 0 -and $limitationFindings.Count -gt 0) { 'increase deterministic route coverage by adjusting route budget or sample strategy' } elseif ($allFindings.Count -eq 0 -and [int]$report.run_budget.overflow_routes -gt 0) { 'maintain CLEAN report mode and optionally expand deterministic route sample' } elseif ($allFindings.Count -eq 0) { 'maintain CLEAN report mode with no immediate remediation tasks' } else { 'resolve highest-severity findings using referenced truth artifacts only' }
-            why_this_first = if ($defectFindings.Count -eq 0 -and $limitationFindings.Count -gt 0) { 'no page-level defects were detected in sampled routes, but sampling limits constrain coverage confidence' } elseif ($allFindings.Count -eq 0 -and [int]$report.run_budget.overflow_routes -gt 0) { 'current sampled evidence is clean; next value is controlled scope expansion only if requested' } elseif ($allFindings.Count -eq 0) { 'sampled evidence is clean and in-budget with no material finding to remediate' } else { 'highest-severity findings are directly evidenced and block confident downstream interpretation' }
+            next_task_objective = if ($defectFindings.Count -eq 0 -and $limitationFindings.Count -gt 0) { 'increase deterministic route coverage by adjusting route budget or sample strategy' } elseif ($allFindings.Count -eq 0 -and [int]$report.run_budget.overflow_routes -gt 0) { 'maintain CLEAN report mode and optionally expand deterministic route sample' } elseif ($allFindings.Count -eq 0) { 'maintain CLEAN report mode with no immediate remediation tasks' } elseif ($ownershipMode -eq 'EXTERNAL') { 'analyze highest-severity findings for benchmarking, replication patterns, and traffic insights using referenced truth artifacts only' } else { 'resolve highest-severity findings using referenced truth artifacts only' }
+            why_this_first = if ($defectFindings.Count -eq 0 -and $limitationFindings.Count -gt 0) { 'no page-level defects were detected in sampled routes, but sampling limits constrain coverage confidence' } elseif ($allFindings.Count -eq 0 -and [int]$report.run_budget.overflow_routes -gt 0) { 'current sampled evidence is clean; next value is controlled scope expansion only if requested' } elseif ($allFindings.Count -eq 0) { 'sampled evidence is clean and in-budget with no material finding to remediate' } elseif ($ownershipMode -eq 'EXTERNAL') { 'site is external, so findings must be converted into learnings and replication opportunities instead of direct remediation tasks' } else { 'highest-severity findings are directly evidenced and block confident downstream interpretation' }
             forbidden_before_done = @(
                 'do not add interaction layer',
                 'do not add decision automation',
@@ -2248,6 +2287,8 @@ else {
             deprecated = $true
             reader_role = 'ChatGPT decision/orchestration layer'
             mirrors_operator_memory_bridge = $true
+            ownership_mode = $ownershipMode
+            action_scope_explanation = if ($ownershipMode -eq 'OWNED') { 'Owned site: recommendations may include fix/update/optimize actions grounded in findings evidence.' } else { 'External site: recommendations are limited to analyze/learn/replicate patterns and traffic insights, not direct page changes.' }
             truth_files = @($report.operator_memory_bridge.must_read_contract.must_read_files)
             read_order = @($report.operator_memory_bridge.must_read_contract.read_order)
             must_read_first = @('RUN_REPORT.json')

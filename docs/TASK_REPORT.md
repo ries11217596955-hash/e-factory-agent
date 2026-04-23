@@ -1,9 +1,9 @@
 ## Summary
-- Normalized findings classification in `SITE_AUDITOR_V2` into `DEFECT` vs `LIMITATION` and added explicit `type` + `category` on each finding.
-- Recomputed counting and priority outputs so only `DEFECT` findings drive `findings_count`, severity totals, and `priority_summary.top_issues`.
-- Updated action and next-move logic so limitation-only runs produce coverage/budget expansion guidance instead of page-fix remediation.
-- Updated operator handoff reasoning for limitation-only outcomes to explicitly state no page-level defects and sampling constraints.
-- Updated run report schema to require `findings_count`, `limitation_count`, and finding-level `type`/`category`.
+- Added `ownership_mode` to SITE_AUDITOR_V2 report state with a hardcoded safe default of `EXTERNAL`.
+- Updated findings/action text generation so `EXTERNAL` mode only emits analyze/learn/replicate-style actions, while `OWNED` mode keeps fix/update/optimize remediation wording.
+- Added `ownership_mode` to `RUN_REPORT.json` and extended `operator_handoff` with ownership context and explicit action-scope explanation.
+- Updated run report schema to require and validate the new ownership fields.
+- No findings detection, route sampling, or evidence reconciliation logic was changed; only report/action phrasing and scope constraints were updated.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
@@ -15,17 +15,12 @@
 
 ## Current entrypoints/paths
 - Entrypoint remains: `agents/site_auditor_v2/agent.ps1`.
-- Findings/report contract remains: `agents/site_auditor_v2/contracts/run_report.schema.json`.
-- Output artifacts remain under `agents/site_auditor_v2/output/<run_id>/` with deterministic mirrors in `agents/site_auditor_v2/`.
+- Report contract remains: `agents/site_auditor_v2/contracts/run_report.schema.json`.
+- Report artifacts remain under `agents/site_auditor_v2/output/<run_id>/` with deterministic mirrors in `agents/site_auditor_v2/`.
 
 ## Risks/blockers
-- Existing consumers that assumed all findings are defects may need to read `category` and use `findings_count` vs `limitation_count` explicitly.
-- `issue_type` is retained for compatibility, while `type` is now also required; downstream parsers should treat them as equivalent finding type identifiers.
-- No runtime/crawler/route selection behavior changed; only findings-layer normalization and reporting semantics changed.
-
-## Rollback instructions
-1. Revert this task commit:
-   - `git revert <commit_sha>`
-2. Or restore modified files directly:
-   - `git checkout -- agents/site_auditor_v2/agent.ps1 agents/site_auditor_v2/contracts/run_report.schema.json docs/TASK_REPORT.md`
-3. Re-run `SITE_AUDITOR_V2` LINK mode to regenerate artifacts using prior semantics.
+- `ownership_mode` is currently hardcoded to `EXTERNAL`; producing `OWNED` output requires a future explicit input/plumbing change.
+- Downstream consumers validating `RUN_REPORT.json` must use the updated schema that includes `ownership_mode` and new `operator_handoff` fields.
+- Rollback instructions:
+  1. `git revert <commit_sha>`
+  2. Or restore files directly: `git checkout -- agents/site_auditor_v2/agent.ps1 agents/site_auditor_v2/contracts/run_report.schema.json docs/TASK_REPORT.md`
