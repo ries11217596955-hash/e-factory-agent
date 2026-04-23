@@ -1,56 +1,36 @@
 ## Summary
-- Hardened URI normalization/join code paths by removing ambiguous `UriBuilder`/`Uri` constructor wrappers from `runtime_safe.ps1` and replacing usage with deterministic `System.Uri::TryCreate` + explicit URI string assembly helpers.
-- Updated early runtime modules (`stage_link_fetch.ps1`, `stage_route_keys.ps1`) and early agent route rewrite path to use `Resolve-SafeUri` and `Get-NormalizedAbsoluteUriString` instead of removed wrapper factories.
-- Added minimal bootstrap stage traces (`STAGE: ENTRY`, `STAGE: LINK_FETCH`, `STAGE: ROUTE_EXTRACTION`, `STAGE: ROUTE_SELECTION`) via shared helper `Write-BootstrapStageTrace` so operators can see last reached stage even if artifacts are missing.
-- Preserved and tightened failure truth metadata by ensuring failure payloads and `RUN_REPORT.json` consistently include `last_completed_stage` and `current_failure_stage` fields in failure state updates.
-- Performed key-map API sweep in the required runtime/report files; no mixed HashSet-style usage remains for `New-CaseInsensitiveKeyMap` objects.
+- Fixed the PowerShell 5.1 crash point in `agents/site_auditor_v2/agent.ps1` where action report generation called `[string]::Join` with `System.Collections.Generic.List[string]` immediately after `ROUTE_EXTRACTION` and before `ROUTE_SELECTION`.
+- Removed the unsafe static binding pattern by materializing `$actionReportLines` to a `[string[]]` array before calling `[string]::Join`.
+- Performed a targeted sweep for same-class static binding risks in `agents/site_auditor_v2/agent.ps1`; no other `[string]::Join(...)` calls remain.
+- Kept stage tracing and failure-phase truth fields unchanged; this patch is runtime-safety only and does not alter audit semantics or report design.
+- STRING_JOIN_STATIC_BINDING_RISK_REMAINING = NO
 
 ## Changed files
-- `agents/site_auditor_v2/modules/runtime_safe.ps1`
-  - Removed risky URI factory wrappers:
-    - `Resolve-SafeUriBuilder`
-    - `Resolve-SafeUriJoin`
-  - Added deterministic helpers:
-    - `Resolve-SafeUri`
-    - `Get-NormalizedAbsoluteUriString`
-    - `ConvertTo-SafeAbsoluteUri` (safe absolute parser)
-    - `Write-BootstrapStageTrace` (minimal stage marker output)
-- `agents/site_auditor_v2/modules/stage_link_fetch.ps1`
-  - Replaced URI builder-based canonicalization with deterministic helper-based normalization.
-  - Replaced all URI joins to `Resolve-SafeUri`.
-- `agents/site_auditor_v2/modules/stage_route_keys.ps1`
-  - Replaced base-root URI assembly and route URL joins with deterministic helper-based methods.
 - `agents/site_auditor_v2/agent.ps1`
-  - Added early-stage trace emissions through module helper for ENTRY/LINK_FETCH/ROUTE_EXTRACTION/ROUTE_SELECTION.
-  - Replaced remaining early URI join call in manifest route rewrite to `Resolve-SafeUri`.
-  - Ensured failure report object consistently carries `last_completed_stage` and `current_failure_stage` in failure update branch.
+  - Replaced unsafe call:
+    - `[string]::Join([Environment]::NewLine, $actionReportLines)`
+  - With PS5.1-safe pattern:
+    - `[string[]]$actionReportLinesArray = $actionReportLines.ToArray()`
+    - `[string]::Join([Environment]::NewLine, $actionReportLinesArray)`
+- `docs/TASK_REPORT.md`
+  - Updated report for PACK R2.1 targeted runtime fix and risk sweep results.
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- Entrypoint remains: `agents/site_auditor_v2/agent.ps1`.
-- Early stage boundaries after cleanup:
-  - `ENTRY` (input/mode canonical validation)
-  - `LINK_FETCH` (`Get-LinkSignals`)
-  - `ROUTE_EXTRACTION` (`Get-ShallowRoutes`)
-  - `ROUTE_SELECTION` (`Get-VisualTargets`)
-- Early-stage trace markers now emitted exactly once per early stage via `Write-BootstrapStageTrace`.
+- Entrypoint unchanged: `agents/site_auditor_v2/agent.ps1`.
+- Stage flow unchanged by this patch:
+  - `ENTRY`
+  - `LINK_FETCH`
+  - `ROUTE_EXTRACTION`
+  - `ROUTE_SELECTION`
 
 ## Risks/blockers
-- RISKY URI FACTORY REMAINING = NO
-- MIXED KEY-MAP API REMAINING = NO
-- Remaining early-runtime risk = NO (for this patch scope: startup URI constructor ambiguity + early-stage traceability + failure-stage truth metadata).
-- Blocker: PowerShell runtime (`pwsh`/Windows PS 5.1) is not available in this Linux container, so execution-level verification cannot be run here.
+- STRING_JOIN_STATIC_BINDING_RISK_REMAINING = NO
+- Same-class static binding sweep status (`[string]::Join` in `agents/site_auditor_v2/agent.ps1`) = CLEAN
+- Blocker: Windows PowerShell 5.1 runtime is not available in this Linux container, so an in-container execution proof for stage progression cannot be run here.
 
-Rollback instructions by file/block:
-1. `agents/site_auditor_v2/modules/runtime_safe.ps1`
-   - Revert helper block replacing removed factories (`Resolve-SafeUri`, `Get-NormalizedAbsoluteUriString`, `ConvertTo-SafeAbsoluteUri`, `Write-BootstrapStageTrace`) to prior implementation.
-2. `agents/site_auditor_v2/modules/stage_link_fetch.ps1`
-   - Revert canonical base URL and normalized route construction blocks that now call `Get-NormalizedAbsoluteUriString`.
-   - Revert link join call sites now calling `Resolve-SafeUri`.
-3. `agents/site_auditor_v2/modules/stage_route_keys.ps1`
-   - Revert base root URL build and route target URL join call sites now calling helper methods.
-4. `agents/site_auditor_v2/agent.ps1`
-   - Revert four stage trace call lines (`Write-BootstrapStageTrace -Stage ...`).
-   - Revert failure report field assignment block (`last_completed_stage` / `current_failure_stage`) in the existing failure branch.
+Rollback instructions:
+1. In `agents/site_auditor_v2/agent.ps1`, revert the two-line array materialization block back to the prior single `[string]::Join(..., $actionReportLines)` call.
+2. Revert `docs/TASK_REPORT.md` to its previous revision if you need to undo task reporting updates.
