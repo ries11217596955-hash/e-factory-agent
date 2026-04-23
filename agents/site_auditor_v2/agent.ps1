@@ -9,6 +9,10 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+if ($PSVersionTable.PSVersion.Major -lt 6) {
+    Write-Host "Running in PS5.1 compatibility mode"
+}
+
 . "$PSScriptRoot/modules/util_io.ps1"
 . "$PSScriptRoot/modules/util_json.ps1"
 . "$PSScriptRoot/modules/surface_context.ps1"
@@ -443,9 +447,9 @@ function Get-ShallowRoutes {
     $rawLinksFound = [int]$hrefMatches.Count
     $htmlSnapshot = if ($rootHtml.Length -gt 1000) { $rootHtml.Substring(0, 1000) } else { $rootHtml }
     $uniqueRouteKeys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    $routeUrls = [System.Collections.Generic.List[object]]::new()
+    $routeUrls = New-Object System.Collections.Generic.List[object]
     $normalizationFailed = $false
-    $normalizationErrors = [System.Collections.Generic.List[string]]::new()
+    $normalizationErrors = New-Object System.Collections.Generic.List[string]
     $internalLinkCount = 0
     $filterReasons = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 
@@ -501,7 +505,7 @@ function Get-ShallowRoutes {
         }
     }
 
-    $routes = [System.Collections.Generic.List[object]]::new()
+    $routes = New-Object System.Collections.Generic.List[object]
     foreach ($routeTarget in $routeUrls) {
         try {
             $routeResponse = Invoke-WebRequest -Uri $routeTarget.url -Method Get -MaximumRedirection 5
@@ -781,7 +785,7 @@ function Test-RouteContract {
         [object]$VisualManifest
     )
 
-    $violations = [System.Collections.Generic.List[object]]::new()
+    $violations = New-Object System.Collections.Generic.List[object]
     function Add-RouteViolation {
         param(
             [string]$ArtifactPath,
@@ -914,10 +918,10 @@ function Get-VisualTargets {
         [int]$MaxPages = 5
     )
 
-    $selected = [System.Collections.Generic.List[object]]::new()
+    $selected = New-Object System.Collections.Generic.List[object]
     $seenRoutes = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    $tierOne = [System.Collections.Generic.List[object]]::new()
-    $tierTwo = [System.Collections.Generic.List[object]]::new()
+    $tierOne = New-Object System.Collections.Generic.List[object]
+    $tierTwo = New-Object System.Collections.Generic.List[object]
     $decisionKeywords = @('tool', 'best', 'how', 'guide')
     $lowValueKeywords = @('tag', 'category', 'archive', 'page', 'feed')
 
@@ -1189,7 +1193,7 @@ function Invoke-EvidenceReconciliation {
     $validCount = 0
     $invalidCount = 0
     $checksCompleted = $true
-    $diagnostics = [System.Collections.Generic.List[string]]::new()
+    $diagnostics = New-Object System.Collections.Generic.List[string]
 
     foreach ($capture in $captures) {
         $relativeFile = [string]$capture.file
@@ -1350,7 +1354,7 @@ $learningBacklog = @(
     'Add decision synthesis contract after quality signals stabilize.'
 )
 
-$producedArtifacts = [System.Collections.Generic.List[string]]::new()
+$producedArtifacts = New-Object System.Collections.Generic.List[string]
 $null = $producedArtifacts.Add('RUN_REPORT.json')
 $null = $producedArtifacts.Add('ACTION_REPORT.txt')
 
@@ -1708,7 +1712,7 @@ else {
         Copy-Item -LiteralPath $auditSummaryPath -Destination $deterministicAuditSummaryPath -Force
         $null = $producedArtifacts.Add('AUDIT_SUMMARY.json')
 
-        $actionReportLines = [System.Collections.Generic.List[string]]::new()
+        $actionReportLines = New-Object System.Collections.Generic.List[string]
         $actionReportLines.Add("Site: $BaseUrl")
         $actionReportLines.Add("Total pages checked: $($auditSummary.total)")
         $actionReportLines.Add("Shell: $($auditSummary.shell)")
@@ -1811,7 +1815,7 @@ else {
         $manifestPages = @($visualManifest.pages)
 
         $selectedRouteKeys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-        $routeNormalizationErrors = [System.Collections.Generic.List[object]]::new()
+        $routeNormalizationErrors = New-Object System.Collections.Generic.List[object]
         foreach ($target in $selectedRoutes) {
             $selectedRouteValue = if (-not [string]::IsNullOrWhiteSpace([string]$target.route)) {
                 [string]$target.route
@@ -2038,7 +2042,7 @@ else {
         }
 
         $report.execution_report.final_outcome = 'PASS'
-        $limitNotes = [System.Collections.Generic.List[string]]::new()
+        $limitNotes = New-Object System.Collections.Generic.List[string]
         if ($shellCount -gt 0) { $limitNotes.Add("shell_pages=$shellCount") }
         if ($thinCount -gt 0) { $limitNotes.Add("thin_pages=$thinCount") }
         if ($brokenCount -gt 0) { $limitNotes.Add("broken_pages=$brokenCount") }
@@ -2121,7 +2125,7 @@ else {
 
         $routeIssueMap = @{}
         $routeSignalMap = @{}
-        $findingsList = [System.Collections.Generic.List[object]]::new()
+        $findingsList = New-Object System.Collections.Generic.List[object]
         $findingIndex = 1
         foreach ($route in @($routesSummary.routes)) {
             $routeValue = [string]$route.normalized_route
@@ -2169,7 +2173,7 @@ else {
         }
 
         $failurePhase = 'SURFACE_CONTEXT'
-        $pageVerdicts = [System.Collections.Generic.List[object]]::new()
+        $pageVerdicts = New-Object System.Collections.Generic.List[object]
         foreach ($selectedRoute in @($report.selected_routes)) {
             $routeValue = [string]$selectedRoute.route
             $canonicalSelectedRoute = Get-CanonicalRouteKeyResult -RouteValue $routeValue -BaseUrl $BaseUrl
@@ -2264,8 +2268,8 @@ else {
             $noValueConfidence = Test-HighSignalConfidence -ConditionMet ($noValueCondition -and $noValueAllowed) -EvidencePresent $textEvidencePresent
             $noActionConfidence = Test-HighSignalConfidence -ConditionMet ($noActionCondition -and $noActionAllowed) -EvidencePresent $textEvidencePresent
 
-            if (-not $routeIssueMap.ContainsKey($canonicalRoute)) { $routeIssueMap[$canonicalRoute] = [System.Collections.Generic.List[string]]::new() }
-            $defectCandidates = [System.Collections.Generic.List[string]]::new()
+            if (-not $routeIssueMap.ContainsKey($canonicalRoute)) { $routeIssueMap[$canonicalRoute] = New-Object System.Collections.Generic.List[string] }
+            $defectCandidates = New-Object System.Collections.Generic.List[string]
 
             if ($brokenRouteConfidence -eq 'HIGH') {
                 $issueType = 'BROKEN_ROUTE'
@@ -2397,7 +2401,7 @@ else {
         $allFindings = @($findingsList)
         $report.micro_clusters = @()
         $defectFindings = @($allFindings | Where-Object { [string]$_.category -eq 'DEFECT' })
-        $limitationFindings = [System.Collections.Generic.List[object]]::new()
+        $limitationFindings = New-Object System.Collections.Generic.List[object]
         if ([int]$report.run_budget.overflow_routes -gt 0) {
             $limitationFindings.Add([ordered]@{
                     finding_id = 'limitation_route_overflow'
@@ -2482,7 +2486,7 @@ else {
             }
             $systemChange = if (@($report.findings).Count -gt 0) { 'report layer includes deterministic findings and action mapping' } else { 'report layer is clean for sampled scope with deterministic action summary' }
 
-            $whatIsReliable = [System.Collections.Generic.List[string]]::new()
+            $whatIsReliable = New-Object System.Collections.Generic.List[string]
             if ($report.capture_report.captures_success -gt 0 -and $reconciliationStatus -ne 'FAIL') {
                 $null = $whatIsReliable.Add('screenshots')
             }
@@ -2496,7 +2500,7 @@ else {
                 $null = $whatIsReliable.Add('findings serialization')
             }
 
-            $whatIsNotReliable = [System.Collections.Generic.List[string]]::new()
+            $whatIsNotReliable = New-Object System.Collections.Generic.List[string]
             if ($counterMismatchDetected -or $captureStatus -eq 'FAIL' -or $captureStatus -eq 'PARTIAL') {
                 $null = $whatIsNotReliable.Add('complete visual evidence coverage')
             }
@@ -2549,7 +2553,7 @@ else {
                 'highest-severity deterministic finding should be resolved first'
             }
 
-            $doNotDoYet = [System.Collections.Generic.List[string]]::new()
+            $doNotDoYet = New-Object System.Collections.Generic.List[string]
             foreach ($blockedMove in @($report.next_action_contract.forbidden_before_done)) {
                 if (-not [string]::IsNullOrWhiteSpace([string]$blockedMove)) {
                     $null = $doNotDoYet.Add([string]$blockedMove)
@@ -2560,7 +2564,7 @@ else {
                 $null = $doNotDoYet.Add('do not expand crawler depth beyond current LINK-mode budget')
             }
 
-            $whatIsStable = [System.Collections.Generic.List[string]]::new()
+            $whatIsStable = New-Object System.Collections.Generic.List[string]
             if ($report.capture_report.captures_success -gt 0) {
                 $null = $whatIsStable.Add('screenshots')
             }
@@ -2571,7 +2575,7 @@ else {
                 $null = $whatIsStable.Add('route selection')
             }
 
-            $whatIsUnstable = [System.Collections.Generic.List[string]]::new()
+            $whatIsUnstable = New-Object System.Collections.Generic.List[string]
             if (@($report.findings).Count -eq 0 -and [int]$report.run_budget.overflow_routes -gt 0) {
                 $null = $whatIsUnstable.Add('coverage beyond sampled max_routes')
             }
@@ -2580,7 +2584,7 @@ else {
             }
             $null = $whatIsUnstable.Add('interaction layer')
 
-            $agentLearned = [System.Collections.Generic.List[string]]::new()
+            $agentLearned = New-Object System.Collections.Generic.List[string]
             if ($report.capture_report.captures_success -gt 0) {
                 $null = $agentLearned.Add('can produce validated screenshots')
             }
@@ -2591,14 +2595,14 @@ else {
                 $null = $agentLearned.Add('can perform deterministic route selection')
             }
 
-            $agentCannotYet = [System.Collections.Generic.List[string]]::new()
+            $agentCannotYet = New-Object System.Collections.Generic.List[string]
             $null = $agentCannotYet.Add('cannot interpret UX')
             $null = $agentCannotYet.Add('cannot evaluate conversion')
             if ($report.decision_allowed -eq $false) {
                 $null = $agentCannotYet.Add('cannot recommend tools')
             }
 
-            $agentMisleadingRisk = [System.Collections.Generic.List[string]]::new()
+            $agentMisleadingRisk = New-Object System.Collections.Generic.List[string]
             $null = $agentMisleadingRisk.Add('may assume page quality from visuals only')
             if ($captureStatus -eq 'PARTIAL' -or $captureStatus -eq 'FAIL') {
                 $null = $agentMisleadingRisk.Add('may overstate certainty when evidence coverage is partial')
@@ -2698,7 +2702,7 @@ else {
         )
 
         $clusterTypes = @('PROCESS_FIRST', 'NO_VALUE_FIRST_SCREEN', 'NO_ACTION_PATH', 'BROKEN_ROUTE')
-        $microClusters = [System.Collections.Generic.List[object]]::new()
+        $microClusters = New-Object System.Collections.Generic.List[object]
         foreach ($clusterType in $clusterTypes) {
             $clusterFindings = @($contextValidHighFindings | Where-Object { [string]$_.issue_type -eq $clusterType })
             $clusterSurfaces = @($clusterFindings | ForEach-Object { [string]$_.surface_type } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
@@ -2780,7 +2784,7 @@ else {
             -DefectCount $defectFindings.Count `
             -LimitationCount $limitationFindings.Count `
             -AuditConfidence ([string]$report.audit_confidence)
-        $actionSummaryActions = @($finalActionSummary.actions)
+        $actionSummaryActions = if ($null -ne $finalActionSummary.actions) { @($finalActionSummary.actions) } else { @() }
 
         Write-JsonFile -Path $actionSummaryPath -Data $finalActionSummary
         Copy-Item -LiteralPath $actionSummaryPath -Destination $deterministicActionSummaryPath -Force
@@ -3012,9 +3016,11 @@ if ($shouldFail) {
         default { 'internal exception' }
     }
     if ($failurePhaseValue -eq 'REPORT_LAYER') {
-        $producedArtifacts = [System.Collections.Generic.List[string]]::new(@(
-                @($producedArtifacts) | Where-Object { $_ -notin @('ACTION_SUMMARY.json', 'HUMAN_REPORT_RU.html', 'HUMAN_REPORT_EN.html') }
-            ))
+        $producedArtifactsFiltered = @($producedArtifacts) | Where-Object { $_ -notin @('ACTION_SUMMARY.json', 'HUMAN_REPORT_RU.html', 'HUMAN_REPORT_EN.html') }
+        $producedArtifacts = New-Object System.Collections.Generic.List[string]
+        foreach ($artifact in $producedArtifactsFiltered) {
+            $null = $producedArtifacts.Add([string]$artifact)
+        }
     }
     if (-not $report.failure_or_limit_report -or [string]$report.failure_or_limit_report.kind -ne 'FAILURE') {
         $report.failure_or_limit_report = [ordered]@{
