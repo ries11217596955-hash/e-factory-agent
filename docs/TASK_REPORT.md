@@ -1,36 +1,30 @@
 ## Summary
-- Fixed the PowerShell 5.1 crash point in `agents/site_auditor_v2/agent.ps1` where action report generation called `[string]::Join` with `System.Collections.Generic.List[string]` immediately after `ROUTE_EXTRACTION` and before `ROUTE_SELECTION`.
-- Removed the unsafe static binding pattern by materializing `$actionReportLines` to a `[string[]]` array before calling `[string]::Join`.
-- Performed a targeted sweep for same-class static binding risks in `agents/site_auditor_v2/agent.ps1`; no other `[string]::Join(...)` calls remain.
-- Kept stage tracing and failure-phase truth fields unchanged; this patch is runtime-safety only and does not alter audit semantics or report design.
-- STRING_JOIN_STATIC_BINDING_RISK_REMAINING = NO
+- Applied a targeted fix in `agents/site_auditor_v2/agent.ps1` to prevent post-`ROUTE_EXTRACTION` crash and allow stage progression to `ROUTE_SELECTION`.
+- Updated action report text assembly to call `[string]::Join([Environment]::NewLine, $actionReportLines.ToArray())` directly when `$actionReportLines` is a `List[string]`.
+- Added explicit route extraction guards to fail fast when route discovery is empty.
+- Added explicit `ROUTE_EXTRACTION_FAILED_NO_INTERNAL_LINKS` error when `internal_links` is `0` (or less), as required.
+- Kept scope strictly limited to requested targeted fix and task reporting.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
-  - Replaced unsafe call:
-    - `[string]::Join([Environment]::NewLine, $actionReportLines)`
-  - With PS5.1-safe pattern:
-    - `[string[]]$actionReportLinesArray = $actionReportLines.ToArray()`
-    - `[string]::Join([Environment]::NewLine, $actionReportLinesArray)`
+  - Replaced action report join call with direct `ToArray()` invocation.
+  - Added route extraction validation checks:
+    - throw `ROUTE_EXTRACTION_FAILED_NO_RAW_LINKS` when `raw_links_found <= 0`
+    - throw `ROUTE_EXTRACTION_FAILED_NO_INTERNAL_LINKS` when `internal_links <= 0`
 - `docs/TASK_REPORT.md`
-  - Updated report for PACK R2.1 targeted runtime fix and risk sweep results.
+  - Updated with this task's summary and risk notes.
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/site_auditor_v2/agent.ps1`.
-- Stage flow unchanged by this patch:
+- Stage flow unchanged:
   - `ENTRY`
   - `LINK_FETCH`
   - `ROUTE_EXTRACTION`
   - `ROUTE_SELECTION`
 
 ## Risks/blockers
-- STRING_JOIN_STATIC_BINDING_RISK_REMAINING = NO
-- Same-class static binding sweep status (`[string]::Join` in `agents/site_auditor_v2/agent.ps1`) = CLEAN
-- Blocker: Windows PowerShell 5.1 runtime is not available in this Linux container, so an in-container execution proof for stage progression cannot be run here.
-
-Rollback instructions:
-1. In `agents/site_auditor_v2/agent.ps1`, revert the two-line array materialization block back to the prior single `[string]::Join(..., $actionReportLines)` call.
-2. Revert `docs/TASK_REPORT.md` to its previous revision if you need to undo task reporting updates.
+- Runtime verification of full Windows PowerShell 5.1 behavior is blocked in this Linux container.
+- The new extraction guard intentionally fails earlier when link extraction yields no usable internal links, which is required by task acceptance.

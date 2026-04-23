@@ -892,6 +892,12 @@ else {
         $currentFailureStage = $failurePhase
         Write-BootstrapStageTrace -Stage 'ROUTE_EXTRACTION'
         $routesSummary = Get-ShallowRoutes -RootUrl $BaseUrl -MaxRoutes 10
+        if ([int]$routesSummary.raw_links_found -le 0) {
+            throw 'ROUTE_EXTRACTION_FAILED_NO_RAW_LINKS'
+        }
+        if ([int]$routesSummary.internal_links -le 0) {
+            throw 'ROUTE_EXTRACTION_FAILED_NO_INTERNAL_LINKS'
+        }
         $lastCompletedStage = 'ROUTE_EXTRACTION'
         $report.route_normalization = [string]$routesSummary.route_normalization
         $report.fetch_debug = [ordered]@{
@@ -1008,8 +1014,7 @@ else {
             $actionReportLines.Add("Action: $($target.action)")
         }
 
-        [string[]]$actionReportLinesArray = $actionReportLines.ToArray()
-        $actionReportContent = [string]::Join([Environment]::NewLine, $actionReportLinesArray)
+        $actionReportContent = [string]::Join([Environment]::NewLine, $actionReportLines.ToArray())
         [System.IO.File]::WriteAllText($actionReportPath, $actionReportContent)
         Copy-Item -LiteralPath $actionReportPath -Destination $deterministicActionReportPath -Force
         $null = $producedArtifacts.Add('ACTION_REPORT.txt')
