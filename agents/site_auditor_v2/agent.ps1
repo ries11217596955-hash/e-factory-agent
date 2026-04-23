@@ -1400,8 +1400,8 @@ else {
 
         $reconciliationStatus = [string]$report.evidence_reconciliation.status
         $limitNotesArray = @($limitNotes.ToArray())
-        Write-Host 'RECON: LIMIT_NOTES_READY'
-        Write-Host 'RECON: STATUS_SWITCH_START'
+        Write-Host 'RECON: LIMIT_NOTES_ARRAY_READY'
+        Write-Host 'RECON: STATUS_SWITCH_READY'
         switch ($reconciliationStatus) {
             'PASS' {
                 Write-Host 'RECON: STATUS_PASS'
