@@ -1411,6 +1411,7 @@ else {
                 $report.execution_report.status_detail = $passStatus
                 $report.decision_allowed = $true
                 $report.decision_disabled = $false
+                Write-Host 'RECON: NOTES_PASS_READY'
                 if ($limitNotes.Count -gt 0) {
                     $report.failure_or_limit_report = [ordered]@{
                         kind = 'LIMITS'
@@ -1427,10 +1428,17 @@ else {
                 $report.execution_report.status_detail = 'PARTIAL'
                 $report.decision_allowed = $false
                 $report.decision_disabled = $true
+                $notesOut = New-Object System.Collections.Generic.List[string]
+                foreach ($n in @($limitNotesArray)) {
+                    $null = $notesOut.Add([string]$n)
+                }
+                $null = $notesOut.Add('reconciliation_status=PARTIAL')
+                $null = $notesOut.Add('downstream analysis limited')
+                Write-Host 'RECON: NOTES_PARTIAL_READY'
                 $report.failure_or_limit_report = [ordered]@{
                     kind = 'LIMITS'
                     failure_summary = ''
-                    notes = @($limitNotesArray + @('reconciliation_status=PARTIAL', 'downstream analysis limited'))
+                    notes = @($notesOut.ToArray())
                 }
             }
             default {
@@ -1441,10 +1449,16 @@ else {
                 $report.execution_report.status_detail = 'FAIL'
                 $report.decision_allowed = $false
                 $report.decision_disabled = $true
+                $notesOut = New-Object System.Collections.Generic.List[string]
+                foreach ($n in @($limitNotesArray)) {
+                    $null = $notesOut.Add([string]$n)
+                }
+                $null = $notesOut.Add('reconciliation_status=FAIL')
+                Write-Host 'RECON: NOTES_FAIL_READY'
                 $report.failure_or_limit_report = [ordered]@{
                     kind = 'FAILURE'
                     failure_summary = 'failure_summary.json'
-                    notes = @($limitNotesArray + @('reconciliation_status=FAIL'))
+                    notes = @($notesOut.ToArray())
                 }
             }
         }
