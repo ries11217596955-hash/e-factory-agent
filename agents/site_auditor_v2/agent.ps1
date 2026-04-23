@@ -1094,9 +1094,14 @@ else {
         }
         if (-not $routes) {
             Write-Host "ROUTE_SELECTION: NO_ROUTES_INPUT"
-            return @{
-                status = "FAIL"
-                reason = "NO_ROUTES_AVAILABLE"
+            Write-Host 'ROUTE_SELECTION: FAIL_NO_ROUTES'
+            $shouldFail = $true
+            $errorCode = 'NO_ROUTES_AVAILABLE'
+            $errorMessage = 'ROUTE_SELECTION received no routes input.'
+            $failurePhase = 'ROUTE_SELECTION'
+            $currentFailureStage = $failurePhase
+            if ($shouldFail) {
+                throw $errorMessage
             }
         }
         if ($routes -isnot [System.Array]) {
@@ -1109,9 +1114,14 @@ else {
         Write-Host 'ROUTE_SELECTION: AFTER_FILTER'
         if ($routes.Count -eq 0) {
             Write-Host "ROUTE_SELECTION: EMPTY_AFTER_FILTER"
-            return @{
-                status = "FAIL"
-                reason = "EMPTY_ROUTE_SET"
+            Write-Host 'ROUTE_SELECTION: FAIL_EMPTY_AFTER_FILTER'
+            $shouldFail = $true
+            $errorCode = 'EMPTY_ROUTE_SET'
+            $errorMessage = 'ROUTE_SELECTION route set became empty after filtering.'
+            $failurePhase = 'ROUTE_SELECTION'
+            $currentFailureStage = $failurePhase
+            if ($shouldFail) {
+                throw $errorMessage
             }
         }
         Write-Host 'ROUTE_SELECTION: BEFORE_SORT'
@@ -1124,9 +1134,14 @@ else {
         Write-Host 'ROUTE_SELECTION: AFTER_SORT'
         if ($routes.Count -eq 0) {
             Write-Host "ROUTE_SELECTION: EMPTY_AFTER_FILTER"
-            return @{
-                status = "FAIL"
-                reason = "EMPTY_ROUTE_SET"
+            Write-Host 'ROUTE_SELECTION: FAIL_EMPTY_AFTER_FILTER'
+            $shouldFail = $true
+            $errorCode = 'EMPTY_ROUTE_SET'
+            $errorMessage = 'ROUTE_SELECTION route set became empty after filtering.'
+            $failurePhase = 'ROUTE_SELECTION'
+            $currentFailureStage = $failurePhase
+            if ($shouldFail) {
+                throw $errorMessage
             }
         }
         $routeSelectionRoutesSummary = [ordered]@{}
