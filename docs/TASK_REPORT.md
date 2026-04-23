@@ -1,5 +1,5 @@
 ## Summary
-Fixed `Get-VisualTargets()` generic list merge failure in PowerShell 5.1 by explicitly materializing tier lists to arrays before concatenation, then emitting stage markers for merge and overflow readiness without changing ranking/selection semantics.
+Hardened final visual target selection in `Get-VisualTargets` for PowerShell 5.1 by validating merged ranked targets, guarding empty post-validation collections, selecting safely with array materialization, and returning only an array of selected targets with new route-selection markers.
 
 ## Changed files
 - agents/site_auditor_v2/modules/stage_route_keys.ps1
@@ -10,7 +10,7 @@ Fixed `Get-VisualTargets()` generic list merge failure in PowerShell 5.1 by expl
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/site_auditor_v2/agent.ps1`.
-- Functional change limited to `Get-VisualTargets()` in `agents/site_auditor_v2/modules/stage_route_keys.ps1` around tier merge and overflow materialization.
+- Change scope limited to final selection block inside `Get-VisualTargets` in `agents/site_auditor_v2/modules/stage_route_keys.ps1`.
 
 ## Risks/blockers
-- No end-to-end pipeline run was executed in this task, so marker visibility (`VISUAL_TARGETS_MERGE_READY`, `VISUAL_TARGETS_OVERFLOW_READY`) and absence of runtime merge errors remain to be verified in the next orchestrator execution.
+- No full orchestrator run was executed here; runtime verification of marker ordering and downstream consumers expecting array-only return should be validated in integration execution.

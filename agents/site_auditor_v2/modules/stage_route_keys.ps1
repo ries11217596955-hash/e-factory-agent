@@ -301,24 +301,20 @@ function Get-VisualTargets {
     $tierTwoArray = @($tierTwo.ToArray())
     Write-Host 'ROUTE_SELECTION: VISUAL_TARGETS_MERGE_READY'
     $allRankedTargets = @($tierOneArray + $tierTwoArray)
-    $overflow = @(
-        $allRankedTargets |
-        Select-Object -Skip $selected.Count |
-        ForEach-Object {
-            [ordered]@{
-                route = [string]$_.route
-                type = [string]$_.type
-                priority = [int]$_.priority
-                selection_reason = [string]$_.selection_reason
-                exclusion_reason = 'over_max_routes_tiered_priority_cutoff'
-            }
-        }
-    )
     Write-Host 'ROUTE_SELECTION: VISUAL_TARGETS_OVERFLOW_READY'
 
-    return [ordered]@{
-        selected_routes = @($selected)
-        overflow_routes = @($overflow)
-        selection_strategy = 'tiered_priority'
+    Write-Host 'ROUTE_SELECTION: VALIDATION_START'
+    $allRankedTargets = @($allRankedTargets) | Where-Object { $_ -ne $null }
+    Write-Host ('ROUTE_SELECTION: VALID_ITEMS_COUNT=' + $allRankedTargets.Count)
+
+    if ($allRankedTargets.Count -eq 0) {
+        Write-Host 'ROUTE_SELECTION: NO_VALID_TARGETS'
+        throw 'No valid visual targets after merge and filtering'
     }
+
+    $selectedTargets = @($allRankedTargets | Select-Object -First $MaxPages)
+    Write-Host ('ROUTE_SELECTION: SELECTED_COUNT=' + $selectedTargets.Count)
+    Write-Host 'ROUTE_SELECTION: SELECTED_OK'
+
+    return @($selectedTargets)
 }
