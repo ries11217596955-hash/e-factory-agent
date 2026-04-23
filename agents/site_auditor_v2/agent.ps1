@@ -1087,7 +1087,56 @@ else {
         $failurePhase = 'ROUTE_SELECTION'
         $currentFailureStage = $failurePhase
         Write-BootstrapStageTrace -Stage 'ROUTE_SELECTION'
-        $captureTargetPlan = Get-VisualTargets -BaseUrl $BaseUrl -RoutesSummary $routesSummary -MaxPages $maxRoutes
+        Write-Host 'ROUTE_SELECTION: START'
+        $routes = $null
+        if ($null -ne $routesSummary -and $routesSummary.PSObject.Properties['routes']) {
+            $routes = $routesSummary.routes
+        }
+        if (-not $routes) {
+            Write-Host "ROUTE_SELECTION: NO_ROUTES_INPUT"
+            return @{
+                status = "FAIL"
+                reason = "NO_ROUTES_AVAILABLE"
+            }
+        }
+        if ($routes -isnot [System.Array]) {
+            Write-Host "ROUTE_SELECTION: NORMALIZING_TO_ARRAY"
+            $routes = @($routes)
+        }
+        Write-Host ("ROUTE_SELECTION: ROUTES_COUNT=" + $routes.Count)
+        Write-Host 'ROUTE_SELECTION: BEFORE_FILTER'
+        $routes = @($routes | Where-Object { $null -ne $_ })
+        Write-Host 'ROUTE_SELECTION: AFTER_FILTER'
+        if ($routes.Count -eq 0) {
+            Write-Host "ROUTE_SELECTION: EMPTY_AFTER_FILTER"
+            return @{
+                status = "FAIL"
+                reason = "EMPTY_ROUTE_SET"
+            }
+        }
+        Write-Host 'ROUTE_SELECTION: BEFORE_SORT'
+        $routes = @(
+            $routes |
+            Sort-Object `
+                @{ Expression = { if ($_.PSObject.Properties['html_length']) { [int]$_.html_length } else { 0 } } }, `
+                @{ Expression = { if ($_.PSObject.Properties['url']) { [string]$_.url } else { '' } } }
+        )
+        Write-Host 'ROUTE_SELECTION: AFTER_SORT'
+        if ($routes.Count -eq 0) {
+            Write-Host "ROUTE_SELECTION: EMPTY_AFTER_FILTER"
+            return @{
+                status = "FAIL"
+                reason = "EMPTY_ROUTE_SET"
+            }
+        }
+        $routeSelectionRoutesSummary = [ordered]@{}
+        foreach ($summaryProperty in $routesSummary.PSObject.Properties) {
+            $routeSelectionRoutesSummary[$summaryProperty.Name] = $summaryProperty.Value
+        }
+        $routeSelectionRoutesSummary.routes = @($routes)
+        Write-Host 'ROUTE_SELECTION: BEFORE_SELECT'
+        $captureTargetPlan = Get-VisualTargets -BaseUrl $BaseUrl -RoutesSummary $routeSelectionRoutesSummary -MaxPages $maxRoutes
+        Write-Host 'ROUTE_SELECTION: SELECTED_OK'
         $lastCompletedStage = 'ROUTE_SELECTION'
         $selectedRoutes = @($captureTargetPlan.selected_routes)
         $overflowRoutes = @($captureTargetPlan.overflow_routes)
