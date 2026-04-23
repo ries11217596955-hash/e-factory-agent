@@ -1230,6 +1230,7 @@ else {
         $failurePhase = 'RECONCILIATION'
         $currentFailureStage = $failurePhase
         $reconciliationPrep = Invoke-CaptureReconciliationPrepStage -SelectedRoutes @($selectedRoutes) -ManifestPages @($manifestPages) -BaseUrl $BaseUrl -SelectedRoutesCount $selectedRoutesCount -ManifestRequestedPages $manifestRequestedPages -ManifestProcessedPages $manifestProcessedPages -ManifestFailedPages $manifestFailedPages
+        Write-Host 'RECON: PREP_OK'
         $counterMismatchDetected = [bool]$reconciliationPrep.counter_mismatch_detected
 
         if ($counterMismatchDetected) {
@@ -1280,6 +1281,7 @@ else {
                 files_invalid = $reconciliation.files_invalid
                 issues = @($reconciliation.issues)
             }
+            Write-Host 'RECON: EVIDENCE_OK'
             $report.reconciliation_enforced = $true
 
             if (@('PASS', 'PARTIAL', 'FAIL') -notcontains [string]$reconciliation.status) {
@@ -1397,8 +1399,12 @@ else {
         }
 
         $reconciliationStatus = [string]$report.evidence_reconciliation.status
+        $limitNotesArray = @($limitNotes.ToArray())
+        Write-Host 'RECON: LIMIT_NOTES_READY'
+        Write-Host 'RECON: STATUS_SWITCH_START'
         switch ($reconciliationStatus) {
             'PASS' {
+                Write-Host 'RECON: STATUS_PASS'
                 $report.status = 'PASS'
                 $report.execution_status = 'SUCCESS'
                 $report.execution_report.final_outcome = 'PASS'
@@ -1409,11 +1415,12 @@ else {
                     $report.failure_or_limit_report = [ordered]@{
                         kind = 'LIMITS'
                         failure_summary = ''
-                        notes = @($limitNotes)
+                        notes = @($limitNotesArray)
                     }
                 }
             }
             'PARTIAL' {
+                Write-Host 'RECON: STATUS_PARTIAL'
                 $report.status = 'PARTIAL'
                 $report.execution_status = 'PARTIAL'
                 $report.execution_report.final_outcome = 'PARTIAL'
@@ -1423,10 +1430,11 @@ else {
                 $report.failure_or_limit_report = [ordered]@{
                     kind = 'LIMITS'
                     failure_summary = ''
-                    notes = @($limitNotes + @('reconciliation_status=PARTIAL', 'downstream analysis limited'))
+                    notes = @($limitNotesArray + @('reconciliation_status=PARTIAL', 'downstream analysis limited'))
                 }
             }
             default {
+                Write-Host 'RECON: STATUS_FAIL'
                 $report.status = 'FAIL'
                 $report.execution_status = 'FAILED'
                 $report.execution_report.final_outcome = 'FAIL'
@@ -1436,10 +1444,11 @@ else {
                 $report.failure_or_limit_report = [ordered]@{
                     kind = 'FAILURE'
                     failure_summary = 'failure_summary.json'
-                    notes = @($limitNotes + @('reconciliation_status=FAIL'))
+                    notes = @($limitNotesArray + @('reconciliation_status=FAIL'))
                 }
             }
         }
+        Write-Host 'RECON: EXIT_READY'
         if ($counterMismatchDetected) {
             $report.status = 'FAIL'
             $report.execution_status = 'FAILED'
@@ -2467,10 +2476,7 @@ if ($shouldFail) {
     $report.self_build_protocol.build_ladder = Get-BuildLadderContract -HasTruthfulFailure $true -HasSelfDiagnostic $true -HasOperatorHandoff $true
     $report.self_build_protocol.feature_progress_allowed = [bool]$report.self_build_protocol.build_ladder.feature_progress_allowed
     $producedArtifactsArray = @($producedArtifacts.ToArray())
-    $report.produced_artifacts = @(
-        $producedArtifactsArray +
-        @('failure_summary.json', 'AGENT_FAILURE_REPORT.txt', 'AGENT_OPERATOR_HANDOFF.json')
-    )
+    $report.produced_artifacts = @($producedArtifactsArray + @('failure_summary.json', 'AGENT_FAILURE_REPORT.txt', 'AGENT_OPERATOR_HANDOFF.json'))
     $report.linked_artifacts = @(
         [ordered]@{ name = 'run_report'; path = $runReportPath },
         [ordered]@{ name = 'failure_summary'; path = $failurePath }
