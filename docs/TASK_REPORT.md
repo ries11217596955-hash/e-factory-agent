@@ -1,13 +1,9 @@
 ## Summary
-- Added a deterministic page-quality signal pack for LINK mode in `agents/site_auditor_v2/agent.ps1`, including per-route `status_code`, `html_length`, `title_present`, `internal_link_count`, `first_screen_text_present`, `screenshot_capture_ok`, `screenshot_count`, and candidate flags (`broken_candidate`, `thin_candidate`, `shell_like_candidate`).
-- Implemented bounded defect rules from observable evidence only:
-  - `BROKEN_ROUTE` from non-200/fetch-fail routes.
-  - `THIN_ROUTE` from low HTML + low internal links + weak first-screen text.
-  - `SHELL_PAGE` only when shell-like structure and weak first-screen text are present **and** screenshots succeeded.
-  - `CAPTURE_FAILURE` per selected route when capture is materially incomplete.
-- Enriched `page_verdicts` with required structure: `route`, `classification`, `signals`, `defect_candidates`, `evidence_refs`, `confidence`.
-- Updated finding/action/priority mapping and decision chain usage so new deterministic finding types flow into `findings`, `priority_summary`, `decision_summary`, `next_strongest_move`, `ACTION_SUMMARY`, and human report payloads without changing LINK discovery core or screenshot engine core.
-- Applied honest-clean wording update for low-confidence clean outcomes: `No page-level defects were confirmed in the checked scope.`
+- Added an INTENT + VALUE audit layer in `agents/site_auditor_v2/agent.ps1` with deterministic page-type classification (`HOME`, `HUB`, `DECISION`, `TOOL`, `ARTICLE`, `UNKNOWN`) using URL/title/structure heuristics only.
+- Extended first-screen analysis signals (text + top screenshot evidence reference) to compute `first_screen_has_value`, `first_screen_has_action`, `first_screen_is_process_like`, and `value_before_process` from bounded regex rules and first-screen extraction.
+- Added route-level DEFECT findings `INTENT_FAIL`, `NO_ACTION_PATH`, and `PROCESS_FIRST` with explicit evidence attachment (`ROUTES_SUMMARY`, first-screen snippet pointer, and top screenshot file when available) and ownership-based action mapping.
+- Integrated new findings into existing decision/action/report chain (`decision_summary`, `next_strongest_move`, `ACTION_SUMMARY`, `HUMAN_REPORT`) while preserving route discovery, screenshot engine, ownership logic, confidence logic, and report structure.
+- Updated finding priority behavior so intent/value failures surface first when present, including P0 handling for `INTENT_FAIL` on HOME/DECISION and `NO_ACTION_PATH` on critical page types.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
@@ -18,20 +14,13 @@
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/site_auditor_v2/agent.ps1`.
-- LINK output artifacts remain under `agents/site_auditor_v2/output/<run_key>/` and deterministic mirrors under `agents/site_auditor_v2/`.
-- Findings/action/report chain remains in the same entrypoint and output paths; only deterministic page-quality signal computation and mapping logic were strengthened.
+- Allowed path scope respected: only `agents/site_auditor_v2/agent.ps1` and `docs/TASK_REPORT.md` were changed.
+- Output/report flow unchanged: findings continue to feed `RUN_REPORT.json`, `ACTION_SUMMARY.json`, and `HUMAN_REPORT_{RU,EN}.html` via the existing LINK-mode pipeline.
 
 ## Risks/blockers
-- `pwsh` is not available in this container, so runtime execution validation for `agent.ps1` could not be executed here.
-- Heuristics are intentionally bounded and deterministic; threshold tuning may be needed on real sites if false positives/negatives appear.
-
-Rollback instructions (by file/block):
-1. Full file rollback:
-   - `git checkout -- agents/site_auditor_v2/agent.ps1 docs/TASK_REPORT.md`
-2. Block rollback in `agents/site_auditor_v2/agent.ps1`:
-   - Remove `Get-PageSignalThresholds` and related per-route signal extraction block in `Get-ShallowRoutes`.
-   - Restore legacy route classification block near routes summary generation (`broken/thin/ok` based only on status + html length).
-   - Restore legacy findings/page-verdict synthesis block (without per-route `signals`, `defect_candidates`, and shell/capture route-level findings).
-   - Restore previous clean reasoning text if needed.
-3. Commit rollback:
-   - `git revert <commit_sha>`
+- Runtime execution validation is blocked in this container because `pwsh` is unavailable.
+- First-screen intent/value detection is heuristic by design (no NLP/ML/LLM judgment); some edge pages may require pattern tuning.
+- Rollback instructions:
+  1. Full rollback: `git checkout -- agents/site_auditor_v2/agent.ps1 docs/TASK_REPORT.md`
+  2. Commit rollback: `git revert <commit_sha>`
+  3. Partial rollback target blocks in `agent.ps1`: page-type heuristic function, first-screen intent/value signal extraction block, and new finding synthesis blocks (`INTENT_FAIL`, `NO_ACTION_PATH`, `PROCESS_FIRST`).

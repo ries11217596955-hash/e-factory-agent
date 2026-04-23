@@ -43,6 +43,9 @@ function Get-DefectPriorityByIssueType {
     switch ($IssueType) {
         'BROKEN_ROUTE' { return 'P0' }
         'CAPTURE_FAILURE' { return 'P0' }
+        'INTENT_FAIL' { return 'P1' }
+        'NO_ACTION_PATH' { return 'P1' }
+        'PROCESS_FIRST' { return 'P1' }
         'SHELL_PAGE' { return 'P1' }
         'THIN_ROUTE' { return 'P1' }
         default { return 'P2' }
@@ -54,8 +57,57 @@ function Get-PageSignalThresholds {
         thin_html_length = 1200
         thin_internal_links = 2
         first_screen_text_min_length = 80
+        first_screen_text_max_length = 800
+        first_screen_html_max_length = 18000
         shell_text_max_length = 40
         shell_content_tag_min_count = 2
+    }
+}
+
+function Get-PageTypeHeuristic {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RouteKey,
+        [Parameter(Mandatory = $true)]
+        [string]$Title,
+        [Parameter(Mandatory = $true)]
+        [int]$InternalLinkCount,
+        [Parameter(Mandatory = $true)]
+        [int]$ContentTagCount,
+        [Parameter(Mandatory = $true)]
+        [int]$WrapperTagCount
+    )
+
+    $routeLower = ([string]$RouteKey).ToLowerInvariant()
+    $titleLower = ([string]$Title).ToLowerInvariant()
+
+    if ([string]::IsNullOrWhiteSpace($routeLower) -or $routeLower -eq '/') { return 'HOME' }
+    if ($routeLower -match '/(compare|vs|pricing|plans|choose|decision|selector|quiz)(/|$)' -or $titleLower -match '\b(compare|versus|pricing|plan|choose)\b') { return 'DECISION' }
+    if ($routeLower -match '/(tool|tools|calculator|generator|checker)(/|$)' -or $titleLower -match '\b(tool|calculator|generator|checker)\b') { return 'TOOL' }
+    if ($routeLower -match '/(hub|hubs|category|categories|topics|solutions|services|directory)(/|$)') { return 'HUB' }
+    if ($routeLower -match '/(blog|article|docs|guide|news|insights)(/|$)' -or $titleLower -match '\b(guide|article|blog|news|insight)\b') { return 'ARTICLE' }
+    if ($InternalLinkCount -ge 12 -and $WrapperTagCount -ge $ContentTagCount) { return 'HUB' }
+    if ($ContentTagCount -ge 6 -and $InternalLinkCount -le 8) { return 'ARTICLE' }
+
+    return 'UNKNOWN'
+}
+
+function Test-PageTypeRequiresAnswer {
+    param([Parameter(Mandatory = $true)][string]$PageType)
+    return @('HOME', 'DECISION', 'TOOL') -contains [string]$PageType
+}
+
+function Get-FindingTypeSortRank {
+    param([Parameter(Mandatory = $true)][string]$IssueType)
+    switch ([string]$IssueType) {
+        'INTENT_FAIL' { return 0 }
+        'NO_ACTION_PATH' { return 1 }
+        'PROCESS_FIRST' { return 2 }
+        'BROKEN_ROUTE' { return 3 }
+        'CAPTURE_FAILURE' { return 4 }
+        'SHELL_PAGE' { return 5 }
+        'THIN_ROUTE' { return 6 }
+        default { return 9 }
     }
 }
 
@@ -433,13 +485,33 @@ function Get-ShallowRoutes {
             $htmlWithoutNoise = [regex]::Replace($routeHtml, '(?is)<script\b[^>]*>.*?</script>|<style\b[^>]*>.*?</style>|<noscript\b[^>]*>.*?</noscript>', ' ')
             $htmlWithoutTags = [regex]::Replace($htmlWithoutNoise, '(?is)<[^>]+>', ' ')
             $normalizedText = [regex]::Replace([System.Net.WebUtility]::HtmlDecode($htmlWithoutTags), '\s+', ' ').Trim()
-            $firstScreenTextLength = if ($normalizedText.Length -gt 280) { 280 } else { $normalizedText.Length }
+            $firstScreenTextLength = if ($normalizedText.Length -gt [int]$pageThresholds.first_screen_text_max_length) { [int]$pageThresholds.first_screen_text_max_length } else { $normalizedText.Length }
             $firstScreenTextSample = if ($firstScreenTextLength -gt 0) { $normalizedText.Substring(0, $firstScreenTextLength) } else { '' }
             $firstScreenTextPresent = ($firstScreenTextSample.Length -ge [int]$pageThresholds.first_screen_text_min_length)
+            $firstScreenHtmlLength = if ($routeHtml.Length -gt [int]$pageThresholds.first_screen_html_max_length) { [int]$pageThresholds.first_screen_html_max_length } else { $routeHtml.Length }
+            $firstScreenHtmlSample = if ($firstScreenHtmlLength -gt 0) { $routeHtml.Substring(0, $firstScreenHtmlLength) } else { '' }
 
             $contentTagCount = [int]([regex]::Matches($routeHtml, '(?is)<(main|article|section|p|h1|h2|h3)\b').Count)
             $wrapperTagCount = [int]([regex]::Matches($routeHtml, '(?is)<(div|nav|header|footer)\b').Count)
             $titlePresent = (-not [string]::IsNullOrWhiteSpace($routeTitle))
+            $pageType = Get-PageTypeHeuristic -RouteKey ([string]$routeTarget.normalized_route) -Title $routeTitle -InternalLinkCount $internalRouteLinks -ContentTagCount $contentTagCount -WrapperTagCount $wrapperTagCount
+
+            $valuePattern = '\b(we help|help you|solution|solve|for teams|for businesses|for developers|what we offer|why choose|benefit|outcome|results?)\b'
+            $actionPattern = '(?is)<(a|button)\b|<input\b[^>]*type\s*=\s*["'']?(submit|button)'
+            $processPattern = '\b(step|steps|choose|select|follow|how it works|workflow|process)\b'
+            $firstScreenTextLower = $firstScreenTextSample.ToLowerInvariant()
+            $valueMatch = [regex]::Match($firstScreenTextLower, $valuePattern)
+            $processMatch = [regex]::Match($firstScreenTextLower, $processPattern)
+            $firstScreenHasValue = $valueMatch.Success
+            $firstScreenIsProcessLike = $processMatch.Success
+            $valueBeforeProcess = $false
+            if ($valueMatch.Success -and $processMatch.Success) {
+                $valueBeforeProcess = ($valueMatch.Index -lt $processMatch.Index)
+            }
+            elseif ($valueMatch.Success -and (-not $processMatch.Success)) {
+                $valueBeforeProcess = $true
+            }
+            $firstScreenHasAction = [regex]::IsMatch($firstScreenHtmlSample, $actionPattern)
 
             $brokenCandidate = ($routeStatusCode -ne 200)
             $thinCandidate = (
@@ -479,6 +551,12 @@ function Get-ShallowRoutes {
                     first_screen_text_present = [bool]$firstScreenTextPresent
                     content_tag_count = [int]$contentTagCount
                     wrapper_tag_count = [int]$wrapperTagCount
+                    page_type = [string]$pageType
+                    first_screen_text_sample = [string]$firstScreenTextSample
+                    first_screen_has_value = [bool]$firstScreenHasValue
+                    first_screen_has_action = [bool]$firstScreenHasAction
+                    first_screen_is_process_like = [bool]$firstScreenIsProcessLike
+                    value_before_process = [bool]$valueBeforeProcess
                     thin_candidate = [bool]$thinCandidate
                     shell_like_candidate = [bool]$shellLikeCandidate
                     broken_candidate = [bool]$brokenCandidate
@@ -498,6 +576,12 @@ function Get-ShallowRoutes {
                     first_screen_text_present = $false
                     content_tag_count = 0
                     wrapper_tag_count = 0
+                    page_type = 'UNKNOWN'
+                    first_screen_text_sample = ''
+                    first_screen_has_value = $false
+                    first_screen_has_action = $false
+                    first_screen_is_process_like = $false
+                    value_before_process = $false
                     thin_candidate = $false
                     shell_like_candidate = $false
                     broken_candidate = $true
@@ -1976,7 +2060,15 @@ else {
                 internal_link_count = [int]$route.internal_link_count
                 screenshot_capture_ok = $false
                 screenshot_count = 0
+                top_screenshot_ok = $false
+                top_screenshot_file = ''
                 first_screen_text_present = [bool]$route.first_screen_text_present
+                first_screen_text_sample = [string]$route.first_screen_text_sample
+                first_screen_has_value = [bool]$route.first_screen_has_value
+                first_screen_has_action = [bool]$route.first_screen_has_action
+                first_screen_is_process_like = [bool]$route.first_screen_is_process_like
+                value_before_process = [bool]$route.value_before_process
+                page_type = if ($route.PSObject.Properties['page_type']) { [string]$route.page_type } else { 'UNKNOWN' }
                 shell_like_candidate = [bool]$route.shell_like_candidate
                 thin_candidate = [bool]$route.thin_candidate
                 broken_candidate = [bool]$route.broken_candidate
@@ -2066,7 +2158,15 @@ else {
                     internal_link_count = 0
                     screenshot_capture_ok = $false
                     screenshot_count = 0
+                    top_screenshot_ok = $false
+                    top_screenshot_file = ''
                     first_screen_text_present = $false
+                    first_screen_text_sample = ''
+                    first_screen_has_value = $false
+                    first_screen_has_action = $false
+                    first_screen_is_process_like = $false
+                    value_before_process = $false
+                    page_type = 'UNKNOWN'
                     shell_like_candidate = $false
                     thin_candidate = $false
                     broken_candidate = $true
@@ -2076,6 +2176,7 @@ else {
             $visualStatus = 'unknown'
             $routeCaptureCount = 0
             $routeCaptureSuccess = 0
+            $manifestRecord = $null
             if ($manifestByRoute.ContainsKey($canonicalRoute)) {
                 $manifestRecord = $manifestByRoute[$canonicalRoute]
                 $captureStates = @($manifestRecord.captures | ForEach-Object { [string]$_.status })
@@ -2096,6 +2197,11 @@ else {
             }
             $routeSignals.screenshot_count = [int]$routeCaptureCount
             $routeSignals.screenshot_capture_ok = [bool]($routeCaptureCount -gt 0 -and $routeCaptureSuccess -eq $routeCaptureCount)
+            $topCapture = if ($null -ne $manifestRecord) { @($manifestRecord.captures | Where-Object { [string]$_.segment -eq 'top' } | Select-Object -First 1)[0] } else { $null }
+            if ($null -ne $topCapture) {
+                $routeSignals.top_screenshot_ok = ([string]$topCapture.status -eq 'ok')
+                $routeSignals.top_screenshot_file = [string]$topCapture.file
+            }
 
             if ([bool]$routeSignals.shell_like_candidate -and [bool]$routeSignals.screenshot_capture_ok -and (-not [bool]$routeSignals.broken_candidate)) {
                 if (-not $routeIssueMap.ContainsKey($canonicalRoute)) {
@@ -2143,11 +2249,90 @@ else {
                 $findingIndex += 1
             }
 
+            $pageType = [string]$routeSignals.page_type
+            $requiresAnswer = Test-PageTypeRequiresAnswer -PageType $pageType
+            $requiresAction = Test-PageTypeRequiresAnswer -PageType $pageType
+            $evidenceRefs = [System.Collections.Generic.List[string]]::new()
+            $null = $evidenceRefs.Add('ROUTES_SUMMARY.json')
+            if (-not [string]::IsNullOrWhiteSpace([string]$routeSignals.first_screen_text_sample)) { $null = $evidenceRefs.Add('AUDIT_SUMMARY.json:first_screen_text_sample') }
+            if ([bool]$routeSignals.top_screenshot_ok -and (-not [string]::IsNullOrWhiteSpace([string]$routeSignals.top_screenshot_file))) {
+                $null = $evidenceRefs.Add("visual_manifest.json:$([string]$routeSignals.top_screenshot_file)")
+            }
+
+            if ($requiresAnswer -and (-not [bool]$routeSignals.first_screen_has_value) -and (-not [bool]$routeSignals.broken_candidate)) {
+                if (-not $routeIssueMap.ContainsKey($canonicalRoute)) { $routeIssueMap[$canonicalRoute] = [System.Collections.Generic.List[string]]::new() }
+                $issueType = 'INTENT_FAIL'
+                $priority = if (@('HOME', 'DECISION') -contains $pageType) { 'P0' } else { Get-DefectPriorityByIssueType -IssueType $issueType }
+                $findingId = "F-{0:d3}" -f $findingIndex
+                $findingsList.Add([ordered]@{
+                        finding_id = $findingId
+                        route = $canonicalRoute
+                        type = $issueType
+                        issue_type = $issueType
+                        category = 'DEFECT'
+                        priority = $priority
+                        severity = $priority
+                        evidence_refs = @($evidenceRefs)
+                        evidence_text_snippet = [string]$routeSignals.first_screen_text_sample
+                        why_it_matters = 'Page first screen does not show a clear problem/solution statement for intent-critical page type.'
+                        recommended_action = Get-ActionTextByOwnership -OwnershipMode $ownershipMode -OwnedAction 'Add clear problem + solution in first screen' -ExternalAction 'Analyze missing value positioning'
+                    })
+                $routeIssueMap[$canonicalRoute].Add($findingId)
+                $findingIndex += 1
+            }
+
+            if ($requiresAction -and (-not [bool]$routeSignals.first_screen_has_action) -and (-not [bool]$routeSignals.broken_candidate)) {
+                if (-not $routeIssueMap.ContainsKey($canonicalRoute)) { $routeIssueMap[$canonicalRoute] = [System.Collections.Generic.List[string]]::new() }
+                $issueType = 'NO_ACTION_PATH'
+                $priority = if (@('HOME', 'DECISION', 'TOOL') -contains $pageType) { 'P0' } else { Get-DefectPriorityByIssueType -IssueType $issueType }
+                $findingId = "F-{0:d3}" -f $findingIndex
+                $findingsList.Add([ordered]@{
+                        finding_id = $findingId
+                        route = $canonicalRoute
+                        type = $issueType
+                        issue_type = $issueType
+                        category = 'DEFECT'
+                        priority = $priority
+                        severity = $priority
+                        evidence_refs = @($evidenceRefs)
+                        evidence_text_snippet = [string]$routeSignals.first_screen_text_sample
+                        why_it_matters = 'Intent-critical page lacks a clear first-screen action path (button/link style cue).'
+                        recommended_action = Get-ActionTextByOwnership -OwnershipMode $ownershipMode -OwnedAction 'Add clear action path (button/next step)' -ExternalAction 'Study lack of action path'
+                    })
+                $routeIssueMap[$canonicalRoute].Add($findingId)
+                $findingIndex += 1
+            }
+
+            if ([bool]$routeSignals.first_screen_is_process_like -and (-not [bool]$routeSignals.value_before_process) -and (-not [bool]$routeSignals.broken_candidate)) {
+                if (-not $routeIssueMap.ContainsKey($canonicalRoute)) { $routeIssueMap[$canonicalRoute] = [System.Collections.Generic.List[string]]::new() }
+                $issueType = 'PROCESS_FIRST'
+                $priority = Get-DefectPriorityByIssueType -IssueType $issueType
+                $findingId = "F-{0:d3}" -f $findingIndex
+                $findingsList.Add([ordered]@{
+                        finding_id = $findingId
+                        route = $canonicalRoute
+                        type = $issueType
+                        issue_type = $issueType
+                        category = 'DEFECT'
+                        priority = $priority
+                        severity = $priority
+                        evidence_refs = @($evidenceRefs)
+                        evidence_text_snippet = [string]$routeSignals.first_screen_text_sample
+                        why_it_matters = 'First screen is process/instruction-led before showing a clear value statement.'
+                        recommended_action = Get-ActionTextByOwnership -OwnershipMode $ownershipMode -OwnedAction 'Move value before process explanation' -ExternalAction 'Note process-first pattern'
+                    })
+                $routeIssueMap[$canonicalRoute].Add($findingId)
+                $findingIndex += 1
+            }
+
             $defectCandidates = [System.Collections.Generic.List[string]]::new()
             if ([bool]$routeSignals.broken_candidate) { $null = $defectCandidates.Add('BROKEN_ROUTE') }
             if ([bool]$routeSignals.thin_candidate) { $null = $defectCandidates.Add('THIN_ROUTE') }
             if ([bool]$routeSignals.shell_like_candidate) { $null = $defectCandidates.Add('SHELL_PAGE') }
             if (-not [bool]$routeSignals.screenshot_capture_ok) { $null = $defectCandidates.Add('CAPTURE_FAILURE') }
+            if ($requiresAnswer -and (-not [bool]$routeSignals.first_screen_has_value) -and (-not [bool]$routeSignals.broken_candidate)) { $null = $defectCandidates.Add('INTENT_FAIL') }
+            if ($requiresAction -and (-not [bool]$routeSignals.first_screen_has_action) -and (-not [bool]$routeSignals.broken_candidate)) { $null = $defectCandidates.Add('NO_ACTION_PATH') }
+            if ([bool]$routeSignals.first_screen_is_process_like -and (-not [bool]$routeSignals.value_before_process) -and (-not [bool]$routeSignals.broken_candidate)) { $null = $defectCandidates.Add('PROCESS_FIRST') }
 
             $classification = if ([bool]$routeSignals.broken_candidate) {
                 'broken'
@@ -2199,7 +2384,7 @@ else {
                         default { 2 }
                     }
                 }
-            }, finding_id |
+            }, @{ Expression = { Get-FindingTypeSortRank -IssueType ([string]$_.issue_type) } }, finding_id |
             Select-Object -First 3 |
             ForEach-Object { [string]$_.issue_type }
         )
@@ -2445,7 +2630,7 @@ else {
                         default { 2 }
                     }
                 }
-            }, finding_id
+            }, @{ Expression = { Get-FindingTypeSortRank -IssueType ([string]$_.issue_type) } }, finding_id
         )
         $sortedLimitationFindings = @(
             $limitationFindings |
@@ -2612,7 +2797,16 @@ else {
         $null = $producedArtifacts.Add('HUMAN_REPORT_RU.html')
         $null = $producedArtifacts.Add('HUMAN_REPORT_EN.html')
 
-        $mainFindingEn = if ($decisionIssueType -eq 'DEFECT') {
+        $mainFindingEn = if ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'INTENT_FAIL') {
+            'Page does not clearly explain what it offers.'
+        }
+        elseif ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'NO_ACTION_PATH') {
+            'User has no clear next step.'
+        }
+        elseif ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'PROCESS_FIRST') {
+            'Page starts with instructions instead of explanation.'
+        }
+        elseif ($decisionIssueType -eq 'DEFECT') {
             "Confirmed defect: $([string]$report.decision_summary.primary_issue)."
         }
         elseif ($decisionIssueType -eq 'LIMITATION') {
@@ -2624,7 +2818,16 @@ else {
         else {
             'No page-level defects were confirmed in the checked scope.'
         }
-        $mainFindingRu = if ($decisionIssueType -eq 'DEFECT') {
+        $mainFindingRu = if ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'INTENT_FAIL') {
+            'Страница не объясняет чётко, что именно предлагает.'
+        }
+        elseif ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'NO_ACTION_PATH') {
+            'У пользователя нет понятного следующего шага.'
+        }
+        elseif ($decisionIssueType -eq 'DEFECT' -and [string]$report.decision_summary.primary_issue -eq 'PROCESS_FIRST') {
+            'Страница начинается с инструкций вместо объяснения ценности.'
+        }
+        elseif ($decisionIssueType -eq 'DEFECT') {
             "Подтверждён дефект: $([string]$report.decision_summary.primary_issue)."
         }
         elseif ($decisionIssueType -eq 'LIMITATION') {
