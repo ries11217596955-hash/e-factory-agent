@@ -43,8 +43,19 @@ function Get-DefectPriorityByIssueType {
     switch ($IssueType) {
         'BROKEN_ROUTE' { return 'P0' }
         'CAPTURE_FAILURE' { return 'P0' }
+        'SHELL_PAGE' { return 'P1' }
         'THIN_ROUTE' { return 'P1' }
         default { return 'P2' }
+    }
+}
+
+function Get-PageSignalThresholds {
+    return [ordered]@{
+        thin_html_length = 1200
+        thin_internal_links = 2
+        first_screen_text_min_length = 80
+        shell_text_max_length = 40
+        shell_content_tag_min_count = 2
     }
 }
 
@@ -390,13 +401,88 @@ function Get-ShallowRoutes {
             else {
                 ''
             }
+            $routeStatusCode = [int]$routeResponse.StatusCode
+            $routeHtmlLength = [int]$routeHtml.Length
+            $pageThresholds = Get-PageSignalThresholds
+
+            $internalRouteLinks = 0
+            $routeHrefMatches = [regex]::Matches($routeHtml, '(?is)<a\b[^>]*href\s*=\s*("([^"]*)"|''([^'']*)''|([^\s>]+))')
+            foreach ($routeHrefMatch in $routeHrefMatches) {
+                $rawRouteHref = if (-not [string]::IsNullOrWhiteSpace($routeHrefMatch.Groups[2].Value)) {
+                    $routeHrefMatch.Groups[2].Value
+                }
+                elseif (-not [string]::IsNullOrWhiteSpace($routeHrefMatch.Groups[3].Value)) {
+                    $routeHrefMatch.Groups[3].Value
+                }
+                else {
+                    $routeHrefMatch.Groups[4].Value
+                }
+                if ([string]::IsNullOrWhiteSpace($rawRouteHref)) {
+                    continue
+                }
+
+                try {
+                    $resolvedRouteHref = [Uri]::new([Uri]$routeTarget.url, $rawRouteHref.Trim())
+                    if ($resolvedRouteHref.Scheme -in @('http', 'https') -and $resolvedRouteHref.Host -eq $rootUri.Host) {
+                        $internalRouteLinks += 1
+                    }
+                }
+                catch { }
+            }
+
+            $htmlWithoutNoise = [regex]::Replace($routeHtml, '(?is)<script\b[^>]*>.*?</script>|<style\b[^>]*>.*?</style>|<noscript\b[^>]*>.*?</noscript>', ' ')
+            $htmlWithoutTags = [regex]::Replace($htmlWithoutNoise, '(?is)<[^>]+>', ' ')
+            $normalizedText = [regex]::Replace([System.Net.WebUtility]::HtmlDecode($htmlWithoutTags), '\s+', ' ').Trim()
+            $firstScreenTextLength = if ($normalizedText.Length -gt 280) { 280 } else { $normalizedText.Length }
+            $firstScreenTextSample = if ($firstScreenTextLength -gt 0) { $normalizedText.Substring(0, $firstScreenTextLength) } else { '' }
+            $firstScreenTextPresent = ($firstScreenTextSample.Length -ge [int]$pageThresholds.first_screen_text_min_length)
+
+            $contentTagCount = [int]([regex]::Matches($routeHtml, '(?is)<(main|article|section|p|h1|h2|h3)\b').Count)
+            $wrapperTagCount = [int]([regex]::Matches($routeHtml, '(?is)<(div|nav|header|footer)\b').Count)
+            $titlePresent = (-not [string]::IsNullOrWhiteSpace($routeTitle))
+
+            $brokenCandidate = ($routeStatusCode -ne 200)
+            $thinCandidate = (
+                ($routeHtmlLength -lt [int]$pageThresholds.thin_html_length) -and
+                ($internalRouteLinks -le [int]$pageThresholds.thin_internal_links) -and
+                (-not $firstScreenTextPresent)
+            )
+            $shellLikeCandidate = (
+                (-not $brokenCandidate) -and
+                ($firstScreenTextSample.Length -le [int]$pageThresholds.shell_text_max_length) -and
+                ($wrapperTagCount -gt $contentTagCount) -and
+                ($contentTagCount -lt [int]$pageThresholds.shell_content_tag_min_count)
+            )
+
+            $classification = if ($brokenCandidate) {
+                'broken'
+            }
+            elseif ($shellLikeCandidate) {
+                'shell'
+            }
+            elseif ($thinCandidate) {
+                'thin'
+            }
+            else {
+                'ok'
+            }
 
             $routes.Add([ordered]@{
                     url = $routeTarget.url
                     normalized_route = $routeTarget.normalized_route
-                    status_code = [int]$routeResponse.StatusCode
+                    status_code = $routeStatusCode
                     title = $routeTitle
-                    html_length = [int]$routeHtml.Length
+                    html_length = $routeHtmlLength
+                    title_present = [bool]$titlePresent
+                    internal_link_count = [int]$internalRouteLinks
+                    first_screen_text_length = [int]$firstScreenTextSample.Length
+                    first_screen_text_present = [bool]$firstScreenTextPresent
+                    content_tag_count = [int]$contentTagCount
+                    wrapper_tag_count = [int]$wrapperTagCount
+                    thin_candidate = [bool]$thinCandidate
+                    shell_like_candidate = [bool]$shellLikeCandidate
+                    broken_candidate = [bool]$brokenCandidate
+                    classification = $classification
                 })
         }
         catch {
@@ -406,6 +492,16 @@ function Get-ShallowRoutes {
                     status_code = -1
                     title = ''
                     html_length = 0
+                    title_present = $false
+                    internal_link_count = 0
+                    first_screen_text_length = 0
+                    first_screen_text_present = $false
+                    content_tag_count = 0
+                    wrapper_tag_count = 0
+                    thin_candidate = $false
+                    shell_like_candidate = $false
+                    broken_candidate = $true
+                    classification = 'broken'
                 })
         }
     }
@@ -1355,16 +1451,9 @@ else {
         $report.html_snapshot = [string]$routesSummary.html_snapshot
         $report.link_extraction_failed = [bool]$routesSummary.link_extraction_failed
         foreach ($route in $routesSummary.routes) {
-            $classification = if ($route.status_code -ne 200) {
-                'broken'
+            if (-not $route.PSObject.Properties['classification']) {
+                $route.classification = if ($route.status_code -ne 200) { 'broken' } elseif ($route.html_length -lt 1500) { 'thin' } else { 'ok' }
             }
-            elseif ($route.html_length -lt 1500) {
-                'thin'
-            }
-            else {
-                'ok'
-            }
-            $route.classification = $classification
         }
         Write-JsonFile -Path $routesSummaryPath -Data $routesSummary
         Copy-Item -LiteralPath $routesSummaryPath -Destination $deterministicRoutesSummaryPath -Force
@@ -1382,6 +1471,20 @@ else {
                 }
             }
         )
+        $shellTargets = @(
+            $routesSummary.routes |
+            Where-Object { $_.classification -eq 'shell' } |
+            Sort-Object html_length, url |
+            Select-Object -First 3 |
+            ForEach-Object {
+                [ordered]@{
+                    url = $_.url
+                    classification = 'shell'
+                    reason = 'shell_like_structure_with_weak_first_screen_text'
+                    action = Get-ActionTextByOwnership -OwnershipMode $ownershipMode -OwnedAction 'inspect page template/content loading for shell-only render' -ExternalAction 'note shell-like page behavior for benchmarking and reliability comparison'
+                }
+            }
+        )
         $thinTargets = @(
             $routesSummary.routes |
             Where-Object { $_.classification -eq 'thin' } |
@@ -1396,7 +1499,7 @@ else {
                 }
             }
         )
-        $problemTargets = @($brokenTargets + $thinTargets)
+        $problemTargets = @($brokenTargets + $shellTargets + $thinTargets)
         $report.problem_targets = $problemTargets
 
         $actionSummary = [ordered]@{
@@ -1421,12 +1524,14 @@ else {
         $null = $producedArtifacts.Add('ACTION_SUMMARY.json')
 
         $okCount = @($routesSummary.routes | Where-Object { $_.classification -eq 'ok' }).Count
+        $shellCount = @($routesSummary.routes | Where-Object { $_.classification -eq 'shell' }).Count
         $thinCount = @($routesSummary.routes | Where-Object { $_.classification -eq 'thin' }).Count
         $brokenCount = @($routesSummary.routes | Where-Object { $_.classification -eq 'broken' }).Count
-        $passStatus = if (($thinCount -gt 0) -or ($brokenCount -gt 0)) { 'PASS_WITH_LIMITS' } else { 'PASS' }
+        $passStatus = if (($thinCount -gt 0) -or ($shellCount -gt 0) -or ($brokenCount -gt 0)) { 'PASS_WITH_LIMITS' } else { 'PASS' }
         $auditSummary = [ordered]@{
             total = [int]@($routesSummary.routes).Count
             ok = [int]$okCount
+            shell = [int]$shellCount
             thin = [int]$thinCount
             broken = [int]$brokenCount
         }
@@ -1437,6 +1542,7 @@ else {
         $actionReportLines = [System.Collections.Generic.List[string]]::new()
         $actionReportLines.Add("Site: $BaseUrl")
         $actionReportLines.Add("Total pages checked: $($auditSummary.total)")
+        $actionReportLines.Add("Shell: $($auditSummary.shell)")
         $actionReportLines.Add("Thin: $($auditSummary.thin)")
         $actionReportLines.Add("Broken: $($auditSummary.broken)")
 
@@ -1764,6 +1870,7 @@ else {
 
         $report.execution_report.final_outcome = 'PASS'
         $limitNotes = [System.Collections.Generic.List[string]]::new()
+        if ($shellCount -gt 0) { $limitNotes.Add("shell_pages=$shellCount") }
         if ($thinCount -gt 0) { $limitNotes.Add("thin_pages=$thinCount") }
         if ($brokenCount -gt 0) { $limitNotes.Add("broken_pages=$brokenCount") }
         if ($report.capture_report.status -eq 'FAIL') {
@@ -1844,6 +1951,7 @@ else {
         }
 
         $routeIssueMap = @{}
+        $routeSignalMap = @{}
         $findingsList = [System.Collections.Generic.List[object]]::new()
         $findingIndex = 1
         foreach ($route in @($routesSummary.routes)) {
@@ -1861,6 +1969,19 @@ else {
             if (-not $routeIssueMap.ContainsKey($routeKey)) {
                 $routeIssueMap[$routeKey] = [System.Collections.Generic.List[string]]::new()
             }
+            $routeSignals = [ordered]@{
+                status_code = [int]$route.status_code
+                html_length = [int]$route.html_length
+                title_present = [bool]$route.title_present
+                internal_link_count = [int]$route.internal_link_count
+                screenshot_capture_ok = $false
+                screenshot_count = 0
+                first_screen_text_present = [bool]$route.first_screen_text_present
+                shell_like_candidate = [bool]$route.shell_like_candidate
+                thin_candidate = [bool]$route.thin_candidate
+                broken_candidate = [bool]$route.broken_candidate
+            }
+            $routeSignalMap[$routeKey] = $routeSignals
 
             if ($route.classification -eq 'broken') {
                 $issueType = 'BROKEN_ROUTE'
@@ -1875,8 +1996,8 @@ else {
                         priority = $priority
                         severity = $priority
                         evidence_refs = @('ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json')
-                        why_it_matters = 'Broken route evidence blocks page access in current sampled route set.'
-                        recommended_action = Get-ActionTextByOwnership -OwnershipMode $ownershipMode -OwnedAction 'Fix route status or remove the broken link from internal navigation.' -ExternalAction 'Analyze broken-route patterns, benchmark healthier navigation structures, and replicate resilient linking patterns.'
+                        why_it_matters = 'Non-200 or failed route response blocks reliable page-level evidence for this route.'
+                        recommended_action = Get-ActionTextByOwnership -OwnershipMode $ownershipMode -OwnedAction 'Fix broken route first.' -ExternalAction 'Inspect broken route pattern and note reliability issue.'
                     })
                 $routeIssueMap[$routeKey].Add($findingId)
                 $findingIndex += 1
@@ -1894,50 +2015,12 @@ else {
                         priority = $priority
                         severity = $priority
                         evidence_refs = @('ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json')
-                        why_it_matters = 'Thin HTML evidence reduces confidence for downstream audit interpretation.'
-                        recommended_action = Get-ActionTextByOwnership -OwnershipMode $ownershipMode -OwnedAction 'Expand route content and rerun LINK capture before deeper audit interpretation.' -ExternalAction 'Learn from stronger pages, benchmark depth patterns, and replicate higher-information structures for future owned implementation.'
+                        why_it_matters = 'Route is thin by deterministic thresholds: low HTML length, low internal links, and weak first-screen text.'
+                        recommended_action = Get-ActionTextByOwnership -OwnershipMode $ownershipMode -OwnedAction 'Improve page substance or remove weak page.' -ExternalAction 'Study weak-page pattern only.'
                     })
                 $routeIssueMap[$routeKey].Add($findingId)
                 $findingIndex += 1
             }
-        }
-
-        $captureStatus = [string]$report.capture_report.status
-        if ($counterMismatchDetected -or $captureStatus -eq 'FAIL' -or $captureStatus -eq 'PARTIAL') {
-            $issueType = 'CAPTURE_FAILURE'
-            $priority = Get-DefectPriorityByIssueType -IssueType $issueType
-            $visualWhy = if ($captureStatus -eq 'FAIL') {
-                'Visual evidence is not complete enough to support reliable page-level interpretation.'
-            }
-            elseif ($counterMismatchDetected) {
-                'Capture counters and selected-route evidence do not align, so output integrity is degraded.'
-            }
-            else {
-                'Partial visual capture limits deterministic interpretation for sampled pages.'
-            }
-            $visualAction = if ($counterMismatchDetected) {
-                'Repair route-to-manifest alignment and rerun LINK capture with the same route budget.'
-            }
-            elseif ($captureStatus -eq 'FAIL') {
-                'Restore baseline visual capture success before any deeper audit interpretation.'
-            }
-            else {
-                'Resolve failed captures and rerun LINK mode to restore full evidence coverage.'
-            }
-            $findingsList.Add([ordered]@{
-                    finding_id = "F-{0:d3}" -f $findingIndex
-                    route = '_run_scope'
-                    type = $issueType
-                    issue_type = $issueType
-                    category = 'DEFECT'
-                    priority = $priority
-                    severity = $priority
-                    capture_status = $captureStatus
-                    evidence_refs = @('visual_manifest.json', 'RUN_REPORT.json')
-                    why_it_matters = $visualWhy
-                    recommended_action = $visualAction
-                })
-            $findingIndex += 1
         }
 
         if ([int]$report.run_budget.overflow_routes -gt 0) {
@@ -1975,11 +2058,29 @@ else {
             $canonicalSelectedRoute = Get-CanonicalRouteKeyResult -RouteValue $routeValue -BaseUrl $BaseUrl
             $canonicalRoute = if ($canonicalSelectedRoute.status -eq 'ok') { [string]$canonicalSelectedRoute.canonical_route } else { $routeValue }
             $routeIssueCount = if ($routeIssueMap.ContainsKey($canonicalRoute)) { [int]$routeIssueMap[$canonicalRoute].Count } else { 0 }
+            $routeSignals = if ($routeSignalMap.ContainsKey($canonicalRoute)) { $routeSignalMap[$canonicalRoute] } else {
+                [ordered]@{
+                    status_code = -1
+                    html_length = 0
+                    title_present = $false
+                    internal_link_count = 0
+                    screenshot_capture_ok = $false
+                    screenshot_count = 0
+                    first_screen_text_present = $false
+                    shell_like_candidate = $false
+                    thin_candidate = $false
+                    broken_candidate = $true
+                }
+            }
 
             $visualStatus = 'unknown'
+            $routeCaptureCount = 0
+            $routeCaptureSuccess = 0
             if ($manifestByRoute.ContainsKey($canonicalRoute)) {
                 $manifestRecord = $manifestByRoute[$canonicalRoute]
                 $captureStates = @($manifestRecord.captures | ForEach-Object { [string]$_.status })
+                $routeCaptureCount = [int]$captureStates.Count
+                $routeCaptureSuccess = [int]@($captureStates | Where-Object { $_ -eq 'ok' }).Count
                 if ($captureStates.Count -eq 0) {
                     $visualStatus = 'unknown'
                 }
@@ -1993,23 +2094,84 @@ else {
                     $visualStatus = 'failed'
                 }
             }
+            $routeSignals.screenshot_count = [int]$routeCaptureCount
+            $routeSignals.screenshot_capture_ok = [bool]($routeCaptureCount -gt 0 -and $routeCaptureSuccess -eq $routeCaptureCount)
 
-            $verdictText = if ($routeIssueCount -eq 0 -and $visualStatus -eq 'ok') {
-                'no visual evidence defect detected in sampled route'
+            if ([bool]$routeSignals.shell_like_candidate -and [bool]$routeSignals.screenshot_capture_ok -and (-not [bool]$routeSignals.broken_candidate)) {
+                if (-not $routeIssueMap.ContainsKey($canonicalRoute)) {
+                    $routeIssueMap[$canonicalRoute] = [System.Collections.Generic.List[string]]::new()
+                }
+                $issueType = 'SHELL_PAGE'
+                $priority = Get-DefectPriorityByIssueType -IssueType $issueType
+                $findingId = "F-{0:d3}" -f $findingIndex
+                $findingsList.Add([ordered]@{
+                        finding_id = $findingId
+                        route = $canonicalRoute
+                        type = $issueType
+                        issue_type = $issueType
+                        category = 'DEFECT'
+                        priority = $priority
+                        severity = $priority
+                        evidence_refs = @('ROUTES_SUMMARY.json', 'visual_manifest.json')
+                        why_it_matters = 'Shell-page candidate confirmed by weak first-screen text plus wrapper-heavy structure with successful capture.'
+                        recommended_action = Get-ActionTextByOwnership -OwnershipMode $ownershipMode -OwnedAction 'Inspect page template/content loading.' -ExternalAction 'Note shell-like page behavior for benchmarking.'
+                    })
+                $routeIssueMap[$canonicalRoute].Add($findingId)
+                $findingIndex += 1
             }
-            elseif ($routeIssueCount -eq 0) {
-                'route content signal is clean but visual evidence is limited'
+
+            if (-not $routeSignals.screenshot_capture_ok) {
+                if (-not $routeIssueMap.ContainsKey($canonicalRoute)) {
+                    $routeIssueMap[$canonicalRoute] = [System.Collections.Generic.List[string]]::new()
+                }
+                $issueType = 'CAPTURE_FAILURE'
+                $priority = Get-DefectPriorityByIssueType -IssueType $issueType
+                $findingId = "F-{0:d3}" -f $findingIndex
+                $findingsList.Add([ordered]@{
+                        finding_id = $findingId
+                        route = $canonicalRoute
+                        type = $issueType
+                        issue_type = $issueType
+                        category = 'DEFECT'
+                        priority = $priority
+                        severity = $priority
+                        evidence_refs = @('visual_manifest.json', 'RUN_REPORT.json')
+                        why_it_matters = 'Selected page had material screenshot capture failure in current LINK run.'
+                        recommended_action = 'Rerun visual check or inspect render reliability.'
+                    })
+                $routeIssueMap[$canonicalRoute].Add($findingId)
+                $findingIndex += 1
+            }
+
+            $defectCandidates = [System.Collections.Generic.List[string]]::new()
+            if ([bool]$routeSignals.broken_candidate) { $null = $defectCandidates.Add('BROKEN_ROUTE') }
+            if ([bool]$routeSignals.thin_candidate) { $null = $defectCandidates.Add('THIN_ROUTE') }
+            if ([bool]$routeSignals.shell_like_candidate) { $null = $defectCandidates.Add('SHELL_PAGE') }
+            if (-not [bool]$routeSignals.screenshot_capture_ok) { $null = $defectCandidates.Add('CAPTURE_FAILURE') }
+
+            $classification = if ([bool]$routeSignals.broken_candidate) {
+                'broken'
+            }
+            elseif (-not [bool]$routeSignals.screenshot_capture_ok) {
+                'capture_failure'
+            }
+            elseif ([bool]$routeSignals.shell_like_candidate) {
+                'shell_candidate'
+            }
+            elseif ([bool]$routeSignals.thin_candidate) {
+                'thin_candidate'
             }
             else {
-                'route has material issues in current sampled evidence'
+                'ok'
             }
 
             $pageVerdicts.Add([ordered]@{
                     route = $canonicalRoute
-                    route_type = [string]$selectedRoute.type
-                    visual_status = $visualStatus
-                    verdict = $verdictText
-                    issue_count = [int]$routeIssueCount
+                    classification = $classification
+                    signals = $routeSignals
+                    defect_candidates = @($defectCandidates)
+                    evidence_refs = @('ROUTES_SUMMARY.json', 'visual_manifest.json')
+                    confidence = if ($visualStatus -eq 'ok') { 'HIGH' } elseif ($visualStatus -eq 'partial') { 'MEDIUM' } else { 'LOW' }
                 })
         }
 
@@ -2350,7 +2512,7 @@ else {
             'No page-level defect was detected, but sampled coverage limits confidence.'
         }
         else {
-            if ([string]$report.audit_confidence -eq 'HIGH') { 'No page-level defects were confirmed in the sampled scope.' } else { 'No page-level issues were confirmed in the checked scope.' }
+            if ([string]$report.audit_confidence -eq 'HIGH') { 'No page-level defects were confirmed in the sampled scope.' } else { 'No page-level defects were confirmed in the checked scope.' }
         }
         $report.decision_summary = [ordered]@{
             issue_type = [string]$decisionIssueType
@@ -2460,7 +2622,7 @@ else {
             'No page-level defects were confirmed in the checked scope.'
         }
         else {
-            'No page-level issues were confirmed in the checked scope.'
+            'No page-level defects were confirmed in the checked scope.'
         }
         $mainFindingRu = if ($decisionIssueType -eq 'DEFECT') {
             "Подтверждён дефект: $([string]$report.decision_summary.primary_issue)."
@@ -2472,7 +2634,7 @@ else {
             'В проверенном объёме дефекты страниц не подтверждены.'
         }
         else {
-            'В проверенном объёме проблемы страниц не подтверждены.'
+            'В проверенном объёме дефекты страниц не подтверждены.'
         }
         $limitationsCommon = [System.Collections.Generic.List[string]]::new()
         if ([string]$report.audit_confidence -ne 'HIGH' -or $limitationFindings.Count -gt 0) {
