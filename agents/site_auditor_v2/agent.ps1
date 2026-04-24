@@ -309,15 +309,8 @@ function Convert-RunReportValue {
             return $normalizedMap
         }
 
-        if ($Value -is [System.Array]) {
-            return @($Value | ForEach-Object { Convert-RunReportValue -Value $_ -VisitedReferences $VisitedReferences })
-        }
-
-        if ($Value -is [System.Collections.IList]) {
-            return @($Value | ForEach-Object { Convert-RunReportValue -Value $_ -VisitedReferences $VisitedReferences })
-        }
-
-        if ($Value -is [System.Collections.IEnumerable] -and -not ($Value -is [string])) {
+        # Only allow safe enumerable types
+        if ($Value -is [System.Array] -or $Value -is [System.Collections.IList]) {
             return @($Value | ForEach-Object { Convert-RunReportValue -Value $_ -VisitedReferences $VisitedReferences })
         }
 
