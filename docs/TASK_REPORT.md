@@ -1,5 +1,5 @@
 ## Summary
-Fixed a PowerShell 5.1 parameter-binding failure in `Convert-RunReportValue` where an empty `HashSet[int]` passed to mandatory `VisitedReferences` caused runtime error: `Cannot bind argument to parameter 'VisitedReferences' because it is an empty collection.`
+Restricted RUN_REPORT enumerable normalization in `Convert-RunReportValue` to explicit safe collection types (`System.Array` and `System.Collections.IList`) to prevent over-broad enumeration of non-data objects during serialization on PowerShell 5.1.
 
 ## Changed files
 - agents/site_auditor_v2/agent.ps1
@@ -10,9 +10,9 @@ Fixed a PowerShell 5.1 parameter-binding failure in `Convert-RunReportValue` whe
 
 ## Current entrypoints/paths
 - Primary entrypoint: `agents/site_auditor_v2/agent.ps1`
-- Run report normalization function: `Convert-RunReportValue` in `agents/site_auditor_v2/agent.ps1`
+- Serialization normalization path: `Convert-RunReportValue` in `agents/site_auditor_v2/agent.ps1`
 - Task report: `docs/TASK_REPORT.md`
 
 ## Risks/blockers
-- Acceptance runtime (`OUTPUT: BUILD_START` through `OUTPUT: REPORT_OBJECT_READY`) was not executed in this environment, so full end-to-end confirmation and `RUN_REPORT.json` creation still require operator run validation.
-- Fix is intentionally constrained to parameter binding behavior only; no route extraction, reconciliation, or report semantics were changed.
+- End-to-end runtime verification for `WRITE_DONE` and `RUN_REPORT.json` creation was not executed in this environment.
+- Change is intentionally minimal and scoped only to enumerable normalization; no RECON, route extraction, report semantics, or module refactoring were modified.
