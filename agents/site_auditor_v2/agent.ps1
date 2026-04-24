@@ -1229,9 +1229,18 @@ else {
 
         $failurePhase = 'RECONCILIATION'
         $currentFailureStage = $failurePhase
+        Write-Host 'RECON: PREP_START'
         $reconciliationPrep = Invoke-CaptureReconciliationPrepStage -SelectedRoutes @($selectedRoutes) -ManifestPages @($manifestPages) -BaseUrl $BaseUrl -SelectedRoutesCount $selectedRoutesCount -ManifestRequestedPages $manifestRequestedPages -ManifestProcessedPages $manifestProcessedPages -ManifestFailedPages $manifestFailedPages
-        Write-Host 'RECON: PREP_OK'
+        Write-Host 'RECON: PREP_RETURNED'
         $counterMismatchDetected = [bool]$reconciliationPrep.counter_mismatch_detected
+        $capturesAttempted = [int]$reconciliationPrep.captures_attempted
+        $capturesSuccess = [int]$reconciliationPrep.captures_success
+        $capturesFailed = [int]$reconciliationPrep.captures_failed
+        $pagesAttempted = [int]$reconciliationPrep.pages_attempted
+        $pagesProcessed = [int]$reconciliationPrep.pages_processed
+        $pagesFailed = [int]$reconciliationPrep.pages_failed
+        $pagesSuccess = [int]$reconciliationPrep.pages_success
+        Write-Host 'RECON: PREP_OK'
 
         if ($counterMismatchDetected) {
             $report.capture_summary.counter_mismatch = $true
@@ -1250,14 +1259,6 @@ else {
                 normalization_errors = @($reconciliationPrep.route_normalization_errors)
             }
         }
-
-        $capturesAttempted = [int]$reconciliationPrep.captures_attempted
-        $capturesSuccess = [int]$reconciliationPrep.captures_success
-        $capturesFailed = [int]$reconciliationPrep.captures_failed
-        $pagesAttempted = [int]$reconciliationPrep.pages_attempted
-        $pagesProcessed = [int]$reconciliationPrep.pages_processed
-        $pagesFailed = [int]$reconciliationPrep.pages_failed
-        $pagesSuccess = [int]$reconciliationPrep.pages_success
 
         $report.capture_report = [ordered]@{
             status = [string]$reconciliationPrep.capture_report_status
