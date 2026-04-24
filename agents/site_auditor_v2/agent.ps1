@@ -1956,6 +1956,25 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
         $defectFindingsArray = @($defectFindings)
         $limitationFindingsArray = @($limitationFindings)
         $report.findings = @($defectFindingsArray + $limitationFindingsArray)
+        if ($report.findings.Count -gt 0) {
+            foreach ($i in 0..($report.findings.Count - 1)) {
+                $f = $report.findings[$i]
+
+                if ($f.PSObject.Properties['recommended_action'] -eq $null) {
+                    $f | Add-Member -NotePropertyName 'recommended_action' -NotePropertyValue ""
+                }
+
+                if ($f.PSObject.Properties['evidence'] -eq $null) {
+                    $f | Add-Member -NotePropertyName 'evidence' -NotePropertyValue ([ordered]@{
+                            evidence_refs = @()
+                        })
+                }
+
+                if ($f.evidence.PSObject.Properties['evidence_refs'] -eq $null) {
+                    $f.evidence | Add-Member -NotePropertyName 'evidence_refs' -NotePropertyValue @()
+                }
+            }
+        }
         $operatorMemoryCore = [ordered]@{
             who_am_i = 'system operator building site auditor agent'
             what_system_is_being_built = 'site audit agent → decision → action → monetization system'
