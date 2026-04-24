@@ -1,19 +1,17 @@
 ## Summary
-Implemented RECON prep localization markers and reconciliation prep collection-shape hardening for SITE_AUDITOR_V2 LINK runtime blocker analysis.
+Implemented REPORT_LAYER localization markers and collection-shape hardening in `SITE_AUDITOR_V2` to address the runtime blocker (`Argument types do not match`) without changing report semantics.
 
 ## Changed files
 - agents/site_auditor_v2/agent.ps1
-- agents/site_auditor_v2/modules/stage_capture_reconciliation.ps1
 - docs/TASK_REPORT.md
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- Primary entrypoint: agents/site_auditor_v2/agent.ps1
-- Reconciliation prep stage: agents/site_auditor_v2/modules/stage_capture_reconciliation.ps1
-- Reporting artifact: docs/TASK_REPORT.md
+- Primary entrypoint: `agents/site_auditor_v2/agent.ps1`
+- Task report: `docs/TASK_REPORT.md`
 
 ## Risks/blockers
-- Runtime was not executed by Codex in this task, so marker visibility and failure-boundary movement are unverified in-process.
-- Remaining runtime issues outside reconciliation prep and marker placement may still block LINK flow.
+- Runtime was **not executed by Codex** in this task, so end-to-end runtime acceptance remains to be verified by operator run.
+- Marker instrumentation is deterministic, but any remaining type-shape mismatch outside the touched REPORT_LAYER boundaries could still fail at runtime.
