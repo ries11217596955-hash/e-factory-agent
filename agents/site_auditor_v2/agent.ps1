@@ -342,19 +342,63 @@ function Write-RunReportBounded {
         [string]$DeterministicRunReportPath
     )
 
+    function Convert-ToMaterializedArray {
+        param(
+            [Parameter(Mandatory = $false)]
+            $Value
+        )
+
+        if ($null -eq $Value) {
+            return @()
+        }
+
+        if ($Value -is [System.Array]) {
+            return @($Value)
+        }
+
+        if ($Value -is [System.Collections.IEnumerable] -and -not ($Value -is [string])) {
+            return @($Value)
+        }
+
+        return @($Value)
+    }
+
     Write-Host 'OUTPUT: BUILD_START'
     $visitedReferences = New-Object 'System.Collections.Generic.HashSet[int]'
     $reportBound = Convert-RunReportValue -Value $Report -VisitedReferences $visitedReferences
 
-    Write-Host 'OUTPUT: RUN_REPORT_BOUND'
+    if ($null -eq $reportBound) {
+        throw 'RUN_REPORT_BUILD_FAILED'
+    }
+
+    $reportBound.page_verdicts = Convert-ToMaterializedArray -Value $reportBound.page_verdicts
+    $reportBound.findings = Convert-ToMaterializedArray -Value $reportBound.findings
+
     if ($null -ne $reportBound.operator_memory_bridge) {
         $reportBound.operator_memory_bridge = Convert-RunReportValue -Value $reportBound.operator_memory_bridge -VisitedReferences (New-Object 'System.Collections.Generic.HashSet[int]')
+        if ($null -ne $reportBound.operator_memory_bridge.must_read_contract) {
+            $reportBound.operator_memory_bridge.must_read_contract.read_order = Convert-ToMaterializedArray -Value $reportBound.operator_memory_bridge.must_read_contract.read_order
+            $reportBound.operator_memory_bridge.must_read_contract.must_read_first = Convert-ToMaterializedArray -Value $reportBound.operator_memory_bridge.must_read_contract.must_read_first
+        }
+        if ($null -ne $reportBound.operator_memory_bridge.next_operator_posture) {
+            $reportBound.operator_memory_bridge.next_operator_posture.must_do_before_next_task = Convert-ToMaterializedArray -Value $reportBound.operator_memory_bridge.next_operator_posture.must_do_before_next_task
+            $reportBound.operator_memory_bridge.next_operator_posture.what_to_inspect_next = Convert-ToMaterializedArray -Value $reportBound.operator_memory_bridge.next_operator_posture.what_to_inspect_next
+            $reportBound.operator_memory_bridge.next_operator_posture.must_read_files = Convert-ToMaterializedArray -Value $reportBound.operator_memory_bridge.next_operator_posture.must_read_files
+            $reportBound.operator_memory_bridge.next_operator_posture.read_order = Convert-ToMaterializedArray -Value $reportBound.operator_memory_bridge.next_operator_posture.read_order
+        }
     }
-    Write-Host 'OUTPUT: MEMORY_BRIDGE_BOUND'
+    $findingCount = [int]$reportBound.findings.Count
+    for ($findingIndex = 0; $findingIndex -lt $findingCount; $findingIndex++) {
+        if ($null -ne $reportBound.findings[$findingIndex] -and $null -ne $reportBound.findings[$findingIndex].evidence) {
+            $reportBound.findings[$findingIndex].evidence.evidence_refs = Convert-ToMaterializedArray -Value $reportBound.findings[$findingIndex].evidence.evidence_refs
+        }
+    }
 
-    Write-Host 'OUTPUT: SERIALIZATION_START'
+    Write-Host 'OUTPUT: REPORT_OBJECT_READY'
+
+    Write-Host 'OUTPUT: SERIALIZE_START'
     $null = $reportBound | ConvertTo-Json -Depth 100
-    Write-Host 'OUTPUT: SERIALIZATION_READY'
+    Write-Host 'OUTPUT: SERIALIZE_DONE'
 
     Write-Host 'OUTPUT: WRITE_START'
     Write-JsonFile -Path $RunReportPath -Data $reportBound
