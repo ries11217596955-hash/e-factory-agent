@@ -790,6 +790,7 @@ $deterministicFailurePath = Join-Path $PSScriptRoot 'failure_summary.json'
 $deterministicAgentFailureReportPath = Join-Path $PSScriptRoot 'AGENT_FAILURE_REPORT.txt'
 $deterministicOperatorHandoffPath = Join-Path $PSScriptRoot 'AGENT_OPERATOR_HANDOFF.json'
 $deterministicVisualManifestPath = Join-Path $PSScriptRoot 'visual_manifest.json'
+$deterministicReportContractDiagPath = Join-Path $PSScriptRoot 'REPORT_CONTRACT_DIAG.json'
 $deterministicScreenshotsPath = Join-Path $PSScriptRoot 'screenshots'
 
 $capabilityStatus = [ordered]@{
@@ -810,7 +811,6 @@ $learningBacklog = @(
 $producedArtifacts = New-Object System.Collections.Generic.List[string]
 $null = $producedArtifacts.Add('RUN_REPORT.json')
 $null = $producedArtifacts.Add('ACTION_REPORT.txt')
-$null = $producedArtifacts.Add('REPORT_CONTRACT_DIAG.json')
 
 $notDoneYet = @(
     'Capture mode supports baseline screenshot evidence only (no interactions).',
@@ -1928,6 +1928,21 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
                 })
         }
         $limitationFindings = @($limitationFindings.ToArray())
+        $reportLayerMarker = 'REPORT_LAYER: FINDINGS_BOUND'
+        Write-Host $reportLayerMarker
+        $defectFindingsArray = @($defectFindings)
+        $limitationFindingsArray = @($limitationFindings)
+        $report.findings = @($defectFindingsArray + $limitationFindingsArray)
+        $findingContractResult = Normalize-FindingContract -Findings @($report.findings) -DiagnosticPath $reportContractDiagPath
+        $report.findings = @($findingContractResult.findings)
+        Copy-Item -LiteralPath $reportContractDiagPath -Destination $deterministicReportContractDiagPath -Force
+        if (-not ($producedArtifacts.Contains('REPORT_CONTRACT_DIAG.json'))) {
+            $null = $producedArtifacts.Add('REPORT_CONTRACT_DIAG.json')
+        }
+
+        $allFindings = @($report.findings)
+        $defectFindings = @($allFindings | Where-Object { [string]$_.category -eq 'DEFECT' })
+        $limitationFindings = @($allFindings | Where-Object { [string]$_.category -eq 'LIMITATION' })
         $report.findings_count = [int]$defectFindings.Count
         $report.limitation_count = [int]$limitationFindings.Count
         $routesChecked = [int]@($report.selected_routes).Count
@@ -1953,14 +1968,6 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
             Select-Object -First 3 |
             ForEach-Object { [string]$_.issue_type }
         )
-
-        $reportLayerMarker = 'REPORT_LAYER: FINDINGS_BOUND'
-        Write-Host $reportLayerMarker
-        $defectFindingsArray = @($defectFindings)
-        $limitationFindingsArray = @($limitationFindings)
-        $report.findings = @($defectFindingsArray + $limitationFindingsArray)
-        $findingContractResult = Normalize-FindingContract -Findings @($report.findings) -DiagnosticPath $reportContractDiagPath
-        $report.findings = @($findingContractResult.findings)
         $operatorMemoryCore = [ordered]@{
             who_am_i = 'system operator building site auditor agent'
             what_system_is_being_built = 'site audit agent → decision → action → monetization system'
