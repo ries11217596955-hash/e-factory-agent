@@ -1,5 +1,5 @@
 ## Summary
-Implemented REPORT_LAYER localization markers and collection-shape hardening in `SITE_AUDITOR_V2` to address the runtime blocker (`Argument types do not match`) without changing report semantics.
+Hardened final `RUN_REPORT` output assembly/serialization boundary for `SITE_AUDITOR_V2` by adding explicit OUTPUT markers, recursive Generic.List-to-array normalization, circular-reference protection, eager serialization preflight, and deterministic write markers.
 
 ## Changed files
 - agents/site_auditor_v2/agent.ps1
@@ -13,5 +13,5 @@ Implemented REPORT_LAYER localization markers and collection-shape hardening in 
 - Task report: `docs/TASK_REPORT.md`
 
 ## Risks/blockers
-- Runtime was **not executed by Codex** in this task, so end-to-end runtime acceptance remains to be verified by operator run.
-- Marker instrumentation is deterministic, but any remaining type-shape mismatch outside the touched REPORT_LAYER boundaries could still fail at runtime.
+- Runtime was **not executed by Codex** against a live target URL in this task, so operator execution is still required to confirm `OUTPUT: WRITE_DONE` in a full run.
+- Integer normalization casts integral numeric CLR types to `[int]` during the write boundary; if future schema introduces required non-int integral fields, this boundary must be revisited.
