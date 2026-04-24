@@ -1,5 +1,5 @@
 ## Summary
-Localized `RUN_REPORT.json` output boundary hardening in `SITE_AUDITOR_V2` for PS5.1 safety by adding required output markers, explicit pre-serialization array materialization for key collections (`page_verdicts`, `findings`, `operator_memory_bridge` lists, and finding evidence refs), and a strict report-object readiness guard before JSON serialization/write.
+Fixed a PowerShell 5.1 parameter-binding failure in `Convert-RunReportValue` where an empty `HashSet[int]` passed to mandatory `VisitedReferences` caused runtime error: `Cannot bind argument to parameter 'VisitedReferences' because it is an empty collection.`
 
 ## Changed files
 - agents/site_auditor_v2/agent.ps1
@@ -10,9 +10,9 @@ Localized `RUN_REPORT.json` output boundary hardening in `SITE_AUDITOR_V2` for P
 
 ## Current entrypoints/paths
 - Primary entrypoint: `agents/site_auditor_v2/agent.ps1`
-- Output write boundary: `Write-RunReportBounded` in `agents/site_auditor_v2/agent.ps1`
+- Run report normalization function: `Convert-RunReportValue` in `agents/site_auditor_v2/agent.ps1`
 - Task report: `docs/TASK_REPORT.md`
 
 ## Risks/blockers
-- Runtime execution against a live URL was not performed in this environment, so operator validation is still required to confirm `OUTPUT: WRITE_DONE` and on-disk `RUN_REPORT.json` creation.
-- If future schema introduces additional nested collection fields under findings or operator memory structures, they should be added to the explicit materialization list to preserve PS5.1-safe deterministic serialization.
+- Acceptance runtime (`OUTPUT: BUILD_START` through `OUTPUT: REPORT_OBJECT_READY`) was not executed in this environment, so full end-to-end confirmation and `RUN_REPORT.json` creation still require operator run validation.
+- Fix is intentionally constrained to parameter binding behavior only; no route extraction, reconciliation, or report semantics were changed.
