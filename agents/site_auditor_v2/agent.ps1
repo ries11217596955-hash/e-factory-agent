@@ -22,6 +22,7 @@ if ($PSVersionTable.PSVersion.Major -lt 6) {
 . "$PSScriptRoot/modules/util_json.ps1"
 . "$PSScriptRoot/modules/surface_context.ps1"
 . "$PSScriptRoot/modules/report_safe_helpers.ps1"
+. "$PSScriptRoot/modules/report_contract.ps1"
 . "$PSScriptRoot/modules/report_layer.ps1"
 . "$PSScriptRoot/modules/stage_link_fetch.ps1"
 . "$PSScriptRoot/modules/stage_route_keys.ps1"
@@ -774,6 +775,7 @@ $failurePath = Join-Path $outputRoot 'failure_summary.json'
 $agentFailureReportPath = Join-Path $outputRoot 'AGENT_FAILURE_REPORT.txt'
 $operatorHandoffPath = Join-Path $outputRoot 'AGENT_OPERATOR_HANDOFF.json'
 $visualManifestPath = Join-Path $outputRoot 'visual_manifest.json'
+$reportContractDiagPath = Join-Path $outputRoot 'REPORT_CONTRACT_DIAG.json'
 $visualInputPath = Join-Path $outputRoot 'visual_capture_input.json'
 $screenshotsPath = Join-Path $outputRoot 'screenshots'
 $deterministicRunReportPath = Join-Path $PSScriptRoot 'RUN_REPORT.json'
@@ -808,6 +810,7 @@ $learningBacklog = @(
 $producedArtifacts = New-Object System.Collections.Generic.List[string]
 $null = $producedArtifacts.Add('RUN_REPORT.json')
 $null = $producedArtifacts.Add('ACTION_REPORT.txt')
+$null = $producedArtifacts.Add('REPORT_CONTRACT_DIAG.json')
 
 $notDoneYet = @(
     'Capture mode supports baseline screenshot evidence only (no interactions).',
@@ -1956,25 +1959,8 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
         $defectFindingsArray = @($defectFindings)
         $limitationFindingsArray = @($limitationFindings)
         $report.findings = @($defectFindingsArray + $limitationFindingsArray)
-        if ($report.findings.Count -gt 0) {
-            foreach ($i in 0..($report.findings.Count - 1)) {
-                $f = $report.findings[$i]
-
-                if ($f.PSObject.Properties['recommended_action'] -eq $null) {
-                    $f | Add-Member -NotePropertyName 'recommended_action' -NotePropertyValue ""
-                }
-
-                if ($f.PSObject.Properties['evidence'] -eq $null) {
-                    $f | Add-Member -NotePropertyName 'evidence' -NotePropertyValue ([ordered]@{
-                            evidence_refs = @()
-                        })
-                }
-
-                if ($f.evidence.PSObject.Properties['evidence_refs'] -eq $null) {
-                    $f.evidence | Add-Member -NotePropertyName 'evidence_refs' -NotePropertyValue @()
-                }
-            }
-        }
+        $findingContractResult = Normalize-FindingContract -Findings @($report.findings) -DiagnosticPath $reportContractDiagPath
+        $report.findings = @($findingContractResult.findings)
         $operatorMemoryCore = [ordered]@{
             who_am_i = 'system operator building site auditor agent'
             what_system_is_being_built = 'site audit agent → decision → action → monetization system'
