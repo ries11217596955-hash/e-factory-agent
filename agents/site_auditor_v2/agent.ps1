@@ -810,7 +810,6 @@ $learningBacklog = @(
 $producedArtifacts = New-Object System.Collections.Generic.List[string]
 $null = $producedArtifacts.Add('RUN_REPORT.json')
 $null = $producedArtifacts.Add('ACTION_REPORT.txt')
-$null = $producedArtifacts.Add('REPORT_CONTRACT_DIAG.json')
 
 $notDoneYet = @(
     'Capture mode supports baseline screenshot evidence only (no interactions).',
