@@ -373,19 +373,6 @@ function Write-RunReportBounded {
     $reportBound.page_verdicts = Convert-ToMaterializedArray -Value $reportBound.page_verdicts
     $reportBound.findings = Convert-ToMaterializedArray -Value $reportBound.findings
 
-    if ($null -ne $reportBound.operator_memory_bridge) {
-        $reportBound.operator_memory_bridge = Convert-RunReportValue -Value $reportBound.operator_memory_bridge -VisitedReferences (New-Object 'System.Collections.Generic.HashSet[int]')
-        if ($null -ne $reportBound.operator_memory_bridge.must_read_contract) {
-            $reportBound.operator_memory_bridge.must_read_contract.read_order = Convert-ToMaterializedArray -Value $reportBound.operator_memory_bridge.must_read_contract.read_order
-            $reportBound.operator_memory_bridge.must_read_contract.must_read_first = Convert-ToMaterializedArray -Value $reportBound.operator_memory_bridge.must_read_contract.must_read_first
-        }
-        if ($null -ne $reportBound.operator_memory_bridge.next_operator_posture) {
-            $reportBound.operator_memory_bridge.next_operator_posture.must_do_before_next_task = Convert-ToMaterializedArray -Value $reportBound.operator_memory_bridge.next_operator_posture.must_do_before_next_task
-            $reportBound.operator_memory_bridge.next_operator_posture.what_to_inspect_next = Convert-ToMaterializedArray -Value $reportBound.operator_memory_bridge.next_operator_posture.what_to_inspect_next
-            $reportBound.operator_memory_bridge.next_operator_posture.must_read_files = Convert-ToMaterializedArray -Value $reportBound.operator_memory_bridge.next_operator_posture.must_read_files
-            $reportBound.operator_memory_bridge.next_operator_posture.read_order = Convert-ToMaterializedArray -Value $reportBound.operator_memory_bridge.next_operator_posture.read_order
-        }
-    }
     $findingCount = [int]$reportBound.findings.Count
     for ($findingIndex = 0; $findingIndex -lt $findingCount; $findingIndex++) {
         if ($null -ne $reportBound.findings[$findingIndex] -and $null -ne $reportBound.findings[$findingIndex].evidence) {
