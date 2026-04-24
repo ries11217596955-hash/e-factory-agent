@@ -1,17 +1,20 @@
 ## Summary
-Applied a minimal PowerShell 5.1-safe type fix in `Invoke-EvidenceReconciliation()` so the screenshot relative path normalization uses a matching `string,string` overload for `.Replace()`.
+Completed static audit for SITE_AUDITOR_V2 LINK path and produced defect map plus repair batch plan artifacts.
 
 ## Changed files
-- agents/site_auditor_v2/agent.ps1
+- docs/SITE_AUDITOR_V2__ATOM_AUDIT_REPORT.md
+- docs/SITE_AUDITOR_V2__DEFECT_MAP.json
+- docs/SITE_AUDITOR_V2__REPAIR_BATCH_PLAN.md
 - docs/TASK_REPORT.md
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- Entrypoint unchanged: `agents/site_auditor_v2/agent.ps1`.
-- Modified scope limited to one normalization line inside `Invoke-EvidenceReconciliation()`.
+- Primary entrypoint: agents/site_auditor_v2/agent.ps1
+- Active workflow: .github/workflows/site-auditor-v2-link.yml
+- Target subtree audited: agents/site_auditor_v2/*, tests/check_route_contract.ps1, workflow file above.
 
 ## Risks/blockers
-- Runtime execution was not performed in this environment, so acceptance needs validation in a normal run.
-- If downstream logic depends on platform-specific separators, behavior should now be deterministic via explicit string conversion.
+- Workflow/runtime policy conflict: active CI path runs Ubuntu pwsh while audit contract requires PS5.1 assumptions.
+- Schema contracts are stale versus active runtime output shapes.
