@@ -1,5 +1,5 @@
 ## Summary
-Applied a minimal PS5.1-safe guard in `Write-RunReportBounded` so optional `finding.evidence` is accessed only when the property exists and is non-null, and `evidence_refs` is materialized only when that nested property exists.
+Introduced a single PS5.1-safe findings normalization contract in `SITE_AUDITOR_V2` report flow so every finding has `recommended_action`, `evidence`, and `evidence.evidence_refs` before downstream report-layer usage.
 
 ## Changed files
 - agents/site_auditor_v2/agent.ps1
@@ -10,9 +10,9 @@ Applied a minimal PS5.1-safe guard in `Write-RunReportBounded` so optional `find
 
 ## Current entrypoints/paths
 - Primary entrypoint: `agents/site_auditor_v2/agent.ps1`
-- RUN_REPORT writer path: `Write-RunReportBounded` in `agents/site_auditor_v2/agent.ps1`
+- Normalization point: report layer, immediately after `$report.findings` binding and before operator-feed/report-layer consumption.
 - Task report: `docs/TASK_REPORT.md`
 
 ## Risks/blockers
-- Full end-to-end runtime execution to verify `OUTPUT: SERIALIZE_DONE`, `OUTPUT: WRITE_DONE`, and `RUN_REPORT.json` creation was not executed in this environment.
-- Change is intentionally narrow and does not modify `Convert-RunReportValue`, report schema, or add any new fields.
+- No full PowerShell runtime execution was performed in this environment, so end-to-end verification of all report outputs was not run here.
+- This task intentionally adds normalization only and does not remove existing scattered guards (deferred per task instruction).
