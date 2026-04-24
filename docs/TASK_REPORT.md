@@ -1,10 +1,9 @@
 ## Summary
-Completed static audit for SITE_AUDITOR_V2 LINK path and produced defect map plus repair batch plan artifacts.
+Implemented RECON prep localization markers and reconciliation prep collection-shape hardening for SITE_AUDITOR_V2 LINK runtime blocker analysis.
 
 ## Changed files
-- docs/SITE_AUDITOR_V2__ATOM_AUDIT_REPORT.md
-- docs/SITE_AUDITOR_V2__DEFECT_MAP.json
-- docs/SITE_AUDITOR_V2__REPAIR_BATCH_PLAN.md
+- agents/site_auditor_v2/agent.ps1
+- agents/site_auditor_v2/modules/stage_capture_reconciliation.ps1
 - docs/TASK_REPORT.md
 
 ## Moved files/folders
@@ -12,9 +11,9 @@ Completed static audit for SITE_AUDITOR_V2 LINK path and produced defect map plu
 
 ## Current entrypoints/paths
 - Primary entrypoint: agents/site_auditor_v2/agent.ps1
-- Active workflow: .github/workflows/site-auditor-v2-link.yml
-- Target subtree audited: agents/site_auditor_v2/*, tests/check_route_contract.ps1, workflow file above.
+- Reconciliation prep stage: agents/site_auditor_v2/modules/stage_capture_reconciliation.ps1
+- Reporting artifact: docs/TASK_REPORT.md
 
 ## Risks/blockers
-- Workflow/runtime policy conflict: active CI path runs Ubuntu pwsh while audit contract requires PS5.1 assumptions.
-- Schema contracts are stale versus active runtime output shapes.
+- Runtime was not executed by Codex in this task, so marker visibility and failure-boundary movement are unverified in-process.
+- Remaining runtime issues outside reconciliation prep and marker placement may still block LINK flow.

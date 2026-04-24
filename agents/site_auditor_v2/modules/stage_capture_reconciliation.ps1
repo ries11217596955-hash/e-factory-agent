@@ -18,9 +18,12 @@ function Invoke-CaptureReconciliationPrepStage {
         [int]$ManifestFailedPages
     )
 
+    $selectedRoutesArray = @($SelectedRoutes)
+    $manifestPagesArray = @($ManifestPages)
+
     $selectedRouteKeys = New-CaseInsensitiveKeyMap
     $routeNormalizationErrors = New-SafeList -TypeName 'object'
-    foreach ($target in $SelectedRoutes) {
+    foreach ($target in $selectedRoutesArray) {
         $selectedRouteValue = if (-not [string]::IsNullOrWhiteSpace([string]$target.route)) { [string]$target.route } else { [string]$target.url }
         $canonicalResult = Get-CanonicalRouteKeyResult -RouteValue $selectedRouteValue -BaseUrl $BaseUrl
         if ($canonicalResult.status -eq 'ok') {
@@ -30,9 +33,10 @@ function Invoke-CaptureReconciliationPrepStage {
             $routeNormalizationErrors.Add([ordered]@{ source = 'selected_route'; value = $selectedRouteValue; error = [string]$canonicalResult.error })
         }
     }
+    Write-Host 'RECON_PREP: SELECTED_KEYS_DONE'
 
     $manifestRouteKeys = New-CaseInsensitiveKeyMap
-    foreach ($manifestPage in $ManifestPages) {
+    foreach ($manifestPage in $manifestPagesArray) {
         $manifestPageUrl = if ($manifestPage.PSObject.Properties['url']) { [string]$manifestPage.url } elseif ($manifestPage.PSObject.Properties['source_url']) { [string]$manifestPage.source_url } else { '' }
         if ([string]::IsNullOrWhiteSpace($manifestPageUrl)) { continue }
 
@@ -44,36 +48,62 @@ function Invoke-CaptureReconciliationPrepStage {
             $routeNormalizationErrors.Add([ordered]@{ source = 'manifest_route'; value = $manifestPageUrl; error = [string]$canonicalResult.error })
         }
     }
+    Write-Host 'RECON_PREP: MANIFEST_KEYS_DONE'
 
-    $missingManifestRoutes = @(Get-KeyMapKeys -Map $selectedRouteKeys | Where-Object { -not (Test-KeyExists -Map $manifestRouteKeys -Key ([string]$_)) })
-    $extraManifestRoutes = @(Get-KeyMapKeys -Map $manifestRouteKeys | Where-Object { -not (Test-KeyExists -Map $selectedRouteKeys -Key ([string]$_)) })
-    $normalizationErrorDetected = ($routeNormalizationErrors.Count -gt 0)
-    $counterMismatchDetected = ($normalizationErrorDetected -or $SelectedRoutesCount -ne $ManifestRequestedPages -or $ManifestPages.Count -ne $SelectedRoutesCount -or $missingManifestRoutes.Count -gt 0 -or $extraManifestRoutes.Count -gt 0)
+    $missingManifestRoutesArray = @(Get-KeyMapKeys -Map $selectedRouteKeys | Where-Object { -not (Test-KeyExists -Map $manifestRouteKeys -Key ([string]$_)) })
+    $extraManifestRoutesArray = @(Get-KeyMapKeys -Map $manifestRouteKeys | Where-Object { -not (Test-KeyExists -Map $selectedRouteKeys -Key ([string]$_)) })
+    $routeNormalizationErrorsArray = @($routeNormalizationErrors.ToArray())
+    $normalizationErrorDetected = ($routeNormalizationErrorsArray.Count -gt 0)
+    $counterMismatchDetected = ($normalizationErrorDetected -or $SelectedRoutesCount -ne $ManifestRequestedPages -or $manifestPagesArray.Count -ne $SelectedRoutesCount -or $missingManifestRoutesArray.Count -gt 0 -or $extraManifestRoutesArray.Count -gt 0)
+    Write-Host 'RECON_PREP: ROUTE_DIFF_DONE'
 
-    $captures = @($ManifestPages | ForEach-Object { @($_.captures) })
-    $capturesAttempted = [int]$captures.Count
-    $capturesSuccess = [int]@($captures | Where-Object { $_.status -eq 'ok' }).Count
+    $capturesList = New-SafeList -TypeName 'object'
+    foreach ($manifestPage in $manifestPagesArray) {
+        foreach ($capture in @($manifestPage.captures)) {
+            $capturesList.Add($capture)
+        }
+    }
+    $capturesArray = @($capturesList.ToArray())
+    $okCapturesArray = @($capturesArray | Where-Object { $_.status -eq 'ok' })
+    $failedCapturesArray = @($capturesArray | Where-Object { $_.status -ne 'ok' })
+    $successfulPagesArray = @(
+        $manifestPagesArray |
+        Where-Object {
+            $pageCapturesArray = @($_.captures)
+            $okPageCapturesArray = @($pageCapturesArray | Where-Object { $_.status -eq 'ok' })
+            $okPageCapturesArray.Count -gt 0
+        }
+    )
+
+    $capturesAttempted = [int]$capturesArray.Count
+    $capturesSuccess = [int]$okCapturesArray.Count
     $capturesFailed = [int]($capturesAttempted - $capturesSuccess)
-    $pagesSuccess = [int]@($ManifestPages | Where-Object { @($_.captures | Where-Object { $_.status -eq 'ok' }).Count -gt 0 }).Count
+    $pagesSuccess = [int]$successfulPagesArray.Count
+    Write-Host 'RECON_PREP: CAPTURE_COUNTS_DONE'
 
     $failTypes = New-CaseInsensitiveKeyMap
-    foreach ($capture in ($captures | Where-Object { $_.status -ne 'ok' })) {
+    foreach ($capture in $failedCapturesArray) {
         if (-not [string]::IsNullOrWhiteSpace([string]$capture.status)) { $null = Add-KeyIfMissing -Map $failTypes -Key ([string]$capture.status) }
     }
-    foreach ($manifestPage in ($ManifestPages | Where-Object { $_.status -eq 'FAIL' })) { $null = Add-KeyIfMissing -Map $failTypes -Key 'render_fail' }
+    foreach ($manifestPage in ($manifestPagesArray | Where-Object { $_.status -eq 'FAIL' })) { $null = Add-KeyIfMissing -Map $failTypes -Key 'render_fail' }
 
     $captureReportStatus = 'PASS'
     if ($pagesSuccess -eq 0) { $captureReportStatus = 'FAIL' }
     elseif ($capturesFailed -gt 0) { $captureReportStatus = 'PARTIAL' }
 
+    $selectedRouteKeyCount = [int](Get-KeyMapCount -Map $selectedRouteKeys)
+    $manifestRouteKeyCount = [int](Get-KeyMapCount -Map $manifestRouteKeys)
+    $failTypesArray = @(Get-KeyMapKeys -Map $failTypes)
+    Write-Host 'RECON_PREP: RETURN_READY'
+
     return [ordered]@{
         counter_mismatch_detected = [bool]$counterMismatchDetected
         normalization_error_detected = [bool]$normalizationErrorDetected
-        route_normalization_errors = @($routeNormalizationErrors)
-        missing_manifest_routes = @($missingManifestRoutes)
-        extra_manifest_routes = @($extraManifestRoutes)
-        selected_route_key_count = Get-KeyMapCount -Map $selectedRouteKeys
-        manifest_route_key_count = Get-KeyMapCount -Map $manifestRouteKeys
+        route_normalization_errors = @($routeNormalizationErrorsArray)
+        missing_manifest_routes = @($missingManifestRoutesArray)
+        extra_manifest_routes = @($extraManifestRoutesArray)
+        selected_route_key_count = [int]$selectedRouteKeyCount
+        manifest_route_key_count = [int]$manifestRouteKeyCount
         captures_attempted = [int]$capturesAttempted
         captures_success = [int]$capturesSuccess
         captures_failed = [int]$capturesFailed
@@ -81,7 +111,7 @@ function Invoke-CaptureReconciliationPrepStage {
         pages_processed = [int]$ManifestProcessedPages
         pages_failed = [int]$ManifestFailedPages
         pages_success = [int]$pagesSuccess
-        fail_types = @(Get-KeyMapKeys -Map $failTypes)
+        fail_types = @($failTypesArray)
         capture_report_status = [string]$captureReportStatus
     }
 }
