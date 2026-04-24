@@ -275,9 +275,15 @@ function Convert-RunReportValue {
     param(
         [Parameter(Mandatory = $false)]
         $Value,
-        [Parameter(Mandatory = $true)]
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [AllowEmptyCollection()]
         [System.Collections.Generic.HashSet[int]]$VisitedReferences
     )
+
+    if ($null -eq $VisitedReferences) {
+        $VisitedReferences = New-Object 'System.Collections.Generic.HashSet[int]'
+    }
 
     if ($null -eq $Value) { return $null }
     if ($Value -is [string] -or $Value -is [char] -or $Value -is [bool]) { return $Value }
