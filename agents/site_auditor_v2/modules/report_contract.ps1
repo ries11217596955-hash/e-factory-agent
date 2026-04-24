@@ -50,9 +50,15 @@ function New-NormalizedFinding {
         [object]$Finding,
         [Parameter(Mandatory = $true)]
         [int]$Index,
-        [Parameter(Mandatory = $true)]
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [AllowEmptyCollection()]
         [System.Collections.Generic.List[string]]$MissingFields
     )
+
+    if ($null -eq $MissingFields) {
+        $MissingFields = New-Object System.Collections.Generic.List[string]
+    }
 
     if ($null -eq $Finding) { $Finding = [ordered]@{} }
 
