@@ -375,8 +375,16 @@ function Write-RunReportBounded {
 
     $findingCount = [int]$reportBound.findings.Count
     for ($findingIndex = 0; $findingIndex -lt $findingCount; $findingIndex++) {
-        if ($null -ne $reportBound.findings[$findingIndex] -and $null -ne $reportBound.findings[$findingIndex].evidence) {
-            $reportBound.findings[$findingIndex].evidence.evidence_refs = Convert-ToMaterializedArray -Value $reportBound.findings[$findingIndex].evidence.evidence_refs
+        $finding = $reportBound.findings[$findingIndex]
+
+        if ($null -ne $finding) {
+            $hasEvidence = $finding.PSObject.Properties['evidence'] -ne $null
+
+            if ($hasEvidence -and $null -ne $finding.evidence) {
+                if ($finding.evidence.PSObject.Properties['evidence_refs'] -ne $null) {
+                    $finding.evidence.evidence_refs = Convert-ToMaterializedArray -Value $finding.evidence.evidence_refs
+                }
+            }
         }
     }
 

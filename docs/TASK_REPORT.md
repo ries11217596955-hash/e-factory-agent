@@ -1,5 +1,5 @@
 ## Summary
-Removed redundant post-normalization materialization assignments in `Write-RunReportBounded` that attempted to write invalid/non-guaranteed `operator_memory_bridge` fields and could crash RUN_REPORT write on PowerShell 5.1.
+Applied a minimal PS5.1-safe guard in `Write-RunReportBounded` so optional `finding.evidence` is accessed only when the property exists and is non-null, and `evidence_refs` is materialized only when that nested property exists.
 
 ## Changed files
 - agents/site_auditor_v2/agent.ps1
@@ -14,5 +14,5 @@ Removed redundant post-normalization materialization assignments in `Write-RunRe
 - Task report: `docs/TASK_REPORT.md`
 
 ## Risks/blockers
-- End-to-end runtime verification for `REPORT_OBJECT_READY`, `SERIALIZE_DONE`, `WRITE_DONE`, and `RUN_REPORT.json` creation was not executed in this environment.
-- Change is intentionally minimal and scoped only to removing invalid/redundant post-materialization writes; no RECON, route extraction, REPORT_LAYER semantics, schema, or broad refactoring were modified.
+- Full end-to-end runtime execution to verify `OUTPUT: SERIALIZE_DONE`, `OUTPUT: WRITE_DONE`, and `RUN_REPORT.json` creation was not executed in this environment.
+- Change is intentionally narrow and does not modify `Convert-RunReportValue`, report schema, or add any new fields.
