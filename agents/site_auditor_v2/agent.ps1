@@ -1758,16 +1758,19 @@ $failurePhase = 'SURFACE_CONTEXT'
                     signals = $routeSignals
                     surface_type = [string]$surfaceType
                     surface_expectation = $surfaceExpectation
-                    defect_candidates = @($defectCandidates)
+                    defect_candidates = @($defectCandidates.ToArray())
                     evidence_refs = @('ROUTES_SUMMARY.json', 'visual_manifest.json')
                     confidence = if ($defectCandidates.Count -gt 0) { 'HIGH' } elseif ($visualStatus -eq 'ok') { 'MEDIUM' } else { 'LOW' }
                 })
         }
 
 $lastCompletedStage = 'SURFACE_CONTEXT'
+        $reportLayerMarker = ''
         $failurePhase = 'REPORT_LAYER'
         $currentFailureStage = $failurePhase
-        $allFindings = @($findingsList)
+        $reportLayerMarker = 'REPORT_LAYER: START'
+        Write-Host $reportLayerMarker
+        $allFindings = @($findingsList.ToArray())
         $report.micro_clusters = @()
         $defectFindings = @($allFindings | Where-Object { [string]$_.category -eq 'DEFECT' })
         $limitationFindings = New-Object System.Collections.Generic.List[object]
@@ -1792,7 +1795,7 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
                     recommended_action = 'Expand route sample and rerun LINK mode for broader coverage.'
                 })
         }
-        $limitationFindings = @($limitationFindings)
+        $limitationFindings = @($limitationFindings.ToArray())
         $report.findings_count = [int]$defectFindings.Count
         $report.limitation_count = [int]$limitationFindings.Count
         $routesChecked = [int]@($report.selected_routes).Count
@@ -1819,7 +1822,11 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
             ForEach-Object { [string]$_.issue_type }
         )
 
-        $report.findings = @($defectFindings + $limitationFindings)
+        $reportLayerMarker = 'REPORT_LAYER: FINDINGS_BOUND'
+        Write-Host $reportLayerMarker
+        $defectFindingsArray = @($defectFindings)
+        $limitationFindingsArray = @($limitationFindings)
+        $report.findings = @($defectFindingsArray + $limitationFindingsArray)
         $operatorMemoryCore = [ordered]@{
             who_am_i = 'system operator building site auditor agent'
             what_system_is_being_built = 'site audit agent → decision → action → monetization system'
@@ -1987,25 +1994,43 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
                 ''
             }
             $operatorMemoryCore.current_focus = 'report layer'
-            $operatorMemoryCore.what_is_stable = @($whatIsStable)
-            $operatorMemoryCore.what_is_unstable = @($whatIsUnstable)
-            $operatorMemoryCore.agent_learned = @($agentLearned)
-            $operatorMemoryCore.agent_cannot_yet = @($agentCannotYet)
-            $operatorMemoryCore.agent_misleading_risk = @($agentMisleadingRisk)
+            $operatorMemoryCore.what_is_stable = @($whatIsStable.ToArray())
+            $operatorMemoryCore.what_is_unstable = @($whatIsUnstable.ToArray())
+            $operatorMemoryCore.agent_learned = @($agentLearned.ToArray())
+            $operatorMemoryCore.agent_cannot_yet = @($agentCannotYet.ToArray())
+            $operatorMemoryCore.agent_misleading_risk = @($agentMisleadingRisk.ToArray())
             $operatorMemoryCore.next_capability_to_build = if (@($report.findings).Count -eq 0 -and [int]$report.run_budget.overflow_routes -gt 0) { 'controlled route-sample expansion (optional)' } else { 'none required for findings-to-action layer in current scope' }
 
             $report.operator_feed = [ordered]@{
                 system_state = "$stableLayer, $systemChange"
                 primary_constraint = $primaryConstraint
                 truth_confidence = $truthConfidence
-                what_is_reliable = @($whatIsReliable)
-                what_is_not_reliable = @($whatIsNotReliable)
+                what_is_reliable = @($whatIsReliable.ToArray())
+                what_is_not_reliable = @($whatIsNotReliable.ToArray())
                 next_system_move = $nextSystemMove
                 why_this_move = $whyThisMove
-                do_not_do_yet = @($doNotDoYet)
+                do_not_do_yet = @($doNotDoYet.ToArray())
             }
         }
+        $reportLayerMarker = 'REPORT_LAYER: OPERATOR_FEED_READY'
+        Write-Host $reportLayerMarker
         $report.operator_memory_core = $operatorMemoryCore
+        $nextOperatorMustDoBeforeNextTask = @(
+            'read RUN_REPORT.json before drafting any next task'
+            'verify priority_summary and decision_summary alignment before proposing execution'
+        )
+        $nextOperatorWhatToInspectNext = @(
+            'priority_summary.top_issues with corresponding route verdict evidence'
+            'decision_summary.recommended_action scope against ownership mode'
+            'limitations and overflow_routes before expanding scope'
+        )
+        $nextOperatorDoNotDoYet = @(
+            'do not infer UX/conversion outcomes',
+            'do not grade CTA quality',
+            'do not claim monetization readiness beyond observable LINK evidence'
+        )
+        $reportLayerMarker = 'REPORT_LAYER: MEMORY_BRIDGE_READY'
+        Write-Host $reportLayerMarker
         $report.operator_memory_bridge = [ordered]@{
             identity_anchor = [ordered]@{
                 who_am_i = [string]$operatorMemoryCore.who_am_i
@@ -2034,16 +2059,12 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
             }
             next_operator_posture = [ordered]@{
                 next_system_move = [string]$report.operator_feed.next_system_move
-                must_do_before_next_task = @($report.operator_memory_bridge.next_operator_posture.must_do_before_next_task)
-                what_to_inspect_next = @($report.operator_memory_bridge.next_operator_posture.what_to_inspect_next)
-                do_not_do_yet = @(
-                    'do not infer UX/conversion outcomes',
-                    'do not grade CTA quality',
-                    'do not claim monetization readiness beyond observable LINK evidence'
-                )
+                must_do_before_next_task = @($nextOperatorMustDoBeforeNextTask)
+                what_to_inspect_next = @($nextOperatorWhatToInspectNext)
+                do_not_do_yet = @($nextOperatorDoNotDoYet)
             }
         }
-        $report.page_verdicts = @($pageVerdicts)
+        $report.page_verdicts = @($pageVerdicts.ToArray())
         $report.priority_summary = [ordered]@{
             p0_count = $p0Count
             p1_count = $p1Count
@@ -2051,6 +2072,8 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
             limitation_count = [int]$limitationFindings.Count
             top_issues = @($topIssues)
         }
+        $reportLayerMarker = 'REPORT_LAYER: PRIORITY_SUMMARY_READY'
+        Write-Host $reportLayerMarker
         $report.report_mode = if ($defectFindings.Count -gt 0) { 'PROBLEM' } else { 'CLEAN' }
 
         $sortedFindings = @(
@@ -2087,7 +2110,7 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
                     share_of_checked_pages = $clusterShare
                 })
         }
-        $report.micro_clusters = @($microClusters)
+        $report.micro_clusters = @($microClusters.ToArray())
 
         $report.system_problem = New-SystemProblemFromFindings `
             -Report $report `
@@ -2104,6 +2127,8 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
             -SystemProblem $report.system_problem `
             -OwnershipMode ([string]$ownershipMode) `
             -AuditConfidence ([string]$report.audit_confidence)
+        $reportLayerMarker = 'REPORT_LAYER: DECISION_SUMMARY_READY'
+        Write-Host $reportLayerMarker
         $nextStrongestMove = [string]$report.decision_summary.recommended_action
         $overallVerdict = if ($decisionIssueType -eq 'DEFECT' -and ($report.status -eq 'PARTIAL' -or $report.status -eq 'FAIL')) {
             'DEFECT: confirmed finding(s) with limited evidence confidence'
@@ -2158,6 +2183,8 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
         Write-JsonFile -Path $actionSummaryPath -Data $finalActionSummary
         Copy-Item -LiteralPath $actionSummaryPath -Destination $deterministicActionSummaryPath -Force
 
+        $reportLayerMarker = 'REPORT_LAYER: HUMAN_PAYLOAD_START'
+        Write-Host $reportLayerMarker
         $reportPayloads = New-HumanReportPayloads `
             -Report $report `
             -DecisionIssueType $decisionIssueType `
@@ -2173,7 +2200,11 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
         [System.IO.File]::WriteAllText($humanReportEnPath, $enHtml, (New-SafeUtf8NoBom))
         Copy-Item -LiteralPath $humanReportRuPath -Destination $deterministicHumanReportRuPath -Force
         Copy-Item -LiteralPath $humanReportEnPath -Destination $deterministicHumanReportEnPath -Force
+        $reportLayerMarker = 'REPORT_LAYER: HUMAN_PAYLOAD_READY'
+        Write-Host $reportLayerMarker
 
+        $reportLayerMarker = 'REPORT_LAYER: CONSISTENCY_CHECK_START'
+        Write-Host $reportLayerMarker
         if ([string]$report.next_strongest_move -ne [string]$report.decision_summary.recommended_action) { throw 'CONSISTENCY_LOCK_FAILED: next_strongest_move mismatch.' }
         Test-ReportConsistencyLock `
             -Report $report `
@@ -2262,6 +2293,8 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
             $errorCode = 'ROUTE_CONTRACT_BREACH'
             $errorMessage = 'Primary route fields must use canonical path-only route identities.'
         }
+        $reportLayerMarker = 'REPORT_LAYER: EXIT_READY'
+        Write-Host $reportLayerMarker
         $report.produced_artifacts = @($producedArtifacts)
     }
     catch {
@@ -2273,6 +2306,9 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
             $errorMessage = [string]$localizedError.detail
         }
         $failurePhaseValue = if ([string]::IsNullOrWhiteSpace([string]$failurePhase)) { 'UNKNOWN' } else { [string]$failurePhase }
+        if ($failurePhaseValue -eq 'REPORT_LAYER' -and -not [string]::IsNullOrWhiteSpace([string]$reportLayerMarker)) {
+            Write-Host "REPORT_LAYER: LAST_MARKER=$reportLayerMarker"
+        }
         $operatorFailureNote = switch ($failurePhaseValue) {
             'ENTRY' { 'entry validation failure' }
             'LINK_FETCH' { 'link fetch failure' }
