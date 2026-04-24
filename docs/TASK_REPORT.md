@@ -1,8 +1,9 @@
 ## Summary
-Introduced a single PS5.1-safe findings normalization contract in `SITE_AUDITOR_V2` report flow so every finding has `recommended_action`, `evidence`, and `evidence.evidence_refs` before downstream report-layer usage.
+Added a PS5.1-safe report finding contract gate to normalize REPORT_LAYER findings to required shape and emit a diagnostic artifact (`REPORT_CONTRACT_DIAG.json`) before downstream report consumption.
 
 ## Changed files
 - agents/site_auditor_v2/agent.ps1
+- agents/site_auditor_v2/modules/report_contract.ps1
 - docs/TASK_REPORT.md
 
 ## Moved files/folders
@@ -10,9 +11,11 @@ Introduced a single PS5.1-safe findings normalization contract in `SITE_AUDITOR_
 
 ## Current entrypoints/paths
 - Primary entrypoint: `agents/site_auditor_v2/agent.ps1`
-- Normalization point: report layer, immediately after `$report.findings` binding and before operator-feed/report-layer consumption.
+- Contract module: `agents/site_auditor_v2/modules/report_contract.ps1` (`Normalize-FindingContract`)
+- Normalization point: report layer, single call immediately after `$report.findings` binding and before operator-feed/report-layer consumption.
+- Diagnostic artifact: `agents/site_auditor_v2/output/<run_key>/REPORT_CONTRACT_DIAG.json`
 - Task report: `docs/TASK_REPORT.md`
 
 ## Risks/blockers
-- No full PowerShell runtime execution was performed in this environment, so end-to-end verification of all report outputs was not run here.
-- This task intentionally adds normalization only and does not remove existing scattered guards (deferred per task instruction).
+- No full end-to-end PowerShell runtime execution was performed in this environment, so live verification of generated `RUN_REPORT.json` and `REPORT_CONTRACT_DIAG.json` outputs was not run here.
+- Gate normalizes required contract fields only (minimal scope) and does not refactor RECON/ROUTE/OUTPUT stages.
