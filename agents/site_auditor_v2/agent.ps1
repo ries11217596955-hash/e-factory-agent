@@ -271,6 +271,97 @@ function Get-SurfaceTypeByPageType {
     }
 }
 
+function Convert-RunReportValue {
+    param(
+        [Parameter(Mandatory = $false)]
+        $Value,
+        [Parameter(Mandatory = $true)]
+        [System.Collections.Generic.HashSet[int]]$VisitedReferences
+    )
+
+    if ($null -eq $Value) { return $null }
+    if ($Value -is [string] -or $Value -is [char] -or $Value -is [bool]) { return $Value }
+    if ($Value -is [datetime] -or $Value -is [guid]) { return $Value }
+    if ($Value -is [byte] -or $Value -is [sbyte] -or $Value -is [int16] -or $Value -is [uint16] -or $Value -is [int32] -or $Value -is [uint32] -or $Value -is [int64] -or $Value -is [uint64]) { return [int]$Value }
+    if ($Value.GetType().IsEnum) { return [string]$Value }
+
+    $isReferenceType = -not $Value.GetType().IsValueType
+    if ($isReferenceType) {
+        $referenceId = [System.Runtime.CompilerServices.RuntimeHelpers]::GetHashCode($Value)
+        if (-not $VisitedReferences.Add($referenceId)) {
+            throw 'RUN_REPORT_SERIALIZATION_CIRCULAR_REFERENCE'
+        }
+    }
+
+    try {
+        if ($Value -is [System.Collections.IDictionary]) {
+            $normalizedMap = [ordered]@{}
+            foreach ($entry in $Value.GetEnumerator()) {
+                $entryKey = [string]$entry.Key
+                $normalizedMap[$entryKey] = Convert-RunReportValue -Value $entry.Value -VisitedReferences $VisitedReferences
+            }
+            return $normalizedMap
+        }
+
+        if ($Value -is [System.Array]) {
+            return @($Value | ForEach-Object { Convert-RunReportValue -Value $_ -VisitedReferences $VisitedReferences })
+        }
+
+        if ($Value -is [System.Collections.IList]) {
+            return @($Value | ForEach-Object { Convert-RunReportValue -Value $_ -VisitedReferences $VisitedReferences })
+        }
+
+        if ($Value -is [System.Collections.IEnumerable] -and -not ($Value -is [string])) {
+            return @($Value | ForEach-Object { Convert-RunReportValue -Value $_ -VisitedReferences $VisitedReferences })
+        }
+
+        if ($Value -is [pscustomobject]) {
+            $normalizedObject = [ordered]@{}
+            foreach ($property in $Value.PSObject.Properties) {
+                $normalizedObject[[string]$property.Name] = Convert-RunReportValue -Value $property.Value -VisitedReferences $VisitedReferences
+            }
+            return $normalizedObject
+        }
+    }
+    finally {
+        if ($isReferenceType) {
+            $null = $VisitedReferences.Remove($referenceId)
+        }
+    }
+
+    return $Value
+}
+
+function Write-RunReportBounded {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Report,
+        [Parameter(Mandatory = $true)]
+        [string]$RunReportPath,
+        [Parameter(Mandatory = $true)]
+        [string]$DeterministicRunReportPath
+    )
+
+    Write-Host 'OUTPUT: BUILD_START'
+    $visitedReferences = New-Object 'System.Collections.Generic.HashSet[int]'
+    $reportBound = Convert-RunReportValue -Value $Report -VisitedReferences $visitedReferences
+
+    Write-Host 'OUTPUT: RUN_REPORT_BOUND'
+    if ($null -ne $reportBound.operator_memory_bridge) {
+        $reportBound.operator_memory_bridge = Convert-RunReportValue -Value $reportBound.operator_memory_bridge -VisitedReferences (New-Object 'System.Collections.Generic.HashSet[int]')
+    }
+    Write-Host 'OUTPUT: MEMORY_BRIDGE_BOUND'
+
+    Write-Host 'OUTPUT: SERIALIZATION_START'
+    $null = $reportBound | ConvertTo-Json -Depth 100
+    Write-Host 'OUTPUT: SERIALIZATION_READY'
+
+    Write-Host 'OUTPUT: WRITE_START'
+    Write-JsonFile -Path $RunReportPath -Data $reportBound
+    Copy-Item -LiteralPath $RunReportPath -Destination $DeterministicRunReportPath -Force
+    Write-Host 'OUTPUT: WRITE_DONE'
+}
+
 function Get-DeterministicRunKey {
     param(
         [Parameter(Mandatory = $true)]
@@ -2533,8 +2624,7 @@ if ($shouldFail) {
         [ordered]@{ name = 'run_report'; path = $runReportPath },
         [ordered]@{ name = 'failure_summary'; path = $failurePath }
     )
-    Write-JsonFile -Path $runReportPath -Data $report
-    Copy-Item -LiteralPath $runReportPath -Destination $deterministicRunReportPath -Force
+    Write-RunReportBounded -Report $report -RunReportPath $runReportPath -DeterministicRunReportPath $deterministicRunReportPath
     exit 1
 }
 
@@ -2542,7 +2632,6 @@ $report.self_build_protocol.build_ladder = Get-BuildLadderContract -HasTruthfulF
 $report.self_build_protocol.feature_progress_allowed = [bool]$report.self_build_protocol.build_ladder.feature_progress_allowed
 $report.last_completed_stage = 'REPORT_LAYER'
 $report.current_failure_stage = ''
-Write-JsonFile -Path $runReportPath -Data $report
-Copy-Item -LiteralPath $runReportPath -Destination $deterministicRunReportPath -Force
+Write-RunReportBounded -Report $report -RunReportPath $runReportPath -DeterministicRunReportPath $deterministicRunReportPath
 
 exit 0
