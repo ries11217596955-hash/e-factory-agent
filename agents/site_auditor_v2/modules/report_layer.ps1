@@ -1,6 +1,6 @@
 function New-SystemProblemFromFindings {
     param(
-        [Parameter(Mandatory = $true)][hashtable]$Report,
+        [Parameter(Mandatory = $true)][object]$Report,
         [Parameter(Mandatory = $true)][string]$AuditConfidence,
         [Parameter(Mandatory = $true)][object]$SortedFindings,
         [Parameter(Mandatory = $true)][object]$ContextValidHighFindings,
@@ -177,7 +177,7 @@ function New-SystemProblemFromFindings {
 
 function New-DecisionSummaryFromSystemProblem {
     param(
-        [Parameter(Mandatory = $true)][hashtable]$SystemProblem,
+        [Parameter(Mandatory = $true)][object]$SystemProblem,
         [Parameter(Mandatory = $true)][string]$OwnershipMode,
         [Parameter(Mandatory = $true)][string]$AuditConfidence
     )
@@ -200,7 +200,7 @@ function New-DecisionSummaryFromSystemProblem {
 
 function New-ActionSummaryFromDecision {
     param(
-        [Parameter(Mandatory = $true)][hashtable]$DecisionSummary,
+        [Parameter(Mandatory = $true)][object]$DecisionSummary,
         [Parameter(Mandatory = $true)][string]$DecisionIssueType,
         [Parameter(Mandatory = $true)][object]$SortedFindings,
         [Parameter(Mandatory = $true)][object]$SortedLimitationFindings,
@@ -210,7 +210,7 @@ function New-ActionSummaryFromDecision {
     )
 
     $actions = New-Object System.Collections.Generic.List[object]
-    $actions.Add([ordered]@{
+    $null = $actions.Add([ordered]@{
             action = [string]$DecisionSummary.recommended_action
             why = [string]$DecisionSummary.reasoning
             priority = [string]$DecisionSummary.priority
@@ -219,31 +219,43 @@ function New-ActionSummaryFromDecision {
     if ($actions.Count -lt 3 -and $DecisionIssueType -eq 'DEFECT' -and @($SortedFindings).Count -gt 1) {
         foreach ($finding in @($SortedFindings | Select-Object -Skip 1)) {
             if ($actions.Count -ge 3) { break }
-            $actions.Add([ordered]@{ action = [string]$finding.recommended_action; why = [string]$finding.why_it_matters; priority = [string]$finding.priority })
+            $null = $actions.Add([ordered]@{
+                    action = [string]$finding.recommended_action
+                    why = [string]$finding.why_it_matters
+                    priority = [string]$finding.priority
+                })
         }
     }
     elseif ($actions.Count -lt 3 -and $DecisionIssueType -eq 'LIMITATION' -and @($SortedLimitationFindings).Count -gt 1) {
         foreach ($limitation in @($SortedLimitationFindings | Select-Object -Skip 1)) {
             if ($actions.Count -ge 3) { break }
-            $actions.Add([ordered]@{ action = [string]$limitation.recommended_action; why = [string]$limitation.why_it_matters; priority = [string]$limitation.priority })
+            $null = $actions.Add([ordered]@{
+                    action = [string]$limitation.recommended_action
+                    why = [string]$limitation.why_it_matters
+                    priority = [string]$limitation.priority
+                })
         }
     }
     elseif ($actions.Count -lt 3 -and $DecisionIssueType -eq 'CLEAN' -and [string]$AuditConfidence -ne 'HIGH') {
-        $actions.Add([ordered]@{ action = 'Expand route sample and rerun LINK mode for broader coverage.'; why = 'Current checked scope may not represent full site behavior.'; priority = 'P2' })
+        $null = $actions.Add([ordered]@{
+                action = 'Expand route sample and rerun LINK mode for broader coverage.'
+                why = 'Current checked scope may not represent full site behavior.'
+                priority = 'P2'
+            })
     }
 
     return [ordered]@{
         status = if ($DefectCount -gt 0) { 'FINDINGS_PRESENT' } elseif ($LimitationCount -gt 0) { 'LIMITATION_ONLY' } else { 'CLEAN' }
         finding_count = [int]$DefectCount
         limitation_count = [int]$LimitationCount
-        actions = @($actions)
+        actions = @($actions.ToArray())
         reason = if ($DefectCount -gt 0) { 'deterministic_findings_generated_from_link_truth_artifacts' } elseif ($LimitationCount -gt 0) { 'audit_limited_by_route_sampling_budget' } else { 'no_material_findings_in_sampled_scope' }
     }
 }
 
 function New-HumanReportPayloads {
     param(
-        [Parameter(Mandatory = $true)][hashtable]$Report,
+        [Parameter(Mandatory = $true)][object]$Report,
         [Parameter(Mandatory = $true)][string]$DecisionIssueType,
         [Parameter(Mandatory = $true)][string]$OverallVerdict,
         [Parameter(Mandatory = $true)][int]$RoutesChecked,
@@ -334,10 +346,10 @@ function New-HumanReportPayloads {
 
 function Test-ReportConsistencyLock {
     param(
-        [Parameter(Mandatory = $true)][hashtable]$Report,
+        [Parameter(Mandatory = $true)][object]$Report,
         [Parameter(Mandatory = $true)][hashtable]$FinalActionSummary,
-        [Parameter(Mandatory = $true)][hashtable]$ReportPayloadRu,
-        [Parameter(Mandatory = $true)][hashtable]$ReportPayloadEn,
+        [Parameter(Mandatory = $true)][object]$ReportPayloadRu,
+        [Parameter(Mandatory = $true)][object]$ReportPayloadEn,
         [Parameter(Mandatory = $true)][string]$DecisionIssueType,
         [Parameter(Mandatory = $true)][int]$DefectCount,
         [Parameter(Mandatory = $true)][int]$LimitationCount

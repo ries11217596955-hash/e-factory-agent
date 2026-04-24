@@ -1,9 +1,10 @@
 ## Summary
-Repaired SITE_AUDITOR_V2 report contract integration after artifact-first analysis of runpack/logs. The previous contract gate wrote `REPORT_CONTRACT_DIAG.json` only under the run output folder while `produced_artifacts` declared the deterministic root file, causing artifact staging failure. It also normalized `$report.findings` but downstream REPORT_LAYER logic continued using stale pre-normalized finding arrays, allowing missing-property failures such as `recommended_action` to persist.
+Manual repair pack for SITE_AUDITOR_V2 after runpack 51. Root causes addressed: REPORT_LAYER still used pre-normalization finding collections after the finding contract gate, and ACTION_SUMMARY generation used unsafe report-layer shapes/writer path that could fail before `REPORT_LAYER: HUMAN_PAYLOAD_START` with `Argument types do not match`.
 
 ## Changed files
 - agents/site_auditor_v2/agent.ps1
 - agents/site_auditor_v2/modules/report_contract.ps1
+- agents/site_auditor_v2/modules/report_layer.ps1
 - docs/TASK_REPORT.md
 
 ## Moved files/folders
@@ -12,18 +13,19 @@ Repaired SITE_AUDITOR_V2 report contract integration after artifact-first analys
 ## Current entrypoints/paths
 - Primary entrypoint: `agents/site_auditor_v2/agent.ps1`
 - Contract module: `agents/site_auditor_v2/modules/report_contract.ps1`
-- Diagnostic artifact: `agents/site_auditor_v2/REPORT_CONTRACT_DIAG.json`
+- Report layer module: `agents/site_auditor_v2/modules/report_layer.ps1`
+- Diagnostic artifact: `REPORT_CONTRACT_DIAG.json`
 
-## Root cause fixed
-1. `REPORT_CONTRACT_DIAG.json` was added to `produced_artifacts` before a deterministic root copy existed.
-2. REPORT_LAYER continued to use stale `$allFindings`, `$defectFindings`, and `$limitationFindings` arrays created before normalization.
+## Root causes fixed
+1. After `Normalize-FindingContract`, `agent.ps1` reassigned `$report.findings` but kept `$allFindings`, `$defectFindings`, and `$limitationFindings` pointing to the old pre-contract shapes. The report layer then continued using stale/non-normalized collections.
+2. `REPORT_CONTRACT_DIAG.json` showed `evidence.evidence_refs` could still serialize as null; the contract module now returns a new normalized finding object with explicit `evidence.evidence_refs` array.
+3. `New-ActionSummaryFromDecision` and the ACTION_SUMMARY write corridor were still sensitive to PowerShell collection/object shape. The action summary is now materialized through the same bounded value converter before write, and new markers were added around that corridor.
 
-## Patch behavior
-- `REPORT_CONTRACT_DIAG.json` is no longer declared at startup.
-- After `Normalize-FindingContract`, the diagnostic file is copied from the run output folder to deterministic root.
-- `REPORT_CONTRACT_DIAG.json` is added to `produced_artifacts` only after the root file exists.
-- `$allFindings`, `$defectFindings`, and `$limitationFindings` are rebound from normalized `$report.findings` before downstream REPORT_LAYER logic.
-
-## Risks/blockers
-- End-to-end GitHub Actions runtime was not executed in this environment.
-- Patch is deliberately scoped to report contract integration and artifact staging; RECON, ROUTE, CAPTURE, OUTPUT serialization, workflow, and report semantics were not changed.
+## Runtime verification
+- Not executed in this environment.
+- Operator validation should confirm:
+  - `REPORT_LAYER: ACTION_SUMMARY_READY`
+  - `REPORT_LAYER: ACTION_SUMMARY_WRITTEN`
+  - `REPORT_LAYER: HUMAN_PAYLOAD_START`
+  - `OUTPUT: WRITE_DONE`
+  - `RUN_REPORT.status` is not `FAIL` unless a later real blocker appears.
