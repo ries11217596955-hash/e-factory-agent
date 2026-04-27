@@ -1064,7 +1064,7 @@ if ($shouldFail) {
         failure_class = [string]$failureClass
         notes = @($errorMessage)
     }
-    $report.produced_artifacts = @($producedArtifacts)
+    $report.produced_artifacts = Convert-ContractArray -Value $producedArtifacts.ToArray()
     $report.linked_artifacts = @(
         [ordered]@{ name = 'run_report'; path = $runReportPath },
         [ordered]@{ name = 'failure_summary'; path = $failurePath }
@@ -1957,10 +1957,10 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
         Write-Host $reportLayerMarker
         $defectFindingsArray = @($defectFindings)
         $limitationFindingsArray = @($limitationFindings)
-        $report.findings = @($defectFindingsArray + $limitationFindingsArray)
-        $findingContractResult = Normalize-FindingContract -Findings @($report.findings) -DiagnosticPath $reportContractDiagPath
-        $allFindings = @($findingContractResult.findings)
-        $report.findings = @($allFindings)
+        $report.findings = Convert-ContractArray -Value ($defectFindingsArray + $limitationFindingsArray)
+        $findingContractResult = Normalize-FindingContract -Findings (Convert-ContractArray -Value $report.findings) -DiagnosticPath $reportContractDiagPath
+        $allFindings = Convert-ContractArray -Value $findingContractResult.findings
+        $report.findings = Convert-ContractArray -Value $findingContractResult.findings
         $defectFindings = @($allFindings | Where-Object { [string]$_.category -eq 'DEFECT' })
         $limitationFindings = @($allFindings | Where-Object { [string]$_.category -eq 'LIMITATION' })
         $report.findings_count = [int]$defectFindings.Count
@@ -2439,7 +2439,7 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
         }
         $reportLayerMarker = 'REPORT_LAYER: EXIT_READY'
         Write-Host $reportLayerMarker
-        $report.produced_artifacts = @($producedArtifacts)
+        $report.produced_artifacts = Convert-ContractArray -Value $producedArtifacts.ToArray()
     }
     catch {
         $shouldFail = $true
@@ -2500,7 +2500,7 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
             current_failure_stage = [string]$failurePhaseValue
             notes = @("phase=$failurePhaseValue", "last_completed_stage=$lastCompletedStage", $operatorFailureNote, $errorMessage)
         }
-        $report.produced_artifacts = @($producedArtifacts)
+        $report.produced_artifacts = Convert-ContractArray -Value $producedArtifacts.ToArray()
         $report.linked_artifacts = @(
             [ordered]@{ name = 'run_report'; path = $runReportPath },
             [ordered]@{ name = 'failure_summary'; path = $failurePath }
@@ -2581,7 +2581,7 @@ if ((-not $shouldFail) -and (Test-Path -LiteralPath $humanReportEnPath) -and (-n
     $null = $producedArtifacts.Add('HUMAN_REPORT_EN.html')
 }
 
-$report.produced_artifacts = @($producedArtifacts)
+$report.produced_artifacts = Convert-ContractArray -Value $producedArtifacts.ToArray()
 
 if ($shouldFail) {
     $failurePhaseValue = if ([string]::IsNullOrWhiteSpace([string]$failurePhase)) { 'UNKNOWN' } else { [string]$failurePhase }
@@ -2671,8 +2671,8 @@ if ($shouldFail) {
 
     $report.self_build_protocol.build_ladder = Get-BuildLadderContract -HasTruthfulFailure $true -HasSelfDiagnostic $true -HasOperatorHandoff $true
     $report.self_build_protocol.feature_progress_allowed = [bool]$report.self_build_protocol.build_ladder.feature_progress_allowed
-    $producedArtifactsArray = @($producedArtifacts.ToArray())
-    $report.produced_artifacts = @($producedArtifactsArray + @('failure_summary.json', 'AGENT_FAILURE_REPORT.txt', 'AGENT_OPERATOR_HANDOFF.json'))
+    $producedArtifactsArray = Convert-ContractArray -Value $producedArtifacts.ToArray()
+    $report.produced_artifacts = Convert-ContractArray -Value ($producedArtifactsArray + @('failure_summary.json', 'AGENT_FAILURE_REPORT.txt', 'AGENT_OPERATOR_HANDOFF.json'))
     $report.linked_artifacts = @(
         [ordered]@{ name = 'run_report'; path = $runReportPath },
         [ordered]@{ name = 'failure_summary'; path = $failurePath }
