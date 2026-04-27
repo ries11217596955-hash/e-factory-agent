@@ -1332,7 +1332,7 @@ else {
 
         $actionReportLines = New-Object System.Collections.Generic.List[string]
         $actionReportLines.Add("Site: $BaseUrl")
-        $actionReportLines.Add("Total pages checked: $($auditSummary.total)")
+        $actionReportLines.Add("Total pages checked: $(($auditSummary.PSObject.Properties["total"].Value))")
         $actionReportLines.Add("Shell: $($auditSummary.shell)")
         $actionReportLines.Add("Thin: $($auditSummary.thin)")
         $actionReportLines.Add("Broken: $($auditSummary.broken)")
