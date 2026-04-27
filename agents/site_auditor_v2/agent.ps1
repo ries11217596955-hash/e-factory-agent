@@ -364,6 +364,29 @@ function Write-RunReportBounded {
         return @($Value)
     }
 
+    function Get-SafeCount {
+        param($Value)
+
+        if ($null -eq $Value) {
+            return 0
+        }
+
+        if ($Value -is [string]) {
+            if ($Value.Length -eq 0) { return 0 }
+            return 1
+        }
+
+        if ($Value -is [System.Array]) {
+            return $Value.Count
+        }
+
+        if ($Value -is [System.Collections.ICollection]) {
+            return $Value.Count
+        }
+
+        return 1
+    }
+
     Write-Host 'OUTPUT: BUILD_START'
     $visitedReferences = New-Object 'System.Collections.Generic.HashSet[int]'
     $reportBound = Convert-RunReportValue -Value $Report -VisitedReferences $visitedReferences
@@ -375,7 +398,7 @@ function Write-RunReportBounded {
     $reportBound.page_verdicts = Convert-ToMaterializedArray -Value $reportBound.page_verdicts
     $reportBound.findings = Convert-ToMaterializedArray -Value $reportBound.findings
 
-    $findingCount = [int]$reportBound.findings.Count
+    $findingCount = [int](Get-SafeCount -Value $reportBound.findings)
     for ($findingIndex = 0; $findingIndex -lt $findingCount; $findingIndex++) {
         $finding = $reportBound.findings[$findingIndex]
 
