@@ -792,6 +792,49 @@ $deterministicOperatorHandoffPath = Join-Path $PSScriptRoot 'AGENT_OPERATOR_HAND
 $deterministicVisualManifestPath = Join-Path $PSScriptRoot 'visual_manifest.json'
 $deterministicScreenshotsPath = Join-Path $PSScriptRoot 'screenshots'
 
+function Add-ProducedArtifactIfExists {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Collections.Generic.List[string]]$ProducedArtifacts,
+        [Parameter(Mandatory = $true)]
+        [string]$OutputDir,
+        [Parameter(Mandatory = $true)]
+        [string]$RelativeName
+    )
+
+    $artifactPath = Join-Path $OutputDir $RelativeName
+    if (Test-Path -LiteralPath $artifactPath) {
+        if (-not ($ProducedArtifacts -contains $RelativeName)) {
+            $null = $ProducedArtifacts.Add($RelativeName)
+        }
+    }
+}
+
+function Get-ProducedArtifactsFromFilesystem {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$OutputDir
+    )
+
+    if (-not (Test-Path -LiteralPath $OutputDir)) {
+        return @()
+    }
+
+    $files = Get-ChildItem -LiteralPath $OutputDir -File -Recurse
+    if (-not $files) {
+        return @()
+    }
+
+    return @(
+        $files |
+        ForEach-Object {
+            [string]$relativePath = $_.FullName.Substring($OutputDir.Length).TrimStart('\', '/')
+            $relativePath.Replace('\', '/')
+        } |
+        Sort-Object -Unique
+    )
+}
+
 $capabilityStatus = [ordered]@{
     link = 'ACTIVE'
     capture = 'ACTIVE'
@@ -808,8 +851,8 @@ $learningBacklog = @(
 )
 
 $producedArtifacts = New-Object System.Collections.Generic.List[string]
-$null = $producedArtifacts.Add('RUN_REPORT.json')
-$null = $producedArtifacts.Add('ACTION_REPORT.txt')
+Add-ProducedArtifactIfExists -ProducedArtifacts $producedArtifacts -OutputDir $outputRoot -RelativeName 'RUN_REPORT.json'
+Add-ProducedArtifactIfExists -ProducedArtifacts $producedArtifacts -OutputDir $outputRoot -RelativeName 'ACTION_REPORT.txt'
 
 $notDoneYet = @(
     'Capture mode supports baseline screenshot evidence only (no interactions).',
@@ -1064,7 +1107,7 @@ if ($shouldFail) {
         failure_class = [string]$failureClass
         notes = @($errorMessage)
     }
-    $report.produced_artifacts = Convert-ContractArray -Value $producedArtifacts.ToArray()
+    $report.produced_artifacts = Convert-ContractArray -Value (Get-ProducedArtifactsFromFilesystem -OutputDir $outputRoot)
     $report.linked_artifacts = @(
         [ordered]@{ name = 'run_report'; path = $runReportPath },
         [ordered]@{ name = 'failure_summary'; path = $failurePath }
@@ -1079,7 +1122,7 @@ else {
         $lastCompletedStage = 'LINK_FETCH'
         Write-JsonFile -Path $linkSummaryPath -Data $linkSummary
         Copy-Item -LiteralPath $linkSummaryPath -Destination $deterministicLinkSummaryPath -Force
-        $null = $producedArtifacts.Add('LINK_SUMMARY.json')
+        Add-ProducedArtifactIfExists -ProducedArtifacts $producedArtifacts -OutputDir $outputRoot -RelativeName 'LINK_SUMMARY.json'
 
         $failurePhase = 'ROUTE_EXTRACTION'
         $currentFailureStage = $failurePhase
@@ -1112,7 +1155,7 @@ else {
         }
         Write-JsonFile -Path $routesSummaryPath -Data $routesSummary
         Copy-Item -LiteralPath $routesSummaryPath -Destination $deterministicRoutesSummaryPath -Force
-        $null = $producedArtifacts.Add('ROUTES_SUMMARY.json')
+        Add-ProducedArtifactIfExists -ProducedArtifacts $producedArtifacts -OutputDir $outputRoot -RelativeName 'ROUTES_SUMMARY.json'
         Write-Host 'POST_ROUTE:ROUTES_SUMMARY_WRITTEN'
 
         $brokenTargets = @(
@@ -1177,7 +1220,7 @@ else {
         }
         Write-JsonFile -Path $actionSummaryPath -Data $actionSummary
         Copy-Item -LiteralPath $actionSummaryPath -Destination $deterministicActionSummaryPath -Force
-        $null = $producedArtifacts.Add('ACTION_SUMMARY.json')
+        Add-ProducedArtifactIfExists -ProducedArtifacts $producedArtifacts -OutputDir $outputRoot -RelativeName 'ACTION_SUMMARY.json'
 
         $okCount = @($routesSummary.routes | Where-Object { $_.classification -eq 'ok' }).Count
         $shellCount = @($routesSummary.routes | Where-Object { $_.classification -eq 'shell' }).Count
@@ -1193,7 +1236,7 @@ else {
         }
         Write-JsonFile -Path $auditSummaryPath -Data $auditSummary
         Copy-Item -LiteralPath $auditSummaryPath -Destination $deterministicAuditSummaryPath -Force
-        $null = $producedArtifacts.Add('AUDIT_SUMMARY.json')
+        Add-ProducedArtifactIfExists -ProducedArtifacts $producedArtifacts -OutputDir $outputRoot -RelativeName 'AUDIT_SUMMARY.json'
         Write-Host 'POST_ROUTE:AUDIT_SUMMARY_WRITTEN'
 
         $actionReportLines = New-Object System.Collections.Generic.List[string]
@@ -1213,7 +1256,7 @@ else {
         $actionReportContent = [string]::Join([Environment]::NewLine, @($actionReportLines.ToArray()))
         [System.IO.File]::WriteAllText($actionReportPath, $actionReportContent)
         Copy-Item -LiteralPath $actionReportPath -Destination $deterministicActionReportPath -Force
-        $null = $producedArtifacts.Add('ACTION_REPORT.txt')
+        Add-ProducedArtifactIfExists -ProducedArtifacts $producedArtifacts -OutputDir $outputRoot -RelativeName 'ACTION_REPORT.txt'
         Write-Host 'POST_ROUTE:ACTION_REPORT_WRITTEN'
 
         $failurePhase = 'ROUTE_SELECTION'
@@ -1310,10 +1353,10 @@ else {
         if (Test-Path -LiteralPath $screenshotsPath) {
             Get-ChildItem -LiteralPath $screenshotsPath -File -Filter '*.png' | ForEach-Object {
                 Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $deterministicScreenshotsPath $_.Name) -Force
-                $null = $producedArtifacts.Add("screenshots/$($_.Name)")
+                Add-ProducedArtifactIfExists -ProducedArtifacts $producedArtifacts -OutputDir $outputRoot -RelativeName ("screenshots/$($_.Name)")
             }
         }
-        $null = $producedArtifacts.Add('visual_manifest.json')
+        Add-ProducedArtifactIfExists -ProducedArtifacts $producedArtifacts -OutputDir $outputRoot -RelativeName 'visual_manifest.json'
 
         $visualManifest = Get-Content -LiteralPath $visualManifestPath -Raw | ConvertFrom-Json
         foreach ($manifestPage in @($visualManifest.pages)) {
@@ -2358,8 +2401,8 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
             -DecisionIssueType $decisionIssueType `
             -DefectCount $defectFindings.Count `
             -LimitationCount $limitationFindings.Count
-        $null = $producedArtifacts.Add('HUMAN_REPORT_RU.html')
-        $null = $producedArtifacts.Add('HUMAN_REPORT_EN.html')
+        Add-ProducedArtifactIfExists -ProducedArtifacts $producedArtifacts -OutputDir $outputRoot -RelativeName 'HUMAN_REPORT_RU.html'
+        Add-ProducedArtifactIfExists -ProducedArtifacts $producedArtifacts -OutputDir $outputRoot -RelativeName 'HUMAN_REPORT_EN.html'
 
         $report.next_step = [string]$nextStrongestMove
         $isLimitationOnly = ($defectFindings.Count -eq 0 -and $limitationFindings.Count -gt 0)
@@ -2439,7 +2482,7 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
         }
         $reportLayerMarker = 'REPORT_LAYER: EXIT_READY'
         Write-Host $reportLayerMarker
-        $report.produced_artifacts = Convert-ContractArray -Value $producedArtifacts.ToArray()
+        $report.produced_artifacts = Convert-ContractArray -Value (Get-ProducedArtifactsFromFilesystem -OutputDir $outputRoot)
     }
     catch {
         $shouldFail = $true
@@ -2500,7 +2543,7 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
             current_failure_stage = [string]$failurePhaseValue
             notes = @("phase=$failurePhaseValue", "last_completed_stage=$lastCompletedStage", $operatorFailureNote, $errorMessage)
         }
-        $report.produced_artifacts = Convert-ContractArray -Value $producedArtifacts.ToArray()
+        $report.produced_artifacts = Convert-ContractArray -Value (Get-ProducedArtifactsFromFilesystem -OutputDir $outputRoot)
         $report.linked_artifacts = @(
             [ordered]@{ name = 'run_report'; path = $runReportPath },
             [ordered]@{ name = 'failure_summary'; path = $failurePath }
@@ -2575,13 +2618,13 @@ if ((-not $shouldFail) -and ((-not (Test-Path -LiteralPath $humanReportRuPath)) 
     Copy-Item -LiteralPath $humanReportEnPath -Destination $deterministicHumanReportEnPath -Force
 }
 if ((-not $shouldFail) -and (Test-Path -LiteralPath $humanReportRuPath) -and (-not ($producedArtifacts -contains 'HUMAN_REPORT_RU.html'))) {
-    $null = $producedArtifacts.Add('HUMAN_REPORT_RU.html')
+    Add-ProducedArtifactIfExists -ProducedArtifacts $producedArtifacts -OutputDir $outputRoot -RelativeName 'HUMAN_REPORT_RU.html'
 }
 if ((-not $shouldFail) -and (Test-Path -LiteralPath $humanReportEnPath) -and (-not ($producedArtifacts -contains 'HUMAN_REPORT_EN.html'))) {
-    $null = $producedArtifacts.Add('HUMAN_REPORT_EN.html')
+    Add-ProducedArtifactIfExists -ProducedArtifacts $producedArtifacts -OutputDir $outputRoot -RelativeName 'HUMAN_REPORT_EN.html'
 }
 
-$report.produced_artifacts = Convert-ContractArray -Value $producedArtifacts.ToArray()
+$report.produced_artifacts = Convert-ContractArray -Value (Get-ProducedArtifactsFromFilesystem -OutputDir $outputRoot)
 
 if ($shouldFail) {
     $failurePhaseValue = if ([string]::IsNullOrWhiteSpace([string]$failurePhase)) { 'UNKNOWN' } else { [string]$failurePhase }
@@ -2671,8 +2714,7 @@ if ($shouldFail) {
 
     $report.self_build_protocol.build_ladder = Get-BuildLadderContract -HasTruthfulFailure $true -HasSelfDiagnostic $true -HasOperatorHandoff $true
     $report.self_build_protocol.feature_progress_allowed = [bool]$report.self_build_protocol.build_ladder.feature_progress_allowed
-    $producedArtifactsArray = Convert-ContractArray -Value $producedArtifacts.ToArray()
-    $report.produced_artifacts = Convert-ContractArray -Value ($producedArtifactsArray + @('failure_summary.json', 'AGENT_FAILURE_REPORT.txt', 'AGENT_OPERATOR_HANDOFF.json'))
+    $report.produced_artifacts = Convert-ContractArray -Value (Get-ProducedArtifactsFromFilesystem -OutputDir $outputRoot)
     $report.linked_artifacts = @(
         [ordered]@{ name = 'run_report'; path = $runReportPath },
         [ordered]@{ name = 'failure_summary'; path = $failurePath }
