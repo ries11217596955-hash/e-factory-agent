@@ -11,6 +11,28 @@ param(
 )
 
 Set-StrictMode -Version Latest
+
+function Get-SafePropValue {
+    param(
+        [Parameter(Mandatory=$false)] $Object,
+        [Parameter(Mandatory=$true)] [string] $Name,
+        [Parameter(Mandatory=$false)] $Default = $null
+    )
+
+    if ($null -eq $Object) { return $Default }
+
+    if ($Object -is [System.Collections.IDictionary]) {
+        if ($Object.Contains($Name)) { return $Object[$Name] }
+        if ($Object.ContainsKey($Name)) { return $Object[$Name] }
+        return $Default
+    }
+
+    $prop = $Object.PSObject.Properties[$Name]
+    if ($null -eq $prop) { return $Default }
+
+    return $prop.Value
+}
+
 $ErrorActionPreference = 'Stop'
 
 if ($PSVersionTable.PSVersion.Major -lt 6) {
@@ -1341,7 +1363,7 @@ if ((Test-Path (Join-Path $PSScriptRoot "ROUTES_SUMMARY.json")) -and (Test-Path 
 
         $actionReportLines = New-Object System.Collections.Generic.List[string]
         $actionReportLines.Add("Site: $BaseUrl")
-        $actionReportLines.Add("Total pages checked: $(($auditSummary.PSObject.Properties["total"].Value))")
+        $actionReportLines.Add("Total pages checked: $((Get-SafePropValue -Object $auditSummary -Name 'total' -Default 0))")
         $actionReportLines.Add("Shell: $($auditSummary.shell)")
         $actionReportLines.Add("Thin: $($auditSummary.thin)")
         $actionReportLines.Add("Broken: $($auditSummary.broken)")
