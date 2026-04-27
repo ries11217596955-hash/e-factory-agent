@@ -1425,6 +1425,7 @@ $errorMessage = ''
 $failurePhase = 'ENTRY'
 $lastCompletedStage = 'ENTRY'
 $currentFailureStage = 'ENTRY'
+$failureDiagnostics = Get-ScriptFailureDiagnostics -ErrorRecord $null -LastReportLayerMarker ''
 $reconciliationCompleted = $false
 $counterMismatchDetected = $false
 Write-BootstrapStageTrace -Stage 'ENTRY'
@@ -3010,6 +3011,7 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
     }
     catch {
         $shouldFail = $true
+        $failureDiagnostics = Get-ScriptFailureDiagnostics -ErrorRecord $_ -LastReportLayerMarker ([string]$reportLayerMarker)
         $errorMessage = $_.Exception.Message
         $localizedError = Get-LocalizedErrorFromExceptionMessage -Message ([string]$errorMessage)
         if (-not [string]::IsNullOrWhiteSpace([string]$localizedError.code)) {
@@ -3184,6 +3186,14 @@ if ($shouldFail) {
         fail_phase = $failurePhaseValue
         operator_note = $operatorFailureNote
         error_message = $errorMessage
+        exception_type = [string]$failureDiagnostics.exception_type
+        message = if ([string]::IsNullOrWhiteSpace([string]$failureDiagnostics.message)) { [string]$errorMessage } else { [string]$failureDiagnostics.message }
+        script_stack_trace = [string]$failureDiagnostics.script_stack_trace
+        invocation_name = [string]$failureDiagnostics.invocation_name
+        script_name = [string]$failureDiagnostics.script_name
+        script_line_number = [string]$failureDiagnostics.script_line_number
+        position_message = [string]$failureDiagnostics.position_message
+        last_report_layer_marker = [string]$failureDiagnostics.last_report_layer_marker
         fail_class = [string]$failureClass
         last_completed_stage = [string]$lastCompletedStage
         current_failure_stage = [string]$failurePhaseValue

@@ -200,3 +200,57 @@ function Write-BootstrapStageTrace {
 
     Write-Host "STAGE: $Stage"
 }
+
+function Get-ScriptFailureDiagnostics {
+    param(
+        [Parameter(Mandatory = $false)]
+        $ErrorRecord,
+        [Parameter(Mandatory = $false)]
+        [AllowEmptyString()]
+        [string]$LastReportLayerMarker = ''
+    )
+
+    $invocation = $null
+    if ($null -ne $ErrorRecord) {
+        $invocation = $ErrorRecord.InvocationInfo
+    }
+
+    $exceptionType = ''
+    $message = ''
+    $scriptStackTrace = ''
+    if ($null -ne $ErrorRecord -and $null -ne $ErrorRecord.Exception) {
+        $exceptionType = [string]$ErrorRecord.Exception.GetType().FullName
+        $message = [string]$ErrorRecord.Exception.Message
+        $scriptStackTrace = [string]$ErrorRecord.ScriptStackTrace
+        if ([string]::IsNullOrWhiteSpace($scriptStackTrace)) {
+            $scriptStackTrace = [string]$ErrorRecord.Exception.StackTrace
+        }
+    }
+
+    $invocationName = ''
+    $scriptName = ''
+    $scriptLineNumber = ''
+    $positionMessage = ''
+    if ($null -ne $invocation) {
+        $invocationName = [string]$invocation.InvocationName
+        if ([string]::IsNullOrWhiteSpace($invocationName) -and $null -ne $invocation.MyCommand) {
+            $invocationName = [string]$invocation.MyCommand.Name
+        }
+        $scriptName = [string]$invocation.ScriptName
+        if ($invocation.ScriptLineNumber -gt 0) {
+            $scriptLineNumber = [string]$invocation.ScriptLineNumber
+        }
+        $positionMessage = [string]$invocation.PositionMessage
+    }
+
+    return [ordered]@{
+        exception_type = [string]$exceptionType
+        message = [string]$message
+        script_stack_trace = [string]$scriptStackTrace
+        invocation_name = [string]$invocationName
+        script_name = [string]$scriptName
+        script_line_number = [string]$scriptLineNumber
+        position_message = [string]$positionMessage
+        last_report_layer_marker = [string]$LastReportLayerMarker
+    }
+}
