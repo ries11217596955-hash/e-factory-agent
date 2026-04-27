@@ -891,6 +891,10 @@ function Get-ProducedArtifacts {
     )
 }
 
+$capability_capture = $true
+$limitation_capture_missing = $false
+$capabilityCapture = $capability_capture
+$limitationCaptureMissing = $limitation_capture_missing
 $capabilityStatus = [ordered]@{
     link = 'ACTIVE'
     capture = 'ACTIVE'
@@ -933,6 +937,9 @@ $report = [ordered]@{
     output_folder = $outputRoot
     timestamp_utc = $timestamp
     capability_status = $capabilityStatus
+    capabilities = [ordered]@{
+        capture = $true
+    }
     learning_backlog = $learningBacklog
     execution_report = [ordered]@{
         final_outcome = 'PASS'
@@ -1004,6 +1011,12 @@ $report = [ordered]@{
     }
     findings_count = 0
     limitation_count = 0
+    limitations = @()
+    report_layer = [ordered]@{
+        limitation = [ordered]@{
+            capture_not_available = $false
+        }
+    }
     audit_confidence = 'LOW'
     decision_summary = [ordered]@{
         primary_issue = 'NONE'
@@ -1393,17 +1406,39 @@ else {
         $failurePhase = 'CAPTURE'
         $currentFailureStage = $failurePhase
         $captureToolPath = Join-Path $PSScriptRoot 'tools/capture_visuals.mjs'
-        $captureExitCode = Invoke-VisualCapture -Pages $captureTargetUrls -ToolPath $captureToolPath -InputPath $visualInputPath -ManifestPath $visualManifestPath -ScreenshotsPath $screenshotsPath
-        Copy-Item -LiteralPath $visualManifestPath -Destination $deterministicVisualManifestPath -Force
-        Ensure-Directory -Path $deterministicScreenshotsPath
-        Get-ChildItem -LiteralPath $deterministicScreenshotsPath -File -Filter '*.png' | Remove-Item -Force
-        if (Test-Path -LiteralPath $screenshotsPath) {
-            Get-ChildItem -LiteralPath $screenshotsPath -File -Filter '*.png' | ForEach-Object {
-                Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $deterministicScreenshotsPath $_.Name) -Force
+        $captureExitCode = -1
+        $visualManifest = $null
+        try {
+            $captureExitCode = Invoke-VisualCapture -Pages $captureTargetUrls -ToolPath $captureToolPath -InputPath $visualInputPath -ManifestPath $visualManifestPath -ScreenshotsPath $screenshotsPath
+            if ($captureExitCode -ne 0) {
+                throw "capture_exit_code=$captureExitCode"
             }
+            if (-not (Test-Path -LiteralPath $visualManifestPath -PathType Leaf)) {
+                throw 'visual_manifest_missing'
+            }
+            $visualManifest = Get-Content -LiteralPath $visualManifestPath -Raw | ConvertFrom-Json
+        }
+        catch {
+            $capability_capture = $false
+            $limitation_capture_missing = $true
+            $capabilityCapture = $capability_capture
+            $limitationCaptureMissing = $limitation_capture_missing
+            $capabilityStatus.capture = 'INACTIVE'
+            $report.capability_status.capture = 'INACTIVE'
+            $report.capabilities.capture = $false
+            Write-Host 'CAPTURE: SKIPPED (Playwright missing or failed)'
+            $visualManifest = [ordered]@{
+                status = 'SKIPPED'
+                requested_pages = [int]$selectedRoutesCount
+                processed_pages = 0
+                failed_pages = [int]$selectedRoutesCount
+                pages = @()
+                limitation_capture_missing = $true
+                capture_not_available = $true
+            }
+            Write-JsonFile -Path $visualManifestPath -Data $visualManifest
         }
 
-        $visualManifest = Get-Content -LiteralPath $visualManifestPath -Raw | ConvertFrom-Json
         foreach ($manifestPage in @($visualManifest.pages)) {
             $manifestRouteInput = if ($manifestPage.PSObject.Properties['url']) {
                 [string]$manifestPage.url
@@ -1430,10 +1465,20 @@ else {
         }
         Write-JsonFile -Path $visualManifestPath -Data $visualManifest
         Copy-Item -LiteralPath $visualManifestPath -Destination $deterministicVisualManifestPath -Force
+        Ensure-Directory -Path $deterministicScreenshotsPath
+        if (Test-Path -LiteralPath $deterministicScreenshotsPath -PathType Container) {
+            Get-ChildItem -LiteralPath $deterministicScreenshotsPath -File -Filter '*.png' | Remove-Item -Force
+        }
+        if ($capabilityCapture -and (Test-Path -LiteralPath $screenshotsPath -PathType Container)) {
+            Get-ChildItem -LiteralPath $screenshotsPath -File -Filter '*.png' | ForEach-Object {
+                Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $deterministicScreenshotsPath $_.Name) -Force
+            }
+        }
+
         $captureStatus = [string]$visualManifest.status
-        $manifestRequestedPages = [int]$visualManifest.requested_pages
-        $manifestProcessedPages = [int]$visualManifest.processed_pages
-        $manifestFailedPages = [int]$visualManifest.failed_pages
+        $manifestRequestedPages = if ($null -ne $visualManifest.PSObject.Properties['requested_pages']) { [int]$visualManifest.requested_pages } else { [int]$selectedRoutesCount }
+        $manifestProcessedPages = if ($null -ne $visualManifest.PSObject.Properties['processed_pages']) { [int]$visualManifest.processed_pages } else { 0 }
+        $manifestFailedPages = if ($null -ne $visualManifest.PSObject.Properties['failed_pages']) { [int]$visualManifest.failed_pages } else { [int]$selectedRoutesCount }
         $captureSummary = [ordered]@{
             status = $captureStatus
             requested_pages = $manifestRequestedPages
@@ -1448,18 +1493,30 @@ else {
 
         $failurePhase = 'RECONCILIATION'
         $currentFailureStage = $failurePhase
-        Write-Host 'RECON: PREP_START'
-        $reconciliationPrep = Invoke-CaptureReconciliationPrepStage -SelectedRoutes @($selectedRoutes) -ManifestPages @($manifestPages) -BaseUrl $BaseUrl -SelectedRoutesCount $selectedRoutesCount -ManifestRequestedPages $manifestRequestedPages -ManifestProcessedPages $manifestProcessedPages -ManifestFailedPages $manifestFailedPages
-        Write-Host 'RECON: PREP_RETURNED'
-        $counterMismatchDetected = [bool]$reconciliationPrep.counter_mismatch_detected
-        $capturesAttempted = [int]$reconciliationPrep.captures_attempted
-        $capturesSuccess = [int]$reconciliationPrep.captures_success
-        $capturesFailed = [int]$reconciliationPrep.captures_failed
-        $pagesAttempted = [int]$reconciliationPrep.pages_attempted
-        $pagesProcessed = [int]$reconciliationPrep.pages_processed
-        $pagesFailed = [int]$reconciliationPrep.pages_failed
-        $pagesSuccess = [int]$reconciliationPrep.pages_success
-        Write-Host 'RECON: PREP_OK'
+        if ($capabilityCapture) {
+            Write-Host 'RECON: PREP_START'
+            $reconciliationPrep = Invoke-CaptureReconciliationPrepStage -SelectedRoutes @($selectedRoutes) -ManifestPages @($manifestPages) -BaseUrl $BaseUrl -SelectedRoutesCount $selectedRoutesCount -ManifestRequestedPages $manifestRequestedPages -ManifestProcessedPages $manifestProcessedPages -ManifestFailedPages $manifestFailedPages
+            Write-Host 'RECON: PREP_RETURNED'
+            $counterMismatchDetected = [bool]$reconciliationPrep.counter_mismatch_detected
+            $capturesAttempted = [int]$reconciliationPrep.captures_attempted
+            $capturesSuccess = [int]$reconciliationPrep.captures_success
+            $capturesFailed = [int]$reconciliationPrep.captures_failed
+            $pagesAttempted = [int]$reconciliationPrep.pages_attempted
+            $pagesProcessed = [int]$reconciliationPrep.pages_processed
+            $pagesFailed = [int]$reconciliationPrep.pages_failed
+            $pagesSuccess = [int]$reconciliationPrep.pages_success
+            Write-Host 'RECON: PREP_OK'
+        }
+        else {
+            $counterMismatchDetected = $false
+            $capturesAttempted = 0
+            $capturesSuccess = 0
+            $capturesFailed = 0
+            $pagesAttempted = [int]$selectedRoutesCount
+            $pagesProcessed = 0
+            $pagesFailed = [int]$selectedRoutesCount
+            $pagesSuccess = 0
+        }
 
         if ($counterMismatchDetected) {
             $report.capture_summary.counter_mismatch = $true
@@ -1479,8 +1536,10 @@ else {
             }
         }
 
+        $captureReportStatus = if ($capabilityCapture) { [string]$reconciliationPrep.capture_report_status } else { 'PARTIAL' }
+        $captureFailTypes = if ($capabilityCapture) { @($reconciliationPrep.fail_types) } else { @('capture_not_available') }
         $report.capture_report = [ordered]@{
-            status = [string]$reconciliationPrep.capture_report_status
+            status = $captureReportStatus
             pages_attempted = $pagesAttempted
             pages_processed = $pagesProcessed
             pages_success = $pagesSuccess
@@ -1488,44 +1547,66 @@ else {
             captures_attempted = $capturesAttempted
             captures_success = $capturesSuccess
             captures_failed = $capturesFailed
-            fail_types = @($reconciliationPrep.fail_types)
+            fail_types = $captureFailTypes
             counter_mismatch = [bool]$counterMismatchDetected
         }
 
         try {
-            $reconciliation = Invoke-EvidenceReconciliation -ManifestPath $visualManifestPath -ScreenshotsPath $screenshotsPath -RunReportPagesAttempted $pagesAttempted -RunReportCapturesAttempted $capturesAttempted -RunReportCapturesSuccess $capturesSuccess -RunReportCapturesFailed $capturesFailed
-            $report.evidence_reconciliation = [ordered]@{
-                status = $reconciliation.status
-                files_checked = $reconciliation.files_checked
-                files_valid = $reconciliation.files_valid
-                files_invalid = $reconciliation.files_invalid
-                issues = @($reconciliation.issues)
-            }
-            Write-Host 'RECON: EVIDENCE_OK'
-            $report.reconciliation_enforced = $true
+            if ($capabilityCapture) {
+                $reconciliation = Invoke-EvidenceReconciliation -ManifestPath $visualManifestPath -ScreenshotsPath $screenshotsPath -RunReportPagesAttempted $pagesAttempted -RunReportCapturesAttempted $capturesAttempted -RunReportCapturesSuccess $capturesSuccess -RunReportCapturesFailed $capturesFailed
+                $report.evidence_reconciliation = [ordered]@{
+                    status = $reconciliation.status
+                    files_checked = $reconciliation.files_checked
+                    files_valid = $reconciliation.files_valid
+                    files_invalid = $reconciliation.files_invalid
+                    issues = @($reconciliation.issues)
+                }
+                Write-Host 'RECON: EVIDENCE_OK'
+                $report.reconciliation_enforced = $true
 
-            if (@('PASS', 'PARTIAL', 'FAIL') -notcontains [string]$reconciliation.status) {
-                throw "Reconciliation returned unsupported status '$([string]$reconciliation.status)'."
-            }
+                if (@('PASS', 'PARTIAL', 'FAIL') -notcontains [string]$reconciliation.status) {
+                    throw "Reconciliation returned unsupported status '$([string]$reconciliation.status)'."
+                }
 
-            $reconciliationCompleted = $true
-            $lastCompletedStage = 'RECONCILIATION'
-            $report.capture_report.status = [string]$reconciliation.status
+                $reconciliationCompleted = $true
+                $lastCompletedStage = 'RECONCILIATION'
+                $report.capture_report.status = [string]$reconciliation.status
 
-            $visualEvidence = switch ([string]$reconciliation.status) {
-                'PASS' { 'trusted' }
-                'PARTIAL' { 'partial' }
-                default { 'invalid' }
-            }
-            $report.trust_boundary = [ordered]@{
-                visual_evidence = $visualEvidence
-                decision_allowed = $false
-                reason = 'reconciliation_result'
-            }
+                $visualEvidence = switch ([string]$reconciliation.status) {
+                    'PASS' { 'trusted' }
+                    'PARTIAL' { 'partial' }
+                    default { 'invalid' }
+                }
+                $report.trust_boundary = [ordered]@{
+                    visual_evidence = $visualEvidence
+                    decision_allowed = $false
+                    reason = 'reconciliation_result'
+                }
 
-            if ($reconciliation.status -eq 'PARTIAL') {
-                $report.trust_boundary.visual_truth = 'partial'
-                $report.trust_boundary.impact = 'downstream analysis limited'
+                if ($reconciliation.status -eq 'PARTIAL') {
+                    $report.trust_boundary.visual_truth = 'partial'
+                    $report.trust_boundary.impact = 'downstream analysis limited'
+                }
+            }
+            else {
+                $report.evidence_reconciliation = [ordered]@{
+                    status = 'PARTIAL'
+                    files_checked = 0
+                    files_valid = 0
+                    files_invalid = 0
+                    issues = @('capture_not_available')
+                }
+                $report.reconciliation_enforced = $false
+                $report.capture_report.status = 'PARTIAL'
+                $report.trust_boundary = [ordered]@{
+                    visual_evidence = 'missing'
+                    decision_allowed = $false
+                    reason = 'capture_not_available'
+                    visual_truth = 'missing'
+                    impact = 'downstream analysis limited'
+                }
+                $reconciliationCompleted = $true
+                $lastCompletedStage = 'RECONCILIATION'
             }
         }
         catch {
@@ -1616,6 +1697,9 @@ else {
         elseif ($report.capture_report.status -eq 'PARTIAL') {
             $limitNotes.Add('capture_status=PARTIAL')
             $limitNotes.Add('incomplete visual coverage: some screenshot captures failed validation')
+        }
+        if ($limitationCaptureMissing) {
+            $limitNotes.Add('no_visual_evidence')
         }
 
         $reconciliationStatus = [string]$report.evidence_reconciliation.status
@@ -2014,9 +2098,37 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
                     recommended_action = 'Expand route sample and rerun LINK mode for broader coverage.'
                 })
         }
+        if ($limitationCaptureMissing) {
+            $limitationFindings.Add([ordered]@{
+                    finding_id = 'limitation_capture_not_available'
+                    route = '_audit_scope'
+                    signal_type = 'NO_VISUAL_EVIDENCE'
+                    type = 'NO_VISUAL_EVIDENCE'
+                    issue_type = 'NO_VISUAL_EVIDENCE'
+                    category = 'LIMITATION'
+                    priority = 'NONE'
+                    severity = 'NONE'
+                    confidence = 'LOW'
+                    surface_type = 'UNKNOWN'
+                    evidence_text = 'Capture capability was unavailable in this run; screenshot evidence is missing.'
+                    evidence_type = 'status'
+                    evidence_ref = 'RUN_REPORT.json:limitations'
+                    evidence_screenshot = ''
+                    evidence_refs = @('RUN_REPORT.json')
+                    why_it_matters = 'Without visual evidence, confidence in visual/page-structure conclusions is reduced.'
+                    recommended_action = 'Install Playwright and rerun capture to restore visual evidence.'
+                })
+        }
         $limitationFindings = @($limitationFindings.ToArray())
         $report.findings_count = [int]$defectFindings.Count
         $report.limitation_count = [int]$limitationFindings.Count
+        if ($limitationCaptureMissing) {
+            $report.limitations = @('no_visual_evidence')
+        }
+        else {
+            $report.limitations = @()
+        }
+        $report.report_layer.limitation.capture_not_available = [bool]$limitationCaptureMissing
         $routesChecked = [int]@($report.selected_routes).Count
         $maxRoutesBudget = [int]$report.run_budget.max_routes
         $coverageRatio = if ($maxRoutesBudget -gt 0) { [double]$routesChecked / [double]$maxRoutesBudget } else { 0.0 }

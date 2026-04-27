@@ -1,10 +1,5 @@
 ## Summary
-Fixed the `Write-RunReportBounded` count-shape bug in `site_auditor_v2` by adding a PS5.1-safe `Get-SafeCount` helper and replacing direct `.Count` access on the report findings collection. This prevents crashes when `findings` is null, scalar, string, singleton object, or non-array collection.
-
-Exact fixed expression:
-- ` $findingCount = [int]$reportBound.findings.Count`
-- replaced with
-- ` $findingCount = [int](Get-SafeCount -Value $reportBound.findings)`
+Updated `site_auditor_v2` to treat visual capture as an optional capability. Capture failures (including missing Playwright/module errors) now degrade execution instead of failing the run, while explicitly marking reduced confidence and no visual evidence.
 
 ## Changed files
 - agents/site_auditor_v2/agent.ps1
@@ -15,9 +10,9 @@ Exact fixed expression:
 
 ## Current entrypoints/paths
 - Entrypoint/orchestrator: `agents/site_auditor_v2/agent.ps1`
-- Target function: `Write-RunReportBounded`
-- Output artifact path (unchanged): `<run output root>/RUN_REPORT.json`
+- Optional capture tool invocation path (unchanged): `agents/site_auditor_v2/tools/capture_visuals.mjs`
+- Run output artifacts (unchanged paths): `<run output root>/RUN_REPORT.json`, `<run output root>/visual_manifest.json`, `<run output root>/screenshots/`
 
 ## Risks/blockers
-- No end-to-end Codespaces rerun was executed in this environment; validation here is static and syntax-level.
-- Change is intentionally minimal and bounded to count-shape handling in `Write-RunReportBounded`; no Playwright, RECON, routing, or workflow paths were modified.
+- Full end-to-end run in a Codespaces environment without Playwright was not executed here; behavior was validated through static code-path review and PowerShell parse checks.
+- Degradation path intentionally marks capture unavailable as a limitation and keeps non-capture audit stages active, but exact final status labels still depend on existing downstream status synthesis logic.
