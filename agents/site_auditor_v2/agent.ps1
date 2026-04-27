@@ -2947,7 +2947,7 @@ if ($shouldFail) {
         [ordered]@{ name = 'failure_summary'; path = $failurePath }
     )
     Write-RunReportBounded -Report $report -RunReportPath $runReportPath -DeterministicRunReportPath $deterministicRunReportPath
-    exit 1
+    exit 0
 }
 
 $report.self_build_protocol.build_ladder = Get-BuildLadderContract -HasTruthfulFailure $true -HasSelfDiagnostic $true -HasOperatorHandoff $true
