@@ -1,5 +1,7 @@
 ## Summary
-Fixed `Resolve-MinimalDecision` validation in `lib/decision.ps1` to be shape-safe across PSCustomObject, hashtable/ordered dictionary, and JSON-derived objects. This resolves false `AUDIT_SUMMARY_INVALID: missing total property` failures when `total` is present but the runtime object is dictionary-shaped.
+- Updated `Resolve-MinimalDecision` to accept `LINK_SUMMARY` when either `status` or `status_code` is present.
+- Added fallback derivation of link status from `status_code` when `status` is missing: `200-399 => OK`, otherwise `FAIL`.
+- Preserved failure behavior when both `status` and `status_code` are missing.
 
 ## Changed files
 - agents/site_auditor_v2/lib/decision.ps1
@@ -10,24 +12,8 @@ Fixed `Resolve-MinimalDecision` validation in `lib/decision.ps1` to be shape-saf
 
 ## Current entrypoints/paths
 - Entrypoint/orchestrator (unchanged): `agents/site_auditor_v2/agent.ps1`
-- Decision/report validation logic: `agents/site_auditor_v2/lib/decision.ps1` (`Resolve-MinimalDecision`)
-
-## Root cause
-- `Resolve-MinimalDecision` used direct property checks like `$Object.PSObject.Properties['key']`, which can fail for dictionary-shaped runtime objects (hashtable/ordered) even when the key exists.
-- Result: valid JSON artifacts were flagged as invalid object shapes in-memory during REPORT_LAYER validation.
-
-## Validation notes
-- Added local helper functions:
-  - `Test-ObjectHasKey` for key/property existence checks across dictionaries and PSObjects.
-  - `Get-ObjectValueOrDefault` for safe value retrieval across shapes.
-- Replaced shape-specific checks and reads for:
-  - Required validations (`routes`, `total`, `status`).
-  - Optional reads (`broken`, `first_screen_has_action`, limitations fields).
-- Behavior preserved for negative cases:
-  - Missing `total` still throws `AUDIT_SUMMARY_INVALID: missing total property.`
-  - Missing `routes` still throws `ROUTES_SUMMARY_INVALID: missing routes property.`
-  - Missing `status` still throws `LINK_SUMMARY_INVALID: missing status property.`
+- Decision/report validation logic (updated): `agents/site_auditor_v2/lib/decision.ps1`
 
 ## Risks/blockers
-- Could not execute the full SITE_AUDITOR_V2 workflow in this environment; validation was performed with focused local function invocations only.
-- Change is intentionally minimal and scoped to decision validation in `lib/decision.ps1` (no module boundary or orchestrator expansion).
+- Full end-to-end SITE_AUDITOR_V2 workflow was not executed in this environment.
+- Runtime verification is limited because PowerShell (`pwsh`) is unavailable in this container; changes were validated by code inspection and diff review.
