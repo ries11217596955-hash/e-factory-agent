@@ -1,10 +1,9 @@
 ## Summary
-- Added a runtime-safe helper `Get-ScriptFailureDiagnostics` to extract structured script failure diagnostics from a PowerShell error record.
-- Wired stage exception catch handling to capture script-level diagnostics at failure time, including the most recent report-layer marker.
-- Extended `failure_summary.json` payload construction to include exact technical location fields required for debugging stage failures.
+- Patched `Test-RouteContract` to avoid inline conditional assignment inside the returned ordered object and compute `status` via a local string variable.
+- Added local defensive type handling in `Test-RouteContract` by materializing violations as an explicit object array before assembling the return payload.
+- Kept scope minimal to the requested function path and preserved existing route-contract semantics (`ok` when no violations, `failed` otherwise).
 
 ## Changed files
-- agents/site_auditor_v2/modules/runtime_safe.ps1
 - agents/site_auditor_v2/agent.ps1
 - docs/TASK_REPORT.md
 
@@ -12,10 +11,9 @@
 - None.
 
 ## Current entrypoints/paths
-- Entrypoint/orchestrator (behavior unchanged except minimal failure wiring): `agents/site_auditor_v2/agent.ps1`
-- Runtime-safe diagnostics helper (new): `agents/site_auditor_v2/modules/runtime_safe.ps1`
-- Failure artifact emitted on fail path: `agents/site_auditor_v2/output/<mode>_<hash>/failure_summary.json`
+- Primary orchestrator entrypoint: `agents/site_auditor_v2/agent.ps1`
+- Report-layer route contract check callsite: `agents/site_auditor_v2/agent.ps1` (`REPORT_LAYER` section)
+- Task report: `docs/TASK_REPORT.md`
 
 ## Risks/blockers
-- Could not run an end-to-end PowerShell execution in this container if `pwsh` is unavailable; runtime behavior validation may require execution in the target PowerShell environment.
-- Existing fallback `lastResortFailure` object (failure_summary write-failure path) intentionally remains minimal and does not include full diagnostics fields.
+- Could not run end-to-end validation in this container because `pwsh` is not installed, so runtime verification must be completed in the target PowerShell environment.

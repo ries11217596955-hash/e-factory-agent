@@ -813,10 +813,20 @@ function Test-RouteContract {
         }
     }
 
+    $violationItems = @()
+    if ($null -ne $violations) {
+        $violationItems = @($violations.ToArray())
+    }
+
+    $routeContractStatus = 'ok'
+    if ($violationItems.Count -gt 0) {
+        $routeContractStatus = 'failed'
+    }
+
     return [ordered]@{
-        status = if ($violations.Count -eq 0) { 'ok' } else { 'failed' }
+        status = [string]$routeContractStatus
         primary_key_format = 'path_only'
-        violations = @($violations)
+        violations = @($violationItems)
     }
 }
 
