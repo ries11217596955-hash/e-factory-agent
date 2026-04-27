@@ -1,8 +1,7 @@
 ## Summary
-Applied a narrow PS5.1-safe array-shape fix for SITE_AUDITOR_V2 so single-item outputs do not collapse into scalars in the report contract boundary. The contract helper now uses unary-comma array wrapping, and final report assignments for `findings` and `produced_artifacts` are normalized through the same helper.
+Aligned `RUN_REPORT.produced_artifacts` with files that actually exist on disk for `site_auditor_v2` by replacing hardcoded artifact additions with existence-checked additions and by sourcing final `produced_artifacts` values from the output filesystem snapshot.
 
 ## Changed files
-- agents/site_auditor_v2/modules/report_contract.ps1
 - agents/site_auditor_v2/agent.ps1
 - docs/TASK_REPORT.md
 
@@ -11,9 +10,9 @@ Applied a narrow PS5.1-safe array-shape fix for SITE_AUDITOR_V2 so single-item o
 
 ## Current entrypoints/paths
 - Entrypoint unchanged: `agents/site_auditor_v2/agent.ps1`
-- Contract boundary updated: `agents/site_auditor_v2/modules/report_contract.ps1`
-- Reporting updated: `docs/TASK_REPORT.md`
+- Artifact contract field affected: `RUN_REPORT.json -> produced_artifacts`
+- Output root used for artifact discovery: `agents/site_auditor_v2/output/<run_id>/`
 
 ## Risks/blockers
-- Runtime execution was not performed in this environment, so end-to-end artifact upload verification is pending operator run.
-- Scope intentionally excludes route extraction, RECON, capture, workflow, and report semantics changes.
+- End-to-end workflow execution was not run in this environment, so CI/workflow bundle-step confirmation remains for operator verification.
+- `produced_artifacts` now reflects only files present under the output directory tree at serialization time; if future steps expect undeclared/virtual artifacts, they will need explicit file writes first.
