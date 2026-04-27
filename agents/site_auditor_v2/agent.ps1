@@ -446,6 +446,256 @@ function Write-RunReportBounded {
     Write-JsonFile -Path $RunReportPath -Data $reportBound
     Copy-Item -LiteralPath $RunReportPath -Destination $DeterministicRunReportPath -Force
     Write-Host 'OUTPUT: WRITE_DONE'
+
+# === POST OUTPUT: HUMAN REPORT + AGENT MAP + FAIL TRACE SEED ===
+try {
+    $runReportRoot = Join-Path $PSScriptRoot "RUN_REPORT.json"
+    if (Test-Path $runReportRoot) {
+        $run = Get-Content $runReportRoot -Raw | ConvertFrom-Json
+        $outFolder = [string]$run.output_folder
+
+        if ([string]::IsNullOrWhiteSpace($outFolder)) {
+            $outputRoot = Join-Path $PSScriptRoot "output"
+            $latestDir = Get-ChildItem $outputRoot -Directory -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if ($null -ne $latestDir) { $outFolder = $latestDir.FullName }
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($outFolder)) {
+            $status = [string]$run.status
+            $confidence = [string]$run.audit_confidence
+
+            @(
+                "SITE STATUS: $status",
+                "",
+                "CONFIDENCE: $confidence",
+                "",
+                "READ FIRST: RUN_REPORT.json",
+                "LIMIT: This report is generated from LINK-mode evidence only."
+            ) | Out-File (Join-Path $outFolder "REPORT_EN.txt") -Encoding UTF8
+
+            @(
+                "СТАТУС САЙТА: $status",
+                "",
+                "УВЕРЕННОСТЬ: $confidence",
+                "",
+                "СНАЧАЛА ЧИТАТЬ: RUN_REPORT.json",
+                "ОГРАНИЧЕНИЕ: отчёт построен только по LINK-mode доказательствам."
+            ) | Out-File (Join-Path $outFolder "REPORT_RU.txt") -Encoding UTF8
+
+            @(
+                "# SITE_AUDITOR_V2 — AGENT MAP",
+                "",
+                "RUN_REPORT.json = read first.",
+                "agent.ps1 = orchestrator.",
+                "Only files inside output/<run-id>/ are guaranteed in artifact.",
+                "",
+                "Required artifact files:",
+                "- RUN_REPORT.json",
+                "- ROUTES_SUMMARY.json",
+                "- AUDIT_SUMMARY.json",
+                "- visual_manifest.json",
+                "- REPORT_EN.txt",
+                "- REPORT_RU.txt",
+                "",
+                "Repair rule: one bottleneck, one layer, no WEBOPS drift."
+            ) | Out-File (Join-Path $outFolder "AGENT_MAP.md") -Encoding UTF8
+
+            Write-Host ("POST_OUTPUT: HUMAN_REPORT_AND_AGENT_MAP_DONE " + $outFolder)
+        }
+        else {
+            Write-Host "POST_OUTPUT: OUTPUT_FOLDER_MISSING"
+        }
+    }
+}
+catch {
+    Write-Host ("POST_OUTPUT: FAILED " + $_.Exception.Message)
+}
+# === END POST OUTPUT ===
+
+# === STAGE: AGENT_MAP ===
+try {
+    Write-Host "STAGE: AGENT_MAP"
+
+    $outputRoot = Join-Path $PSScriptRoot "output"
+    $latestDir = $null
+    if (Test-Path $outputRoot) {
+        $latestDir = Get-ChildItem $outputRoot -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    }
+
+    if ($null -ne $latestDir) {
+        $mapPath = Join-Path $latestDir.FullName "AGENT_MAP.md"
+
+        $map = @()
+        $map += "# SITE_AUDITOR_V2 — AGENT MAP"
+        $map += ""
+        $map += "## ACTIVE PRODUCT"
+        $map += "Universal Audit Engine. Current LINK run is one execution mode, not the whole product."
+        $map += ""
+        $map += "## ORCHESTRATOR RULE"
+        $map += "agent.ps1 is orchestrator. New behavior must be module/contract, not giant runtime growth."
+        $map += ""
+        $map += "## STAGES"
+        $map += "ENTRY -> LINK_FETCH -> ROUTE_EXTRACTION -> ROUTE_SELECTION -> CAPTURE -> RECON -> REPORT_LAYER -> OUTPUT -> HUMAN_REPORT"
+        $map += ""
+        $map += "## OUTPUT CONTRACT"
+        $map += "- RUN_REPORT.json = read first"
+        $map += "- failure_summary.json = read only if FAIL"
+        $map += "- ROUTES_SUMMARY.json = route truth"
+        $map += "- AUDIT_SUMMARY.json = audit counts"
+        $map += "- visual_manifest.json = visual evidence"
+        $map += "- REPORT_EN.txt / REPORT_RU.txt = human reports"
+        $map += "- AGENT_MAP.md = map of modules, outputs, and artifact routing"
+        $map += ""
+        $map += "## ARTIFACT ROUTING"
+        $map += "Only files inside agents/site_auditor_v2/output/<run-id>/ are guaranteed to appear in uploaded artifact."
+        $map += ""
+        $map += "## REPAIR RULE"
+        $map += "Fix one layer only. Do not switch to WEBOPS. Do not patch multiple layers. Do not expand features before stabilizing the current defect."
+        $map += ""
+        
+        $map += ""
+        $map += "## RUNTIME SNAPSHOT"
+        $knownFiles = @(
+            "RUN_REPORT.json",
+            "ROUTES_SUMMARY.json",
+            "AUDIT_SUMMARY.json",
+            "ACTION_SUMMARY.json",
+            "visual_manifest.json",
+            "failure_summary.json",
+            "REPORT_EN.txt",
+            "REPORT_RU.txt"
+        )
+
+        foreach ($fileName in $knownFiles) {
+            $rootPath = Join-Path $PSScriptRoot $fileName
+            $outputPath = Join-Path $latestDir.FullName $fileName
+
+            $rootState = if (Test-Path $rootPath) { "root=yes" } else { "root=no" }
+            $outputState = if (Test-Path $outputPath) { "output=yes" } else { "output=no" }
+
+            $map += ("- " + $fileName + ": " + $rootState + "; " + $outputState)
+        }
+
+$map += "## CURRENT BASELINE"
+        $map += "GREEN LINK CI baseline exists. Preserve it."
+
+        $map | Out-File $mapPath -Encoding UTF8
+        Write-Host ("AGENT_MAP: DONE " + $mapPath)
+    }
+    else {
+        Write-Host "AGENT_MAP: OUTPUT_DIR_NOT_FOUND"
+    }
+}
+catch {
+    Write-Host ("AGENT_MAP: FAILED " + $_.Exception.Message)
+}
+# === END AGENT_MAP ===
+
+# === STAGE: HUMAN_REPORT ===
+Write-Host "STAGE: HUMAN_REPORT"
+try {
+    $runReportPath = Join-Path $PSScriptRoot "RUN_REPORT.json"
+
+# === COPY HUMAN REPORTS TO OUTPUT DIR ===
+try {
+    $runReportPath = Join-Path $PSScriptRoot "RUN_REPORT.json"
+    if (Test-Path $runReportPath) {
+        $outputDir = Split-Path $runReportPath -Parent
+
+        Copy-Item (Join-Path (Get-Location) "REPORT_EN.txt") -Destination (Join-Path $outputDir "REPORT_EN.txt") -Force -ErrorAction SilentlyContinue
+        Copy-Item (Join-Path (Get-Location) "REPORT_RU.txt") -Destination (Join-Path $outputDir "REPORT_RU.txt") -Force -ErrorAction SilentlyContinue
+
+        Write-Host "HUMAN_REPORT: COPIED_TO_OUTPUT"
+    }
+}
+catch {
+    Write-Host ("HUMAN_REPORT: COPY_FAILED " + $_.Exception.Message)
+}
+# === END COPY ===
+    if (Test-Path $runReportPath) {
+        $run = Get-Content $runReportPath -Raw | ConvertFrom-Json
+
+        $status = [string]$run.status
+        $confidence = if ($run.audit_confidence) { [string]$run.audit_confidence } else { "UNKNOWN" }
+
+        $reportEn = @()
+        $reportEn += "SITE STATUS: $status"
+        $reportEn += ""
+        $reportEn += "WHAT WE KNOW:"
+        $reportEn += "- Audit completed through LINK mode"
+        $reportEn += "- Visual capture may be limited"
+        $reportEn += ""
+        $reportEn += "CONFIDENCE: $confidence"
+
+        $reportRu = @()
+        $reportRu += "СТАТУС САЙТА: $status"
+        $reportRu += ""
+        $reportRu += "ЧТО ИЗВЕСТНО:"
+        $reportRu += "- Аудит выполнен в LINK режиме"
+        $reportRu += "- Визуальная проверка может отсутствовать"
+        $reportRu += ""
+        $reportRu += "УВЕРЕННОСТЬ: $confidence"
+
+        $enPath = Join-Path (Get-Location) "REPORT_EN.txt"
+        $ruPath = Join-Path (Get-Location) "REPORT_RU.txt"
+
+        $reportEn | Out-File $enPath -Encoding UTF8
+        $reportRu | Out-File $ruPath -Encoding UTF8
+
+        Write-Host "HUMAN_REPORT: DONE"
+
+# === COPY USING RUN_REPORT PATH ===
+try {
+    $runReportPath = Join-Path $PSScriptRoot "output"
+    $runReportFile = Get-ChildItem -Path $runReportPath -Recurse -Filter "RUN_REPORT.json" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+
+    if ($null -ne $runReportFile) {
+        $targetDir = Split-Path $runReportFile.FullName -Parent
+
+        Copy-Item (Join-Path $PSScriptRoot "REPORT_EN.txt") -Destination (Join-Path $targetDir "REPORT_EN.txt") -Force
+        Copy-Item (Join-Path $PSScriptRoot "REPORT_RU.txt") -Destination (Join-Path $targetDir "REPORT_RU.txt") -Force
+
+        Write-Host ("HUMAN_REPORT: COPIED_TO " + $targetDir)
+    }
+    else {
+        Write-Host "HUMAN_REPORT: RUN_REPORT_NOT_FOUND_FOR_COPY"
+    }
+}
+catch {
+    Write-Host ("HUMAN_REPORT: COPY_FAILED " + $_.Exception.Message)
+}
+# === END COPY ===
+
+# === COPY HUMAN REPORT INTO REAL OUTPUT DIR ===
+try {
+    $outputRoot = Join-Path $PSScriptRoot "output"
+
+    if (Test-Path $outputRoot) {
+        $latestDir = Get-ChildItem $outputRoot -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+
+        if ($null -ne $latestDir) {
+            $targetDir = $latestDir.FullName
+
+            Copy-Item (Join-Path $PSScriptRoot "REPORT_EN.txt") -Destination (Join-Path $targetDir "REPORT_EN.txt") -Force
+            Copy-Item (Join-Path $PSScriptRoot "REPORT_RU.txt") -Destination (Join-Path $targetDir "REPORT_RU.txt") -Force
+
+            Write-Host ("HUMAN_REPORT: COPIED_TO " + $targetDir)
+        }
+    }
+}
+catch {
+    Write-Host ("HUMAN_REPORT: COPY_FAILED " + $_.Exception.Message)
+}
+# === END COPY ===
+    }
+    else {
+        Write-Host "HUMAN_REPORT: RUN_REPORT_MISSING"
+    }
+}
+catch {
+    Write-Host ("HUMAN_REPORT: FAILED " + $_.Exception.Message)
+}
+# === END HUMAN REPORT ===
 }
 
 function Get-DeterministicRunKey {
@@ -671,6 +921,18 @@ function Invoke-EvidenceReconciliation {
                 }
             }
             catch {
+
+    # === FAIL TRACE BLOCK ===
+    $failTrace = [ordered]@{
+        error_message = $_.Exception.Message
+        error_type = $_.Exception.GetType().FullName
+        script_line = $_.InvocationInfo.ScriptLineNumber
+        position = $_.InvocationInfo.PositionMessage
+        stage = $currentStage
+    }
+
+    Write-Host ("FAIL_TRACE: " + ($failTrace | ConvertTo-Json -Depth 3))
+    # === END FAIL TRACE ===
                 $checksCompleted = $false
                 $fileStatus = 'reconciliation_error'
                 $null = Add-KeyIfMissing -Map $issues -Key 'reconciliation_error'
@@ -1189,6 +1451,39 @@ if ($shouldFail) {
     $report.execution_status = 'FAILED'
     $report.summary = "Run failed: $errorCode"
     $report.next_step = $errorMessage
+
+# === SELF-REPAIR HANDOFF BLOCK ===
+$report.operator_handoff = [ordered]@{
+    what_happened = [string]$report.execution_status
+    last_stage = [string]$report.last_completed_stage
+    failure_stage = [string]$report.current_failure_stage
+
+    read_this_first = @(
+        'RUN_REPORT.json',
+        'failure_summary.json',
+        'ROUTES_SUMMARY.json',
+        'AUDIT_SUMMARY.json'
+    )
+
+    what_you_are = 'repair operator for Universal Audit Engine'
+    product_scope = 'do not treat as website-only tool'
+    architecture = 'agent.ps1 is orchestrator, do not grow monolith'
+
+    do = @(
+        'find exact failing line',
+        'fix one error only',
+        'ensure WRITE_DONE is reached',
+        'ensure exit code is 0'
+    )
+
+    do_not = @(
+        'do not fix website',
+        'do not modify multiple layers',
+        'do not add new features',
+        'do not rewrite large parts of agent'
+    )
+}
+# === END HANDOFF ===
     $report.execution_report.final_outcome = 'FAIL'
     $report.execution_report.status_detail = 'FAIL'
     $report.last_completed_stage = [string]$lastCompletedStage
@@ -2955,5 +3250,48 @@ $report.self_build_protocol.feature_progress_allowed = [bool]$report.self_build_
 $report.last_completed_stage = 'REPORT_LAYER'
 $report.current_failure_stage = ''
 Write-RunReportBounded -Report $report -RunReportPath $runReportPath -DeterministicRunReportPath $deterministicRunReportPath
+
+
+# === STAGE: HUMAN_REPORT ===
+Write-Host "STAGE: HUMAN_REPORT"
+
+try {
+    $runReportPath = Join-Path $PSScriptRoot "RUN_REPORT.json"
+
+    Write-Host ("HUMAN_REPORT: CHECK " + $runReportPath)
+
+    if (Test-Path $runReportPath) {
+        Write-Host "HUMAN_REPORT: RUN_REPORT_FOUND"
+
+        $run = Get-Content $runReportPath -Raw | ConvertFrom-Json
+
+        $status = [string]$run.status
+
+        $enPath = Join-Path (Get-Location) "REPORT_EN.txt"
+        $ruPath = Join-Path (Get-Location) "REPORT_RU.txt"
+
+        "SITE STATUS: $status" | Out-File $enPath -Encoding UTF8
+        "СТАТУС САЙТА: $status" | Out-File $ruPath -Encoding UTF8
+
+        Write-Host "HUMAN_REPORT: DONE"
+    }
+    else {
+        Write-Host "HUMAN_REPORT: RUN_REPORT_MISSING"
+    }
+}
+catch {
+    Write-Host ("HUMAN_REPORT: FAILED " + $_.Exception.Message)
+}
+# === END HUMAN REPORT ===
+
+
+# === HUMAN REPORT TRACE ===
+Write-Host "HUMAN_REPORT: ENTERED"
+
+$testPath = Join-Path $PSScriptRoot "TEST_HUMAN_REPORT.txt"
+"TEST_OK" | Out-File $testPath -Encoding UTF8
+
+Write-Host ("HUMAN_REPORT: WROTE " + $testPath)
+# === END TRACE ===
 
 exit 0
