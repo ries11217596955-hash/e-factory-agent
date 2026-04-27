@@ -1,5 +1,5 @@
 ## Summary
-Updated `SITE_AUDITOR_V2` artifact collection to recursively enumerate files under `$OutputDir` and compute relative paths from full paths, preserving nested subfolder structure in `produced_artifacts`.
+Restricted `SITE_AUDITOR_V2` `produced_artifacts` to output-only files by introducing an explicit extension whitelist (`.json`, `.txt`, `.png`) and explicit allowed output folders (`captures`, `summaries`, `logs`). Replaced broad `$OutputDir` recursive collection with a scoped helper that only aggregates files from those output zones plus allowed root-level output files.
 
 ## Changed files
 - agents/site_auditor_v2/agent.ps1
@@ -9,9 +9,14 @@ Updated `SITE_AUDITOR_V2` artifact collection to recursively enumerate files und
 - None.
 
 ## Current entrypoints/paths
-- Primary entrypoint: `agents/site_auditor_v2/agent.ps1`
-- Artifact base directory for `produced_artifacts`: `agents/site_auditor_v2` (resolved from `$OutputDir = $PSScriptRoot`)
-- Produced artifact path format: `<relative_path_from_agents/site_auditor_v2>` (including nested folders)
+- Entrypoint: `agents/site_auditor_v2/agent.ps1`
+- Artifact scope source: `$OutputDir` with restricted collection in:
+  - `$OutputDir/captures`
+  - `$OutputDir/summaries`
+  - `$OutputDir/logs`
+  - root-level `$OutputDir` files limited to `.json`, `.txt`, `.png`
+- `produced_artifacts` paths remain relative to `$OutputDir`.
 
 ## Risks/blockers
-- GitHub Actions artifact upload/visibility validation was not executed in this local environment.
+- End-to-end artifact upload validation was not executed in this local environment.
+- If future required output files use extensions outside the whitelist, they will be excluded until the whitelist is updated.
