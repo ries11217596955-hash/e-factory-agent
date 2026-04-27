@@ -1330,6 +1330,15 @@ else {
         Copy-Item -LiteralPath $auditSummaryPath -Destination $deterministicAuditSummaryPath -Force
         Write-Host 'POST_ROUTE:AUDIT_SUMMARY_WRITTEN'
 
+# Clear stale route-extraction fail state after summaries are successfully written.
+# If ROUTES_SUMMARY.json and AUDIT_SUMMARY.json exist, route extraction is no longer failed.
+if ((Test-Path (Join-Path $PSScriptRoot "ROUTES_SUMMARY.json")) -and (Test-Path (Join-Path $PSScriptRoot "AUDIT_SUMMARY.json"))) {
+    $currentFailureStage = ""
+    $failPhase = ""
+    $failReason = ""
+    $errorMessage = ""
+}
+
         $actionReportLines = New-Object System.Collections.Generic.List[string]
         $actionReportLines.Add("Site: $BaseUrl")
         $actionReportLines.Add("Total pages checked: $(($auditSummary.PSObject.Properties["total"].Value))")
