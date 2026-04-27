@@ -57,12 +57,8 @@ function Resolve-MinimalDecision {
     if ($null -eq $RoutesSummary -or -not $RoutesSummary.PSObject.Properties['routes']) {
         throw 'ROUTES_SUMMARY_INVALID: missing routes property.'
     }
-    if ($null -eq $AuditSummary) {
-        throw 'AUDIT_SUMMARY_INVALID: object is null.'
-    }
-
-    if (-not $AuditSummary.PSObject.Properties['total']) {
-        Write-Host "AUDIT_SUMMARY: total missing, fallback to routes count"
+    if ($null -eq $AuditSummary -or -not $AuditSummary.PSObject.Properties['total']) {
+        throw 'AUDIT_SUMMARY_INVALID: missing total property.'
     }
     if ($null -eq $LinkSummary -or -not $LinkSummary.PSObject.Properties['status']) {
         throw 'LINK_SUMMARY_INVALID: missing status property.'

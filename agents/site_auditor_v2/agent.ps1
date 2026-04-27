@@ -501,29 +501,6 @@ try {
             ) | Out-File (Join-Path $outFolder "AGENT_MAP.md") -Encoding UTF8
 
             Write-Host ("POST_OUTPUT: HUMAN_REPORT_AND_AGENT_MAP_DONE " + $outFolder)
-
-            # Refresh produced_artifacts after post-output files are created.
-            $postOutputArtifacts = @(
-                "REPORT_EN.txt",
-                "REPORT_RU.txt",
-                "AGENT_MAP.md",
-                "RUN_REPORT.json",
-                "ROUTES_SUMMARY.json",
-                "AUDIT_SUMMARY.json",
-                "ACTION_SUMMARY.json",
-                "visual_manifest.json"
-            )
-
-            foreach ($artifactName in $postOutputArtifacts) {
-                $artifactPath = Join-Path $outFolder $artifactName
-                if ((Test-Path $artifactPath) -and (-not ($reportBound.produced_artifacts -contains $artifactName))) {
-                    $reportBound.produced_artifacts = @($reportBound.produced_artifacts) + $artifactName
-                }
-            }
-
-            Write-JsonFile -Path $RunReportPath -Data $reportBound
-            Copy-Item -LiteralPath $RunReportPath -Destination $DeterministicRunReportPath -Force
-            Write-Host "POST_OUTPUT: RUN_REPORT_REFRESHED"
         }
         else {
             Write-Host "POST_OUTPUT: OUTPUT_FOLDER_MISSING"
@@ -531,24 +508,6 @@ try {
     }
 }
 catch {
-
-    # === FAIL TRACE (EXACT LOCATION) ===
-    try {
-        $trace = [ordered]@{
-            error = $_.Exception.Message
-            type = $_.Exception.GetType().FullName
-            line = $_.InvocationInfo.ScriptLineNumber
-            position = $_.InvocationInfo.PositionMessage
-            stage = $currentStage
-        }
-
-        Write-Host ("FAIL_TRACE: " + ($trace | ConvertTo-Json -Depth 3))
-
-        $tracePath = Join-Path $PSScriptRoot "FAIL_TRACE.json"
-        $trace | ConvertTo-Json -Depth 3 | Out-File $tracePath -Encoding UTF8
-    }
-    catch {}
-    # === END FAIL TRACE ===
     Write-Host ("POST_OUTPUT: FAILED " + $_.Exception.Message)
 }
 # === END POST OUTPUT ===
@@ -3291,39 +3250,6 @@ $report.self_build_protocol.feature_progress_allowed = [bool]$report.self_build_
 $report.last_completed_stage = 'REPORT_LAYER'
 $report.current_failure_stage = ''
 Write-RunReportBounded -Report $report -RunReportPath $runReportPath -DeterministicRunReportPath $deterministicRunReportPath
-
-# === FINAL POST OUTPUT (SINGLE SOURCE OF TRUTH) ===
-try {
-    $runReportFile = Get-ChildItem -Path (Join-Path $PSScriptRoot "output") -Recurse -Filter "RUN_REPORT.json" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-
-    if ($null -ne $runReportFile) {
-        $outFolder = Split-Path $runReportFile.FullName -Parent
-
-        $report = Get-Content $runReportFile.FullName -Raw | ConvertFrom-Json
-
-        # HUMAN REPORT
-        "SITE STATUS: $($report.status)" | Out-File (Join-Path $outFolder "REPORT_EN.txt") -Encoding UTF8
-        "СТАТУС САЙТА: $($report.status)" | Out-File (Join-Path $outFolder "REPORT_RU.txt") -Encoding UTF8
-
-        # AGENT MAP
-        "RUN_REPORT.json = read first" | Out-File (Join-Path $outFolder "AGENT_MAP.md") -Encoding UTF8
-
-        # UPDATE produced_artifacts
-        $report.produced_artifacts = @($report.produced_artifacts) + @(
-            "REPORT_EN.txt",
-            "REPORT_RU.txt",
-            "AGENT_MAP.md"
-        )
-
-        $report | ConvertTo-Json -Depth 6 | Out-File $runReportFile.FullName -Encoding UTF8
-
-        Write-Host "FINAL_POST_OUTPUT: DONE"
-    }
-}
-catch {
-    Write-Host ("FINAL_POST_OUTPUT: FAILED " + $_.Exception.Message)
-}
-# === END FINAL POST OUTPUT ===
 
 
 # === STAGE: HUMAN_REPORT ===
