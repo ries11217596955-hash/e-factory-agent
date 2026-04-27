@@ -1,7 +1,8 @@
 ## Summary
-- Added primary-route canonical normalization helpers in `agent.ps1` to enforce path-only identities (no query, no fragment, no trailing slash except root) before REPORT_LAYER contract validation.
-- Applied normalization to all primary route identity fields validated by the route contract: `selected_routes.route`, `page_verdicts.route`, `run_budget.overflow_route_details[].route`, `visual_manifest.pages[].route`, and `ROUTES_SUMMARY.routes[].normalized_route`.
-- Updated the `ROUTE_CONTRACT_BREACH` failure path to force `ACTION_SUMMARY.json.status = "FAIL"` and set an explicit failure reason so it does not remain `LIMITATION_ONLY` when `RUN_REPORT` fails.
+- Patched `SITE_AUDITOR_V2` artifact contract handling so final `produced_artifacts` is now deterministically merged before each final `RUN_REPORT` write, guaranteeing `RUN_REPORT.json` declaration even when file scanning happens before final write.
+- Enforced stable required artifact declarations in final `produced_artifacts`: `RUN_REPORT.json`, `ACTION_REPORT.txt`, `ACTION_SUMMARY.json`, `AUDIT_SUMMARY.json`, `LINK_SUMMARY.json`, and `ROUTES_SUMMARY.json`.
+- Added conditional inclusion logic to final `produced_artifacts` for `visual_manifest.json` (when present), `screenshots/*` (when present), and `failure_summary.json` (when `status=FAIL` or file exists).
+- Kept changes scoped to artifact list construction only; no workflow, route/report decision logic, or audit findings logic changes.
 
 ## Changed files
 - agents/site_auditor_v2/agent.ps1
@@ -12,8 +13,8 @@
 
 ## Current entrypoints/paths
 - Primary orchestrator entrypoint: `agents/site_auditor_v2/agent.ps1`
-- Route normalization and contract check callsite: `agents/site_auditor_v2/agent.ps1` (`REPORT_LAYER` section, pre-`Test-RouteContract`)
+- Artifact contract finalization path: `Get-FinalProducedArtifacts` and all final `$report.produced_artifacts` assignments before `Write-RunReportBounded`
 - Task report: `docs/TASK_REPORT.md`
 
 ## Risks/blockers
-- Could not execute end-to-end PowerShell validation in this container because `pwsh` is unavailable, so acceptance verification (`ROUTE_CONTRACT_BREACH` disappearance in live run artifacts) must be confirmed in the target runtime environment.
+- Could not execute end-to-end run/package validation in this container because `pwsh` is unavailable, so GitHub Actions regression confirmation and output ZIP content confirmation must be validated in CI/runtime.
