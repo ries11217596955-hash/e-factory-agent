@@ -1,5 +1,5 @@
 ## Summary
-Updated `SITE_AUDITOR_V2` artifact reporting to derive `produced_artifacts` strictly from files that actually exist in `agents/site_auditor_v2` (`$OutputDir = $PSScriptRoot`). Removed all manual artifact list mutation logic and all artifact `Add()` paths.
+Updated `SITE_AUDITOR_V2` artifact collection to recursively enumerate files under `$OutputDir` and compute relative paths from full paths, preserving nested subfolder structure in `produced_artifacts`.
 
 ## Changed files
 - agents/site_auditor_v2/agent.ps1
@@ -10,7 +10,8 @@ Updated `SITE_AUDITOR_V2` artifact reporting to derive `produced_artifacts` stri
 
 ## Current entrypoints/paths
 - Primary entrypoint: `agents/site_auditor_v2/agent.ps1`
-- Artifact source directory for `produced_artifacts`: `agents/site_auditor_v2` (resolved via `$OutputDir = $PSScriptRoot`)
+- Artifact base directory for `produced_artifacts`: `agents/site_auditor_v2` (resolved from `$OutputDir = $PSScriptRoot`)
+- Produced artifact path format: `<relative_path_from_agents/site_auditor_v2>` (including nested folders)
 
 ## Risks/blockers
-- Runtime GitHub Actions validation was not executed in this environment; pipeline confirmation is required for final acceptance checks.
+- GitHub Actions artifact upload/visibility validation was not executed in this local environment.

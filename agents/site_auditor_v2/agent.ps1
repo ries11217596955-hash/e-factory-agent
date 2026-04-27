@@ -1061,9 +1061,11 @@ if ($shouldFail) {
         failure_class = [string]$failureClass
         notes = @($errorMessage)
     }
-    $artifactFiles = Get-ChildItem -LiteralPath $OutputDir -File
+    $artifactFiles = Get-ChildItem -LiteralPath $OutputDir -File -Recurse
 $report.produced_artifacts = @(
-    $artifactFiles | ForEach-Object { $_.Name }
+    $artifactFiles | ForEach-Object {
+        $_.FullName.Replace($OutputDir + [System.IO.Path]::DirectorySeparatorChar, '')
+    }
 )
     $report.linked_artifacts = @(
         [ordered]@{ name = 'run_report'; path = $runReportPath },
@@ -2430,9 +2432,11 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
         }
         $reportLayerMarker = 'REPORT_LAYER: EXIT_READY'
         Write-Host $reportLayerMarker
-        $artifactFiles = Get-ChildItem -LiteralPath $OutputDir -File
+        $artifactFiles = Get-ChildItem -LiteralPath $OutputDir -File -Recurse
 $report.produced_artifacts = @(
-    $artifactFiles | ForEach-Object { $_.Name }
+    $artifactFiles | ForEach-Object {
+        $_.FullName.Replace($OutputDir + [System.IO.Path]::DirectorySeparatorChar, '')
+    }
 )
     }
     catch {
@@ -2494,9 +2498,11 @@ $report.produced_artifacts = @(
             current_failure_stage = [string]$failurePhaseValue
             notes = @("phase=$failurePhaseValue", "last_completed_stage=$lastCompletedStage", $operatorFailureNote, $errorMessage)
         }
-        $artifactFiles = Get-ChildItem -LiteralPath $OutputDir -File
+        $artifactFiles = Get-ChildItem -LiteralPath $OutputDir -File -Recurse
 $report.produced_artifacts = @(
-    $artifactFiles | ForEach-Object { $_.Name }
+    $artifactFiles | ForEach-Object {
+        $_.FullName.Replace($OutputDir + [System.IO.Path]::DirectorySeparatorChar, '')
+    }
 )
         $report.linked_artifacts = @(
             [ordered]@{ name = 'run_report'; path = $runReportPath },
@@ -2571,9 +2577,11 @@ if ((-not $shouldFail) -and ((-not (Test-Path -LiteralPath $humanReportRuPath)) 
     Copy-Item -LiteralPath $humanReportRuPath -Destination $deterministicHumanReportRuPath -Force
     Copy-Item -LiteralPath $humanReportEnPath -Destination $deterministicHumanReportEnPath -Force
 }
-$artifactFiles = Get-ChildItem -LiteralPath $OutputDir -File
+$artifactFiles = Get-ChildItem -LiteralPath $OutputDir -File -Recurse
 $report.produced_artifacts = @(
-    $artifactFiles | ForEach-Object { $_.Name }
+    $artifactFiles | ForEach-Object {
+        $_.FullName.Replace($OutputDir + [System.IO.Path]::DirectorySeparatorChar, '')
+    }
 )
 
 if ($shouldFail) {
@@ -2657,9 +2665,11 @@ if ($shouldFail) {
 
     $report.self_build_protocol.build_ladder = Get-BuildLadderContract -HasTruthfulFailure $true -HasSelfDiagnostic $true -HasOperatorHandoff $true
     $report.self_build_protocol.feature_progress_allowed = [bool]$report.self_build_protocol.build_ladder.feature_progress_allowed
-    $artifactFiles = Get-ChildItem -LiteralPath $OutputDir -File
+    $artifactFiles = Get-ChildItem -LiteralPath $OutputDir -File -Recurse
 $report.produced_artifacts = @(
-    $artifactFiles | ForEach-Object { $_.Name }
+    $artifactFiles | ForEach-Object {
+        $_.FullName.Replace($OutputDir + [System.IO.Path]::DirectorySeparatorChar, '')
+    }
 )
     $report.linked_artifacts = @(
         [ordered]@{ name = 'run_report'; path = $runReportPath },
