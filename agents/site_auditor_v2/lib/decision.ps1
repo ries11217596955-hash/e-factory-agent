@@ -104,8 +104,24 @@ function Resolve-MinimalDecision {
     if (-not (Test-ObjectHasKey -InputObject $AuditSummary -Key 'total')) {
         throw 'AUDIT_SUMMARY_INVALID: missing total property.'
     }
-    if (-not (Test-ObjectHasKey -InputObject $LinkSummary -Key 'status')) {
+    $hasLinkStatus = Test-ObjectHasKey -InputObject $LinkSummary -Key 'status'
+    $hasLinkStatusCode = Test-ObjectHasKey -InputObject $LinkSummary -Key 'status_code'
+    if (-not $hasLinkStatus -and -not $hasLinkStatusCode) {
         throw 'LINK_SUMMARY_INVALID: missing status property.'
+    }
+
+    $linkStatus = ''
+    if ($hasLinkStatus) {
+        $linkStatus = [string](Get-ObjectValueOrDefault -InputObject $LinkSummary -Key 'status' -Default '')
+    }
+    elseif ($hasLinkStatusCode) {
+        $linkStatusCode = Get-IntOrDefault -Value (Get-ObjectValueOrDefault -InputObject $LinkSummary -Key 'status_code' -Default $null) -Default 0
+        if ($linkStatusCode -ge 200 -and $linkStatusCode -le 399) {
+            $linkStatus = 'OK'
+        }
+        else {
+            $linkStatus = 'FAIL'
+        }
     }
 
     $routes = @(Get-ObjectValueOrDefault -InputObject $RoutesSummary -Key 'routes' -Default @())
