@@ -35,13 +35,12 @@ function Convert-ContractArray {
     param([Parameter(Mandatory = $false)][object]$Value)
 
     if ($null -eq $Value) { return @() }
-    if ($Value -is [string]) {
-        if ([string]::IsNullOrWhiteSpace([string]$Value)) { return @() }
-        return @([string]$Value)
+
+    if ($Value -is [System.Array]) {
+        return ,@($Value)
     }
-    if ($Value -is [System.Array]) { return @($Value) }
-    if ($Value -is [System.Collections.IEnumerable]) { return @($Value) }
-    return @($Value)
+
+    return ,@($Value)
 }
 
 function New-NormalizedFinding {
@@ -132,7 +131,7 @@ function New-NormalizedFinding {
 
     $evidenceRefsSource = Get-ContractFieldValue -Object $Finding -Name 'evidence_refs'
     if ($null -eq $evidenceRefsSource) { $evidenceRefsSource = Get-ContractFieldValue -Object $Finding -Name 'evidence_ref' }
-    $evidenceRefs = @(Convert-ContractArray -Value $evidenceRefsSource)
+    $evidenceRefs = Convert-ContractArray -Value $evidenceRefsSource
     if ($evidenceRefs.Count -eq 0) {
         $evidenceRefs = @('RUN_REPORT.json')
         $null = $MissingFields.Add('evidence.evidence_refs')
@@ -160,9 +159,9 @@ function New-NormalizedFinding {
         evidence_text = [string]$evidenceText
         evidence_type = [string]$evidenceType
         evidence_ref = if ($evidenceRefs.Count -gt 0) { [string]$evidenceRefs[0] } else { 'RUN_REPORT.json' }
-        evidence_refs = @($evidenceRefs)
+        evidence_refs = Convert-ContractArray -Value $evidenceRefs
         evidence_screenshot = [string]$evidenceScreenshot
-        evidence = [ordered]@{ evidence_refs = @($evidenceRefs) }
+        evidence = [ordered]@{ evidence_refs = Convert-ContractArray -Value $evidenceRefs }
         why_it_matters = [string]$whyItMatters
         recommended_action = [string]$recommendedAction
     }
@@ -176,7 +175,7 @@ function Normalize-FindingContract {
         [string]$DiagnosticPath
     )
 
-    $inputFindings = @($Findings)
+    $inputFindings = Convert-ContractArray -Value $Findings
     $missingFieldsByFinding = New-Object System.Collections.Generic.List[object]
     $normalizedFindings = New-Object System.Collections.Generic.List[object]
     $normalizedFieldsCount = 0
@@ -204,7 +203,7 @@ function Normalize-FindingContract {
     [System.IO.File]::WriteAllText($DiagnosticPath, $diagnosticJson + [Environment]::NewLine, (New-SafeUtf8NoBom))
 
     return [ordered]@{
-        findings = @($normalizedFindings.ToArray())
+        findings = Convert-ContractArray -Value $normalizedFindings.ToArray()
         diagnostic = $diagnostic
     }
 }
