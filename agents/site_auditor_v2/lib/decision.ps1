@@ -18,6 +18,50 @@ function Get-IntOrDefault {
     }
 }
 
+function Test-ObjectHasKey {
+    param(
+        [Parameter(Mandatory = $false)]
+        [object]$InputObject,
+        [Parameter(Mandatory = $true)]
+        [string]$Key
+    )
+
+    if ($null -eq $InputObject -or [string]::IsNullOrWhiteSpace($Key)) {
+        return $false
+    }
+
+    if ($InputObject -is [System.Collections.IDictionary]) {
+        return [bool]$InputObject.Contains($Key)
+    }
+
+    if ($InputObject.PSObject -and $InputObject.PSObject.Properties) {
+        return ($null -ne $InputObject.PSObject.Properties[$Key])
+    }
+
+    return $false
+}
+
+function Get-ObjectValueOrDefault {
+    param(
+        [Parameter(Mandatory = $false)]
+        [object]$InputObject,
+        [Parameter(Mandatory = $true)]
+        [string]$Key,
+        [Parameter(Mandatory = $false)]
+        [object]$Default = $null
+    )
+
+    if (-not (Test-ObjectHasKey -InputObject $InputObject -Key $Key)) {
+        return $Default
+    }
+
+    if ($InputObject -is [System.Collections.IDictionary]) {
+        return $InputObject[$Key]
+    }
+
+    return $InputObject.$Key
+}
+
 function Resolve-MinimalDecision {
     param(
         [Parameter(Mandatory = $true)]
@@ -54,24 +98,24 @@ function Resolve-MinimalDecision {
         }
     }
 
-    if ($null -eq $RoutesSummary -or -not $RoutesSummary.PSObject.Properties['routes']) {
+    if (-not (Test-ObjectHasKey -InputObject $RoutesSummary -Key 'routes')) {
         throw 'ROUTES_SUMMARY_INVALID: missing routes property.'
     }
-    if ($null -eq $AuditSummary -or -not $AuditSummary.PSObject.Properties['total']) {
+    if (-not (Test-ObjectHasKey -InputObject $AuditSummary -Key 'total')) {
         throw 'AUDIT_SUMMARY_INVALID: missing total property.'
     }
-    if ($null -eq $LinkSummary -or -not $LinkSummary.PSObject.Properties['status']) {
+    if (-not (Test-ObjectHasKey -InputObject $LinkSummary -Key 'status')) {
         throw 'LINK_SUMMARY_INVALID: missing status property.'
     }
 
-    $routes = @($RoutesSummary.routes)
+    $routes = @(Get-ObjectValueOrDefault -InputObject $RoutesSummary -Key 'routes' -Default @())
     $routeCount = [int]$routes.Count
     if ($routeCount -le 0) {
-        $routeCount = Get-IntOrDefault -Value $AuditSummary.total -Default 0
+        $routeCount = Get-IntOrDefault -Value (Get-ObjectValueOrDefault -InputObject $AuditSummary -Key 'total' -Default $null) -Default 0
     }
 
-    $brokenCount = if ($AuditSummary.PSObject.Properties['broken']) {
-        Get-IntOrDefault -Value $AuditSummary.broken -Default 0
+    $brokenCount = if (Test-ObjectHasKey -InputObject $AuditSummary -Key 'broken') {
+        Get-IntOrDefault -Value (Get-ObjectValueOrDefault -InputObject $AuditSummary -Key 'broken' -Default $null) -Default 0
     }
     else {
         [int]@($routes | Where-Object { [string]$_.classification -eq 'broken' }).Count
@@ -79,7 +123,7 @@ function Resolve-MinimalDecision {
 
     $strongCtaCount = [int]@(
         $routes | Where-Object {
-            $_.PSObject.Properties['first_screen_has_action'] -and [bool]$_.first_screen_has_action
+            (Test-ObjectHasKey -InputObject $_ -Key 'first_screen_has_action') -and [bool](Get-ObjectValueOrDefault -InputObject $_ -Key 'first_screen_has_action' -Default $false)
         }
     ).Count
 
@@ -87,14 +131,14 @@ function Resolve-MinimalDecision {
     $routeOverflow = $false
     $captureStatus = ''
     if ($null -ne $Limitations) {
-        if ($Limitations.PSObject.Properties['capture_missing']) {
-            $captureMissing = [bool]$Limitations.capture_missing
+        if (Test-ObjectHasKey -InputObject $Limitations -Key 'capture_missing') {
+            $captureMissing = [bool](Get-ObjectValueOrDefault -InputObject $Limitations -Key 'capture_missing' -Default $false)
         }
-        if ($Limitations.PSObject.Properties['route_overflow']) {
-            $routeOverflow = [bool]$Limitations.route_overflow
+        if (Test-ObjectHasKey -InputObject $Limitations -Key 'route_overflow') {
+            $routeOverflow = [bool](Get-ObjectValueOrDefault -InputObject $Limitations -Key 'route_overflow' -Default $false)
         }
-        if ($Limitations.PSObject.Properties['capture_status']) {
-            $captureStatus = [string]$Limitations.capture_status
+        if (Test-ObjectHasKey -InputObject $Limitations -Key 'capture_status') {
+            $captureStatus = [string](Get-ObjectValueOrDefault -InputObject $Limitations -Key 'capture_status' -Default '')
         }
     }
 
