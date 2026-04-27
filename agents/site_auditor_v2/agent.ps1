@@ -1198,7 +1198,31 @@ else {
         $currentFailureStage = $failurePhase
         Write-BootstrapStageTrace -Stage 'ROUTE_EXTRACTION'
         $routeExtraction = Get-ShallowRoutes -RootUrl $BaseUrl -MaxRoutes 10
-        $routesSummary = $routeExtraction
+        $routesSummaryPayload = [ordered]@{}
+        if ($routeExtraction -is [System.Collections.IDictionary]) {
+            foreach ($routeExtractionKey in @($routeExtraction.Keys)) {
+                $routesSummaryPayload[[string]$routeExtractionKey] = $routeExtraction[$routeExtractionKey]
+            }
+        }
+        elseif ($null -ne $routeExtraction) {
+            foreach ($routeExtractionProperty in @($routeExtraction.PSObject.Properties)) {
+                $routesSummaryPayload[[string]$routeExtractionProperty.Name] = $routeExtractionProperty.Value
+            }
+        }
+
+        $routesSummaryRoutes = @()
+        if ($routesSummaryPayload.Contains('routes')) {
+            $routesSummaryRoutes = @($routesSummaryPayload['routes'] | Where-Object { $null -ne $_ })
+        }
+        $routesSummaryPayload['routes'] = @($routesSummaryRoutes)
+        $routesSummaryPayload['route_count'] = [int]@($routesSummaryRoutes).Count
+        if (-not $routesSummaryPayload.Contains('sampled_count') -and -not $routesSummaryPayload.Contains('selected_count')) {
+            $routesSummaryPayload['sampled_count'] = [int]@($routesSummaryRoutes).Count
+        }
+        if (-not $routesSummaryPayload.Contains('status')) {
+            $routesSummaryPayload['status'] = if ([bool]$routesSummaryPayload['link_extraction_failed']) { 'LIMITED' } else { 'PASS' }
+        }
+        $routesSummary = [pscustomobject]$routesSummaryPayload
         if ([int]$routesSummary.raw_links_found -le 0) {
             throw 'ROUTE_EXTRACTION_FAILED_NO_RAW_LINKS'
         }
