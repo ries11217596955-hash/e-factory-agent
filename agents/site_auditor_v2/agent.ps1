@@ -11,6 +11,7 @@ param(
 )
 
 Set-StrictMode -Version Latest
+. "$PSScriptRoot/lib/post_output.ps1"
 
 function Get-SafePropValue {
     param(
@@ -3250,6 +3251,21 @@ $report.self_build_protocol.feature_progress_allowed = [bool]$report.self_build_
 $report.last_completed_stage = 'REPORT_LAYER'
 $report.current_failure_stage = ''
 Write-RunReportBounded -Report $report -RunReportPath $runReportPath -DeterministicRunReportPath $deterministicRunReportPath
+
+# === SAFE POST OUTPUT CALL ===
+try {
+    $runReportFile = Get-ChildItem -Path (Join-Path $PSScriptRoot "output") -Recurse -Filter "RUN_REPORT.json" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+
+    if ($null -ne $runReportFile) {
+        $outDir = Split-Path $runReportFile.FullName -Parent
+        Invoke-PostOutput -OutputDir $outDir -RunReportPath $runReportFile.FullName
+        Write-Host "POST_OUTPUT_MODULE: DONE"
+    }
+}
+catch {
+    Write-Host ("POST_OUTPUT_MODULE: FAILED " + $_.Exception.Message)
+}
+# === END SAFE POST OUTPUT ===
 
 
 # === STAGE: HUMAN_REPORT ===
