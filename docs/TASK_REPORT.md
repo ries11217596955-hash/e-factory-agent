@@ -1,8 +1,9 @@
 ## Summary
-Updated `site_auditor_v2` to treat visual capture as an optional capability. Capture failures (including missing Playwright/module errors) now degrade execution instead of failing the run, while explicitly marking reduced confidence and no visual evidence.
+Added a minimal decision engine for `site_auditor_v2` that converts existing audit artifacts into an actionable `decision` block in `RUN_REPORT.json` with `core_problem`, `p0` (max 3), and `do_next` (max 3).
 
 ## Changed files
 - agents/site_auditor_v2/agent.ps1
+- agents/site_auditor_v2/lib/decision.ps1
 - docs/TASK_REPORT.md
 
 ## Moved files/folders
@@ -10,9 +11,9 @@ Updated `site_auditor_v2` to treat visual capture as an optional capability. Cap
 
 ## Current entrypoints/paths
 - Entrypoint/orchestrator: `agents/site_auditor_v2/agent.ps1`
-- Optional capture tool invocation path (unchanged): `agents/site_auditor_v2/tools/capture_visuals.mjs`
-- Run output artifacts (unchanged paths): `<run output root>/RUN_REPORT.json`, `<run output root>/visual_manifest.json`, `<run output root>/screenshots/`
+- New decision helper library: `agents/site_auditor_v2/lib/decision.ps1`
+- Decision output location in artifact: `<run output root>/RUN_REPORT.json` under `decision.core_problem`, `decision.p0`, `decision.do_next`
 
 ## Risks/blockers
-- Full end-to-end run in a Codespaces environment without Playwright was not executed here; behavior was validated through static code-path review and PowerShell parse checks.
-- Degradation path intentionally marks capture unavailable as a limitation and keeps non-capture audit stages active, but exact final status labels still depend on existing downstream status synthesis logic.
+- PowerShell runtime is not available in this environment (`pwsh: command not found`), so runtime execution of the updated agent could not be performed locally.
+- Decision heuristics are intentionally minimal and deterministic by design; they do not replace existing report-layer synthesis and are scoped only to required actionable output.

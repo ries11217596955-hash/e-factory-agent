@@ -29,6 +29,7 @@ if ($PSVersionTable.PSVersion.Major -lt 6) {
 . "$PSScriptRoot/modules/stage_capture_reconciliation.ps1"
 . "$PSScriptRoot/modules/self_build_protocol.ps1"
 . (Join-Path $PSScriptRoot 'lib/fail_output.ps1')
+. (Join-Path $PSScriptRoot 'lib/decision.ps1')
 
 function Get-OwnershipMode {
     return 'EXTERNAL'
@@ -1027,6 +1028,11 @@ $report = [ordered]@{
         reasoning = 'Initial placeholder before findings are synthesized.'
         ownership_mode = $ownershipMode
         audit_confidence = 'LOW'
+    }
+    decision = [ordered]@{
+        core_problem = 'Decision synthesis pending.'
+        p0 = @()
+        do_next = @()
     }
     system_problem = $null
     next_strongest_move = 'Expand audit coverage before making decisions.'
@@ -2466,6 +2472,18 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
             -SystemProblem $report.system_problem `
             -OwnershipMode ([string]$ownershipMode) `
             -AuditConfidence ([string]$report.audit_confidence)
+        $report.decision = Resolve-MinimalDecision `
+            -RoutesSummary $routesSummary `
+            -AuditSummary $auditSummary `
+            -LinkSummary $linkSummary `
+            -RoutesSummaryPath $routesSummaryPath `
+            -AuditSummaryPath $auditSummaryPath `
+            -LinkSummaryPath $linkSummaryPath `
+            -Limitations ([ordered]@{
+                capture_missing = [bool]$limitationCaptureMissing
+                route_overflow = [bool]([int]$report.run_budget.overflow_routes -gt 0)
+                capture_status = [string]$report.capture_report.status
+            })
         $reportLayerMarker = 'REPORT_LAYER: DECISION_SUMMARY_READY'
         Write-Host $reportLayerMarker
         $nextStrongestMove = [string]$report.decision_summary.recommended_action
