@@ -1,9 +1,8 @@
 ## Summary
-Added a minimal decision engine for `site_auditor_v2` that converts existing audit artifacts into an actionable `decision` block in `RUN_REPORT.json` with `core_problem`, `p0` (max 3), and `do_next` (max 3).
+Fixed the ROUTES_SUMMARY contract mismatch that was causing REPORT_LAYER to fail with `ROUTES_SUMMARY_INVALID: missing routes property` despite successful RECON/OUTPUT stages. The producer path in `agent.ps1` now normalizes the route extraction result into a contract-safe object and always writes top-level `routes` (array), `route_count` (number), `status`, and `sampled_count` (when `selected_count` is not already present), while preserving all existing fields.
 
 ## Changed files
 - agents/site_auditor_v2/agent.ps1
-- agents/site_auditor_v2/lib/decision.ps1
 - docs/TASK_REPORT.md
 
 ## Moved files/folders
@@ -11,9 +10,9 @@ Added a minimal decision engine for `site_auditor_v2` that converts existing aud
 
 ## Current entrypoints/paths
 - Entrypoint/orchestrator: `agents/site_auditor_v2/agent.ps1`
-- New decision helper library: `agents/site_auditor_v2/lib/decision.ps1`
-- Decision output location in artifact: `<run output root>/RUN_REPORT.json` under `decision.core_problem`, `decision.p0`, `decision.do_next`
+- ROUTES_SUMMARY producer path: LINK flow route extraction block before writing `ROUTES_SUMMARY.json`
+- Report-layer consumer trigger impacted by this contract: `Resolve-MinimalDecision` invocation from `agent.ps1` (uses normalized `$routesSummary`)
 
 ## Risks/blockers
-- PowerShell runtime is not available in this environment (`pwsh: command not found`), so runtime execution of the updated agent could not be performed locally.
-- Decision heuristics are intentionally minimal and deterministic by design; they do not replace existing report-layer synthesis and are scoped only to required actionable output.
+- Could not execute the full LINK workflow locally in this environment, so GitHub Actions confirmation is still required for final green run verification.
+- Contract fix is intentionally minimal and scoped to ROUTES_SUMMARY shape normalization only (no workflow/capture/artifact-pack changes).
