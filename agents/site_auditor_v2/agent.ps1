@@ -747,6 +747,83 @@ function Test-PrimaryRouteValue {
     return [ordered]@{ valid = $true; reason = '' }
 }
 
+function Get-NormalizedPrimaryRouteIdentity {
+    param(
+        [string]$Value,
+        [string]$BaseUrl = ''
+    )
+
+    $routeValue = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($routeValue)) {
+        return ''
+    }
+
+    $trimmed = $routeValue.Trim()
+    $canonicalRouteResult = Get-CanonicalRouteKeyResult -RouteValue $trimmed -BaseUrl $BaseUrl
+    if ($canonicalRouteResult.status -eq 'ok' -and -not [string]::IsNullOrWhiteSpace([string]$canonicalRouteResult.canonical_route)) {
+        return [string]$canonicalRouteResult.canonical_route
+    }
+
+    $pathOnly = $trimmed
+    $queryIndex = $pathOnly.IndexOf('?')
+    if ($queryIndex -ge 0) {
+        $pathOnly = $pathOnly.Substring(0, $queryIndex)
+    }
+    $fragmentIndex = $pathOnly.IndexOf('#')
+    if ($fragmentIndex -ge 0) {
+        $pathOnly = $pathOnly.Substring(0, $fragmentIndex)
+    }
+
+    if ([string]::IsNullOrWhiteSpace($pathOnly)) {
+        return '/'
+    }
+
+    if (($pathOnly.Length -gt 1) -and $pathOnly.EndsWith('/')) {
+        $pathOnly = $pathOnly.TrimEnd('/')
+    }
+    if ([string]::IsNullOrWhiteSpace($pathOnly)) {
+        $pathOnly = '/'
+    }
+    if (-not $pathOnly.StartsWith('/')) {
+        $pathOnly = "/$pathOnly"
+    }
+
+    return [string]$pathOnly
+}
+
+function Normalize-PrimaryRouteContractFields {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$RunReport,
+        [Parameter(Mandatory = $true)]
+        [object]$RoutesSummary,
+        [Parameter(Mandatory = $true)]
+        [object]$VisualManifest,
+        [Parameter(Mandatory = $true)]
+        [string]$BaseUrl
+    )
+
+    foreach ($selectedRoute in @($RunReport.selected_routes)) {
+        $selectedRoute.route = Get-NormalizedPrimaryRouteIdentity -Value ([string]$selectedRoute.route) -BaseUrl $BaseUrl
+    }
+
+    foreach ($pageVerdict in @($RunReport.page_verdicts)) {
+        $pageVerdict.route = Get-NormalizedPrimaryRouteIdentity -Value ([string]$pageVerdict.route) -BaseUrl $BaseUrl
+    }
+
+    foreach ($overflowRoute in @($RunReport.run_budget.overflow_route_details)) {
+        $overflowRoute.route = Get-NormalizedPrimaryRouteIdentity -Value ([string]$overflowRoute.route) -BaseUrl $BaseUrl
+    }
+
+    foreach ($manifestPage in @($VisualManifest.pages)) {
+        $manifestPage.route = Get-NormalizedPrimaryRouteIdentity -Value ([string]$manifestPage.route) -BaseUrl $BaseUrl
+    }
+
+    foreach ($summaryRoute in @($RoutesSummary.routes)) {
+        $summaryRoute.normalized_route = Get-NormalizedPrimaryRouteIdentity -Value ([string]$summaryRoute.normalized_route) -BaseUrl $BaseUrl
+    }
+}
+
 function Test-RouteContract {
     param(
         [Parameter(Mandatory = $true)]
@@ -2986,6 +3063,7 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
             if_missing_artifact = 'Request exact missing file; do not proceed'
         }
         $report.trust_boundary.decision_allowed = [bool]$report.decision_allowed
+        Normalize-PrimaryRouteContractFields -RunReport $report -RoutesSummary $routesSummary -VisualManifest $visualManifest -BaseUrl $BaseUrl
         $routeContractResult = Test-RouteContract -RunReport $report -RoutesSummary $routesSummary -VisualManifest $visualManifest
         $report.route_contract = [ordered]@{
             status = [string]$routeContractResult.status
@@ -3014,6 +3092,12 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
             $shouldFail = $true
             $errorCode = 'ROUTE_CONTRACT_BREACH'
             $errorMessage = 'Primary route fields must use canonical path-only route identities.'
+            if ($null -ne $finalActionSummary) {
+                $finalActionSummary.status = 'FAIL'
+                $finalActionSummary.reason = 'run_failed_route_contract_breach'
+                Write-JsonFile -Path $actionSummaryPath -Data $finalActionSummary
+                Copy-Item -LiteralPath $actionSummaryPath -Destination $deterministicActionSummaryPath -Force
+            }
         }
         $reportLayerMarker = 'REPORT_LAYER: EXIT_READY'
         Write-Host $reportLayerMarker
