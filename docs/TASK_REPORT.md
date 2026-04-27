@@ -1,31 +1,26 @@
 ## Summary
-Implemented a stable artifact packing contract for `SITE_AUDITOR_V2` output enumeration so failure runs still include core evidence and visual outputs. Added explicit stable-file inclusion (`RUN_REPORT.json` if present, `failure_summary.json`, `AGENT_FAILURE_REPORT.txt`, `visual_manifest.json`, `ACTION_REPORT.txt`) and stable-folder inclusion (`screenshots/**`, `summaries/**`) on top of existing scoped artifact collection.
+Root cause: fail-safe RUN_REPORT emission was coupled to REPORT_LAYER object serialization, so when REPORT_LAYER produced incompatible object shapes (e.g., "Argument types do not match"), `failure_summary.json` could still be written but `RUN_REPORT.json` could be skipped.
+
+Implemented a dedicated fail-output contract module (`Write-MinimalFailRunReport`) and wired it in the top-level fail path after the failure-summary attempt. This keeps `agent.ps1` as orchestrator while isolating fail-output logic in a bounded module.
 
 ## Changed files
 - agents/site_auditor_v2/agent.ps1
+- agents/site_auditor_v2/lib/fail_output.ps1
+- agents/site_auditor_v2/ARCHITECTURE.md
 - docs/TASK_REPORT.md
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- Entrypoint: `agents/site_auditor_v2/agent.ps1`
-- Artifact scope source: `$OutputDir` with restricted collection in:
-  - `$OutputDir/captures`
-  - `$OutputDir/summaries`
-  - `$OutputDir/logs`
-  - root-level `$OutputDir` files limited to `.json`, `.txt`, `.png`
-  - always-include files when present:
-    - `RUN_REPORT.json`
-    - `failure_summary.json`
-    - `AGENT_FAILURE_REPORT.txt`
-    - `visual_manifest.json`
-    - `ACTION_REPORT.txt`
-  - always-include folders when present:
-    - `screenshots/**`
-    - `summaries/**`
-- `produced_artifacts` paths remain relative to `$OutputDir`, and now include stable visual/failure artifacts even when not surfaced by previous folder-only enumeration.
+- Entrypoint/orchestrator: `agents/site_auditor_v2/agent.ps1`
+- Fail-output module: `agents/site_auditor_v2/lib/fail_output.ps1`
+- Architecture memory guard: `agents/site_auditor_v2/ARCHITECTURE.md`
+- Failure artifacts written in fail mode:
+  - `<run output root>/failure_summary.json`
+  - `<run output root>/RUN_REPORT.json` (minimal fail contract)
+  - `<run output root>/AGENT_FAILURE_REPORT.txt`
 
 ## Risks/blockers
-- End-to-end CI artifact ZIP validation was not executed in this local environment.
-- If future mandatory artifacts are added outside the explicit stable file/folder lists, contract lists must be updated to keep ZIP contents complete.
+- Validation executed via static parser checks and targeted fail-path contract review, not a full end-to-end live LINK capture in this environment.
+- No workflow/capture/route/recon code paths were modified.

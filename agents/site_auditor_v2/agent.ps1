@@ -28,6 +28,7 @@ if ($PSVersionTable.PSVersion.Major -lt 6) {
 . "$PSScriptRoot/modules/stage_route_keys.ps1"
 . "$PSScriptRoot/modules/stage_capture_reconciliation.ps1"
 . "$PSScriptRoot/modules/self_build_protocol.ps1"
+. (Join-Path $PSScriptRoot 'lib/fail_output.ps1')
 
 function Get-OwnershipMode {
     return 'EXTERNAL'
@@ -2639,6 +2640,7 @@ if ((-not $shouldFail) -and ((-not (Test-Path -LiteralPath $humanReportRuPath)) 
 $report.produced_artifacts = Get-ProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions -StableArtifactFiles $stableArtifactFiles -StableArtifactFolders $stableArtifactFolders
 
 if ($shouldFail) {
+    $minimalFailRunReportWriteFailed = $false
     $failurePhaseValue = if ([string]::IsNullOrWhiteSpace([string]$failurePhase)) { 'UNKNOWN' } else { [string]$failurePhase }
     $operatorFailureNote = switch ($failurePhaseValue) {
         'ENTRY' { 'entry validation failure' }
@@ -2709,7 +2711,19 @@ if ($shouldFail) {
     if (Test-Path -LiteralPath $failurePath) {
         Copy-Item -LiteralPath $failurePath -Destination $deterministicFailurePath -Force
     }
+
+    $minimalRunReportResult = Write-MinimalFailRunReport -RootDir $outputRoot -FailPhase ([string]$failurePhaseValue) -ErrorMessage ([string]$errorMessage) -LastCompletedStage ([string]$lastCompletedStage)
+    if ([string]$minimalRunReportResult.status -ne 'ok') {
+        $minimalFailRunReportWriteFailed = $true
+    }
+    elseif (Test-Path -LiteralPath $runReportPath) {
+        Copy-Item -LiteralPath $runReportPath -Destination $deterministicRunReportPath -Force
+    }
+
     $humanFailureReport = New-AgentFailureReportText -LastCompletedStage ([string]$lastCompletedStage) -CurrentFailureStage ([string]$failurePhaseValue) -FailureClass ([string]$failureClass) -RawError ([string]$errorMessage) -LikelyRootCause ([string]$operatorFailureNote) -FirstFixStep ([string]$report.next_step)
+    if ($minimalFailRunReportWriteFailed) {
+        $humanFailureReport = $humanFailureReport + [Environment]::NewLine + 'RUN_REPORT_WRITE_FAILED'
+    }
     [System.IO.File]::WriteAllText($agentFailureReportPath, $humanFailureReport + [Environment]::NewLine, (New-SafeUtf8NoBom))
     Copy-Item -LiteralPath $agentFailureReportPath -Destination $deterministicAgentFailureReportPath -Force
 
