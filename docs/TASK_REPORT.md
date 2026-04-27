@@ -1,5 +1,5 @@
 ## Summary
-Restricted `SITE_AUDITOR_V2` `produced_artifacts` to output-only files by introducing an explicit extension whitelist (`.json`, `.txt`, `.png`) and explicit allowed output folders (`captures`, `summaries`, `logs`). Replaced broad `$OutputDir` recursive collection with a scoped helper that only aggregates files from those output zones plus allowed root-level output files.
+Implemented a stable artifact packing contract for `SITE_AUDITOR_V2` output enumeration so failure runs still include core evidence and visual outputs. Added explicit stable-file inclusion (`RUN_REPORT.json` if present, `failure_summary.json`, `AGENT_FAILURE_REPORT.txt`, `visual_manifest.json`, `ACTION_REPORT.txt`) and stable-folder inclusion (`screenshots/**`, `summaries/**`) on top of existing scoped artifact collection.
 
 ## Changed files
 - agents/site_auditor_v2/agent.ps1
@@ -15,8 +15,17 @@ Restricted `SITE_AUDITOR_V2` `produced_artifacts` to output-only files by introd
   - `$OutputDir/summaries`
   - `$OutputDir/logs`
   - root-level `$OutputDir` files limited to `.json`, `.txt`, `.png`
-- `produced_artifacts` paths remain relative to `$OutputDir`.
+  - always-include files when present:
+    - `RUN_REPORT.json`
+    - `failure_summary.json`
+    - `AGENT_FAILURE_REPORT.txt`
+    - `visual_manifest.json`
+    - `ACTION_REPORT.txt`
+  - always-include folders when present:
+    - `screenshots/**`
+    - `summaries/**`
+- `produced_artifacts` paths remain relative to `$OutputDir`, and now include stable visual/failure artifacts even when not surfaced by previous folder-only enumeration.
 
 ## Risks/blockers
-- End-to-end artifact upload validation was not executed in this local environment.
-- If future required output files use extensions outside the whitelist, they will be excluded until the whitelist is updated.
+- End-to-end CI artifact ZIP validation was not executed in this local environment.
+- If future mandatory artifacts are added outside the explicit stable file/folder lists, contract lists must be updated to keep ZIP contents complete.

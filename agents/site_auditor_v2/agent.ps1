@@ -805,6 +805,19 @@ $allowedFolders = @(
     'logs'
 )
 
+$stableArtifactFiles = @(
+    'RUN_REPORT.json',
+    'failure_summary.json',
+    'AGENT_FAILURE_REPORT.txt',
+    'visual_manifest.json',
+    'ACTION_REPORT.txt'
+)
+
+$stableArtifactFolders = @(
+    'screenshots',
+    'summaries'
+)
+
 function Get-ProducedArtifacts {
     param(
         [Parameter(Mandatory = $true)]
@@ -812,7 +825,11 @@ function Get-ProducedArtifacts {
         [Parameter(Mandatory = $true)]
         [string[]]$AllowedFolders,
         [Parameter(Mandatory = $true)]
-        [string[]]$AllowedExtensions
+        [string[]]$AllowedExtensions,
+        [Parameter(Mandatory = $true)]
+        [string[]]$StableArtifactFiles,
+        [Parameter(Mandatory = $true)]
+        [string[]]$StableArtifactFolders
     )
 
     $artifactFiles = @()
@@ -828,6 +845,20 @@ function Get-ProducedArtifacts {
         Where-Object { $_.Extension -in $AllowedExtensions }
 
     $artifactFiles += $rootFiles
+
+    foreach ($stableFile in $StableArtifactFiles) {
+        $stablePath = Join-Path $OutputDir $stableFile
+        if (Test-Path -LiteralPath $stablePath -PathType Leaf) {
+            $artifactFiles += Get-Item -LiteralPath $stablePath
+        }
+    }
+
+    foreach ($stableFolder in $StableArtifactFolders) {
+        $stableFolderPath = Join-Path $OutputDir $stableFolder
+        if (Test-Path -LiteralPath $stableFolderPath -PathType Container) {
+            $artifactFiles += Get-ChildItem -LiteralPath $stableFolderPath -File -Recurse
+        }
+    }
 
     return @(
         $artifactFiles | ForEach-Object {
@@ -1104,7 +1135,7 @@ if ($shouldFail) {
         failure_class = [string]$failureClass
         notes = @($errorMessage)
     }
-    $report.produced_artifacts = Get-ProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions
+    $report.produced_artifacts = Get-ProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions -StableArtifactFiles $stableArtifactFiles -StableArtifactFolders $stableArtifactFolders
     $report.linked_artifacts = @(
         [ordered]@{ name = 'run_report'; path = $runReportPath },
         [ordered]@{ name = 'failure_summary'; path = $failurePath }
@@ -2470,7 +2501,7 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
         }
         $reportLayerMarker = 'REPORT_LAYER: EXIT_READY'
         Write-Host $reportLayerMarker
-        $report.produced_artifacts = Get-ProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions
+        $report.produced_artifacts = Get-ProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions -StableArtifactFiles $stableArtifactFiles -StableArtifactFolders $stableArtifactFolders
     }
     catch {
         $shouldFail = $true
@@ -2531,7 +2562,7 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
             current_failure_stage = [string]$failurePhaseValue
             notes = @("phase=$failurePhaseValue", "last_completed_stage=$lastCompletedStage", $operatorFailureNote, $errorMessage)
         }
-        $report.produced_artifacts = Get-ProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions
+        $report.produced_artifacts = Get-ProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions -StableArtifactFiles $stableArtifactFiles -StableArtifactFolders $stableArtifactFolders
         $report.linked_artifacts = @(
             [ordered]@{ name = 'run_report'; path = $runReportPath },
             [ordered]@{ name = 'failure_summary'; path = $failurePath }
@@ -2605,7 +2636,7 @@ if ((-not $shouldFail) -and ((-not (Test-Path -LiteralPath $humanReportRuPath)) 
     Copy-Item -LiteralPath $humanReportRuPath -Destination $deterministicHumanReportRuPath -Force
     Copy-Item -LiteralPath $humanReportEnPath -Destination $deterministicHumanReportEnPath -Force
 }
-$report.produced_artifacts = Get-ProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions
+$report.produced_artifacts = Get-ProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions -StableArtifactFiles $stableArtifactFiles -StableArtifactFolders $stableArtifactFolders
 
 if ($shouldFail) {
     $failurePhaseValue = if ([string]::IsNullOrWhiteSpace([string]$failurePhase)) { 'UNKNOWN' } else { [string]$failurePhase }
@@ -2688,7 +2719,7 @@ if ($shouldFail) {
 
     $report.self_build_protocol.build_ladder = Get-BuildLadderContract -HasTruthfulFailure $true -HasSelfDiagnostic $true -HasOperatorHandoff $true
     $report.self_build_protocol.feature_progress_allowed = [bool]$report.self_build_protocol.build_ladder.feature_progress_allowed
-    $report.produced_artifacts = Get-ProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions
+    $report.produced_artifacts = Get-ProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions -StableArtifactFiles $stableArtifactFiles -StableArtifactFolders $stableArtifactFolders
     $report.linked_artifacts = @(
         [ordered]@{ name = 'run_report'; path = $runReportPath },
         [ordered]@{ name = 'failure_summary'; path = $failurePath }
