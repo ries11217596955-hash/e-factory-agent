@@ -1,5 +1,5 @@
 ## Summary
-Aligned `RUN_REPORT.produced_artifacts` with files that actually exist on disk for `site_auditor_v2` by replacing hardcoded artifact additions with existence-checked additions and by sourcing final `produced_artifacts` values from the output filesystem snapshot.
+Fixed the SITE_AUDITOR_V2 startup blocker where `Add-ProducedArtifactIfExists` rejected an empty `List[string]` passed to its `ProducedArtifacts` parameter before any output files existed.
 
 ## Changed files
 - agents/site_auditor_v2/agent.ps1
@@ -9,10 +9,9 @@ Aligned `RUN_REPORT.produced_artifacts` with files that actually exist on disk f
 - None.
 
 ## Current entrypoints/paths
-- Entrypoint unchanged: `agents/site_auditor_v2/agent.ps1`
-- Artifact contract field affected: `RUN_REPORT.json -> produced_artifacts`
-- Output root used for artifact discovery: `agents/site_auditor_v2/output/<run_id>/`
+- Primary entrypoint: `agents/site_auditor_v2/agent.ps1`
+- Fixed helper: `Add-ProducedArtifactIfExists`
 
 ## Risks/blockers
-- End-to-end workflow execution was not run in this environment, so CI/workflow bundle-step confirmation remains for operator verification.
-- `produced_artifacts` now reflects only files present under the output directory tree at serialization time; if future steps expect undeclared/virtual artifacts, they will need explicit file writes first.
+- Runtime execution was not performed in this environment; operator validation is required.
+- Fix is intentionally constrained to parameter binding only; no route, RECON, report, output, workflow, or schema semantics were changed.

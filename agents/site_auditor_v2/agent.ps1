@@ -794,13 +794,19 @@ $deterministicScreenshotsPath = Join-Path $PSScriptRoot 'screenshots'
 
 function Add-ProducedArtifactIfExists {
     param(
-        [Parameter(Mandatory = $true)]
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [AllowEmptyCollection()]
         [System.Collections.Generic.List[string]]$ProducedArtifacts,
         [Parameter(Mandatory = $true)]
         [string]$OutputDir,
         [Parameter(Mandatory = $true)]
         [string]$RelativeName
     )
+
+    if ($null -eq $ProducedArtifacts) {
+        $ProducedArtifacts = New-Object System.Collections.Generic.List[string]
+    }
 
     $artifactPath = Join-Path $OutputDir $RelativeName
     if (Test-Path -LiteralPath $artifactPath) {
