@@ -344,6 +344,30 @@ function New-HumanReportPayloads {
     }
 }
 
+function Set-OperatorMemoryBridgeStatusDetail {
+    param(
+        [Parameter(Mandatory = $true)][object]$Report
+    )
+
+    if ($null -eq $Report.operator_memory_bridge) {
+        $Report | Add-Member -NotePropertyName operator_memory_bridge -NotePropertyValue ([ordered]@{}) -Force
+    }
+
+    $runStatus = [string]$Report.status
+    $auditConfidence = [string]$Report.audit_confidence
+    $statusDetail = if ($runStatus -eq 'FAIL') {
+        'FAIL'
+    }
+    elseif ($runStatus -eq 'PASS') {
+        if ($auditConfidence -eq 'LOW') { 'PASS_WITH_LIMITS' } else { 'PASS' }
+    }
+    else {
+        'FAIL'
+    }
+
+    $Report.operator_memory_bridge | Add-Member -NotePropertyName status_detail -NotePropertyValue $statusDetail -Force
+}
+
 function Test-ReportConsistencyLock {
     param(
         [Parameter(Mandatory = $true)][object]$Report,
@@ -354,6 +378,8 @@ function Test-ReportConsistencyLock {
         [Parameter(Mandatory = $true)][int]$DefectCount,
         [Parameter(Mandatory = $true)][int]$LimitationCount
     )
+
+    Set-OperatorMemoryBridgeStatusDetail -Report $Report
 
     $firstActionSummaryAction = Get-FirstOrNull -Collection @($FinalActionSummary.actions)
     $firstRuActionLine = Get-FirstOrNull -Collection @($ReportPayloadRu.actions_lines)
