@@ -196,7 +196,8 @@
         "state_anchor",
         "learning_anchor",
         "must_read_contract",
-        "next_operator_posture"
+        "next_operator_posture",
+        "self_explanation"
       ],
       "properties": {
         "identity_anchor": {
@@ -250,6 +251,35 @@
             "recommended_tool": { "type": "string" },
             "forbidden_drifts": { "type": "array", "items": { "type": "string" } },
             "do_not_do_yet": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "self_explanation": {
+          "type": "object",
+          "required": ["what_this_agent_is", "what_happened_in_this_run", "system_map_minimal", "next_step_one_only", "forbidden"],
+          "properties": {
+            "what_this_agent_is": {
+              "type": "object",
+              "required": ["universal_audit_engine", "current_mode", "run_scope"],
+              "properties": {
+                "universal_audit_engine": { "type": "string" },
+                "current_mode": { "type": "string" },
+                "run_scope": { "type": "array", "items": { "type": "string" } }
+              }
+            },
+            "what_happened_in_this_run": {
+              "type": "object",
+              "required": ["status", "status_meaning_plain", "confidence", "why_confidence", "checked_vs_not_checked"],
+              "properties": {
+                "status": { "type": "string" },
+                "status_meaning_plain": { "type": "string" },
+                "confidence": { "type": "string" },
+                "why_confidence": { "type": "string" },
+                "checked_vs_not_checked": { "type": "array", "items": { "type": "string" } }
+              }
+            },
+            "system_map_minimal": { "type": "array", "items": { "type": "string" } },
+            "next_step_one_only": { "type": "string" },
+            "forbidden": { "type": "array", "items": { "type": "string" } }
           }
         }
       }
