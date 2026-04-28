@@ -116,7 +116,7 @@ function Get-VisualTargets {
         [string]$BaseUrl,
         [Parameter(Mandatory = $true)]
         [object]$RoutesSummary,
-        [int]$MaxPages = 5
+        [int]$MaxPages = 18
     )
 
     $selected = New-Object System.Collections.Generic.List[object]

@@ -1157,7 +1157,7 @@ function Get-EffectiveFailureClass {
 }
 
 $normalizedMode = $Mode.Trim().ToUpperInvariant()
-$maxRoutes = 5
+$maxRoutes = 18
 $timestamp = Get-IsoUtcNow
 $originalBaseUrlInput = [string]$BaseUrl
 $canonicalBaseUrlResult = Resolve-CanonicalBaseUrl -BaseUrl $originalBaseUrlInput
@@ -1680,7 +1680,7 @@ else {
         $failurePhase = 'ROUTE_EXTRACTION'
         $currentFailureStage = $failurePhase
         Write-BootstrapStageTrace -Stage 'ROUTE_EXTRACTION'
-        $routeExtraction = Get-ShallowRoutes -RootUrl $BaseUrl -MaxRoutes 10
+        $routeExtraction = Get-ShallowRoutes -RootUrl $BaseUrl -MaxRoutes 30
         $routesSummaryPayload = [ordered]@{}
         if ($routeExtraction -is [System.Collections.IDictionary]) {
             foreach ($routeExtractionKey in @($routeExtraction.Keys)) {
