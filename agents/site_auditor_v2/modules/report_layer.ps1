@@ -209,14 +209,38 @@ function New-ActionSummaryFromDecision {
         [Parameter(Mandatory = $true)][string]$AuditConfidence
     )
 
+    $effectiveDefectCount = [Math]::Max([int]$DefectCount, [int]@($SortedFindings).Count)
+    $effectiveIssueType = if ($effectiveDefectCount -gt 0) { 'DEFECT' } elseif ($LimitationCount -gt 0) { 'LIMITATION' } else { [string]$DecisionIssueType }
+
+    $defaultBrokenRouteAction = $null
+    if ($effectiveDefectCount -gt 0) {
+        $primaryBrokenRouteFinding = Get-FirstOrNull -Collection @($SortedFindings | Where-Object { [string]$_.issue_type -eq 'BROKEN_ROUTE' } | Select-Object -First 1)
+        if ($null -ne $primaryBrokenRouteFinding) {
+            $defaultBrokenRouteAction = if (-not [string]::IsNullOrWhiteSpace([string]$primaryBrokenRouteFinding.recommended_action)) {
+                [string]$primaryBrokenRouteFinding.recommended_action
+            }
+            else {
+                "Investigate and repair broken routes first (example: $([string]$primaryBrokenRouteFinding.route))."
+            }
+        }
+    }
+
+    $primaryAction = [string]$DecisionSummary.recommended_action
+    if ($effectiveIssueType -eq 'DEFECT' -and [string]::IsNullOrWhiteSpace($primaryAction)) {
+        $primaryAction = if (-not [string]::IsNullOrWhiteSpace($defaultBrokenRouteAction)) { [string]$defaultBrokenRouteAction } else { 'Investigate and repair broken routes first.' }
+    }
+    if ($effectiveIssueType -eq 'DEFECT' -and $primaryAction -match '(?i)expand route sample') {
+        $primaryAction = if (-not [string]::IsNullOrWhiteSpace($defaultBrokenRouteAction)) { [string]$defaultBrokenRouteAction } else { 'Investigate and repair broken routes first.' }
+    }
+
     $actions = New-Object System.Collections.Generic.List[object]
     $null = $actions.Add([ordered]@{
-            action = [string]$DecisionSummary.recommended_action
+            action = [string]$primaryAction
             why = [string]$DecisionSummary.reasoning
             priority = [string]$DecisionSummary.priority
         })
 
-    if ($actions.Count -lt 3 -and $DecisionIssueType -eq 'DEFECT' -and @($SortedFindings).Count -gt 1) {
+    if ($actions.Count -lt 3 -and $effectiveIssueType -eq 'DEFECT' -and @($SortedFindings).Count -gt 1) {
         foreach ($finding in @($SortedFindings | Select-Object -Skip 1)) {
             if ($actions.Count -ge 3) { break }
             $null = $actions.Add([ordered]@{
@@ -226,7 +250,7 @@ function New-ActionSummaryFromDecision {
                 })
         }
     }
-    elseif ($actions.Count -lt 3 -and $DecisionIssueType -eq 'LIMITATION' -and @($SortedLimitationFindings).Count -gt 1) {
+    elseif ($actions.Count -lt 3 -and $effectiveIssueType -eq 'LIMITATION' -and @($SortedLimitationFindings).Count -gt 1) {
         foreach ($limitation in @($SortedLimitationFindings | Select-Object -Skip 1)) {
             if ($actions.Count -ge 3) { break }
             $null = $actions.Add([ordered]@{
@@ -236,7 +260,7 @@ function New-ActionSummaryFromDecision {
                 })
         }
     }
-    elseif ($actions.Count -lt 3 -and $DecisionIssueType -eq 'CLEAN' -and [string]$AuditConfidence -ne 'HIGH') {
+    elseif ($actions.Count -lt 3 -and $effectiveIssueType -eq 'CLEAN' -and [string]$AuditConfidence -ne 'HIGH') {
         $null = $actions.Add([ordered]@{
                 action = 'Expand route sample and rerun LINK mode for broader coverage.'
                 why = 'Current checked scope may not represent full site behavior.'
@@ -245,11 +269,11 @@ function New-ActionSummaryFromDecision {
     }
 
     return [ordered]@{
-        status = if ($DefectCount -gt 0) { 'FINDINGS_PRESENT' } elseif ($LimitationCount -gt 0) { 'LIMITATION_ONLY' } else { 'CLEAN' }
-        finding_count = [int]$DefectCount
+        status = if ($effectiveDefectCount -gt 0) { 'FINDINGS_PRESENT' } elseif ($LimitationCount -gt 0) { 'LIMITATION_ONLY' } else { 'CLEAN' }
+        finding_count = [int]$effectiveDefectCount
         limitation_count = [int]$LimitationCount
         actions = @($actions.ToArray())
-        reason = if ($DefectCount -gt 0) { 'deterministic_findings_generated_from_link_truth_artifacts' } elseif ($LimitationCount -gt 0) { 'audit_limited_by_route_sampling_budget' } else { 'no_material_findings_in_sampled_scope' }
+        reason = if ($effectiveDefectCount -gt 0) { 'deterministic_findings_generated_from_link_truth_artifacts' } elseif ($LimitationCount -gt 0) { 'audit_limited_by_route_sampling_budget' } else { 'no_material_findings_in_sampled_scope' }
     }
 }
 
