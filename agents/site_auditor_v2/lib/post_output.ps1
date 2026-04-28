@@ -15,8 +15,11 @@ function Invoke-PostOutput {
 
     $report = Get-Content $RunReportPath -Raw | ConvertFrom-Json
 
-    $status = if ($report.PSObject.Properties['status_label'] -and -not [string]::IsNullOrWhiteSpace([string]$report.status_label)) { [string]$report.status_label } else { [string]$report.status }
-    $bridge = if ($report.PSObject.Properties['operator_memory_bridge'] -and $report.operator_memory_bridge.PSObject.Properties['self_explanation']) { $report.operator_memory_bridge.self_explanation } else { [pscustomobject]@{} }
+    $statusLabel = Get-SafeProp $report 'status_label' ''
+$statusBase = Get-SafeProp $report 'status' ''
+$status = if (-not [string]::IsNullOrWhiteSpace($statusLabel)) { [string]$statusLabel } else { [string]$statusBase }
+    $omb = Get-SafeProp $report 'operator_memory_bridge' $null
+$bridge = if ($omb -and $omb.PSObject.Properties['self_explanation']) { $omb.self_explanation } else { [pscustomobject]@{} }
     $agentInfo = (Get-SafeProp $bridge 'what_this_agent_is' '')
     $runInfo = (Get-SafeProp $bridge 'what_happened_in_this_run' '')
     $systemMap = @((Get-SafeProp $bridge 'system_map_minimal' ''))
@@ -189,4 +192,12 @@ function Invoke-PostOutput {
 
     $en | Out-File (Join-Path $OutputDir "REPORT_EN.txt") -Encoding UTF8
     $ru | Out-File (Join-Path $OutputDir "REPORT_RU.txt") -Encoding UTF8
+
+# --- CI CONTRACT EXPORT ---
+$rootDir = "agents/site_auditor_v2"
+Copy-Item (Join-Path $OutputDir "REPORT_EN.txt") (Join-Path $rootDir "REPORT_EN.txt") -Force
+Copy-Item (Join-Path $OutputDir "REPORT_RU.txt") (Join-Path $rootDir "REPORT_RU.txt") -Force
+Write-Host "POST_OUTPUT: ROOT_REPORT_EXPORT_DONE"
+# --- END ---
+
 }
