@@ -1,8 +1,9 @@
 ## Summary
-- Patched `SITE_AUDITOR_V2` artifact contract handling so final `produced_artifacts` is now deterministically merged before each final `RUN_REPORT` write, guaranteeing `RUN_REPORT.json` declaration even when file scanning happens before final write.
-- Enforced stable required artifact declarations in final `produced_artifacts`: `RUN_REPORT.json`, `ACTION_REPORT.txt`, `ACTION_SUMMARY.json`, `AUDIT_SUMMARY.json`, `LINK_SUMMARY.json`, and `ROUTES_SUMMARY.json`.
-- Added conditional inclusion logic to final `produced_artifacts` for `visual_manifest.json` (when present), `screenshots/*` (when present), and `failure_summary.json` (when `status=FAIL` or file exists).
-- Kept changes scoped to artifact list construction only; no workflow, route/report decision logic, or audit findings logic changes.
+- Hardened low-confidence PASS semantics in `SITE_AUDITOR_V2` so completed runs can still be `PASS` while being explicitly labeled `PASS_WITH_LIMITATIONS` via `status_label` when `audit_confidence=LOW`.
+- Added explicit `confidence_reason`, `next_verification_step`, and `forbidden_next_steps` fields to `RUN_REPORT` output.
+- Propagated the same limitation context into `ACTION_SUMMARY` (`status_label`, `confidence_reason`, `next_verification_step`, `forbidden_next_steps`) so action output cannot imply strong success.
+- Updated generated human text report status display to prefer `status_label` and include confidence reason + next verification step.
+- Kept scope minimal: no refactor, no capture logic changes, no route extraction changes, no workflow edits.
 
 ## Changed files
 - agents/site_auditor_v2/agent.ps1
@@ -13,8 +14,8 @@
 
 ## Current entrypoints/paths
 - Primary orchestrator entrypoint: `agents/site_auditor_v2/agent.ps1`
-- Artifact contract finalization path: `Get-FinalProducedArtifacts` and all final `$report.produced_artifacts` assignments before `Write-RunReportBounded`
+- Report output paths impacted: `RUN_REPORT.json`, `ACTION_SUMMARY.json`, `REPORT_EN.txt`, `REPORT_RU.txt`
 - Task report: `docs/TASK_REPORT.md`
 
 ## Risks/blockers
-- Could not execute end-to-end run/package validation in this container because `pwsh` is unavailable, so GitHub Actions regression confirmation and output ZIP content confirmation must be validated in CI/runtime.
+- Could not execute end-to-end validation in this container because `pwsh` runtime is unavailable; behavior should be verified in CI/runtime by generating fresh artifacts.
