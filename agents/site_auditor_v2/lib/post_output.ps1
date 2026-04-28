@@ -28,8 +28,38 @@ function Invoke-PostOutput {
     $limitedLayers = ($systemMap | Where-Object { $_ -match '(?i)limit|limited' })
     $executedLine = if ($executedLayers.Count -gt 0) { ($executedLayers -join '; ') } else { 'Execution layers were not explicitly listed.' }
     $limitedLine = if ($limitedLayers.Count -gt 0) { ($limitedLayers -join '; ') } else { [string]$runInfo.why_confidence }
+    $routesCount = [int]@($report.selected_routes).Count
+    $screenshotsCount = if ($report.capture_report -and $report.capture_report.PSObject.Properties['captures_success']) { [int]$report.capture_report.captures_success } else { 0 }
+    $layersExecutedCount = [int]@($executedLayers).Count
+    $statusPlain = [string]$runInfo.status_meaning_plain
+    if ([string]::IsNullOrWhiteSpace($statusPlain)) { $statusPlain = 'No plain status explanation was provided.' }
+    $limitationLine = if ([string]$runInfo.confidence -eq 'LOW') { [string]$runInfo.why_confidence } else { 'none (confidence is not LOW in this run).' }
+    $forbiddenTop = @($forbidden | Select-Object -First 3)
+    if ($forbiddenTop.Count -lt 2) {
+        $forbiddenTop += @('do not refactor', 'do not add features', 'do not assume full audit')
+        $forbiddenTop = @($forbiddenTop | Select-Object -Unique | Select-Object -First 3)
+    }
+    $systemLine = [string]$agentInfo.universal_audit_engine
+    if ([string]::IsNullOrWhiteSpace($systemLine)) { $systemLine = 'SITE_AUDITOR_V2 runs bounded LINK evidence checks and outputs operator handoff artifacts.' }
 
     $en = @(
+        '=== OPERATOR CONTROL ===',
+        'STATUS:',
+        ("$status - $statusPlain"),
+        'WHAT WAS ACTUALLY CHECKED:',
+        ("- routes count: $routesCount"),
+        ("- screenshots count: $screenshotsCount"),
+        ("- layers executed: $layersExecutedCount"),
+        'LIMITATION:',
+        ("- $limitationLine"),
+        'NEXT STEP:',
+        ("- $nextStep"),
+        'DO NOT:',
+        ("- " + ($forbiddenTop -join '; ')),
+        'SYSTEM:',
+        ("- $systemLine"),
+        '========================',
+        '',
         "SITE STATUS: $status",
         '',
         '1. WHAT THIS RUN MEANS',
@@ -79,6 +109,23 @@ function Invoke-PostOutput {
     foreach ($line in $systemMap) { $en += "- $line" }
 
     $ru = @(
+        '=== OPERATOR CONTROL ===',
+        'STATUS:',
+        ("$status - $statusPlain"),
+        'WHAT WAS ACTUALLY CHECKED:',
+        ("- routes count: $routesCount"),
+        ("- screenshots count: $screenshotsCount"),
+        ("- layers executed: $layersExecutedCount"),
+        'LIMITATION:',
+        ("- $limitationLine"),
+        'NEXT STEP:',
+        ("- $nextStep"),
+        'DO NOT:',
+        ("- " + ($forbiddenTop -join '; ')),
+        'SYSTEM:',
+        ("- $systemLine"),
+        '========================',
+        '',
         "СТАТУС САЙТА: $status",
         '',
         '1. WHAT THIS RUN MEANS',
