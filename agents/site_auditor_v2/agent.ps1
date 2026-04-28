@@ -3092,10 +3092,10 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
             -AuditConfidence ([string]$report.audit_confidence)
         $finalActionSummary = Convert-RunReportValue -Value $finalActionSummary -VisitedReferences (New-Object 'System.Collections.Generic.HashSet[int]')
         $lowConfidencePass = ([string]$report.status -eq 'PASS' -and [string]$report.audit_confidence -eq 'LOW')
-        $report.status_label = if ($lowConfidencePass) { 'PASS_WITH_LIMITATIONS' } else { [string]$report.status }
+        $report.status_label = if ($lowConfidencePass) { 'PASS_WITH_LIMITS' } else { [string]$report.status }
         if ($lowConfidencePass) {
-            $report.execution_report.status_detail = 'PASS_WITH_LIMITATIONS'
-            $report.summary = 'Run completed with limitations: PASS_WITH_LIMITATIONS (LOW confidence).'
+            $report.execution_report.status_detail = 'PASS_WITH_LIMITS'
+            $report.summary = 'Run completed with limitations: PASS_WITH_LIMITS (LOW confidence).'
         }
         $finalActionSummary.status_label = [string]$report.status_label
         $finalActionSummary.confidence_reason = [string]$report.confidence_reason
