@@ -3064,6 +3064,10 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
         }
         $report.trust_boundary.decision_allowed = [bool]$report.decision_allowed
         Normalize-PrimaryRouteContractFields -RunReport $report -RoutesSummary $routesSummary -VisualManifest $visualManifest -BaseUrl $BaseUrl
+        Write-JsonFile -Path $routesSummaryPath -Data $routesSummary
+        Copy-Item -LiteralPath $routesSummaryPath -Destination $deterministicRoutesSummaryPath -Force
+        Write-JsonFile -Path $visualManifestPath -Data $visualManifest
+        Copy-Item -LiteralPath $visualManifestPath -Destination $deterministicVisualManifestPath -Force
         $routeContractResult = Test-RouteContract -RunReport $report -RoutesSummary $routesSummary -VisualManifest $visualManifest
         $report.route_contract = [ordered]@{
             status = [string]$routeContractResult.status
