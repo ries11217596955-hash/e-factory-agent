@@ -206,10 +206,17 @@ function New-ActionSummaryFromDecision {
         [Parameter(Mandatory = $true)][object]$SortedLimitationFindings,
         [Parameter(Mandatory = $true)][int]$DefectCount,
         [Parameter(Mandatory = $true)][int]$LimitationCount,
-        [Parameter(Mandatory = $true)][string]$AuditConfidence
+        [Parameter(Mandatory = $true)][string]$AuditConfidence,
+        [Parameter(Mandatory = $false)][int]$AuditBrokenRouteCount = -1,
+        [Parameter(Mandatory = $false)][string]$RunStatus = '',
+        [Parameter(Mandatory = $false)][string]$RunStatusLabel = ''
     )
 
-    $effectiveDefectCount = [Math]::Max([int]$DefectCount, [int]@($SortedFindings).Count)
+    $truthBrokenRouteCount = if ($AuditBrokenRouteCount -ge 0) { [int]$AuditBrokenRouteCount } else { [int]$DefectCount }
+    $effectiveDefectCount = [Math]::Max([int]$truthBrokenRouteCount, [int]$DefectCount, [int]@($SortedFindings).Count)
+    $normalizedRunStatus = [string]$RunStatus
+    $normalizedRunStatusLabel = if (-not [string]::IsNullOrWhiteSpace([string]$RunStatusLabel)) { [string]$RunStatusLabel } else { [string]$normalizedRunStatus }
+    $runFailed = @([string]$normalizedRunStatus, [string]$normalizedRunStatusLabel) -contains 'FAIL'
     $effectiveIssueType = if ($effectiveDefectCount -gt 0) { 'DEFECT' } elseif ($LimitationCount -gt 0) { 'LIMITATION' } else { [string]$DecisionIssueType }
 
     $defaultBrokenRouteAction = $null
@@ -226,7 +233,10 @@ function New-ActionSummaryFromDecision {
     }
 
     $primaryAction = [string]$DecisionSummary.recommended_action
-    if ($effectiveIssueType -eq 'DEFECT' -and [string]::IsNullOrWhiteSpace($primaryAction)) {
+    if ($effectiveDefectCount -gt 0) {
+        $primaryAction = if (-not [string]::IsNullOrWhiteSpace($defaultBrokenRouteAction)) { [string]$defaultBrokenRouteAction } else { 'Investigate and repair broken routes first.' }
+    }
+    elseif ($effectiveIssueType -eq 'DEFECT' -and [string]::IsNullOrWhiteSpace($primaryAction)) {
         $primaryAction = if (-not [string]::IsNullOrWhiteSpace($defaultBrokenRouteAction)) { [string]$defaultBrokenRouteAction } else { 'Investigate and repair broken routes first.' }
     }
     if ($effectiveIssueType -eq 'DEFECT' -and $primaryAction -match '(?i)expand route sample') {
@@ -268,12 +278,17 @@ function New-ActionSummaryFromDecision {
             })
     }
 
+    $finalStatus = if ($effectiveDefectCount -gt 0) { 'DEFECT' } elseif ($runFailed) { 'FAIL' } elseif ($LimitationCount -gt 0) { 'LIMITATION_ONLY' } else { 'CLEAN' }
+    $finalStatusLabel = if ($runFailed) { 'FAIL' } else { [string]$finalStatus }
+
     return [ordered]@{
-        status = if ($effectiveDefectCount -gt 0) { 'FINDINGS_PRESENT' } elseif ($LimitationCount -gt 0) { 'LIMITATION_ONLY' } else { 'CLEAN' }
+        status = [string]$finalStatus
+        status_label = [string]$finalStatusLabel
         finding_count = [int]$effectiveDefectCount
+        broken_route_count = [int]$effectiveDefectCount
         limitation_count = [int]$LimitationCount
         actions = @($actions.ToArray())
-        reason = if ($effectiveDefectCount -gt 0) { 'deterministic_findings_generated_from_link_truth_artifacts' } elseif ($LimitationCount -gt 0) { 'audit_limited_by_route_sampling_budget' } else { 'no_material_findings_in_sampled_scope' }
+        reason = if ($effectiveDefectCount -gt 0) { 'deterministic_findings_generated_from_link_truth_artifacts' } elseif ($runFailed) { 'run_failed_summary_locked_to_failure_status' } elseif ($LimitationCount -gt 0) { 'audit_limited_by_route_sampling_budget' } else { 'no_material_findings_in_sampled_scope' }
     }
 }
 
@@ -467,6 +482,11 @@ function Test-ReportConsistencyLock {
     if ($DecisionIssueType -eq 'LIMITATION' -and $DefectCount -gt 0) { throw 'CONSISTENCY_LOCK_FAILED: limitation classified despite defect findings.' }
     if ($DecisionIssueType -eq 'DEFECT' -and $DefectCount -eq 0) { throw 'CONSISTENCY_LOCK_FAILED: defect classified without defect findings.' }
     if ($DecisionIssueType -eq 'CLEAN' -and ($DefectCount -gt 0 -or $LimitationCount -gt 0)) { throw 'CONSISTENCY_LOCK_FAILED: clean classified despite findings.' }
+    if ($DefectCount -gt 0 -and [string]$FinalActionSummary.status -eq 'CLEAN') { throw 'CONSISTENCY_LOCK_FAILED: broken routes cannot produce CLEAN action summary.' }
+    if ([string]$Report.status -eq 'FAIL' -and [string]$FinalActionSummary.status -eq 'CLEAN') { throw 'CONSISTENCY_LOCK_FAILED: FAIL run cannot produce CLEAN action summary.' }
+    if ($DefectCount -gt 0 -and [int]$FinalActionSummary.finding_count -lt $DefectCount) { throw 'CONSISTENCY_LOCK_FAILED: action summary finding_count is below broken route truth count.' }
+    if ($DefectCount -gt 0 -and [int]$FinalActionSummary.broken_route_count -lt $DefectCount) { throw 'CONSISTENCY_LOCK_FAILED: action summary broken_route_count is below broken route truth count.' }
+    if ([string]$Report.status -eq 'FAIL' -and [string]$FinalActionSummary.status_label -ne 'FAIL') { throw 'CONSISTENCY_LOCK_FAILED: FAIL run must produce FAIL action summary status_label.' }
     if ($DecisionIssueType -eq 'LIMITATION' -and [string]$ReportPayloadEn.main_problem -match 'defect') { throw 'CONSISTENCY_LOCK_FAILED: limitation presented as defect in EN report.' }
     if ($DecisionIssueType -eq 'LIMITATION' -and [string]$ReportPayloadRu.main_problem -match 'дефект') { throw 'CONSISTENCY_LOCK_FAILED: limitation presented as defect in RU report.' }
     if (@($ReportPayloadEn.evidence_lines).Count -gt 3 -or @($ReportPayloadRu.evidence_lines).Count -gt 3) { throw 'CONSISTENCY_LOCK_FAILED: too many supporting examples.' }
