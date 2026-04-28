@@ -213,7 +213,7 @@ function New-ActionSummaryFromDecision {
     )
 
     $truthBrokenRouteCount = if ($AuditBrokenRouteCount -ge 0) { [int]$AuditBrokenRouteCount } else { [int]$DefectCount }
-    $effectiveDefectCount = [Math]::Max([int]$truthBrokenRouteCount, [int]$DefectCount, [int]@($SortedFindings).Count)
+    $effectiveDefectCount = [Math]::Max([Math]::Max([int]$truthBrokenRouteCount, [int]$DefectCount), [int]@($SortedFindings).Count)
     $normalizedRunStatus = [string]$RunStatus
     $normalizedRunStatusLabel = if (-not [string]::IsNullOrWhiteSpace([string]$RunStatusLabel)) { [string]$RunStatusLabel } else { [string]$normalizedRunStatus }
     $runFailed = @([string]$normalizedRunStatus, [string]$normalizedRunStatusLabel) -contains 'FAIL'
