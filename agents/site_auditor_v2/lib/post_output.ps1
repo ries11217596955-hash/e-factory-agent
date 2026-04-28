@@ -1,3 +1,10 @@
+
+function Get-SafeProp {
+    param($Obj, [string]$Name, $Default)
+    if ($null -eq $Obj) { return $Default }
+    if ($Obj.PSObject.Properties[$Name]) { return $Obj.$Name }
+    return $Default
+}
 function Invoke-PostOutput {
     param(
         [string]$OutputDir,
@@ -8,15 +15,15 @@ function Invoke-PostOutput {
 
     $report = Get-Content $RunReportPath -Raw | ConvertFrom-Json
 
-    $status = if ($report.status_label) { [string]$report.status_label } else { [string]$report.status }
-    $bridge = $report.operator_memory_bridge.self_explanation
-    $agentInfo = $bridge.what_this_agent_is
-    $runInfo = $bridge.what_happened_in_this_run
-    $systemMap = @($bridge.system_map_minimal)
-    $nextStepRaw = [string]$bridge.next_step_one_only
-    $forbidden = @($bridge.forbidden)
+    $status = if ($report.PSObject.Properties['status_label'] -and -not [string]::IsNullOrWhiteSpace([string]$report.status_label)) { [string]$report.status_label } else { [string]$report.status }
+    $bridge = if ($report.PSObject.Properties['operator_memory_bridge'] -and $report.operator_memory_bridge.PSObject.Properties['self_explanation']) { $report.operator_memory_bridge.self_explanation } else { [pscustomobject]@{} }
+    $agentInfo = (Get-SafeProp $bridge 'what_this_agent_is' '')
+    $runInfo = (Get-SafeProp $bridge 'what_happened_in_this_run' '')
+    $systemMap = @((Get-SafeProp $bridge 'system_map_minimal' ''))
+    $nextStepRaw = [string](Get-SafeProp $bridge 'next_step_one_only' '')
+    $forbidden = @((Get-SafeProp $bridge 'forbidden' ''))
 
-    $checked = @($runInfo.checked_vs_not_checked)
+    $checked = @(Get-SafeProp $runInfo 'checked_vs_not_checked' @())
     $verifiedLine = ($checked | Where-Object { $_ -match '(?i)checked|verified|did' } | Select-Object -First 1)
     if (-not $verifiedLine) { $verifiedLine = ($checked | Select-Object -First 1) }
     if (-not $verifiedLine) { $verifiedLine = 'No explicit verified scope line was provided in RUN_REPORT.' }
@@ -26,22 +33,23 @@ function Invoke-PostOutput {
 
     $executedLayers = ($systemMap | Where-Object { $_ -notmatch '(?i)limit|limited' })
     $limitedLayers = ($systemMap | Where-Object { $_ -match '(?i)limit|limited' })
-    $executedLine = if ($executedLayers.Count -gt 0) { ($executedLayers -join '; ') } else { 'Execution layers were not explicitly listed.' }
-    $limitedLine = if ($limitedLayers.Count -gt 0) { ($limitedLayers -join '; ') } else { [string]$runInfo.why_confidence }
-    $routesCount = [int]@($report.selected_routes).Count
-    $screenshotsCount = if ($report.capture_report -and $report.capture_report.PSObject.Properties['captures_success']) { [int]$report.capture_report.captures_success } else { 0 }
+    $executedLine = if (@($executedLayers).Count -gt 0) { (@($executedLayers) -join '; ') } else { 'Execution layers were not explicitly listed.' }
+    $limitedLine = if (@($limitedLayers).Count -gt 0) { (@($limitedLayers) -join '; ') } else { [string](Get-SafeProp $runInfo 'why_confidence' '') }
+    $routesCount = [int]@(Get-SafeProp $report 'selected_routes' @()).Count
+    $captureReport = Get-SafeProp $report 'capture_report' $null
+    $screenshotsCount = if ($captureReport -and $captureReport.PSObject.Properties['captures_success']) { [int]$captureReport.captures_success } else { 0 }
     $layersExecutedCount = [int]@($executedLayers).Count
-    $statusPlain = [string]$runInfo.status_meaning_plain
+    $statusPlain = [string](Get-SafeProp $runInfo 'status_meaning_plain' '')
     if ([string]::IsNullOrWhiteSpace($statusPlain)) { $statusPlain = 'No plain status explanation was provided.' }
-    $limitationLine = if ([string]$runInfo.confidence -eq 'LOW') { [string]$runInfo.why_confidence } else { 'none (confidence is not LOW in this run).' }
+    $limitationLine = if ([string](Get-SafeProp $runInfo 'confidence' '') -eq 'LOW') { [string](Get-SafeProp $runInfo 'why_confidence' '') } else { 'none (confidence is not LOW in this run).' }
     $forbiddenTop = @($forbidden | Select-Object -First 3)
-    if ($forbiddenTop.Count -lt 2) {
+    if (@($forbiddenTop).Count -lt 2) {
         $forbiddenTop += @('do not refactor', 'do not add features', 'do not assume full audit')
         $forbiddenTop = @($forbiddenTop | Select-Object -Unique | Select-Object -First 3)
     }
-    $systemLine = [string]$agentInfo.universal_audit_engine
+    $systemLine = [string](Get-SafeProp $agentInfo 'universal_audit_engine' '')
     if ([string]::IsNullOrWhiteSpace($systemLine)) { $systemLine = 'SITE_AUDITOR_V2 runs bounded LINK evidence checks and outputs operator handoff artifacts.' }
-    $nextStepReason = if ([string]::IsNullOrWhiteSpace($nextStepRaw)) { [string]$runInfo.why_confidence } else { $nextStepRaw }
+    $nextStepReason = if ([string]::IsNullOrWhiteSpace($nextStepRaw)) { [string](Get-SafeProp $runInfo 'why_confidence' '') } else { $nextStepRaw }
     if ([string]::IsNullOrWhiteSpace($nextStepReason)) { $nextStepReason = 'this run is bounded to sampled LINK evidence and requires a truth-file anchored follow-up' }
     $nextStep = "Open RUN_REPORT.json and inspect operator_memory_bridge.next_operator_posture.what_to_inspect_next[0] because $nextStepReason"
 
@@ -66,8 +74,8 @@ function Invoke-PostOutput {
         "SITE STATUS: $status",
         '',
         '1. WHAT THIS RUN MEANS',
-        ("- Status: " + [string]$runInfo.status),
-        ("- Plain meaning: " + [string]$runInfo.status_meaning_plain),
+        ("- Status: " + [string](Get-SafeProp $runInfo 'status' '')),
+        ("- Plain meaning: " + [string](Get-SafeProp $runInfo 'status_meaning_plain' '')),
         ("- Verified in this run: " + $verifiedLine),
         ("- Not verified in this run: " + $notVerifiedLine),
         '',
@@ -76,7 +84,7 @@ function Invoke-PostOutput {
         ("- Layers limited: " + $limitedLine),
         '',
         '3. KEY LIMITATION (ONE)',
-        ("- " + [string]$runInfo.why_confidence),
+        ("- " + [string](Get-SafeProp $runInfo 'why_confidence' '')),
         '',
         '4. NEXT STEP (ONE ONLY)',
         ("- " + $nextStep),
@@ -89,22 +97,23 @@ function Invoke-PostOutput {
         '6. OPTIONAL: DETAILED FINDINGS',
         '',
         'DETAILS: WHAT THIS AGENT IS',
-        ("- universal audit engine: " + [string]$agentInfo.universal_audit_engine),
-        ("- current mode (LINK): " + [string]$agentInfo.current_mode),
+        ("- universal audit engine: " + [string](Get-SafeProp $agentInfo 'universal_audit_engine' '')),
+        ("- current mode (LINK): " + [string](Get-SafeProp $agentInfo 'current_mode' '')),
         '- what this run actually did (routes, screenshots, limits):'
     )
-    foreach ($line in @($agentInfo.run_scope)) { $en += "- $line" }
+    foreach ($line in @((Get-SafeProp $agentInfo 'run_scope' ''))) { $en += "- $line" }
     $en += @(
         '',
         'DETAILS: STATUS REFERENCE',
         '- PASS = sampled run found no material defects; not a full-site guarantee.',
         '- PASS_WITH_LIMITS = run finished but confidence/coverage limits block full-site claims.',
         '- FAIL = defects or evidence gaps require operator action before trusting the outcome.',
-        ("- confidence: " + [string]$runInfo.confidence),
-        ("- why confidence is LOW or not: " + [string]$runInfo.why_confidence),
+        ("- confidence: " + [string](Get-SafeProp $runInfo 'confidence' '')),
+        ("- why confidence is LOW or not: " + [string](Get-SafeProp $runInfo 'why_confidence' '')),
         '- checked vs not checked:'
     )
-    foreach ($line in @($runInfo.checked_vs_not_checked)) { $en += "- $line" }
+    $checkedVsNotCheckedEn = Get-SafeProp $runInfo 'checked_vs_not_checked' @()
+    foreach ($line in @($checkedVsNotCheckedEn)) { $en += "- $line" }
     $en += @(
         '',
         'DETAILS: SYSTEM MAP (MINIMAL)'
@@ -132,8 +141,8 @@ function Invoke-PostOutput {
         "СТАТУС САЙТА: $status",
         '',
         '1. WHAT THIS RUN MEANS',
-        ("- Status: " + [string]$runInfo.status),
-        ("- Plain meaning: " + [string]$runInfo.status_meaning_plain),
+        ("- Status: " + [string](Get-SafeProp $runInfo 'status' '')),
+        ("- Plain meaning: " + [string](Get-SafeProp $runInfo 'status_meaning_plain' '')),
         ("- Verified in this run: " + $verifiedLine),
         ("- Not verified in this run: " + $notVerifiedLine),
         '',
@@ -142,7 +151,7 @@ function Invoke-PostOutput {
         ("- Layers limited: " + $limitedLine),
         '',
         '3. KEY LIMITATION (ONE)',
-        ("- " + [string]$runInfo.why_confidence),
+        ("- " + [string](Get-SafeProp $runInfo 'why_confidence' '')),
         '',
         '4. NEXT STEP (ONE ONLY)',
         ("- " + $nextStep),
@@ -155,22 +164,23 @@ function Invoke-PostOutput {
         '6. OPTIONAL: DETAILED FINDINGS',
         '',
         'DETAILS: WHAT THIS AGENT IS',
-        ("- universal audit engine: " + [string]$agentInfo.universal_audit_engine),
-        ("- current mode (LINK): " + [string]$agentInfo.current_mode),
+        ("- universal audit engine: " + [string](Get-SafeProp $agentInfo 'universal_audit_engine' '')),
+        ("- current mode (LINK): " + [string](Get-SafeProp $agentInfo 'current_mode' '')),
         '- what this run actually did (routes, screenshots, limits):'
     )
-    foreach ($line in @($agentInfo.run_scope)) { $ru += "- $line" }
+    foreach ($line in @((Get-SafeProp $agentInfo 'run_scope' ''))) { $ru += "- $line" }
     $ru += @(
         '',
         'DETAILS: STATUS REFERENCE',
         '- PASS = sampled run found no material defects; not a full-site guarantee.',
         '- PASS_WITH_LIMITS = run finished but confidence/coverage limits block full-site claims.',
         '- FAIL = defects or evidence gaps require operator action before trusting the outcome.',
-        ("- confidence: " + [string]$runInfo.confidence),
-        ("- why confidence is LOW or not: " + [string]$runInfo.why_confidence),
+        ("- confidence: " + [string](Get-SafeProp $runInfo 'confidence' '')),
+        ("- why confidence is LOW or not: " + [string](Get-SafeProp $runInfo 'why_confidence' '')),
         '- checked vs not checked:'
     )
-    foreach ($line in @($runInfo.checked_vs_not_checked)) { $ru += "- $line" }
+    $checkedVsNotChecked = Get-SafeProp $runInfo 'checked_vs_not_checked' @()
+    foreach ($line in @($checkedVsNotChecked)) { $ru += "- $line" }
     $ru += @(
         '',
         'DETAILS: SYSTEM MAP (MINIMAL)'
