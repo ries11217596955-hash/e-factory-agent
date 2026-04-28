@@ -192,6 +192,15 @@
     "operator_memory_bridge": {
       "type": "object",
       "required": [
+        "status_detail",
+        "current_execution_mode",
+        "current_layer",
+        "layer_owner_file",
+        "next_file_to_inspect",
+        "reason_to_inspect",
+        "one_next_step",
+        "forbidden_next_steps",
+        "tool_recommendation",
         "identity_anchor",
         "state_anchor",
         "learning_anchor",
@@ -200,6 +209,15 @@
         "self_explanation"
       ],
       "properties": {
+        "status_detail": { "type": "string" },
+        "current_execution_mode": { "type": "string" },
+        "current_layer": { "type": "string" },
+        "layer_owner_file": { "type": "string" },
+        "next_file_to_inspect": { "type": "string" },
+        "reason_to_inspect": { "type": "string" },
+        "one_next_step": { "type": "string" },
+        "forbidden_next_steps": { "type": "array", "items": { "type": "string" } },
+        "tool_recommendation": { "type": "string" },
         "identity_anchor": {
           "type": "object",
           "required": ["who_am_i", "what_system_is_being_built", "primary_asset", "end_goal"],
