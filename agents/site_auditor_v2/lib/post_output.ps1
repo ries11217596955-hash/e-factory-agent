@@ -13,7 +13,7 @@ function Invoke-PostOutput {
     $agentInfo = $bridge.what_this_agent_is
     $runInfo = $bridge.what_happened_in_this_run
     $systemMap = @($bridge.system_map_minimal)
-    $nextStep = [string]$bridge.next_step_one_only
+    $nextStepRaw = [string]$bridge.next_step_one_only
     $forbidden = @($bridge.forbidden)
 
     $checked = @($runInfo.checked_vs_not_checked)
@@ -41,6 +41,9 @@ function Invoke-PostOutput {
     }
     $systemLine = [string]$agentInfo.universal_audit_engine
     if ([string]::IsNullOrWhiteSpace($systemLine)) { $systemLine = 'SITE_AUDITOR_V2 runs bounded LINK evidence checks and outputs operator handoff artifacts.' }
+    $nextStepReason = if ([string]::IsNullOrWhiteSpace($nextStepRaw)) { [string]$runInfo.why_confidence } else { $nextStepRaw }
+    if ([string]::IsNullOrWhiteSpace($nextStepReason)) { $nextStepReason = 'this run is bounded to sampled LINK evidence and requires a truth-file anchored follow-up' }
+    $nextStep = "Open RUN_REPORT.json and inspect operator_memory_bridge.next_operator_posture.what_to_inspect_next[0] because $nextStepReason"
 
     $en = @(
         '=== OPERATOR CONTROL ===',
