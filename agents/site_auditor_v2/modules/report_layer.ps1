@@ -151,23 +151,47 @@ function New-SystemProblemFromFindings {
         }
     }
     elseif ($null -ne $primaryLimitationFinding) {
-        $systemProblem = [ordered]@{
-            problem_type = 'AUDIT_SCOPE_LIMIT'
-            category = 'LIMITATION'
-            title = 'Checked scope is limited by route budget'
-            description = 'Coverage boundary prevented full surface verification in this run.'
-            description_ru = 'Граница охвата не позволила проверить все поверхности в этом запуске.'
-            affected_surfaces_count = 0
-            representative_examples = @([ordered]@{ route = '_audit_scope'; surface_type = 'UNKNOWN'; evidence = [string]$primaryLimitationFinding.evidence_text })
-            strongest_action = 'Expand route sample and rerun LINK mode for broader coverage.'
-            confidence = [string]$AuditConfidence
-            source_cluster = [string]$primaryLimitationFinding.issue_type
-            interaction_explanation = [ordered]@{
-                entry_surface = 'UNKNOWN'
-                expected_outcome = 'All relevant surfaces are included in checked scope.'
-                actual_outcome = 'Run coverage ended before all discovered routes were checked.'
-                failure_point = 'coverage_boundary'
-                why_this_matters = 'Boundary limits confidence and requires expanded coverage, not repair.'
+        $primaryLimitationType = [string]$primaryLimitationFinding.issue_type
+        if ($primaryLimitationType -eq 'NO_VISUAL_EVIDENCE') {
+            $systemProblem = [ordered]@{
+                problem_type = 'NO_VISUAL_EVIDENCE'
+                category = 'LIMITATION'
+                title = 'Visual evidence is unavailable in this run'
+                description = 'Capture capability was unavailable, so screenshot-backed verification could not be performed.'
+                description_ru = 'В этом запуске недоступен визуальный сбор, поэтому проверка со скриншотами не выполнена.'
+                affected_surfaces_count = 0
+                representative_examples = @([ordered]@{ route = '_audit_scope'; surface_type = 'UNKNOWN'; evidence = [string]$primaryLimitationFinding.evidence_text })
+                strongest_action = if ([string]::IsNullOrWhiteSpace([string]$primaryLimitationFinding.recommended_action)) { 'Install Playwright and rerun capture to restore visual evidence.' } else { [string]$primaryLimitationFinding.recommended_action }
+                confidence = [string]$AuditConfidence
+                source_cluster = [string]$primaryLimitationType
+                interaction_explanation = [ordered]@{
+                    entry_surface = 'UNKNOWN'
+                    expected_outcome = 'Visual capture artifacts are available for deterministic evidence checks.'
+                    actual_outcome = 'Capture capability was unavailable and visual artifacts were not produced.'
+                    failure_point = 'capture_unavailable'
+                    why_this_matters = 'Missing visual evidence reduces confidence in visual/page-structure conclusions.'
+                }
+            }
+        }
+        else {
+            $systemProblem = [ordered]@{
+                problem_type = 'AUDIT_SCOPE_LIMIT'
+                category = 'LIMITATION'
+                title = 'Checked scope is limited by route budget'
+                description = 'Coverage boundary prevented full surface verification in this run.'
+                description_ru = 'Граница охвата не позволила проверить все поверхности в этом запуске.'
+                affected_surfaces_count = 0
+                representative_examples = @([ordered]@{ route = '_audit_scope'; surface_type = 'UNKNOWN'; evidence = [string]$primaryLimitationFinding.evidence_text })
+                strongest_action = if ([string]::IsNullOrWhiteSpace([string]$primaryLimitationFinding.recommended_action)) { 'Expand route sample and rerun LINK mode for broader coverage.' } else { [string]$primaryLimitationFinding.recommended_action }
+                confidence = [string]$AuditConfidence
+                source_cluster = [string]$primaryLimitationType
+                interaction_explanation = [ordered]@{
+                    entry_surface = 'UNKNOWN'
+                    expected_outcome = 'All relevant surfaces are included in checked scope.'
+                    actual_outcome = 'Run coverage ended before all discovered routes were checked.'
+                    failure_point = 'coverage_boundary'
+                    why_this_matters = 'Boundary limits confidence and requires expanded coverage, not repair.'
+                }
             }
         }
     }
@@ -244,12 +268,15 @@ function New-ActionSummaryFromDecision {
             })
     }
 
+    $primaryLimitation = Get-FirstOrNull -Collection @($SortedLimitationFindings)
+    $limitationReason = if ($LimitationCount -gt 0 -and $null -ne $primaryLimitation -and [string]$primaryLimitation.issue_type -eq 'NO_VISUAL_EVIDENCE') { 'audit_limited_by_missing_visual_evidence' } elseif ($LimitationCount -gt 0) { 'audit_limited_by_route_sampling_budget' } else { 'no_material_findings_in_sampled_scope' }
+
     return [ordered]@{
         status = if ($DefectCount -gt 0) { 'FINDINGS_PRESENT' } elseif ($LimitationCount -gt 0) { 'LIMITATION_ONLY' } else { 'CLEAN' }
         finding_count = [int]$DefectCount
         limitation_count = [int]$LimitationCount
         actions = @($actions.ToArray())
-        reason = if ($DefectCount -gt 0) { 'deterministic_findings_generated_from_link_truth_artifacts' } elseif ($LimitationCount -gt 0) { 'audit_limited_by_route_sampling_budget' } else { 'no_material_findings_in_sampled_scope' }
+        reason = if ($DefectCount -gt 0) { 'deterministic_findings_generated_from_link_truth_artifacts' } else { [string]$limitationReason }
     }
 }
 
@@ -270,7 +297,10 @@ function New-HumanReportPayloads {
     $mainProblemRu = if ($DecisionIssueType -eq 'CLEAN') { 'Подтверждённый системный дефект в проверенном объёме не установлен.' } else { [string]$Report.system_problem.description_ru }
 
     $limitationsCommon = New-Object System.Collections.Generic.List[string]
-    if ($DecisionIssueType -eq 'LIMITATION') {
+    if ($DecisionIssueType -eq 'LIMITATION' -and [string]$Report.system_problem.problem_type -eq 'NO_VISUAL_EVIDENCE') {
+        $limitationsCommon.Add('Visual capture was unavailable: screenshot evidence is missing for this run.')
+    }
+    elseif ($DecisionIssueType -eq 'LIMITATION') {
         $limitationsCommon.Add('Coverage boundary: not all discovered routes were checked in this run.')
     }
     elseif ([string]$Report.audit_confidence -ne 'HIGH' -and [int]$Report.run_budget.overflow_routes -gt 0) {
@@ -307,6 +337,9 @@ function New-HumanReportPayloads {
                 $supportingActions.Add([string]$finding.recommended_action)
             }
         }
+    }
+    elseif ($DecisionIssueType -eq 'LIMITATION' -and [string]$Report.system_problem.problem_type -eq 'NO_VISUAL_EVIDENCE') {
+        $supportingActions.Add('Verify Playwright installation/environment and rerun capture-enabled audit.')
     }
     elseif ($DecisionIssueType -eq 'LIMITATION') {
         $supportingActions.Add('Validate uncovered routes in a controlled follow-up run.')
