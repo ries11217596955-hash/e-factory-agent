@@ -616,8 +616,10 @@ catch {
     if (Test-Path $runReportPath) {
         $run = Get-Content $runReportPath -Raw | ConvertFrom-Json
 
-        $status = [string]$run.status
+        $status = if ($run.status_label) { [string]$run.status_label } else { [string]$run.status }
         $confidence = if ($run.audit_confidence) { [string]$run.audit_confidence } else { "UNKNOWN" }
+        $confidenceReason = if ($run.confidence_reason) { [string]$run.confidence_reason } else { "not_specified" }
+        $nextVerificationStep = if ($run.next_verification_step) { [string]$run.next_verification_step } else { "rerun with full evidence checks" }
 
         $reportEn = @()
         $reportEn += "SITE STATUS: $status"
@@ -627,6 +629,8 @@ catch {
         $reportEn += "- Visual capture may be limited"
         $reportEn += ""
         $reportEn += "CONFIDENCE: $confidence"
+        $reportEn += "CONFIDENCE REASON: $confidenceReason"
+        $reportEn += "NEXT VERIFICATION STEP: $nextVerificationStep"
 
         $reportRu = @()
         $reportRu += "СТАТУС САЙТА: $status"
@@ -636,6 +640,8 @@ catch {
         $reportRu += "- Визуальная проверка может отсутствовать"
         $reportRu += ""
         $reportRu += "УВЕРЕННОСТЬ: $confidence"
+        $reportRu += "ПРИЧИНА УВЕРЕННОСТИ: $confidenceReason"
+        $reportRu += "СЛЕДУЮЩИЙ ШАГ ПРОВЕРКИ: $nextVerificationStep"
 
         $enPath = Join-Path (Get-Location) "REPORT_EN.txt"
         $ruPath = Join-Path (Get-Location) "REPORT_RU.txt"
@@ -1442,6 +1448,10 @@ $report = [ordered]@{
     }
     summary = 'LINK mode executes live fetch, route checks, and screenshot evidence capture.'
     next_step = 'Stabilize screenshot evidence quality in LINK mode.'
+    confidence_reason = ''
+    next_verification_step = ''
+    forbidden_next_steps = @()
+    status_label = 'PASS'
     report_mode = 'CLEAN'
     executive_answer = [ordered]@{
         overall_verdict = 'limited: findings layer not computed'
@@ -2648,6 +2658,45 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
         $isLowConfidence = ($routesChecked -lt $maxRoutesBudget) -or $hasLimitationFindings
         $isHighConfidence = (-not $isLowConfidence) -and ($defectFindings.Count -eq 0) -and ($coverageRatio -ge 0.9)
         $report.audit_confidence = if ($isLowConfidence) { 'LOW' } elseif ($isHighConfidence) { 'HIGH' } else { 'MEDIUM' }
+        $confidenceReasons = New-Object System.Collections.Generic.List[string]
+        if ($routesChecked -lt $maxRoutesBudget) {
+            $confidenceReasons.Add("sampled_routes_below_budget ($routesChecked/$maxRoutesBudget)")
+        }
+        if ([int]$report.run_budget.overflow_routes -gt 0) {
+            $confidenceReasons.Add("route_budget_overflow=$([int]$report.run_budget.overflow_routes)")
+        }
+        if ($limitationCaptureMissing) {
+            $confidenceReasons.Add('no_visual_evidence')
+        }
+        if ([string]$report.capture_report.status -eq 'PARTIAL') {
+            $confidenceReasons.Add('capture_status=PARTIAL')
+        }
+        elseif ([string]$report.capture_report.status -eq 'FAIL') {
+            $confidenceReasons.Add('capture_status=FAIL')
+        }
+        if ($hasLimitationFindings) {
+            $confidenceReasons.Add("limitation_findings=$($limitationFindings.Count)")
+        }
+        $report.confidence_reason = if ($confidenceReasons.Count -gt 0) {
+            [string]($confidenceReasons.ToArray() -join '; ')
+        }
+        else {
+            'confidence_signals_sufficient_for_sampled_scope'
+        }
+        $report.next_verification_step = if ([int]$report.run_budget.overflow_routes -gt 0) {
+            'Increase max_routes in a controlled rerun and verify overflow routes with screenshots.'
+        }
+        elseif ([string]$report.capture_report.status -ne 'PASS' -or $limitationCaptureMissing) {
+            'Restore screenshot coverage (Playwright/capture stack) and rerun LINK mode for all selected routes.'
+        }
+        else {
+            'Run one controlled rerun to confirm sampled-scope stability before acting on clean verdict.'
+        }
+        $report.forbidden_next_steps = @(
+            'do not treat LOW confidence PASS as full-site clean bill',
+            'do not skip rerun when overflow routes or capture limitations exist',
+            'do not claim conversion/UX quality from LINK-only evidence'
+        )
         $p0Count = [int]@($defectFindings | Where-Object { [string]$_.priority -eq 'P0' }).Count
         $p1Count = [int]@($defectFindings | Where-Object { [string]$_.priority -eq 'P1' }).Count
         $p2Count = [int]@($defectFindings | Where-Object { [string]$_.priority -eq 'P2' }).Count
@@ -3042,6 +3091,16 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
             -LimitationCount $limitationFindings.Count `
             -AuditConfidence ([string]$report.audit_confidence)
         $finalActionSummary = Convert-RunReportValue -Value $finalActionSummary -VisitedReferences (New-Object 'System.Collections.Generic.HashSet[int]')
+        $lowConfidencePass = ([string]$report.status -eq 'PASS' -and [string]$report.audit_confidence -eq 'LOW')
+        $report.status_label = if ($lowConfidencePass) { 'PASS_WITH_LIMITATIONS' } else { [string]$report.status }
+        if ($lowConfidencePass) {
+            $report.execution_report.status_detail = 'PASS_WITH_LIMITATIONS'
+            $report.summary = 'Run completed with limitations: PASS_WITH_LIMITATIONS (LOW confidence).'
+        }
+        $finalActionSummary.status_label = [string]$report.status_label
+        $finalActionSummary.confidence_reason = [string]$report.confidence_reason
+        $finalActionSummary.next_verification_step = [string]$report.next_verification_step
+        $finalActionSummary.forbidden_next_steps = @($report.forbidden_next_steps)
         $actionSummaryActions = if ($null -ne $finalActionSummary.actions) { @($finalActionSummary.actions) } else { @() }
         $reportLayerMarker = 'REPORT_LAYER: ACTION_SUMMARY_READY'
         Write-Host $reportLayerMarker
@@ -3452,7 +3511,7 @@ try {
 
         $run = Get-Content $runReportPath -Raw | ConvertFrom-Json
 
-        $status = [string]$run.status
+        $status = if ($run.status_label) { [string]$run.status_label } else { [string]$run.status }
 
         $enPath = Join-Path (Get-Location) "REPORT_EN.txt"
         $ruPath = Join-Path (Get-Location) "REPORT_RU.txt"
