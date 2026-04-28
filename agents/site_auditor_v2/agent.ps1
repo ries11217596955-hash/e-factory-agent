@@ -529,14 +529,30 @@ try {
         $map = @()
         $map += "# SITE_AUDITOR_V2 — AGENT MAP"
         $map += ""
-        $map += "## ACTIVE PRODUCT"
+        $map += "## AGENT IDENTITY"
+        $map += "SITE_AUDITOR_V2 is a LINK-mode audit orchestrator that produces bounded evidence and operator handoff artifacts."
+        $map += ""
+        $map += "## ACTIVE PRODUCT SCOPE"
         $map += "Universal Audit Engine. Current LINK run is one execution mode, not the whole product."
+        $map += ""
+        $map += "## CURRENT EXECUTION MODE + LAYER"
+        $map += "Execution mode: LINK"
+        $map += "Current layer: REPORT_LAYER (bounded to observable LINK artifacts only)."
         $map += ""
         $map += "## ORCHESTRATOR RULE"
         $map += "agent.ps1 is orchestrator. New behavior must be module/contract, not giant runtime growth."
         $map += ""
         $map += "## STAGES"
         $map += "ENTRY -> LINK_FETCH -> ROUTE_EXTRACTION -> ROUTE_SELECTION -> CAPTURE -> RECON -> REPORT_LAYER -> OUTPUT -> HUMAN_REPORT"
+        $map += ""
+        $map += "## MODULE / FILE RESPONSIBILITY MAP"
+        $map += "- agent.ps1 = orchestrator and stage control"
+        $map += "- modules/stage_link_fetch.ps1 = LINK fetch and route discovery"
+        $map += "- modules/stage_route_keys.ps1 = route normalization keys"
+        $map += "- modules/stage_capture_reconciliation.ps1 = evidence reconciliation gate"
+        $map += "- modules/report_layer.ps1 = findings synthesis + operator memory contract"
+        $map += "- lib/post_output.ps1 = REPORT_EN/RU operator text output"
+        $map += "- contracts/run_report.schema.json = RUN_REPORT contract"
         $map += ""
         $map += "## OUTPUT CONTRACT"
         $map += "- RUN_REPORT.json = read first"
@@ -1540,6 +1556,8 @@ $report = [ordered]@{
             next_system_move = ''
             must_do_before_next_task = @()
             what_to_inspect_next = @()
+            recommended_tool = ''
+            forbidden_drifts = @()
             do_not_do_yet = @()
         }
     }
@@ -2961,6 +2979,12 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
                 next_system_move = [string]$report.operator_feed.next_system_move
                 must_do_before_next_task = @($nextOperatorMustDoBeforeNextTask)
                 what_to_inspect_next = @($nextOperatorWhatToInspectNext)
+                recommended_tool = 'PowerShell + RUN_REPORT.json first-read flow'
+                forbidden_drifts = @(
+                    'do not switch from LINK evidence to speculative UX claims',
+                    'do not expand scope beyond sampled routes before bounded rerun',
+                    'do not add new audit features before stabilizing current report layer'
+                )
                 do_not_do_yet = @($nextOperatorDoNotDoYet)
             }
         }

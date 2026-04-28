@@ -1,13 +1,14 @@
 ## Summary
-- Increased default route coverage budget in LINK mode from 5 to 18 selected routes to raise deterministic sample depth.
-- Increased shallow route extraction sampling window from 10 to 30 candidate routes so selection can reliably fill the higher default budget.
-- Updated visual target selection default `MaxPages` from 5 to 18 to keep module defaults aligned with orchestrator defaults.
-- Preserved deterministic, priority-ranked route selection strategy and existing capture/report contracts (no CLI or report schema changes).
-- Kept changes scoped to route selection/sampling and task reporting only.
+- Hardened AGENT_MAP generation content to explicitly state agent identity, active product scope, execution mode/layer, and a core module/file responsibility map.
+- Extended RUN_REPORT `operator_memory_bridge.next_operator_posture` with an explicit `recommended_tool` and `forbidden_drifts` contract for operator-grade handoff discipline.
+- Updated the run report schema to require and validate the new operator handoff fields (`recommended_tool`, `forbidden_drifts`).
+- Upgraded `REPORT_EN.txt` / `REPORT_RU.txt` generation to always explain: agent identity, scope, mode/layer, module responsibility map, run outcome, PASS_WITH_LIMITS meaning, what to inspect next, one recommended next move, and forbidden next moves.
+- Kept changes limited to reporting/mapping scope; no changes to audit coverage, route sampling, workflows, or new audit features.
 
 ## Changed files
 - agents/site_auditor_v2/agent.ps1
-- agents/site_auditor_v2/modules/stage_route_keys.ps1
+- agents/site_auditor_v2/contracts/run_report.schema.json
+- agents/site_auditor_v2/lib/post_output.ps1
 - docs/TASK_REPORT.md
 
 ## Moved files/folders
@@ -15,10 +16,10 @@
 
 ## Current entrypoints/paths
 - Primary orchestrator: `agents/site_auditor_v2/agent.ps1`
-- Route extraction stage: `agents/site_auditor_v2/modules/stage_link_fetch.ps1` (consumed by orchestrator call-site)
-- Route target selection: `agents/site_auditor_v2/modules/stage_route_keys.ps1`
+- Report schema contract: `agents/site_auditor_v2/contracts/run_report.schema.json`
+- Human text report generator: `agents/site_auditor_v2/lib/post_output.ps1`
 - Task report: `docs/TASK_REPORT.md`
 
 ## Risks/blockers
-- End-to-end acceptance metrics (selected count, screenshot totals, confidence status) require a full runtime execution against a live target site; not executed in this environment.
-- Increasing extraction/sample defaults increases network and capture workload; this is bounded (30 extraction candidates, 18 selected routes) but may extend run time on slower targets.
+- No full live LINK-mode run was executed in this environment, so runtime rendering of the enriched output files is validated statically by code inspection only.
+- Because `agent.ps1` contains repeated report/AGENT_MAP blocks, future cleanup should de-duplicate carefully without changing runtime semantics.
