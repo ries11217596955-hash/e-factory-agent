@@ -363,6 +363,9 @@ function Test-ReportConsistencyLock {
     $statusDetail = if ($null -ne $operatorBridge -and $null -ne $operatorBridge.PSObject.Properties['status_detail']) { [string]$operatorBridge.status_detail } else { '' }
     $currentExecutionMode = if ($null -ne $operatorBridge -and $null -ne $operatorBridge.PSObject.Properties['current_execution_mode']) { [string]$operatorBridge.current_execution_mode } else { '' }
     $currentLayer = if ($null -ne $operatorBridge -and $null -ne $operatorBridge.PSObject.Properties['current_layer']) { [string]$operatorBridge.current_layer } else { '' }
+    $layerOwnerFile = if ($null -ne $operatorBridge -and $null -ne $operatorBridge.PSObject.Properties['layer_owner_file']) { [string]$operatorBridge.layer_owner_file } else { '' }
+    $nextFileToInspect = if ($null -ne $operatorBridge -and $null -ne $operatorBridge.PSObject.Properties['next_file_to_inspect']) { [string]$operatorBridge.next_file_to_inspect } else { '' }
+    $reasonToInspect = if ($null -ne $operatorBridge -and $null -ne $operatorBridge.PSObject.Properties['reason_to_inspect']) { [string]$operatorBridge.reason_to_inspect } else { '' }
     $oneNextStep = if ($null -ne $operatorBridge -and $null -ne $operatorBridge.PSObject.Properties['one_next_step']) { [string]$operatorBridge.one_next_step } else { '' }
     $forbiddenNextSteps = if ($null -ne $operatorBridge -and $null -ne $operatorBridge.PSObject.Properties['forbidden_next_steps']) { @($operatorBridge.forbidden_next_steps) } else { @() }
     $toolRecommendation = if ($null -ne $operatorBridge -and $null -ne $operatorBridge.PSObject.Properties['tool_recommendation']) { [string]$operatorBridge.tool_recommendation } else { '' }
@@ -384,6 +387,9 @@ function Test-ReportConsistencyLock {
     if ([string]::IsNullOrWhiteSpace($statusDetail)) { throw 'CONSISTENCY_LOCK_FAILED: operator_memory_bridge.status_detail is required.' }
     if ([string]::IsNullOrWhiteSpace($currentExecutionMode)) { throw 'CONSISTENCY_LOCK_FAILED: operator_memory_bridge.current_execution_mode is required.' }
     if ([string]::IsNullOrWhiteSpace($currentLayer)) { throw 'CONSISTENCY_LOCK_FAILED: operator_memory_bridge.current_layer is required.' }
+    if ([string]::IsNullOrWhiteSpace($layerOwnerFile)) { throw 'CONSISTENCY_LOCK_FAILED: operator_memory_bridge.layer_owner_file is required.' }
+    if ([string]::IsNullOrWhiteSpace($nextFileToInspect)) { throw 'CONSISTENCY_LOCK_FAILED: operator_memory_bridge.next_file_to_inspect is required.' }
+    if ([string]::IsNullOrWhiteSpace($reasonToInspect)) { throw 'CONSISTENCY_LOCK_FAILED: operator_memory_bridge.reason_to_inspect is required.' }
     if ([string]::IsNullOrWhiteSpace($oneNextStep)) { throw 'CONSISTENCY_LOCK_FAILED: operator_memory_bridge.one_next_step is required.' }
     if (@($forbiddenNextSteps).Count -eq 0) { throw 'CONSISTENCY_LOCK_FAILED: operator_memory_bridge.forbidden_next_steps is required.' }
     if ([string]::IsNullOrWhiteSpace($toolRecommendation) -and [string]::IsNullOrWhiteSpace($toolHint)) { throw 'CONSISTENCY_LOCK_FAILED: operator_memory_bridge.tool_recommendation or tool_hint is required.' }
