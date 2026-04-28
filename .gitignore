@@ -1,18 +1,7 @@
-Thumbs.db
-.DS_Store
-*.tmp
-*.cache
-*.log
-
-# runtime / logs
-logs/**
-runtime/**
-**/logs/**
-**/outbox/**
-**/inbox/**
-**/.state/github_token.txt
-
-# local temp
-$tmp/
-*.bak
-*.ps1.bak
+node_modules/
+agents/site_auditor_v2/output/
+agents/site_auditor_v2/screenshots/
+agents/site_auditor_v2/*.json
+agents/site_auditor_v2/*.txt
+REPORT_EN.txt
+REPORT_RU.txt
