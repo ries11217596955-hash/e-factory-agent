@@ -1,9 +1,9 @@
 ## Summary
-- Converted `REPORT_EN.txt` and `REPORT_RU.txt` output format to operator-first structure at the top of the report.
-- Added required top sections in order: WHAT THIS RUN MEANS, SYSTEM STATE, KEY LIMITATION (ONE), NEXT STEP (ONE ONLY), and DO NOT DO.
-- Kept exactly one explicit next step sourced from `operator_memory_bridge.self_explanation.next_step_one_only`.
-- Added optional detailed findings after the decision-first header so operators can act without opening JSON files.
-- Preserved audit logic and coverage behavior; only post-output report text composition was changed.
+- Added a strict `=== OPERATOR CONTROL ===` block at the top of both `REPORT_EN.txt` and `REPORT_RU.txt` outputs in `Invoke-PostOutput`.
+- Made the status line self-sufficient by pairing `PASS / PASS_WITH_LIMITS / FAIL` with a plain-language explanation from `operator_memory_bridge.self_explanation.what_happened_in_this_run.status_meaning_plain`.
+- Added explicit checked counters (routes, screenshots, executed layers), one-step next action, a single limitation line, and a constrained DO NOT line (2–3 forbidden moves).
+- Kept report generation human-readable (no JSON rendering) and ensured the control block is emitted before all existing findings/details sections.
+- Preserved audit behavior and coverage; this change only affects report text assembly from existing `RUN_REPORT` fields.
 
 ## Changed files
 - agents/site_auditor_v2/lib/post_output.ps1
@@ -13,9 +13,9 @@
 - None.
 
 ## Current entrypoints/paths
-- Human text report generator: `agents/site_auditor_v2/lib/post_output.ps1`
-- Task report: `docs/TASK_REPORT.md`
+- Report text renderer: `agents/site_auditor_v2/lib/post_output.ps1` (`Invoke-PostOutput`).
+- Operator task log: `docs/TASK_REPORT.md`.
 
 ## Risks/blockers
-- No full LINK-mode run was executed in this environment; validation is based on static inspection of report assembly.
-- Layer extraction in the top section depends on existing `system_map_minimal` and `checked_vs_not_checked` content quality from `RUN_REPORT`.
+- No full LINK-mode execution was run in this environment, so validation is static (code-path review) rather than artifact-based.
+- `layers executed` count is derived from `system_map_minimal` entries filtered by `limit/limited` text, so malformed upstream strings can reduce count precision.
