@@ -1375,26 +1375,6 @@ function Get-FinalProducedArtifacts {
     return $finalArtifacts
 }
 
-    }
-
-    if ($ValidateCriticalFinalArtifacts) {
-        $criticalFinalArtifacts = @(
-            'RUN_REPORT.json',
-            'REPORT_EN.txt',
-            'REPORT_RU.txt'
-        )
-        $missingCriticalFinalArtifacts = @(
-            $criticalFinalArtifacts | Where-Object { -not $artifacts.Contains($_) }
-        )
-
-        if (@($missingCriticalFinalArtifacts).Count -gt 0) {
-            throw ("FINAL_ARTIFACTS_MISSING_AFTER_OUTPUT: {0}" -f (@($missingCriticalFinalArtifacts) -join ', '))
-        }
-    }
-
-    return @($artifacts.ToArray() | Sort-Object -Unique)
-}
-
 $capability_capture = $true
 $limitation_capture_missing = $false
 $capabilityCapture = $capability_capture
