@@ -666,7 +666,7 @@ try {
     }
 }
 catch {
-    Write-Host ("HUMAN_REPORT: COPY_FAILED " + $_.Exception.Message)
+    Write-Host ("HUMAN_REPORT: COPY_SKIPPED " + $_.Exception.Message)
 }
 # === END COPY ===
     if (Test-Path $runReportPath) {
@@ -715,17 +715,23 @@ try {
     if ($null -ne $runReportFile) {
         $targetDir = Split-Path $runReportFile.FullName -Parent
 
-        Copy-Item (Join-Path $PSScriptRoot "REPORT_EN.txt") -Destination (Join-Path $targetDir "REPORT_EN.txt") -Force
-        Copy-Item (Join-Path $PSScriptRoot "REPORT_RU.txt") -Destination (Join-Path $targetDir "REPORT_RU.txt") -Force
-
-        Write-Host ("HUMAN_REPORT: COPIED_TO " + $targetDir)
+        $rootEnPath = Join-Path $PSScriptRoot "REPORT_EN.txt"
+        $rootRuPath = Join-Path $PSScriptRoot "REPORT_RU.txt"
+        if ((Test-Path -LiteralPath $rootEnPath -PathType Leaf) -and (Test-Path -LiteralPath $rootRuPath -PathType Leaf)) {
+            Copy-Item $rootEnPath -Destination (Join-Path $targetDir "REPORT_EN.txt") -Force
+            Copy-Item $rootRuPath -Destination (Join-Path $targetDir "REPORT_RU.txt") -Force
+            Write-Host ("HUMAN_REPORT: COPIED_TO " + $targetDir)
+        }
+        else {
+            Write-Host "HUMAN_REPORT: ROOT_REPORTS_NOT_FOUND_FOR_COPY"
+        }
     }
     else {
         Write-Host "HUMAN_REPORT: RUN_REPORT_NOT_FOUND_FOR_COPY"
     }
 }
 catch {
-    Write-Host ("HUMAN_REPORT: COPY_FAILED " + $_.Exception.Message)
+    Write-Host ("HUMAN_REPORT: COPY_SKIPPED " + $_.Exception.Message)
 }
 # === END COPY ===
 
@@ -739,15 +745,21 @@ try {
         if ($null -ne $latestDir) {
             $targetDir = $latestDir.FullName
 
-            Copy-Item (Join-Path $PSScriptRoot "REPORT_EN.txt") -Destination (Join-Path $targetDir "REPORT_EN.txt") -Force
-            Copy-Item (Join-Path $PSScriptRoot "REPORT_RU.txt") -Destination (Join-Path $targetDir "REPORT_RU.txt") -Force
-
-            Write-Host ("HUMAN_REPORT: COPIED_TO " + $targetDir)
+            $rootEnPath = Join-Path $PSScriptRoot "REPORT_EN.txt"
+            $rootRuPath = Join-Path $PSScriptRoot "REPORT_RU.txt"
+            if ((Test-Path -LiteralPath $rootEnPath -PathType Leaf) -and (Test-Path -LiteralPath $rootRuPath -PathType Leaf)) {
+                Copy-Item $rootEnPath -Destination (Join-Path $targetDir "REPORT_EN.txt") -Force
+                Copy-Item $rootRuPath -Destination (Join-Path $targetDir "REPORT_RU.txt") -Force
+                Write-Host ("HUMAN_REPORT: COPIED_TO " + $targetDir)
+            }
+            else {
+                Write-Host "HUMAN_REPORT: ROOT_REPORTS_NOT_FOUND_FOR_COPY"
+            }
         }
     }
 }
 catch {
-    Write-Host ("HUMAN_REPORT: COPY_FAILED " + $_.Exception.Message)
+    Write-Host ("HUMAN_REPORT: COPY_SKIPPED " + $_.Exception.Message)
 }
 # === END COPY ===
     }
@@ -1222,7 +1234,7 @@ $runKeyBaseUrl = if ($canonicalBaseUrlResult.status -eq 'ok') { $canonicalBaseUr
 $runKey = Get-DeterministicRunKey -Mode $Mode -BaseUrl $runKeyBaseUrl
 $ownershipMode = Get-OwnershipMode
 $outputRoot = Join-Path $PSScriptRoot (Join-Path 'output' $runKey)
-$OutputDir = $PSScriptRoot
+$OutputDir = $outputRoot
 $runReportPath = Join-Path $outputRoot 'RUN_REPORT.json'
 $linkSummaryPath = Join-Path $outputRoot 'LINK_SUMMARY.json'
 $routesSummaryPath = Join-Path $outputRoot 'ROUTES_SUMMARY.json'
@@ -1269,7 +1281,9 @@ $stableArtifactFiles = @(
     'failure_summary.json',
     'AGENT_FAILURE_REPORT.txt',
     'visual_manifest.json',
-    'ACTION_REPORT.txt'
+    'ACTION_REPORT.txt',
+    'REPORT_EN.txt',
+    'REPORT_RU.txt'
 )
 
 $stableArtifactFolders = @(
@@ -1359,7 +1373,9 @@ function Get-FinalProducedArtifacts {
             'ACTION_SUMMARY.json',
             'AUDIT_SUMMARY.json',
             'LINK_SUMMARY.json',
-            'ROUTES_SUMMARY.json'
+            'ROUTES_SUMMARY.json',
+            'REPORT_EN.txt',
+            'REPORT_RU.txt'
         )) {
         if (-not $artifacts.Contains($requiredArtifact)) {
             $artifacts.Add($requiredArtifact)
@@ -3607,6 +3623,13 @@ if ($shouldFail) {
 
     $report.self_build_protocol.build_ladder = Get-BuildLadderContract -HasTruthfulFailure $true -HasSelfDiagnostic $true -HasOperatorHandoff $true
     $report.self_build_protocol.feature_progress_allowed = [bool]$report.self_build_protocol.build_ladder.feature_progress_allowed
+    try {
+        Invoke-PostOutput -OutputDir $outputRoot -RunReportPath $runReportPath
+        Write-Host "POST_OUTPUT_MODULE: DONE"
+    }
+    catch {
+        Write-Host ("POST_OUTPUT_MODULE: FAILED " + $_.Exception.Message)
+    }
     $report.produced_artifacts = Get-FinalProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions -StableArtifactFiles $stableArtifactFiles -StableArtifactFolders $stableArtifactFolders -Status ([string]$report.status)
     $report.linked_artifacts = @(
         [ordered]@{ name = 'run_report'; path = $runReportPath },
@@ -3653,11 +3676,16 @@ try {
 
         $status = if ($run.status_label) { [string]$run.status_label } else { [string]$run.status }
 
-        $enPath = Join-Path (Get-Location) "REPORT_EN.txt"
-        $ruPath = Join-Path (Get-Location) "REPORT_RU.txt"
+        $outputEnPath = Join-Path $outputRoot "REPORT_EN.txt"
+        $outputRuPath = Join-Path $outputRoot "REPORT_RU.txt"
+        $rootEnPath = Join-Path $PSScriptRoot "REPORT_EN.txt"
+        $rootRuPath = Join-Path $PSScriptRoot "REPORT_RU.txt"
 
-        "SITE STATUS: $status" | Out-File $enPath -Encoding UTF8
-        "СТАТУС САЙТА: $status" | Out-File $ruPath -Encoding UTF8
+        Ensure-Directory -Path $outputRoot
+        "SITE STATUS: $status" | Out-File $outputEnPath -Encoding UTF8
+        "СТАТУС САЙТА: $status" | Out-File $outputRuPath -Encoding UTF8
+        Copy-Item -LiteralPath $outputEnPath -Destination $rootEnPath -Force
+        Copy-Item -LiteralPath $outputRuPath -Destination $rootRuPath -Force
 
         Write-Host "HUMAN_REPORT: DONE"
     }
