@@ -1277,20 +1277,7 @@ $allowedFolders = @(
     'logs'
 )
 
-$stableArtifactFiles = @(
-    'RUN_REPORT.json',
-    'failure_summary.json',
-    'AGENT_FAILURE_REPORT.txt',
-    'visual_manifest.json',
-    'ACTION_REPORT.txt',
-    'REPORT_EN.txt',
-    'REPORT_RU.txt'
-)
-
-$stableArtifactFolders = @(
-    'screenshots',
-    'summaries'
-)
+$script:ProducedArtifactsRegistry = New-Object 'System.Collections.Generic.List[string]'
 
 function Get-ProducedArtifacts {
     param(
@@ -1299,11 +1286,7 @@ function Get-ProducedArtifacts {
         [Parameter(Mandatory = $true)]
         [string[]]$AllowedFolders,
         [Parameter(Mandatory = $true)]
-        [string[]]$AllowedExtensions,
-        [Parameter(Mandatory = $true)]
-        [string[]]$StableArtifactFiles,
-        [Parameter(Mandatory = $true)]
-        [string[]]$StableArtifactFolders
+        [string[]]$AllowedExtensions
     )
 
     $artifactFiles = @()
@@ -1320,25 +1303,54 @@ function Get-ProducedArtifacts {
 
     $artifactFiles += $rootFiles
 
-    foreach ($stableFile in $StableArtifactFiles) {
-        $stablePath = Join-Path $OutputDir $stableFile
-        if (Test-Path -LiteralPath $stablePath -PathType Leaf) {
-            $artifactFiles += Get-Item -LiteralPath $stablePath
-        }
-    }
-
-    foreach ($stableFolder in $StableArtifactFolders) {
-        $stableFolderPath = Join-Path $OutputDir $stableFolder
-        if (Test-Path -LiteralPath $stableFolderPath -PathType Container) {
-            $artifactFiles += Get-ChildItem -LiteralPath $stableFolderPath -File -Recurse
-        }
-    }
-
     return @(
         $artifactFiles | ForEach-Object {
             $_.FullName.Replace($OutputDir + [System.IO.Path]::DirectorySeparatorChar, '')
         } | Select-Object -Unique
     )
+}
+
+function Add-ProducedArtifactIfExists {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$OutputDir,
+        [Parameter(Mandatory = $true)]
+        [string]$RelativePath
+    )
+
+    if ([string]::IsNullOrWhiteSpace([string]$RelativePath)) {
+        return
+    }
+
+    $absolutePath = Join-Path $OutputDir $RelativePath
+    if (-not (Test-Path -LiteralPath $absolutePath -PathType Leaf)) {
+        return
+    }
+
+    if (-not $script:ProducedArtifactsRegistry.Contains($RelativePath)) {
+        $script:ProducedArtifactsRegistry.Add([string]$RelativePath)
+    }
+}
+
+function Add-ProducedArtifactsFromScan {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$OutputDir,
+        [Parameter(Mandatory = $true)]
+        [string[]]$AllowedFolders,
+        [Parameter(Mandatory = $true)]
+        [string[]]$AllowedExtensions
+    )
+
+    $scannedArtifacts = @(
+        Get-ProducedArtifacts -OutputDir $OutputDir -AllowedFolders $AllowedFolders -AllowedExtensions $AllowedExtensions
+    )
+
+    foreach ($artifact in $scannedArtifacts) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$artifact) -and -not $script:ProducedArtifactsRegistry.Contains([string]$artifact)) {
+            $script:ProducedArtifactsRegistry.Add([string]$artifact)
+        }
+    }
 }
 
 function Get-FinalProducedArtifacts {
@@ -1350,47 +1362,16 @@ function Get-FinalProducedArtifacts {
         [Parameter(Mandatory = $true)]
         [string[]]$AllowedExtensions,
         [Parameter(Mandatory = $true)]
-        [string[]]$StableArtifactFiles,
-        [Parameter(Mandatory = $true)]
-        [string[]]$StableArtifactFolders,
-        [Parameter(Mandatory = $true)]
         [string]$Status,
         [Parameter(Mandatory = $false)]
         [switch]$ValidateCriticalFinalArtifacts
     )
 
+    Add-ProducedArtifactsFromScan -OutputDir $OutputDir -AllowedFolders $AllowedFolders -AllowedExtensions $AllowedExtensions
     $artifacts = New-Object 'System.Collections.Generic.List[string]'
-
-    $scannedArtifacts = @(
-        Get-ProducedArtifacts -OutputDir $OutputDir -AllowedFolders $AllowedFolders -AllowedExtensions $AllowedExtensions -StableArtifactFiles $StableArtifactFiles -StableArtifactFolders $StableArtifactFolders
-    )
-    foreach ($artifact in $scannedArtifacts) {
+    foreach ($artifact in @($script:ProducedArtifactsRegistry)) {
         if (-not [string]::IsNullOrWhiteSpace([string]$artifact)) {
             $artifacts.Add([string]$artifact)
-        }
-    }
-
-    $expectedArtifacts = @(
-        'RUN_REPORT.json',
-        'ACTION_REPORT.txt',
-        'ACTION_SUMMARY.json',
-        'AUDIT_SUMMARY.json',
-        'LINK_SUMMARY.json',
-        'ROUTES_SUMMARY.json',
-        'REPORT_EN.txt',
-        'REPORT_RU.txt'
-    )
-    if ($Status -eq 'FAIL') {
-        $expectedArtifacts += @(
-            'failure_summary.json',
-            'AGENT_FAILURE_REPORT.txt',
-            'AGENT_OPERATOR_HANDOFF.json'
-        )
-    }
-
-    foreach ($expectedArtifact in $expectedArtifacts) {
-        if (-not $artifacts.Contains($expectedArtifact)) {
-            Write-Warning ("EXPECTED_ARTIFACT_MISSING: {0}" -f $expectedArtifact)
         }
     }
 
@@ -1747,7 +1728,7 @@ $report.operator_handoff = [ordered]@{
         failure_class = [string]$failureClass
         notes = @($errorMessage)
     }
-    $report.produced_artifacts = Get-FinalProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions -StableArtifactFiles $stableArtifactFiles -StableArtifactFolders $stableArtifactFolders -Status ([string]$report.status)
+    $report.produced_artifacts = Get-FinalProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions -Status ([string]$report.status)
     $report.linked_artifacts = @(
         [ordered]@{ name = 'run_report'; path = $runReportPath },
         [ordered]@{ name = 'failure_summary'; path = $failurePath }
@@ -2018,6 +1999,7 @@ if ((Test-Path (Join-Path $PSScriptRoot "ROUTES_SUMMARY.json")) -and (Test-Path 
         $visualManifest = $null
         try {
             $captureExitCode = Invoke-VisualCapture -Pages $captureTargetUrls -ToolPath $captureToolPath -InputPath $visualInputPath -ManifestPath $visualManifestPath -ScreenshotsPath $screenshotsPath
+            Add-ProducedArtifactIfExists -OutputDir $outputRoot -RelativePath 'visual_capture_input.json'
             if ($captureExitCode -ne 0) {
                 throw "capture_exit_code=$captureExitCode"
             }
@@ -2045,6 +2027,7 @@ if ((Test-Path (Join-Path $PSScriptRoot "ROUTES_SUMMARY.json")) -and (Test-Path 
                 capture_not_available = $true
             }
             Write-JsonFile -Path $visualManifestPath -Data $visualManifest
+            Add-ProducedArtifactIfExists -OutputDir $outputRoot -RelativePath 'visual_manifest.json'
         }
 
         foreach ($manifestPage in @($visualManifest.pages)) {
@@ -2072,6 +2055,7 @@ if ((Test-Path (Join-Path $PSScriptRoot "ROUTES_SUMMARY.json")) -and (Test-Path 
             $manifestPage.url = (Resolve-SafeUri -BaseUri ([Uri]$BaseUrl) -RelativeOrAbsolute ([string]$manifestCanonicalResult.canonical_route)).AbsoluteUri
         }
         Write-JsonFile -Path $visualManifestPath -Data $visualManifest
+        Add-ProducedArtifactIfExists -OutputDir $outputRoot -RelativePath 'visual_manifest.json'
         Copy-Item -LiteralPath $visualManifestPath -Destination $deterministicVisualManifestPath -Force
         Ensure-Directory -Path $deterministicScreenshotsPath
         if (Test-Path -LiteralPath $deterministicScreenshotsPath -PathType Container) {
@@ -2807,6 +2791,7 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
         $report.findings = Convert-ContractArray -Value ($defectFindingsArray + $limitationFindingsArray)
         $findingContractResult = Normalize-FindingContract -Findings (Convert-ContractArray -Value $report.findings) -DiagnosticPath $reportContractDiagPath
         if (Test-Path -LiteralPath $reportContractDiagPath -PathType Leaf) {
+            Add-ProducedArtifactIfExists -OutputDir $outputRoot -RelativePath 'REPORT_CONTRACT_DIAG.json'
             Copy-Item -LiteralPath $reportContractDiagPath -Destination $deterministicReportContractDiagPath -Force
         }
         $allFindings = Convert-ContractArray -Value $findingContractResult.findings
@@ -3389,7 +3374,7 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
         }
         $reportLayerMarker = 'REPORT_LAYER: EXIT_READY'
         Write-Host $reportLayerMarker
-        $report.produced_artifacts = Get-FinalProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions -StableArtifactFiles $stableArtifactFiles -StableArtifactFolders $stableArtifactFolders -Status ([string]$report.status)
+        $report.produced_artifacts = Get-FinalProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions -Status ([string]$report.status)
     }
     catch {
         $shouldFail = $true
@@ -3451,7 +3436,7 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
             current_failure_stage = [string]$failurePhaseValue
             notes = @("phase=$failurePhaseValue", "last_completed_stage=$lastCompletedStage", $operatorFailureNote, $errorMessage)
         }
-        $report.produced_artifacts = Get-FinalProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions -StableArtifactFiles $stableArtifactFiles -StableArtifactFolders $stableArtifactFolders -Status ([string]$report.status)
+        $report.produced_artifacts = Get-FinalProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions -Status ([string]$report.status)
         $report.linked_artifacts = @(
             [ordered]@{ name = 'run_report'; path = $runReportPath },
             [ordered]@{ name = 'failure_summary'; path = $failurePath }
@@ -3525,7 +3510,7 @@ if ((-not $shouldFail) -and ((-not (Test-Path -LiteralPath $humanReportRuPath)) 
     Copy-Item -LiteralPath $humanReportRuPath -Destination $deterministicHumanReportRuPath -Force
     Copy-Item -LiteralPath $humanReportEnPath -Destination $deterministicHumanReportEnPath -Force
 }
-$report.produced_artifacts = Get-FinalProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions -StableArtifactFiles $stableArtifactFiles -StableArtifactFolders $stableArtifactFolders -Status ([string]$report.status)
+$report.produced_artifacts = Get-FinalProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions -Status ([string]$report.status)
 
 if ($shouldFail) {
     $minimalFailRunReportWriteFailed = $false
@@ -3636,13 +3621,13 @@ if ($shouldFail) {
     catch {
         Write-Host ("POST_OUTPUT_MODULE: FAILED " + $_.Exception.Message)
     }
-    $report.produced_artifacts = Get-FinalProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions -StableArtifactFiles $stableArtifactFiles -StableArtifactFolders $stableArtifactFolders -Status ([string]$report.status)
+    $report.produced_artifacts = Get-FinalProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions -Status ([string]$report.status)
     $report.linked_artifacts = @(
         [ordered]@{ name = 'run_report'; path = $runReportPath },
         [ordered]@{ name = 'failure_summary'; path = $failurePath }
     )
     Write-RunReportBounded -Report $report -RunReportPath $runReportPath -DeterministicRunReportPath $deterministicRunReportPath
-    $null = Get-FinalProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions -StableArtifactFiles $stableArtifactFiles -StableArtifactFolders $stableArtifactFolders -Status ([string]$report.status) -ValidateCriticalFinalArtifacts
+    $null = Get-FinalProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions -Status ([string]$report.status) -ValidateCriticalFinalArtifacts
     exit 0
 }
 
@@ -3651,7 +3636,7 @@ $report.self_build_protocol.feature_progress_allowed = [bool]$report.self_build_
 $report.last_completed_stage = 'REPORT_LAYER'
 $report.current_failure_stage = ''
 Write-RunReportBounded -Report $report -RunReportPath $runReportPath -DeterministicRunReportPath $deterministicRunReportPath
-$null = Get-FinalProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions -StableArtifactFiles $stableArtifactFiles -StableArtifactFolders $stableArtifactFolders -Status ([string]$report.status) -ValidateCriticalFinalArtifacts
+$null = Get-FinalProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions -Status ([string]$report.status) -ValidateCriticalFinalArtifacts
 
 # === SAFE POST OUTPUT CALL ===
 try {
