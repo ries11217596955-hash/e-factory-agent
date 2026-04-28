@@ -358,6 +358,15 @@ function Test-ReportConsistencyLock {
     $firstActionSummaryAction = Get-FirstOrNull -Collection @($FinalActionSummary.actions)
     $firstRuActionLine = Get-FirstOrNull -Collection @($ReportPayloadRu.actions_lines)
     $firstEnActionLine = Get-FirstOrNull -Collection @($ReportPayloadEn.actions_lines)
+    $statusLabel = if (-not [string]::IsNullOrWhiteSpace([string]$Report.status_label)) { [string]$Report.status_label } else { [string]$Report.status }
+    $operatorBridge = $Report.operator_memory_bridge
+    $statusDetail = if ($null -ne $operatorBridge -and $null -ne $operatorBridge.PSObject.Properties['status_detail']) { [string]$operatorBridge.status_detail } else { '' }
+    $currentExecutionMode = if ($null -ne $operatorBridge -and $null -ne $operatorBridge.PSObject.Properties['current_execution_mode']) { [string]$operatorBridge.current_execution_mode } else { '' }
+    $currentLayer = if ($null -ne $operatorBridge -and $null -ne $operatorBridge.PSObject.Properties['current_layer']) { [string]$operatorBridge.current_layer } else { '' }
+    $oneNextStep = if ($null -ne $operatorBridge -and $null -ne $operatorBridge.PSObject.Properties['one_next_step']) { [string]$operatorBridge.one_next_step } else { '' }
+    $forbiddenNextSteps = if ($null -ne $operatorBridge -and $null -ne $operatorBridge.PSObject.Properties['forbidden_next_steps']) { @($operatorBridge.forbidden_next_steps) } else { @() }
+    $toolRecommendation = if ($null -ne $operatorBridge -and $null -ne $operatorBridge.PSObject.Properties['tool_recommendation']) { [string]$operatorBridge.tool_recommendation } else { '' }
+    $toolHint = if ($null -ne $operatorBridge -and $null -ne $operatorBridge.PSObject.Properties['tool_hint']) { [string]$operatorBridge.tool_hint } else { '' }
     if ($null -eq $firstActionSummaryAction -or [string]$firstActionSummaryAction.action -ne [string]$Report.decision_summary.recommended_action) { throw 'CONSISTENCY_LOCK_FAILED: ACTION_SUMMARY first action mismatch.' }
     if ($null -eq $firstRuActionLine -or [string]$firstRuActionLine -ne [string]$Report.decision_summary.recommended_action) { throw 'CONSISTENCY_LOCK_FAILED: RU main action mismatch.' }
     if ($null -eq $firstEnActionLine -or [string]$firstEnActionLine -ne [string]$Report.decision_summary.recommended_action) { throw 'CONSISTENCY_LOCK_FAILED: EN main action mismatch.' }
@@ -372,4 +381,11 @@ function Test-ReportConsistencyLock {
     if (@($ReportPayloadEn.evidence_lines).Count -gt 3 -or @($ReportPayloadRu.evidence_lines).Count -gt 3) { throw 'CONSISTENCY_LOCK_FAILED: too many supporting examples.' }
     if (@($ReportPayloadEn.actions_lines).Count -gt 3 -or @($ReportPayloadRu.actions_lines).Count -gt 3) { throw 'CONSISTENCY_LOCK_FAILED: too many action bullets.' }
     if ([string]$Report.system_problem.strongest_action -ne [string]$Report.decision_summary.recommended_action -or [string]$Report.system_problem.strongest_action -ne [string]$Report.next_strongest_move -or [string]$Report.system_problem.strongest_action -ne [string]$firstActionSummaryAction.action -or [string]$Report.system_problem.strongest_action -ne [string]$firstEnActionLine -or [string]$Report.system_problem.strongest_action -ne [string]$firstRuActionLine) { throw 'CONSISTENCY_LOCK_FAILED: strongest_action chain mismatch.' }
+    if ([string]::IsNullOrWhiteSpace($statusDetail)) { throw 'CONSISTENCY_LOCK_FAILED: operator_memory_bridge.status_detail is required.' }
+    if ([string]::IsNullOrWhiteSpace($currentExecutionMode)) { throw 'CONSISTENCY_LOCK_FAILED: operator_memory_bridge.current_execution_mode is required.' }
+    if ([string]::IsNullOrWhiteSpace($currentLayer)) { throw 'CONSISTENCY_LOCK_FAILED: operator_memory_bridge.current_layer is required.' }
+    if ([string]::IsNullOrWhiteSpace($oneNextStep)) { throw 'CONSISTENCY_LOCK_FAILED: operator_memory_bridge.one_next_step is required.' }
+    if (@($forbiddenNextSteps).Count -eq 0) { throw 'CONSISTENCY_LOCK_FAILED: operator_memory_bridge.forbidden_next_steps is required.' }
+    if ([string]::IsNullOrWhiteSpace($toolRecommendation) -and [string]::IsNullOrWhiteSpace($toolHint)) { throw 'CONSISTENCY_LOCK_FAILED: operator_memory_bridge.tool_recommendation or tool_hint is required.' }
+    if ([string]$statusLabel -eq 'PASS_WITH_LIMITS' -and [string]::IsNullOrWhiteSpace([string]$Report.confidence_reason)) { throw 'CONSISTENCY_LOCK_FAILED: PASS_WITH_LIMITS must include confidence_reason limitation.' }
 }

@@ -2987,6 +2987,12 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
         $reportLayerMarker = 'REPORT_LAYER: MEMORY_BRIDGE_READY'
         Write-Host $reportLayerMarker
         $report.operator_memory_bridge = [ordered]@{
+            status_detail = [string]$statusLabelForBridge
+            current_execution_mode = 'LINK'
+            current_layer = 'report layer'
+            one_next_step = [string]$report.next_step
+            forbidden_next_steps = @($nextOperatorDoNotDoYet)
+            tool_recommendation = 'PowerShell + RUN_REPORT.json first-read flow'
             identity_anchor = [ordered]@{
                 who_am_i = [string]$operatorMemoryCore.who_am_i
                 what_system_is_being_built = [string]$operatorMemoryCore.what_system_is_being_built
@@ -3229,6 +3235,10 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
             -LimitationCount $limitationFindings.Count
 
         $report.next_step = [string]$nextStrongestMove
+        if ($null -ne $report.operator_memory_bridge) {
+            $report.operator_memory_bridge.status_detail = [string]$report.status_label
+            $report.operator_memory_bridge.one_next_step = [string]$report.next_step
+        }
         $isLimitationOnly = ($defectFindings.Count -eq 0 -and $limitationFindings.Count -gt 0)
         $operatorHandoffReason = if ([string]$report.audit_confidence -eq 'LOW') {
             'Confidence is low because sampled route coverage is limited; avoid strong claims.'
