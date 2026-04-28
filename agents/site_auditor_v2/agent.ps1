@@ -1262,6 +1262,7 @@ $deterministicFailurePath = Join-Path $PSScriptRoot 'failure_summary.json'
 $deterministicAgentFailureReportPath = Join-Path $PSScriptRoot 'AGENT_FAILURE_REPORT.txt'
 $deterministicOperatorHandoffPath = Join-Path $PSScriptRoot 'AGENT_OPERATOR_HANDOFF.json'
 $deterministicVisualManifestPath = Join-Path $PSScriptRoot 'visual_manifest.json'
+$deterministicReportContractDiagPath = Join-Path $PSScriptRoot 'REPORT_CONTRACT_DIAG.json'
 $deterministicScreenshotsPath = Join-Path $PSScriptRoot 'screenshots'
 
 $allowedExtensions = @(
@@ -2803,6 +2804,9 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
         $limitationFindingsArray = @($limitationFindings)
         $report.findings = Convert-ContractArray -Value ($defectFindingsArray + $limitationFindingsArray)
         $findingContractResult = Normalize-FindingContract -Findings (Convert-ContractArray -Value $report.findings) -DiagnosticPath $reportContractDiagPath
+        if (Test-Path -LiteralPath $reportContractDiagPath -PathType Leaf) {
+            Copy-Item -LiteralPath $reportContractDiagPath -Destination $deterministicReportContractDiagPath -Force
+        }
         $allFindings = Convert-ContractArray -Value $findingContractResult.findings
         $report.findings = Convert-ContractArray -Value $findingContractResult.findings
         $defectFindings = @($allFindings | Where-Object { [string]$_.category -eq 'DEFECT' })
