@@ -1,23 +1,25 @@
 ## Summary
-- Restored report artifact handling so `REPORT_EN.txt` and `REPORT_RU.txt` are explicitly tracked as stable output artifacts.
-- Switched produced-artifacts base directory to run-scoped output (`output/<run_id>/`) so artifact discovery aligns with canonical output layout.
-- Added report files to required produced-artifact list to keep them visible in `produced_artifacts`.
-- Added safe report-copy guards in legacy HUMAN_REPORT copy blocks to prevent `COPY_FAILED` logging when source files are not yet present.
-- Ensured fail-path execution also invokes post-output generation, so user-facing reports are generated for both successful and failed runs.
+- Fixed REPORT_LAYER consistency-lock failures by guaranteeing `operator_memory_bridge.status_detail` is populated before lock assertions execute.
+- Added deterministic status-detail mapping based on canonical values only: `PASS`, `PASS_WITH_LIMITS`, `FAIL`.
+- Implemented required mapping rules from `RUN_REPORT.status` and `audit_confidence`:
+  - `PASS` + `LOW` → `PASS_WITH_LIMITS`
+  - `PASS` + not `LOW` → `PASS`
+  - `FAIL` → `FAIL`
+- Kept operator-control guard behavior intact by leaving all existing consistency-lock required-field checks in place.
+- Limited scope strictly to allowed files.
 
 ## Changed files
-- agents/site_auditor_v2/agent.ps1
+- agents/site_auditor_v2/modules/report_layer.ps1
 - docs/TASK_REPORT.md
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- Canonical report artifact directory: `agents/site_auditor_v2/output/<run_id>/`.
-- Report generation path on completion/failure: `Invoke-PostOutput -OutputDir $outputRoot -RunReportPath $runReportPath` in `agents/site_auditor_v2/agent.ps1`.
-- Produced artifacts assembly: `Get-FinalProducedArtifacts` in `agents/site_auditor_v2/agent.ps1`.
-- Root-level mirror for quick access: `agents/site_auditor_v2/REPORT_EN.txt` and `agents/site_auditor_v2/REPORT_RU.txt` written from canonical output at end of run.
+- Consistency lock entrypoint remains `Test-ReportConsistencyLock` in `agents/site_auditor_v2/modules/report_layer.ps1`.
+- Status-detail population now occurs via `Set-OperatorMemoryBridgeStatusDetail -Report $Report` at the start of `Test-ReportConsistencyLock`.
+- Output/report flow remains unchanged; `RUN_REPORT.json` production/inclusion is still managed by existing agent/report pipeline (no path or routing modifications in this task).
 
 ## Risks/blockers
-- `agent.ps1` contains multiple historical HUMAN_REPORT blocks; this task minimized edits and guarded copy behavior, but the duplicated legacy blocks remain and may warrant later cleanup.
-- No full live target-site audit run was executed in this task, so validation is limited to static and local script checks.
+- Validation here is code-level and focused on consistency-lock preparation logic; no full live SITE_AUDITOR_V2 audit run was executed in this environment.
+- For non-canonical/unknown `RUN_REPORT.status` values, fallback is currently `FAIL` to preserve deterministic canonical output and avoid missing `status_detail`.
