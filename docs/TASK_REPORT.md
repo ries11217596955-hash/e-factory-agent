@@ -1,8 +1,10 @@
 ## Summary
 Updated `site_auditor_v2` to treat visual capture as an optional capability. Capture failures (including missing Playwright/module errors) now degrade execution instead of failing the run, while explicitly marking reduced confidence and no visual evidence.
+Follow-up fix: report-layer decision synthesis now understands `NO_VISUAL_EVIDENCE` limitations and emits capture-recovery guidance instead of route-budget guidance when capture is unavailable.
 
 ## Changed files
 - agents/site_auditor_v2/agent.ps1
+- agents/site_auditor_v2/modules/report_layer.ps1
 - docs/TASK_REPORT.md
 
 ## Moved files/folders
