@@ -1,9 +1,9 @@
 ## Summary
-- Fixed SITE_AUDITOR_V2 artifact generation gap for `REPORT_CONTRACT_DIAG.json` by ensuring the diagnostic file is copied to deterministic root output as soon as it is generated.
-- Chosen approach: **A) always generate/write `REPORT_CONTRACT_DIAG.json` before artifact collection**.
-- This keeps `produced_artifacts` contract truthful: if `REPORT_CONTRACT_DIAG.json` is declared, it now exists at the expected staging path.
-- Scope intentionally limited to output-generation behavior and task reporting; summary logic and guards were not changed.
-- Goal: unblock pipeline from missing-artifact failure so it can proceed to next validation stage.
+- Reworked SITE_AUDITOR_V2 produced artifact contract to be derived strictly from files that actually exist under `agents/site_auditor_v2/output/<run_id>/`.
+- Removed pre-declared artifact insertion from `Get-FinalProducedArtifacts`, eliminating false positives where non-existent files were listed in `produced_artifacts`.
+- Added explicit warnings (`EXPECTED_ARTIFACT_MISSING`) for expected-but-absent non-critical files so missing outputs are visible without creating self-contradictory contracts.
+- Added critical guard: if `RUN_REPORT.json` is absent from scanned filesystem artifacts, the flow now throws `RUN_REPORT_ARTIFACT_MISSING`.
+- Scope remained limited to produced-artifacts assembly/report generation contract behavior and task reporting, with no workflow or audit-logic changes.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
@@ -13,11 +13,11 @@
 - None.
 
 ## Current entrypoints/paths
-- Contract diagnostic is still generated at run output path: `agents/site_auditor_v2/output/<run_key>/REPORT_CONTRACT_DIAG.json`.
-- Added deterministic mirror write path: `agents/site_auditor_v2/REPORT_CONTRACT_DIAG.json`.
-- Artifact assembly entrypoint remains `Get-FinalProducedArtifacts` in `agents/site_auditor_v2/agent.ps1`.
-- Finding normalization entrypoint remains `Normalize-FindingContract` invocation in report-layer stage inside `agents/site_auditor_v2/agent.ps1`.
+- Produced artifacts are assembled in `Get-FinalProducedArtifacts` (`agents/site_auditor_v2/agent.ps1`) from filesystem scan results gathered by `Get-ProducedArtifacts` against `agents/site_auditor_v2/output/<run_id>/`.
+- Expected artifact visibility is now warning-based (`EXPECTED_ARTIFACT_MISSING`) inside `Get-FinalProducedArtifacts`.
+- Critical artifact enforcement remains explicit for `RUN_REPORT.json` via `RUN_REPORT_ARTIFACT_MISSING` throw in `Get-FinalProducedArtifacts`.
+- Report contract population call sites remain unchanged and continue assigning `$report.produced_artifacts` from `Get-FinalProducedArtifacts`.
 
 ## Risks/blockers
-- If execution fails before finding normalization runs, the diagnostic artifact may still be absent (expected for pre-report-layer hard failures).
-- Validation in this task is static/script-level (no full SITE_AUDITOR_V2 runtime replay in this environment).
+- This task was validated statically (script inspection + syntax check) rather than full end-to-end SITE_AUDITOR_V2 runtime execution.
+- If downstream consumers implicitly relied on pre-declared-but-missing artifact names, they will now only see existing files and warning logs.
