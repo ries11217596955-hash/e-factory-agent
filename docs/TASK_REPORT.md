@@ -1,13 +1,11 @@
 ## Summary
-- Hardened generated `AGENT_MAP.md` content to include an explicit layer contract map for ROUTE_LAYER, CAPTURE_LAYER, RECON_LAYER, REPORT_LAYER, and OUTPUT_LAYER.
-- Added owner file, purpose, inputs, outputs, and failure signals per layer so operators can locate code ownership without browsing the repository.
-- Extended `RUN_REPORT.operator_memory_bridge` payload generation with `layer_owner_file`, `next_file_to_inspect`, and `reason_to_inspect`, while keeping `current_layer` explicit.
-- Enforced new operator bridge fields in the report consistency lock to fail fast when handoff ownership metadata is missing.
-- Updated `run_report.schema.json` so the added bridge keys are part of the contract required set.
+- Restored report artifact handling so `REPORT_EN.txt` and `REPORT_RU.txt` are explicitly tracked as stable output artifacts.
+- Switched produced-artifacts base directory to run-scoped output (`output/<run_id>/`) so artifact discovery aligns with canonical output layout.
+- Added report files to required produced-artifact list to keep them visible in `produced_artifacts`.
+- Added safe report-copy guards in legacy HUMAN_REPORT copy blocks to prevent `COPY_FAILED` logging when source files are not yet present.
+- Ensured fail-path execution also invokes post-output generation, so user-facing reports are generated for both successful and failed runs.
 
 ## Changed files
-- agents/site_auditor_v2/contracts/run_report.schema.json
-- agents/site_auditor_v2/modules/report_layer.ps1
 - agents/site_auditor_v2/agent.ps1
 - docs/TASK_REPORT.md
 
@@ -15,11 +13,11 @@
 - None.
 
 ## Current entrypoints/paths
-- AGENT_MAP generation: `agents/site_auditor_v2/agent.ps1` (`# === STAGE: AGENT_MAP ===` block).
-- RUN_REPORT bridge construction: `agents/site_auditor_v2/agent.ps1` (`$report.operator_memory_bridge` assembly/update).
-- RUN_REPORT consistency gate: `agents/site_auditor_v2/modules/report_layer.ps1` (`Test-ReportConsistencyLock`).
-- RUN_REPORT schema ownership contract: `agents/site_auditor_v2/contracts/run_report.schema.json` (`operator_memory_bridge` required keys).
+- Canonical report artifact directory: `agents/site_auditor_v2/output/<run_id>/`.
+- Report generation path on completion/failure: `Invoke-PostOutput -OutputDir $outputRoot -RunReportPath $runReportPath` in `agents/site_auditor_v2/agent.ps1`.
+- Produced artifacts assembly: `Get-FinalProducedArtifacts` in `agents/site_auditor_v2/agent.ps1`.
+- Root-level mirror for quick access: `agents/site_auditor_v2/REPORT_EN.txt` and `agents/site_auditor_v2/REPORT_RU.txt` written from canonical output at end of run.
 
 ## Risks/blockers
-- Layer owner/failure signal text in `AGENT_MAP.md` is generated documentation and must stay synchronized with implementation files if stage ownership changes later.
-- No full agent run was executed in this task, so acceptance of "current green run remains green" relies on static contract updates and existing runtime behavior.
+- `agent.ps1` contains multiple historical HUMAN_REPORT blocks; this task minimized edits and guarded copy behavior, but the duplicated legacy blocks remain and may warrant later cleanup.
+- No full live target-site audit run was executed in this task, so validation is limited to static and local script checks.
