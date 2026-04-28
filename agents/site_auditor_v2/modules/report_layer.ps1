@@ -344,9 +344,10 @@ function New-HumanReportPayloads {
     }
 }
 
-function Set-OperatorMemoryBridgeStatusDetail {
+function Ensure-OperatorMemoryBridgeRequiredFields {
     param(
-        [Parameter(Mandatory = $true)][object]$Report
+        [Parameter(Mandatory = $true)][object]$Report,
+        [Parameter(Mandatory = $false)][int]$LimitationCount = 0
     )
 
     if ($null -eq $Report.operator_memory_bridge) {
@@ -365,7 +366,44 @@ function Set-OperatorMemoryBridgeStatusDetail {
         'FAIL'
     }
 
+    $runId = if ($null -ne $Report.PSObject.Properties['run_id']) { [string]$Report.run_id } else { '' }
+    $nextFileToInspect = if (-not [string]::IsNullOrWhiteSpace($runId)) { "agents/site_auditor_v2/output/$runId/RUN_REPORT.json" } else { 'RUN_REPORT.json' }
+    $recommendedAction = if ($null -ne $Report.PSObject.Properties['decision_summary'] -and $null -ne $Report.decision_summary -and -not [string]::IsNullOrWhiteSpace([string]$Report.decision_summary.recommended_action)) {
+        [string]$Report.decision_summary.recommended_action
+    }
+    else {
+        "Inspect $nextFileToInspect to verify report consistency and operator-control details."
+    }
+    $reasonToInspect = if ($statusDetail -eq 'PASS_WITH_LIMITS') {
+        if ($LimitationCount -gt 0) {
+            "PASS_WITH_LIMITS due to $LimitationCount documented limitation(s); verify artifacts and constraints in RUN_REPORT."
+        }
+        else {
+            'PASS_WITH_LIMITS due to low confidence or incomplete evidence; verify artifacts and constraints in RUN_REPORT.'
+        }
+    }
+    elseif ($statusDetail -eq 'FAIL') {
+        'FAIL status detected; inspect RUN_REPORT artifacts to confirm root causes and required remediation.'
+    }
+    else {
+        'PASS status requires artifact verification to ensure no hidden limitations remain in RUN_REPORT.'
+    }
+
+    $forbiddenNextSteps = @(
+        'Do not weaken or bypass the consistency lock.',
+        'Do not edit workflows, entrypoints, or runtime audit logic for this fix.'
+    )
+
     $Report.operator_memory_bridge | Add-Member -NotePropertyName status_detail -NotePropertyValue $statusDetail -Force
+    $Report.operator_memory_bridge | Add-Member -NotePropertyName current_execution_mode -NotePropertyValue ($(if (-not [string]::IsNullOrWhiteSpace([string]$Report.mode)) { [string]$Report.mode } else { 'LINK' })) -Force
+    $Report.operator_memory_bridge | Add-Member -NotePropertyName current_layer -NotePropertyValue 'REPORT_LAYER' -Force
+    $Report.operator_memory_bridge | Add-Member -NotePropertyName layer_owner_file -NotePropertyValue 'agents/site_auditor_v2/modules/report_layer.ps1' -Force
+    $Report.operator_memory_bridge | Add-Member -NotePropertyName next_file_to_inspect -NotePropertyValue $nextFileToInspect -Force
+    $Report.operator_memory_bridge | Add-Member -NotePropertyName reason_to_inspect -NotePropertyValue $reasonToInspect -Force
+    $Report.operator_memory_bridge | Add-Member -NotePropertyName one_next_step -NotePropertyValue $recommendedAction -Force
+    $Report.operator_memory_bridge | Add-Member -NotePropertyName forbidden_next_steps -NotePropertyValue $forbiddenNextSteps -Force
+    $Report.operator_memory_bridge | Add-Member -NotePropertyName tool_recommendation -NotePropertyValue 'CodeSpace for verification; Codex only for targeted patch' -Force
+    $Report.operator_memory_bridge | Add-Member -NotePropertyName tool_hint -NotePropertyValue 'CodeSpace for verification; Codex only for targeted patch' -Force
 }
 
 function Test-ReportConsistencyLock {
@@ -379,7 +417,7 @@ function Test-ReportConsistencyLock {
         [Parameter(Mandatory = $true)][int]$LimitationCount
     )
 
-    Set-OperatorMemoryBridgeStatusDetail -Report $Report
+    Ensure-OperatorMemoryBridgeRequiredFields -Report $Report -LimitationCount $LimitationCount
 
     $firstActionSummaryAction = Get-FirstOrNull -Collection @($FinalActionSummary.actions)
     $firstRuActionLine = Get-FirstOrNull -Collection @($ReportPayloadRu.actions_lines)
