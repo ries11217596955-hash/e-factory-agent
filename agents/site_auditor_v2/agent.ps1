@@ -1368,43 +1368,32 @@ function Get-FinalProducedArtifacts {
         }
     }
 
-    foreach ($requiredArtifact in @(
-            'RUN_REPORT.json',
-            'ACTION_REPORT.txt',
-            'ACTION_SUMMARY.json',
-            'AUDIT_SUMMARY.json',
-            'LINK_SUMMARY.json',
-            'ROUTES_SUMMARY.json',
-            'REPORT_EN.txt',
-            'REPORT_RU.txt'
-        )) {
-        if (-not $artifacts.Contains($requiredArtifact)) {
-            $artifacts.Add($requiredArtifact)
+    $expectedArtifacts = @(
+        'RUN_REPORT.json',
+        'ACTION_REPORT.txt',
+        'ACTION_SUMMARY.json',
+        'AUDIT_SUMMARY.json',
+        'LINK_SUMMARY.json',
+        'ROUTES_SUMMARY.json',
+        'REPORT_EN.txt',
+        'REPORT_RU.txt'
+    )
+    if ($Status -eq 'FAIL') {
+        $expectedArtifacts += @(
+            'failure_summary.json',
+            'AGENT_FAILURE_REPORT.txt',
+            'AGENT_OPERATOR_HANDOFF.json'
+        )
+    }
+
+    foreach ($expectedArtifact in $expectedArtifacts) {
+        if (-not $artifacts.Contains($expectedArtifact)) {
+            Write-Warning ("EXPECTED_ARTIFACT_MISSING: {0}" -f $expectedArtifact)
         }
     }
 
-    $visualManifestPath = Join-Path $OutputDir 'visual_manifest.json'
-    if ((Test-Path -LiteralPath $visualManifestPath -PathType Leaf) -and (-not $artifacts.Contains('visual_manifest.json'))) {
-        $artifacts.Add('visual_manifest.json')
-    }
-
-    $screenshotsPath = Join-Path $OutputDir 'screenshots'
-    if (Test-Path -LiteralPath $screenshotsPath -PathType Container) {
-        $screenshotArtifacts = @(Get-ChildItem -LiteralPath $screenshotsPath -File -Recurse | ForEach-Object {
-                $_.FullName.Replace($OutputDir + [System.IO.Path]::DirectorySeparatorChar, '')
-            } | Sort-Object -Unique)
-        foreach ($screenshotArtifact in $screenshotArtifacts) {
-            if (-not $artifacts.Contains($screenshotArtifact)) {
-                $artifacts.Add($screenshotArtifact)
-            }
-        }
-    }
-
-    $failureSummaryPath = Join-Path $OutputDir 'failure_summary.json'
-    if (($Status -eq 'FAIL') -or (Test-Path -LiteralPath $failureSummaryPath -PathType Leaf)) {
-        if (-not $artifacts.Contains('failure_summary.json')) {
-            $artifacts.Add('failure_summary.json')
-        }
+    if (-not $artifacts.Contains('RUN_REPORT.json')) {
+        throw 'RUN_REPORT_ARTIFACT_MISSING'
     }
 
     return @($artifacts.ToArray() | Sort-Object -Unique)
