@@ -1353,26 +1353,28 @@ function Add-ProducedArtifactsFromScan {
     }
 }
 
+
 function Get-FinalProducedArtifacts {
     param(
-        [Parameter(Mandatory = $true)]
         [string]$OutputDir,
-        [Parameter(Mandatory = $true)]
-        [string[]]$AllowedFolders,
-        [Parameter(Mandatory = $true)]
-        [string[]]$AllowedExtensions,
-        [Parameter(Mandatory = $true)]
-        [string]$Status,
-        [Parameter(Mandatory = $false)]
-        [switch]$ValidateCriticalFinalArtifacts
+        $AllowedFolders,
+        $AllowedExtensions,
+        [string]$Status
     )
 
-    Add-ProducedArtifactsFromScan -OutputDir $OutputDir -AllowedFolders $AllowedFolders -AllowedExtensions $AllowedExtensions
-    $artifacts = New-Object 'System.Collections.Generic.List[string]'
-    foreach ($artifact in @($script:ProducedArtifactsRegistry)) {
-        if (-not [string]::IsNullOrWhiteSpace([string]$artifact)) {
-            $artifacts.Add([string]$artifact)
-        }
+    $files = Get-ChildItem -Path $OutputDir -File -Recurse
+
+    $finalArtifacts = @()
+
+    foreach ($f in $files) {
+        $rel = $f.FullName.Replace((Resolve-Path ".").Path + "\", "")
+        $rel = $rel -replace "\\", "/"
+        $finalArtifacts += $rel
+    }
+
+    return $finalArtifacts
+}
+
     }
 
     if ($ValidateCriticalFinalArtifacts) {
