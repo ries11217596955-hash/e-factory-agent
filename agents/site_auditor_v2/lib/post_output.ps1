@@ -9,69 +9,86 @@ function Invoke-PostOutput {
     $report = Get-Content $RunReportPath -Raw | ConvertFrom-Json
 
     $status = if ($report.status_label) { [string]$report.status_label } else { [string]$report.status }
-    $agentName = 'SITE_AUDITOR_V2'
-    $productScope = if ($report.operator_memory_bridge.identity_anchor.what_system_is_being_built) { [string]$report.operator_memory_bridge.identity_anchor.what_system_is_being_built } else { 'site audit evidence system' }
-    $executionMode = if ($report.execution_report.mode) { [string]$report.execution_report.mode } else { 'LINK' }
-    $currentLayer = 'REPORT_LAYER'
-    $responsibilityMap = @(
-        'agent.ps1 -> orchestrator and stage control',
-        'modules/stage_link_fetch.ps1 -> LINK fetch and route discovery',
-        'modules/stage_capture_reconciliation.ps1 -> evidence reconciliation',
-        'modules/report_layer.ps1 -> findings synthesis and operator memory bridge',
-        'lib/post_output.ps1 -> human report handoff text'
-    )
-
-    $passWithLimitsMeaningEn = 'PASS_WITH_LIMITS means the run completed but confidence/scope constraints still block full-site claims.'
-    $passWithLimitsMeaningRu = 'PASS_WITH_LIMITS означает: запуск завершён, но ограничения уверенности/охвата не позволяют делать вывод о всём сайте.'
-
-    $inspectNext = @($report.operator_memory_bridge.next_operator_posture.what_to_inspect_next)
-    $recommendedMove = if ($report.operator_memory_bridge.next_operator_posture.next_system_move) { [string]$report.operator_memory_bridge.next_operator_posture.next_system_move } else { [string]$report.next_step }
-    $forbiddenMoves = @($report.forbidden_next_steps)
-    if ($forbiddenMoves.Count -eq 0) { $forbiddenMoves = @($report.operator_memory_bridge.next_operator_posture.forbidden_drifts) }
-
-    $runSummary = if ($report.summary) { [string]$report.summary } else { 'Run completed with bounded LINK evidence.' }
+    $bridge = $report.operator_memory_bridge.self_explanation
+    $agentInfo = $bridge.what_this_agent_is
+    $runInfo = $bridge.what_happened_in_this_run
+    $systemMap = @($bridge.system_map_minimal)
+    $nextStep = [string]$bridge.next_step_one_only
+    $forbidden = @($bridge.forbidden)
 
     $en = @(
         "SITE STATUS: $status",
-        "WHAT THE AGENT IS: $agentName",
-        "ACTIVE PRODUCT SCOPE: $productScope",
-        "CURRENT EXECUTION MODE: $executionMode",
-        "CURRENT LAYER: $currentLayer",
-        'MODULE / FILE RESPONSIBILITY MAP:'
+        '',
+        'SECTION: WHAT THIS AGENT IS',
+        ("- universal audit engine: " + [string]$agentInfo.universal_audit_engine),
+        ("- current mode (LINK): " + [string]$agentInfo.current_mode),
+        '- what this run actually did (routes, screenshots, limits):'
     )
-    foreach ($line in $responsibilityMap) { $en += "- $line" }
+    foreach ($line in @($agentInfo.run_scope)) { $en += "- $line" }
     $en += @(
-        "WHAT HAPPENED IN THIS RUN: $runSummary",
-        ("PASS_WITH_LIMITS MEANING: " + $passWithLimitsMeaningEn),
-        'WHAT TO INSPECT NEXT:'
+        '',
+        'SECTION: WHAT HAPPENED IN THIS RUN',
+        ("- status: " + [string]$runInfo.status),
+        ("- plain meaning: " + [string]$runInfo.status_meaning_plain),
+        '- PASS / PASS_WITH_LIMITS / FAIL meaning in plain language:',
+        '- PASS = sampled run found no material defects; not a full-site guarantee.',
+        '- PASS_WITH_LIMITS = run finished but confidence/coverage limits block full-site claims.',
+        '- FAIL = defects or evidence gaps require operator action before trusting the outcome.',
+        ("- confidence: " + [string]$runInfo.confidence),
+        ("- why confidence is LOW or not: " + [string]$runInfo.why_confidence),
+        '- what was actually checked vs not checked:'
     )
-    foreach ($line in $inspectNext) { $en += "- $line" }
+    foreach ($line in @($runInfo.checked_vs_not_checked)) { $en += "- $line" }
     $en += @(
-        "ONE RECOMMENDED NEXT MOVE: $recommendedMove",
-        'FORBIDDEN NEXT MOVES:'
+        '',
+        'SECTION: SYSTEM MAP (MINIMAL)'
     )
-    foreach ($line in $forbiddenMoves) { $en += "- $line" }
+    foreach ($line in $systemMap) { $en += "- $line" }
+    $en += @(
+        '',
+        'SECTION: NEXT STEP (ONE ONLY)',
+        ("- " + $nextStep),
+        '',
+        'SECTION: FORBIDDEN'
+    )
+    foreach ($line in $forbidden) { $en += "- $line" }
 
     $ru = @(
         "СТАТУС САЙТА: $status",
-        "ЧТО ЭТО ЗА АГЕНТ: $agentName",
-        "АКТИВНЫЙ ПРОДУКТОВЫЙ КОНТУР: $productScope",
-        "ТЕКУЩИЙ РЕЖИМ ВЫПОЛНЕНИЯ: $executionMode",
-        "ТЕКУЩИЙ СЛОЙ: $currentLayer",
-        'КАРТА ОТВЕТСТВЕННОСТИ МОДУЛЕЙ/ФАЙЛОВ:'
+        '',
+        'SECTION: WHAT THIS AGENT IS',
+        ("- universal audit engine: " + [string]$agentInfo.universal_audit_engine),
+        ("- current mode (LINK): " + [string]$agentInfo.current_mode),
+        '- what this run actually did (routes, screenshots, limits):'
     )
-    foreach ($line in $responsibilityMap) { $ru += "- $line" }
+    foreach ($line in @($agentInfo.run_scope)) { $ru += "- $line" }
     $ru += @(
-        "ЧТО ПРОИЗОШЛО В ЭТОМ ЗАПУСКЕ: $runSummary",
-        ("СМЫСЛ PASS_WITH_LIMITS: " + $passWithLimitsMeaningRu),
-        'ЧТО ПРОВЕРИТЬ ДАЛЬШЕ:'
+        '',
+        'SECTION: WHAT HAPPENED IN THIS RUN',
+        ("- status: " + [string]$runInfo.status),
+        ("- plain meaning: " + [string]$runInfo.status_meaning_plain),
+        '- PASS / PASS_WITH_LIMITS / FAIL meaning in plain language:',
+        '- PASS = sampled run found no material defects; not a full-site guarantee.',
+        '- PASS_WITH_LIMITS = run finished but confidence/coverage limits block full-site claims.',
+        '- FAIL = defects or evidence gaps require operator action before trusting the outcome.',
+        ("- confidence: " + [string]$runInfo.confidence),
+        ("- why confidence is LOW or not: " + [string]$runInfo.why_confidence),
+        '- what was actually checked vs not checked:'
     )
-    foreach ($line in $inspectNext) { $ru += "- $line" }
+    foreach ($line in @($runInfo.checked_vs_not_checked)) { $ru += "- $line" }
     $ru += @(
-        "ОДИН РЕКОМЕНДУЕМЫЙ СЛЕДУЮЩИЙ ШАГ: $recommendedMove",
-        'ЗАПРЕЩЁННЫЕ СЛЕДУЮЩИЕ ДЕЙСТВИЯ:'
+        '',
+        'SECTION: SYSTEM MAP (MINIMAL)'
     )
-    foreach ($line in $forbiddenMoves) { $ru += "- $line" }
+    foreach ($line in $systemMap) { $ru += "- $line" }
+    $ru += @(
+        '',
+        'SECTION: NEXT STEP (ONE ONLY)',
+        ("- " + $nextStep),
+        '',
+        'SECTION: FORBIDDEN'
+    )
+    foreach ($line in $forbidden) { $ru += "- $line" }
 
     $en | Out-File (Join-Path $OutputDir "REPORT_EN.txt") -Encoding UTF8
     $ru | Out-File (Join-Path $OutputDir "REPORT_RU.txt") -Encoding UTF8

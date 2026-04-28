@@ -545,6 +545,14 @@ try {
         $map += "## STAGES"
         $map += "ENTRY -> LINK_FETCH -> ROUTE_EXTRACTION -> ROUTE_SELECTION -> CAPTURE -> RECON -> REPORT_LAYER -> OUTPUT -> HUMAN_REPORT"
         $map += ""
+        $map += "## SYSTEM MAP (MINIMAL)"
+        $map += "- route layer -> builds routes"
+        $map += "- capture layer -> screenshots"
+        $map += "- recon -> evaluation"
+        $map += "- report -> decisions"
+        $map += "- output -> artifacts"
+        $map += "- file pointers: agent.ps1, modules/stage_link_fetch.ps1, modules/stage_capture_reconciliation.ps1, modules/report_layer.ps1, lib/post_output.ps1"
+        $map += ""
         $map += "## MODULE / FILE RESPONSIBILITY MAP"
         $map += "- agent.ps1 = orchestrator and stage control"
         $map += "- modules/stage_link_fetch.ps1 = LINK fetch and route discovery"
@@ -2947,6 +2955,35 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
             'do not grade CTA quality',
             'do not claim monetization readiness beyond observable LINK evidence'
         )
+        $routesCheckedCount = @($report.selected_routes).Count
+        $capturesTakenCount = if ($report.capture_report -and $report.capture_report.PSObject.Properties['captures_success']) { [int]$report.capture_report.captures_success } else { 0 }
+        $captureAttemptedCount = if ($report.capture_report -and $report.capture_report.PSObject.Properties['captures_attempted']) { [int]$report.capture_report.captures_attempted } else { 0 }
+        $overflowCount = if ($report.run_budget -and $report.run_budget.PSObject.Properties['overflow_routes']) { [int]$report.run_budget.overflow_routes } else { 0 }
+        $limitNotes = New-Object System.Collections.Generic.List[string]
+        if ($overflowCount -gt 0) { $null = $limitNotes.Add("route budget overflow: $overflowCount route(s) not checked in this run") }
+        if ($captureAttemptedCount -gt $capturesTakenCount) { $null = $limitNotes.Add("capture limits: only $capturesTakenCount of $captureAttemptedCount capture(s) succeeded") }
+        if ([string]$report.audit_confidence -eq 'LOW') { $null = $limitNotes.Add('confidence remains LOW due to bounded scope or incomplete evidence') }
+        if ($limitNotes.Count -eq 0) { $null = $limitNotes.Add('no explicit run limits were raised beyond LINK-mode boundaries') }
+        $statusLabelForBridge = if ($report.status_label) { [string]$report.status_label } else { [string]$report.status }
+        $statusMeaning = [ordered]@{
+            PASS = 'No material defects found in the sampled LINK evidence for this run; this is not a full-site guarantee.'
+            PASS_WITH_LIMITS = 'Run completed, but confidence/coverage limits prevent full-site claims. Treat as bounded pass only.'
+            FAIL = 'Critical evidence gaps or defects blocked trust in the sampled run; operator action is required before relying on this output.'
+        }
+        $checkedVsNotChecked = @(
+            "checked: $routesCheckedCount selected route(s) through LINK fetch, capture, recon, and report layers"
+            "checked: $capturesTakenCount successful screenshot capture(s) used as evidence"
+            "not checked: routes outside selection budget or overflow ($overflowCount route(s))"
+            'not checked: interaction flows, UX quality, conversion quality, or non-LINK hidden states'
+        )
+        $systemMapMinimal = @(
+            'route layer -> builds routes',
+            'capture layer -> screenshots',
+            'recon -> evaluation',
+            'report -> decisions',
+            'output -> artifacts',
+            'file pointers: agent.ps1, modules/stage_link_fetch.ps1, modules/stage_capture_reconciliation.ps1, modules/report_layer.ps1, lib/post_output.ps1'
+        )
         $reportLayerMarker = 'REPORT_LAYER: MEMORY_BRIDGE_READY'
         Write-Host $reportLayerMarker
         $report.operator_memory_bridge = [ordered]@{
@@ -2986,6 +3023,31 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
                     'do not add new audit features before stabilizing current report layer'
                 )
                 do_not_do_yet = @($nextOperatorDoNotDoYet)
+            }
+            self_explanation = [ordered]@{
+                what_this_agent_is = [ordered]@{
+                    universal_audit_engine = 'SITE_AUDITOR_V2 is a universal audit engine operating in bounded modes.'
+                    current_mode = 'LINK'
+                    run_scope = @(
+                        "routes checked: $routesCheckedCount"
+                        "screenshots captured: $capturesTakenCount"
+                        ("limits: " + ($limitNotes -join '; '))
+                    )
+                }
+                what_happened_in_this_run = [ordered]@{
+                    status = [string]$statusLabelForBridge
+                    status_meaning_plain = [string]$statusMeaning[[string]$statusLabelForBridge]
+                    confidence = [string]$report.audit_confidence
+                    why_confidence = if ([string]$report.audit_confidence -eq 'LOW') { 'LOW confidence means bounded or incomplete evidence in this run, so claims must stay limited to checked routes only.' } else { 'Confidence is not LOW because sampled evidence and reconciliation were sufficient for this bounded run.' }
+                    checked_vs_not_checked = @($checkedVsNotChecked)
+                }
+                system_map_minimal = @($systemMapMinimal)
+                next_step_one_only = [string]$report.next_step
+                forbidden = @(
+                    'do not refactor',
+                    'do not add features',
+                    'do not assume full audit'
+                )
             }
         }
         $report.page_verdicts = @($pageVerdicts.ToArray())
