@@ -87,8 +87,8 @@ jobs:
           test -f "${ACTION_REPORT}" || { echo "Missing ACTION_REPORT.txt"; exit 1; }
 
           mapfile -t ARTIFACTS < <(jq -r '.produced_artifacts[]' "${RUN_REPORT}")
-          printf '%s\n' "${ARTIFACTS[@]}" | grep -qx 'RUN_REPORT.json' || { echo "RUN_REPORT.json not declared in produced_artifacts"; exit 1; }
-          printf '%s\n' "${ARTIFACTS[@]}" | grep -qx 'ACTION_REPORT.txt' || { echo "ACTION_REPORT.txt not declared in produced_artifacts"; exit 1; }
+          printf '%s\n' "${ARTIFACTS[@]}" | grep -Eq '(^|/)RUN_REPORT.json$' || { echo "RUN_REPORT.json not declared in produced_artifacts"; exit 1; }
+          printf '%s\n' "${ARTIFACTS[@]}" | grep -Eq '(^|/)ACTION_REPORT.txt$' || { echo "ACTION_REPORT.txt not declared in produced_artifacts"; exit 1; }
 
           for artifact in "${ARTIFACTS[@]}"; do
             test -f "agents/site_auditor_v2/${artifact}" || { echo "Listed artifact missing: ${artifact}"; exit 1; }
@@ -106,7 +106,7 @@ jobs:
 
           if [ "${STATUS}" = "FAIL" ]; then
             test -f "agents/site_auditor_v2/failure_summary.json" || { echo "FAIL run missing failure_summary.json"; exit 1; }
-            printf '%s\n' "${ARTIFACTS[@]}" | grep -qx 'failure_summary.json' || { echo "FAIL run must include failure_summary.json in produced_artifacts"; exit 1; }
+            printf '%s\n' "${ARTIFACTS[@]}" | grep -Eq '(^|/)failure_summary.json$' || { echo "FAIL run must include failure_summary.json in produced_artifacts"; exit 1; }
             jq -e '.failure_or_limit_report.failure_summary == "failure_summary.json"' "${RUN_REPORT}" >/dev/null || { echo "FAIL run must reference failure_summary.json"; exit 1; }
           fi
 
