@@ -1,9 +1,9 @@
 ## Summary
-- Reworked SITE_AUDITOR_V2 produced artifact contract to be derived strictly from files that actually exist under `agents/site_auditor_v2/output/<run_id>/`.
-- Removed pre-declared artifact insertion from `Get-FinalProducedArtifacts`, eliminating false positives where non-existent files were listed in `produced_artifacts`.
-- Added explicit warnings (`EXPECTED_ARTIFACT_MISSING`) for expected-but-absent non-critical files so missing outputs are visible without creating self-contradictory contracts.
-- Added critical guard: if `RUN_REPORT.json` is absent from scanned filesystem artifacts, the flow now throws `RUN_REPORT_ARTIFACT_MISSING`.
-- Scope remained limited to produced-artifacts assembly/report generation contract behavior and task reporting, with no workflow or audit-logic changes.
+- Adjusted SITE_AUDITOR_V2 artifact validation timing so REPORT_LAYER can compute `produced_artifacts` without failing before OUTPUT writes final files.
+- Kept expected artifact warnings (`EXPECTED_ARTIFACT_MISSING`) intact during pre-output scans.
+- Added explicit post-OUTPUT critical validation for `RUN_REPORT.json`, `REPORT_EN.txt`, and `REPORT_RU.txt`.
+- Added a post-write validation call immediately after `Write-RunReportBounded` in both success and fail completion paths.
+- Preserved existing audit/report/recon/route logic and avoided broad refactoring.
 
 ## Changed files
 - `agents/site_auditor_v2/agent.ps1`
@@ -13,11 +13,10 @@
 - None.
 
 ## Current entrypoints/paths
-- Produced artifacts are assembled in `Get-FinalProducedArtifacts` (`agents/site_auditor_v2/agent.ps1`) from filesystem scan results gathered by `Get-ProducedArtifacts` against `agents/site_auditor_v2/output/<run_id>/`.
-- Expected artifact visibility is now warning-based (`EXPECTED_ARTIFACT_MISSING`) inside `Get-FinalProducedArtifacts`.
-- Critical artifact enforcement remains explicit for `RUN_REPORT.json` via `RUN_REPORT_ARTIFACT_MISSING` throw in `Get-FinalProducedArtifacts`.
-- Report contract population call sites remain unchanged and continue assigning `$report.produced_artifacts` from `Get-FinalProducedArtifacts`.
+- `Get-FinalProducedArtifacts` now supports optional strict mode via `-ValidateCriticalFinalArtifacts` and only throws in that mode.
+- REPORT_LAYER and other pre-output call sites still use non-strict artifact scans for planning and diagnostics.
+- Final strict artifact validation runs after `Write-RunReportBounded` in both completion paths to enforce post-write filesystem truth.
 
 ## Risks/blockers
-- This task was validated statically (script inspection + syntax check) rather than full end-to-end SITE_AUDITOR_V2 runtime execution.
-- If downstream consumers implicitly relied on pre-declared-but-missing artifact names, they will now only see existing files and warning logs.
+- Validation was verified through static checks and PowerShell parse checks; no full end-to-end live website audit run was executed in this environment.
+- If an environment writes `REPORT_EN.txt` / `REPORT_RU.txt` asynchronously after `Write-RunReportBounded`, strict validation may fail earlier (intended for deterministic lifecycle enforcement).

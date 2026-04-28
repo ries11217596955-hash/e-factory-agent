@@ -1354,7 +1354,9 @@ function Get-FinalProducedArtifacts {
         [Parameter(Mandatory = $true)]
         [string[]]$StableArtifactFolders,
         [Parameter(Mandatory = $true)]
-        [string]$Status
+        [string]$Status,
+        [Parameter(Mandatory = $false)]
+        [switch]$ValidateCriticalFinalArtifacts
     )
 
     $artifacts = New-Object 'System.Collections.Generic.List[string]'
@@ -1392,8 +1394,19 @@ function Get-FinalProducedArtifacts {
         }
     }
 
-    if (-not $artifacts.Contains('RUN_REPORT.json')) {
-        throw 'RUN_REPORT_ARTIFACT_MISSING'
+    if ($ValidateCriticalFinalArtifacts) {
+        $criticalFinalArtifacts = @(
+            'RUN_REPORT.json',
+            'REPORT_EN.txt',
+            'REPORT_RU.txt'
+        )
+        $missingCriticalFinalArtifacts = @(
+            $criticalFinalArtifacts | Where-Object { -not $artifacts.Contains($_) }
+        )
+
+        if (@($missingCriticalFinalArtifacts).Count -gt 0) {
+            throw ("FINAL_ARTIFACTS_MISSING_AFTER_OUTPUT: {0}" -f (@($missingCriticalFinalArtifacts) -join ', '))
+        }
     }
 
     return @($artifacts.ToArray() | Sort-Object -Unique)
@@ -3629,6 +3642,7 @@ if ($shouldFail) {
         [ordered]@{ name = 'failure_summary'; path = $failurePath }
     )
     Write-RunReportBounded -Report $report -RunReportPath $runReportPath -DeterministicRunReportPath $deterministicRunReportPath
+    $null = Get-FinalProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions -StableArtifactFiles $stableArtifactFiles -StableArtifactFolders $stableArtifactFolders -Status ([string]$report.status) -ValidateCriticalFinalArtifacts
     exit 0
 }
 
@@ -3637,6 +3651,7 @@ $report.self_build_protocol.feature_progress_allowed = [bool]$report.self_build_
 $report.last_completed_stage = 'REPORT_LAYER'
 $report.current_failure_stage = ''
 Write-RunReportBounded -Report $report -RunReportPath $runReportPath -DeterministicRunReportPath $deterministicRunReportPath
+$null = Get-FinalProducedArtifacts -OutputDir $OutputDir -AllowedFolders $allowedFolders -AllowedExtensions $allowedExtensions -StableArtifactFiles $stableArtifactFiles -StableArtifactFolders $stableArtifactFolders -Status ([string]$report.status) -ValidateCriticalFinalArtifacts
 
 # === SAFE POST OUTPUT CALL ===
 try {
