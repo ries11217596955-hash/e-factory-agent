@@ -3217,6 +3217,30 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
             )
         }
 
+        
+        if (($null -eq $sortedFindings -or @($sortedFindings).Count -eq 0) -and $null -ne $report.problem_targets) {
+            $sortedFindings = @(
+                $report.problem_targets |
+                Where-Object { [string]$_.classification -eq 'broken' } |
+                ForEach-Object {
+                    [ordered]@{
+                        route = $_.url
+                        issue_type = 'BROKEN_ROUTE'
+                        priority = 'P0'
+                        confidence = 'HIGH'
+                        recommended_action = $_.action
+                        why_it_matters = 'Broken internal route blocks user navigation and weakens audit confidence.'
+                        finding_id = [guid]::NewGuid().ToString()
+                    }
+                }
+            )
+        }
+
+                Write-Host ("DEBUG_SORTED_FINDINGS_COUNT=" + [string]@($sortedFindings).Count)
+        Write-Host ("DEBUG_PROBLEM_TARGETS_COUNT=" + [string]@($report.problem_targets).Count)
+                Write-Host ("DEBUG_BEFORE_ACTION_SUMMARY_SORTED=" + [string]@($sortedFindings).Count)
+        Write-Host ("DEBUG_BEFORE_ACTION_SUMMARY_DEFECTS=" + [string]$defectFindings.Count)
+        Write-Host ("DEBUG_BEFORE_ACTION_SUMMARY_PROBLEMS=" + [string]@($report.problem_targets).Count)
         $finalActionSummary = New-ActionSummaryFromDecision `
             -DecisionSummary $report.decision_summary `
             -DecisionIssueType $decisionIssueType `
@@ -3234,6 +3258,8 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
             $report.execution_report.status_detail = 'PASS_WITH_LIMITS'
             $report.summary = 'Run completed with limitations: PASS_WITH_LIMITS (LOW confidence).'
         }
+                Write-Host ("DEBUG_AFTER_ACTION_SUMMARY_FINDING_COUNT=" + [string]$finalActionSummary.finding_count)
+        Write-Host ("DEBUG_AFTER_ACTION_SUMMARY_BROKEN_COUNT=" + [string]$finalActionSummary.broken_route_count)
         $finalActionSummary.status_label = [string]$report.status_label
         $finalActionSummary.confidence_reason = [string]$report.confidence_reason
         $finalActionSummary.next_verification_step = [string]$report.next_verification_step
