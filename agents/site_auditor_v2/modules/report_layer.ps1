@@ -278,7 +278,7 @@ function New-ActionSummaryFromDecision {
             })
     }
 
-    $finalStatus = if ($effectiveDefectCount -gt 0) { 'DEFECT' } elseif ($runFailed) { 'FAIL' } elseif ($LimitationCount -gt 0) { 'LIMITATION_ONLY' } else { 'CLEAN' }
+    $finalStatus = if ($runFailed) { 'FAIL' } elseif ($effectiveDefectCount -gt 0) { 'DEFECT' } elseif ($LimitationCount -gt 0) { 'LIMITATION_ONLY' } else { 'CLEAN' }
     $finalStatusLabel = if ($runFailed) { 'FAIL' } else { [string]$finalStatus }
 
     return [ordered]@{
