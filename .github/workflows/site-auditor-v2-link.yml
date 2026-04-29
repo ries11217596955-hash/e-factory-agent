@@ -63,13 +63,16 @@ jobs:
           rm -rf site_auditor_v2_artifact_bundle
           mkdir -p site_auditor_v2_artifact_bundle
           for artifact in "${ARTIFACTS[@]}"; do
-            target_path="$(find agents/site_auditor_v2/output -type f -name "$(basename "${artifact}")" -print -quit)"
-            if [ -z "${target_path}" ] || [ ! -f "${target_path}" ]; then
-              echo "Missing produced artifact listed in RUN_REPORT under output/: ${artifact}"
+            FOUND_PATH=$(find agents/site_auditor_v2/output -type f -name "$(basename "${artifact}")" | head -n 1)
+
+            if [ -z "$FOUND_PATH" ]; then
+              echo "MISSING: ${artifact}"
               exit 1
             fi
+
+            echo "FOUND: $FOUND_PATH"
             mkdir -p "site_auditor_v2_artifact_bundle/$(dirname "${artifact}")"
-            cp "${target_path}" "site_auditor_v2_artifact_bundle/${artifact}"
+            cp "$FOUND_PATH" "site_auditor_v2_artifact_bundle/${artifact}"
           done
 
           echo "Artifacts staged for upload:"
@@ -91,9 +94,14 @@ jobs:
           printf '%s\n' "${ARTIFACTS[@]}" | grep -Eq '(^|/)ACTION_REPORT.txt$' || { echo "ACTION_REPORT.txt not declared in produced_artifacts"; exit 1; }
 
           for artifact in "${ARTIFACTS[@]}"; do
-            found_path="$(find agents/site_auditor_v2/output -type f -name "$(basename "${artifact}")" -print -quit)"
-            test -n "${found_path}" || { echo "Listed artifact missing under output/: ${artifact}"; exit 1; }
-            test -f "${found_path}" || { echo "Listed artifact path is not a file: ${found_path}"; exit 1; }
+            FOUND_PATH=$(find agents/site_auditor_v2/output -type f -name "$(basename "${artifact}")" | head -n 1)
+
+            if [ -z "$FOUND_PATH" ]; then
+              echo "MISSING: ${artifact}"
+              exit 1
+            fi
+
+            echo "FOUND: $FOUND_PATH"
           done
 
           STATUS="$(jq -r '.status' "${RUN_REPORT}")"
