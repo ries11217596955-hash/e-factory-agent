@@ -278,8 +278,8 @@ function New-ActionSummaryFromDecision {
             })
     }
 
-    $finalStatus = if ($runFailed) { 'FAIL' } elseif ($effectiveDefectCount -gt 0) { 'DEFECT' } elseif ($LimitationCount -gt 0) { 'LIMITATION_ONLY' } else { 'CLEAN' }
-    $finalStatusLabel = if ($runFailed) { 'FAIL' } else { [string]$finalStatus }
+    $finalStatusLabel = if ($runFailed) { 'FAIL' } elseif ($effectiveDefectCount -gt 0) { 'DEFECT' } elseif ($LimitationCount -gt 0) { 'LIMITATION_ONLY' } else { 'CLEAN' }
+    $finalStatus = if ($runFailed -or [string]$finalStatusLabel -eq 'FAIL') { 'FAIL' } else { [string]$finalStatusLabel }
 
     return [ordered]@{
         status = [string]$finalStatus
