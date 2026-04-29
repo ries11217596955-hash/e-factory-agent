@@ -1,22 +1,22 @@
 ## Summary
-- Updated ACTION_SUMMARY final status resolution to use a single truth path aligned to run failure and finding counts.
-- Enforced precedence: FAIL (runFailed) → DEFECT → LIMITATION_ONLY → CLEAN.
-- Locked `status` to `status_label` output so FAIL can never pair with CLEAN in the same summary object.
-- Kept scope limited to report-layer status computation only.
-- Did not modify entrypoints, workflows, artifact paths, or agent runtime flow.
+- Fixed artifact lookup in the LINK workflow to search under `agents/site_auditor_v2/output` dynamically instead of assuming artifacts are in `agents/site_auditor_v2/`.
+- Updated pre-upload artifact staging to fail strictly when a declared artifact is not found under output runs.
+- Updated regression consistency checks to validate declared artifacts from discovered files in output runs.
+- Kept artifact names unchanged and did not modify agent runtime code.
+- Kept scope limited to workflow artifact lookup behavior.
 
 ## Changed files
-- `agents/site_auditor_v2/modules/report_layer.ps1`
+- `.github/workflows/site-auditor-v2-link.yml`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- Entrypoint remains: `agents/site_auditor_v2/agent.ps1`.
-- Report-layer status logic remains in: `agents/site_auditor_v2/modules/report_layer.ps1` (`New-ActionSummaryFromDecision`).
-- No path, routing, or artifact write location changes were introduced.
+- Workflow entrypoint remains: `.github/workflows/site-auditor-v2-link.yml`.
+- Agent entrypoint remains unchanged: `agents/site_auditor_v2/agent.ps1`.
+- Artifact discovery now resolves files from `agents/site_auditor_v2/output/*/` via `find` in workflow validation steps.
 
 ## Risks/blockers
-- Low risk: change is constrained to status derivation logic and preserves existing fields.
-- No blocker identified for REPORT_LAYER consistency checks.
+- Minor risk: basename-based lookup could be ambiguous if duplicate filenames exist across multiple run directories.
+- No blockers identified for CI artifact upload/validation logic.
