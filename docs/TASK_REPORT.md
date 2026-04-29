@@ -1,24 +1,21 @@
 ## Summary
-- Applied a surgical fix in report layer ACTION_SUMMARY status resolution to enforce FAIL precedence.
-- Ensured a FAIL run/status_label can no longer produce ACTION_SUMMARY.status = CLEAN.
-- Kept output shape and existing fields unchanged.
-- Did not touch agent.ps1 or any other layer files.
-- Performed parser and runtime verification commands as requested.
+- Added a safe post-write copy step so `ACTION_REPORT.txt` is mirrored from `output/<run_id>/ACTION_REPORT.txt` to `agents/site_auditor_v2/ACTION_REPORT.txt`.
+- Kept existing output folder generation logic unchanged.
+- Applied the same safe copy behavior to the fallback ACTION_REPORT write path.
+- Ensured missing source file does not crash the run by guarding copy with `Test-Path` and `-ErrorAction SilentlyContinue`.
+- No modules, routing, or runtime flow were refactored.
 
 ## Changed files
-- `agents/site_auditor_v2/modules/report_layer.ps1`
+- `agents/site_auditor_v2/agent.ps1`
 - `docs/TASK_REPORT.md`
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- `agents/site_auditor_v2/modules/report_layer.ps1` now computes `ACTION_SUMMARY.status` with this precedence:
-  1) `FAIL` when run/report status indicates failure,
-  2) `DEFECT` when defects exist,
-  3) `LIMITATION_ONLY` when only limitations exist,
-  4) `CLEAN` otherwise.
-- Entrypoint remains unchanged: `agents/site_auditor_v2/agent.ps1`.
+- Entrypoint remains: `agents/site_auditor_v2/agent.ps1`.
+- Primary report write path remains: `agents/site_auditor_v2/output/<run_id>/ACTION_REPORT.txt`.
+- Added mirror copy target for CI compatibility: `agents/site_auditor_v2/ACTION_REPORT.txt`.
 
 ## Risks/blockers
-- None identified for this scoped patch.
+- Low risk: change is limited to guarded file-copy operations after existing ACTION_REPORT writes.

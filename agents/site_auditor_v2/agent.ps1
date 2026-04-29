@@ -1887,7 +1887,9 @@ if ((Test-Path (Join-Path $PSScriptRoot "ROUTES_SUMMARY.json")) -and (Test-Path 
 
         $actionReportContent = [string]::Join([Environment]::NewLine, @($actionReportLines.ToArray()))
         [System.IO.File]::WriteAllText($actionReportPath, $actionReportContent)
-        Copy-Item -LiteralPath $actionReportPath -Destination $deterministicActionReportPath -Force
+        if (Test-Path -LiteralPath $actionReportPath) {
+            Copy-Item -LiteralPath $actionReportPath -Destination $deterministicActionReportPath -Force -ErrorAction SilentlyContinue
+        }
         Write-Host 'POST_ROUTE:ACTION_REPORT_WRITTEN'
 
         $failurePhase = 'ROUTE_SELECTION'
@@ -3434,7 +3436,9 @@ if (-not (Test-Path -LiteralPath $actionReportPath)) {
         "Summary: $($report.summary)"
     ) -join [Environment]::NewLine
     [System.IO.File]::WriteAllText($actionReportPath, $fallbackActionReport)
-    Copy-Item -LiteralPath $actionReportPath -Destination $deterministicActionReportPath -Force
+    if (Test-Path -LiteralPath $actionReportPath) {
+        Copy-Item -LiteralPath $actionReportPath -Destination $deterministicActionReportPath -Force -ErrorAction SilentlyContinue
+    }
 }
 
 $actionSummaryMissingOrEmpty = (-not (Test-Path -LiteralPath $actionSummaryPath)) -or ((Get-Item -LiteralPath $actionSummaryPath).Length -le 2)
