@@ -502,6 +502,13 @@ try {
             ) | Out-File (Join-Path $outFolder "AGENT_MAP.md") -Encoding UTF8
 
             Write-Host ("POST_OUTPUT: HUMAN_REPORT_AND_AGENT_MAP_DONE " + $outFolder)
+
+        # CLEANUP: remove stale failure_summary artifacts
+        foreach ($staleFailurePath in @($failurePath, $deterministicFailurePath)) {
+            if ($staleFailurePath -and (Test-Path -LiteralPath $staleFailurePath -PathType Leaf)) {
+                Remove-Item -LiteralPath $staleFailurePath -Force -ErrorAction SilentlyContinue
+            }
+        }
         }
         else {
             Write-Host "POST_OUTPUT: OUTPUT_FOLDER_MISSING"
@@ -1513,16 +1520,7 @@ $report = [ordered]@{
         }
     }
     audit_confidence = 'LOW'
-    decision_summary = [ordered]@{
-        primary_issue = 'NONE'
-        primary_route = $null
-        issue_type = 'CLEAN'
-        priority = 'NONE'
-        recommended_action = 'Expand audit coverage before making decisions.'
-        reasoning = 'Initial placeholder before findings are synthesized.'
-        ownership_mode = $ownershipMode
-        audit_confidence = 'LOW'
-    }
+    decision_summary = $null
     decision = [ordered]@{
         core_problem = 'Decision synthesis pending.'
         p0 = @()
@@ -3145,6 +3143,30 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
                 })
         }
         $report.micro_clusters = @($microClusters.ToArray())
+
+        if (($null -eq $sortedFindings -or @($sortedFindings).Count -eq 0) -and $null -ne $report.problem_targets) {
+            $sortedFindings = @(
+                $report.problem_targets |
+                Where-Object { [string]$_.classification -eq 'broken' } |
+                ForEach-Object {
+                    [ordered]@{
+                        route = [string]$_.url
+                        issue_type = 'BROKEN_ROUTE'
+                        classification = 'DEFECT'
+                        priority = 'P0'
+                        confidence = 'HIGH'
+                        surface_type = 'ROUTE'
+                        evidence_text = "Broken route detected: $([string]$_.url) returned non-200."
+                        why_it_matters = 'Broken internal route blocks user navigation and weakens audit confidence.'
+                        recommended_action = [string]$_.action
+                        finding_id = [guid]::NewGuid().ToString()
+                    }
+                }
+            )
+            $contextValidHighFindings = @($sortedFindings | Where-Object { [string]$_.confidence -eq 'HIGH' })
+            $defectFindings = @($sortedFindings)
+            $p0Count = @($sortedFindings | Where-Object { [string]$_.priority -eq 'P0' }).Count
+        }
 
         $report.system_problem = New-SystemProblemFromFindings `
             -Report $report `
