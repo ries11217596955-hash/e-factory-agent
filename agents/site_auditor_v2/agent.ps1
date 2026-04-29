@@ -501,6 +501,12 @@ try {
                 "Repair rule: one bottleneck, one layer, no WEBOPS drift."
             ) | Out-File (Join-Path $outFolder "AGENT_MAP.md") -Encoding UTF8
 
+            $agentMapModulePath = Join-Path $PSScriptRoot 'modules/agent_map.ps1'
+            if (Test-Path -LiteralPath $agentMapModulePath -PathType Leaf) {
+                . $agentMapModulePath
+                Write-AgentMapJson -OutputDir $outFolder -RootDir $PSScriptRoot -CurrentBottleneck 'human_report_low_value'
+            }
+
             Write-Host ("POST_OUTPUT: HUMAN_REPORT_AND_AGENT_MAP_DONE " + $outFolder)
 
         # CLEANUP: remove stale failure_summary artifacts
