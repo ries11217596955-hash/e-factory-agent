@@ -1850,8 +1850,8 @@ else {
             )
             reason = if ($problemTargets.Count -gt 0) { 'deterministic_route_classifications_detected' } else { 'no_material_findings_in_sampled_scope' }
         }
-        Write-JsonFile -Path $actionSummaryPath -Data $actionSummary
-        Copy-Item -LiteralPath $actionSummaryPath -Destination $deterministicActionSummaryPath -Force
+        # ACTION_SUMMARY is written later by REPORT_LAYER final contract.
+        # Do not write early route-classification summary here.
 
         $okCount = @($routesSummary.routes | Where-Object { $_.classification -eq 'ok' }).Count
         $shellCount = @($routesSummary.routes | Where-Object { $_.classification -eq 'shell' }).Count
@@ -3216,6 +3216,7 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
                 'do not expand crawler depth beyond current LINK-mode budget'
             )
         }
+
         $finalActionSummary = New-ActionSummaryFromDecision `
             -DecisionSummary $report.decision_summary `
             -DecisionIssueType $decisionIssueType `
@@ -3223,8 +3224,10 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
             -SortedLimitationFindings $sortedLimitationFindings `
             -DefectCount $defectFindings.Count `
             -LimitationCount $limitationFindings.Count `
-            -AuditConfidence ([string]$report.audit_confidence)
-        $finalActionSummary = Convert-RunReportValue -Value $finalActionSummary -VisitedReferences (New-Object 'System.Collections.Generic.HashSet[int]')
+            -AuditConfidence ([string]$report.audit_confidence) `
+                        -RunStatus ([string]$report.status) `
+            -RunStatusLabel ([string]$report.status_label)
+        # REMOVED: Convert-RunReportValue for ACTION_SUMMARY
         $lowConfidencePass = ([string]$report.status -eq 'PASS' -and [string]$report.audit_confidence -eq 'LOW')
         $report.status_label = if ($lowConfidencePass) { 'PASS_WITH_LIMITS' } else { [string]$report.status }
         if ($lowConfidencePass) {
@@ -3239,6 +3242,9 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
         $reportLayerMarker = 'REPORT_LAYER: ACTION_SUMMARY_READY'
         Write-Host $reportLayerMarker
 
+        Write-Host "DEBUG_FINAL_ACTION_SUMMARY_WRITE_REACHED"
+        Write-Host ("DEBUG_FINAL_ACTION_SUMMARY_STATUS=" + [string]$finalActionSummary.status)
+        Write-Host ("DEBUG_FINAL_ACTION_SUMMARY_LABEL=" + [string]$finalActionSummary.status_label)
         Write-JsonFile -Path $actionSummaryPath -Data $finalActionSummary
         Copy-Item -LiteralPath $actionSummaryPath -Destination $deterministicActionSummaryPath -Force
         $reportLayerMarker = 'REPORT_LAYER: ACTION_SUMMARY_WRITTEN'
