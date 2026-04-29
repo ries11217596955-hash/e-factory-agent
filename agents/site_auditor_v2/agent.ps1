@@ -513,6 +513,14 @@ try {
         foreach ($staleFailurePath in @($failurePath, $deterministicFailurePath)) {
             if ($staleFailurePath -and (Test-Path -LiteralPath $staleFailurePath -PathType Leaf)) {
                 Remove-Item -LiteralPath $staleFailurePath -Force -ErrorAction SilentlyContinue
+
+            # RE-CALCULATE produced_artifacts after cleanup
+            $report.produced_artifacts = Get-FinalProducedArtifacts `
+                -OutputDir $OutputDir `
+                -AllowedFolders $allowedFolders `
+                -AllowedExtensions $allowedExtensions `
+                -Status ([string]$report.status)
+
             }
         }
         }
