@@ -54,26 +54,17 @@ jobs:
             exit 1
           fi
 
-          mapfile -t ARTIFACTS < <(jq -r '.produced_artifacts[]' "${RUN_REPORT}")
-          if [ "${#ARTIFACTS[@]}" -eq 0 ]; then
-            echo "RUN_REPORT.produced_artifacts is empty"
+          LATEST_OUTPUT="$(find agents/site_auditor_v2/output -maxdepth 1 -type d -name 'link_*' -printf '%T@ %p\n' | sort -nr | head -n 1 | cut -d' ' -f2-)"
+          if [ -z "${LATEST_OUTPUT}" ] || [ ! -d "${LATEST_OUTPUT}" ]; then
+            echo "Latest output folder missing"
             exit 1
           fi
 
+          echo "LATEST_OUTPUT=${LATEST_OUTPUT}"
+
           rm -rf site_auditor_v2_artifact_bundle
           mkdir -p site_auditor_v2_artifact_bundle
-          for artifact in "${ARTIFACTS[@]}"; do
-            FOUND_PATH=$(find agents/site_auditor_v2/output -type f -name "$(basename "${artifact}")" | head -n 1)
-
-            if [ -z "$FOUND_PATH" ]; then
-              echo "MISSING: ${artifact}"
-              exit 1
-            fi
-
-            echo "FOUND: $FOUND_PATH"
-            mkdir -p "site_auditor_v2_artifact_bundle/$(dirname "${artifact}")"
-            cp "$FOUND_PATH" "site_auditor_v2_artifact_bundle/${artifact}"
-          done
+          cp -a "${LATEST_OUTPUT}/." site_auditor_v2_artifact_bundle/
 
           echo "Artifacts staged for upload:"
           ls -1 site_auditor_v2_artifact_bundle
