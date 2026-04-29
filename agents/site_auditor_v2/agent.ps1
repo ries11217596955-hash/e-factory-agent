@@ -1362,13 +1362,20 @@ function Get-FinalProducedArtifacts {
         [string]$Status
     )
 
-    $files = Get-ChildItem -Path $OutputDir -File -Recurse
+    $resolvedOutputDir = (Resolve-Path $OutputDir).Path
+    $files = Get-ChildItem -Path $resolvedOutputDir -File -Recurse
 
     $finalArtifacts = @()
 
     foreach ($f in $files) {
-        $rel = $f.FullName.Replace((Resolve-Path ".").Path + "\", "")
+        $rel = [System.IO.Path]::GetRelativePath($resolvedOutputDir, $f.FullName)
         $rel = $rel -replace "\\", "/"
+
+        if ($rel.StartsWith("/") -or $rel.StartsWith("agents/") -or $rel.StartsWith("output/")) {
+            Write-Host "SKIP_BAD_ARTIFACT_PATH: $rel"
+            continue
+        }
+
         $finalArtifacts += $rel
     }
 
