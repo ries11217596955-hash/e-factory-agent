@@ -507,6 +507,12 @@ try {
                 Write-AgentMapJson -OutputDir $outFolder -RootDir $PSScriptRoot -CurrentBottleneck 'human_report_low_value'
             }
 
+            $selfDiagnosticModulePath = Join-Path $PSScriptRoot 'modules/self_diagnostic.ps1'
+            if (Test-Path -LiteralPath $selfDiagnosticModulePath -PathType Leaf) {
+                . $selfDiagnosticModulePath
+                Write-SelfDiagnosticJson -Report $report -OutputDir $outFolder -RootDir $PSScriptRoot
+            }
+
             Write-Host ("POST_OUTPUT: HUMAN_REPORT_AND_AGENT_MAP_DONE " + $outFolder)
 
         # CLEANUP: remove stale failure_summary artifacts
