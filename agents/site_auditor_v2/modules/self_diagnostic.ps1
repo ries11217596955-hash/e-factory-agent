@@ -1,3 +1,4 @@
+. (Join-Path $PSScriptRoot 'diagnostic_repair_guidance.ps1')
 function New-SelfDiagnosticObject {
     param(
         [Parameter(Mandatory = $true)][object]$Report,
@@ -49,6 +50,8 @@ function New-SelfDiagnosticObject {
 
         current_bottleneck = 'human_report_low_value'
         next_safe_build_move = 'artifact_contract_cleanup_or_human_report_value_v1'
+        repair_mode = (New-DiagnosticRepairGuidance -Report $Report)
+
         forbidden_next_steps = @(
             'do not add benchmark before report value is useful',
             'do not add CTA interaction before self-diagnostic and artifact contract are stable',
