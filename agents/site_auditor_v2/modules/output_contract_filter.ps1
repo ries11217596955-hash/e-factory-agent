@@ -30,5 +30,30 @@ function Invoke-OutputContractFilter {
         }
     }
 
+
+    $runReportPath = Join-Path $OutputDir 'RUN_REPORT.json'
+    if (Test-Path -LiteralPath $runReportPath -PathType Leaf) {
+        try {
+            $runReport = Get-Content -LiteralPath $runReportPath -Raw | ConvertFrom-Json
+            $cleanArtifacts = @()
+            Get-ChildItem -LiteralPath $OutputDir -Force | ForEach-Object {
+                if ($_.PSIsContainer) {
+                    if ($allowedDirs -contains $_.Name) {
+                        $cleanArtifacts += $_.Name
+                    }
+                } else {
+                    if ($allowedFiles -contains $_.Name) {
+                        $cleanArtifacts += $_.Name
+                    }
+                }
+            }
+            $runReport.produced_artifacts = @($cleanArtifacts | Sort-Object)
+            $runReport | ConvertTo-Json -Depth 100 | Out-File -LiteralPath $runReportPath -Encoding UTF8
+            Write-Host "OUTPUT_CONTRACT_FILTER: RUN_REPORT_REWRITTEN_AFTER_FILTER"
+        } catch {
+            Write-Host ("OUTPUT_CONTRACT_FILTER: RUN_REPORT_REWRITE_FAILED " + $_.Exception.Message)
+        }
+    }
+
     Write-Host ("OUTPUT_CONTRACT_FILTER: APPLIED " + $OutputDir)
 }
