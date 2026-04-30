@@ -195,8 +195,8 @@ $bridge = if ($omb -and $omb.PSObject.Properties['self_explanation']) { $omb.sel
 
 # --- CI CONTRACT EXPORT ---
 $rootDir = "agents/site_auditor_v2"
-Copy-Item (Join-Path $OutputDir "REPORT_EN.txt") (Join-Path $rootDir "REPORT_EN.txt") -Force
-Copy-Item (Join-Path $OutputDir "REPORT_RU.txt") (Join-Path $rootDir "REPORT_RU.txt") -Force
+# DISABLED: root pollution
+# DISABLED: root pollution
 Write-Host "POST_OUTPUT: ROOT_REPORT_EXPORT_DONE"
 # --- END ---
 

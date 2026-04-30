@@ -3797,6 +3797,18 @@ $testPath = Join-Path $PSScriptRoot "TEST_HUMAN_REPORT.txt"
 "TEST_OK" | Out-File $testPath -Encoding UTF8
 
 Write-Host ("HUMAN_REPORT: WROTE " + $testPath)
+
+# === STAGE: OUTPUT_CONTRACT_FILTER ===
+try {
+    $outputFilterPath = Join-Path $PSScriptRoot 'modules/output_contract_filter.ps1'
+    if (Test-Path -LiteralPath $outputFilterPath -PathType Leaf) {
+        . $outputFilterPath
+        Invoke-OutputContractFilter -OutputDir $outputRoot
+    }
+} catch {
+    Write-Host ("OUTPUT_CONTRACT_FILTER: FAILED " + $_.Exception.Message)
+}
+
 # === END TRACE ===
 
 exit 0
