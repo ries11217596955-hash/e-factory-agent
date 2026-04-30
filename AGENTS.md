@@ -184,4 +184,25 @@ Forbidden:
 - blind CI edits
 - broad refactor
 - legacy paths as active
+---
+
+## Runtime truth discipline
+
+For AGENTOPS work, the first runtime truth file is:
+
+1. RUN_REPORT.json
+2. SELF_DIAGNOSTIC.json
+3. ACTION_SUMMARY.json
+4. AGENT_MAP.json / AGENT_MAP.md
+5. visual_manifest.json
+
+RUN_REPORT must remind the operator:
+- role: System Operator / Product Lead
+- goal: Traffic -> Decision -> Action -> Monetization
+- rule: artifact truth over memory
+- workflow: run -> inspect -> isolate -> patch -> test -> commit
+- architecture: agent.ps1 is orchestrator; module-owned logic stays under modules/ or lib/
+
+If RUN_REPORT contradicts physical artifacts, artifact consistency is the next bottleneck.
+Do not patch business logic until report truth is aligned.
 
