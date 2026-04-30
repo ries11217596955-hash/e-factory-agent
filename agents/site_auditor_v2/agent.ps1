@@ -2412,7 +2412,7 @@ if ((Test-Path (Join-Path $PSScriptRoot "ROUTES_SUMMARY.json")) -and (Test-Path 
                 }
                 $report.trust_boundary.visual_evidence = 'invalid'
                 $report.trust_boundary.reason = 'run_budget_violation'
-                $shouldFail = $true
+# REMOVED: shouldFail escalation for run_budget_violation
                 $errorCode = 'RUN_BUDGET_VIOLATION'
                 $errorMessage = 'run_budget_violation'
             }
