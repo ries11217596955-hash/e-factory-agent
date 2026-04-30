@@ -64,7 +64,44 @@ jobs:
 
           rm -rf site_auditor_v2_artifact_bundle
           mkdir -p site_auditor_v2_artifact_bundle
-          cp -a "${LATEST_OUTPUT}/." site_auditor_v2_artifact_bundle/
+          python - <<'PY2'
+from pathlib import Path
+import shutil, json
+
+src = Path("${LATEST_OUTPUT}")
+dst = Path("site_auditor_v2_artifact_bundle")
+
+allowed_files = {
+    "RUN_REPORT.json",
+    "SELF_DIAGNOSTIC.json",
+    "AGENT_MAP.json",
+    "AGENT_MAP.md",
+    "ACTION_SUMMARY.json",
+    "AUDIT_SUMMARY.json",
+    "LINK_SUMMARY.json",
+    "ROUTES_SUMMARY.json",
+    "visual_manifest.json",
+    "visual_capture_input.json",
+    "HUMAN_REPORT_EN.html",
+    "HUMAN_REPORT_RU.html",
+}
+
+for name in allowed_files:
+    f = src / name
+    if f.exists():
+        shutil.copy2(f, dst / name)
+
+shots = src / "screenshots"
+if shots.exists() and shots.is_dir():
+    shutil.copytree(shots, dst / "screenshots", dirs_exist_ok=True)
+
+files = sorted([p.name for p in dst.iterdir()])
+bad = sorted(set(files) - allowed_files - {"screenshots"})
+if bad:
+    raise SystemExit("FORBIDDEN_IN_BUNDLE=" + ",".join(bad))
+
+print("PACKAGING_ALLOWLIST_OK")
+PY2
 
           echo "Artifacts staged for upload:"
           ls -1 site_auditor_v2_artifact_bundle
