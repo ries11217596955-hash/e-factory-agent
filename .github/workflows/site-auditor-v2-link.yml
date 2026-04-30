@@ -64,22 +64,7 @@ jobs:
 
           rm -rf site_auditor_v2_artifact_bundle
           mkdir -p site_auditor_v2_artifact_bundle
-          rsync -av --prune-empty-dirs 
-  --include="RUN_REPORT.json" 
-  --include="SELF_DIAGNOSTIC.json" 
-  --include="AGENT_MAP.json" 
-  --include="AGENT_MAP.md" 
-  --include="ACTION_SUMMARY.json" 
-  --include="AUDIT_SUMMARY.json" 
-  --include="LINK_SUMMARY.json" 
-  --include="ROUTES_SUMMARY.json" 
-  --include="visual_manifest.json" 
-  --include="visual_capture_input.json" 
-  --include="HUMAN_REPORT_EN.html" 
-  --include="HUMAN_REPORT_RU.html" 
-  --include="screenshots/***" 
-  --exclude="*" 
-  "${LATEST_OUTPUT}/" site_auditor_v2_artifact_bundle/
+          cp -a "${LATEST_OUTPUT}/." site_auditor_v2_artifact_bundle/
 
           echo "Artifacts staged for upload:"
           ls -1 site_auditor_v2_artifact_bundle
