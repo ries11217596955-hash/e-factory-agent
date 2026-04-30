@@ -13,7 +13,9 @@ function Invoke-OutputContractFilter {
         'LINK_SUMMARY.json',
         'ROUTES_SUMMARY.json',
         'visual_manifest.json',
-        'visual_capture_input.json'
+        'visual_capture_input.json',
+        'HUMAN_REPORT_RU.html',
+        'HUMAN_REPORT_EN.html'
     )
 
     $allowedDirs = @('screenshots')
