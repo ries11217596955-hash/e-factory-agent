@@ -166,3 +166,22 @@ Every task must end with:
 - TASK_REPORT.md created/updated
 - PR summary present
 - no auto-merge unless safe conditions are met
+---
+
+## Active AGENTOPS line
+
+Primary active runtime:
+- agents/site_auditor_v2/
+
+Architecture rule:
+- agent.ps1 = orchestrator only
+- logic must stay in modules/
+
+Repair flow:
+run → inspect → isolate → patch → test → commit
+
+Forbidden:
+- blind CI edits
+- broad refactor
+- legacy paths as active
+

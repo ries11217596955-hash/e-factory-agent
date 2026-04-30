@@ -1,8 +1,8 @@
 # Agent Repo Layout
 
 ## Canonical directories
-- `agents/gh_batch/`
-- `agents/site_auditor_agent/`
+- ~~`agents/gh_batch/`~~ (legacy, not active)
+- `agents/site_auditor_v2/`
 - `releases/`
 - `docs/`
 

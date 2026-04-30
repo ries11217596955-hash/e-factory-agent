@@ -6,6 +6,9 @@ Purpose:
 - keep the repository root non-mixed and predictable
 
 Current active agents:
+- SITE_AUDITOR_V2 — agents/site_auditor_v2/
+
+Support / legacy agents:
 - `GH_BATCH`
 - `SITE_AUDITOR_AGENT`
 
