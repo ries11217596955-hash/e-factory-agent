@@ -84,10 +84,12 @@ jobs:
           echo "VALIDATING OUTPUT FOLDER: ${LATEST_OUTPUT}"
 
           RUN_REPORT="${LATEST_OUTPUT}/RUN_REPORT.json"
-          ACTION_REPORT="${LATEST_OUTPUT}/ACTION_REPORT.txt"
 
           test -f "${RUN_REPORT}" || { echo "Missing RUN_REPORT.json"; exit 1; }
-          test -f "${ACTION_REPORT}" || { echo "Missing ACTION_REPORT.txt"; exit 1; }
+          test -f "${LATEST_OUTPUT}/SELF_DIAGNOSTIC.json" || { echo "Missing SELF_DIAGNOSTIC.json"; exit 1; }
+          test -f "${LATEST_OUTPUT}/AGENT_MAP.json" || { echo "Missing AGENT_MAP.json"; exit 1; }
+          test -f "${LATEST_OUTPUT}/ACTION_SUMMARY.json" || { echo "Missing ACTION_SUMMARY.json"; exit 1; }
+          test -f "${LATEST_OUTPUT}/visual_manifest.json" || { echo "Missing visual_manifest.json"; exit 1; }
 
           STATUS="$(jq -r '.status' "${RUN_REPORT}")"
           PASS_LABEL="$(jq -r '.execution_report.status_detail' "${RUN_REPORT}")"
