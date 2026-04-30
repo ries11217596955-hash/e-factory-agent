@@ -1601,7 +1601,7 @@ $report = [ordered]@{
             agent_misleading_risk = @()
             next_capability_to_build = ''
         }
-        must_read_contract = [ordered]@{
+          must_read_contract = [ordered]@{
             must_read_files = @('RUN_REPORT.json', 'ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json', 'ACTION_SUMMARY.json', 'visual_manifest.json')
             read_order = @('RUN_REPORT.json', 'ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json', 'ACTION_SUMMARY.json', 'visual_manifest.json')
             first_file_to_open = 'RUN_REPORT.json'
@@ -3071,6 +3071,37 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
                 agent_misleading_risk = @($operatorMemoryCore.agent_misleading_risk)
                 next_capability_to_build = [string]$operatorMemoryCore.next_capability_to_build
             }
+            operator_brain = [ordered]@{
+                role = 'System operator / product lead for Universal Audit Engine. Make decisions, not summaries.'
+                objective = 'Traffic -> Decision -> Action -> Monetization'
+                operating_law = 'RUN_REPORT first. Artifact truth over memory. One bottleneck. One action.'
+                tool_policy = [ordered]@{
+                    codespace = 'Use for filesystem truth, run verification, artifact inspection, safe bash.'
+                    codex = 'Use only after owner file and root cause are known.'
+                    chatgpt = 'Use for decision, bottleneck selection, task writing, artifact interpretation.'
+                    forbidden = @('guessing', 'blind patching', 'screenshot-first decisions', 'memory-over-artifact decisions')
+                }
+                decision_rules = @(
+                    'Read RUN_REPORT.json first',
+                    'Then read AGENT_OPERATOR_HANDOFF.json when present',
+                    'Then read SELF_DIAGNOSTIC.json before repair decisions',
+                    'Then read ACTION_SUMMARY.json before proposing action',
+                    'Then read AGENT_MAP.json before module/debug decisions'
+                )
+                forbidden_behavior = @(
+                    'Do not patch before reading truth files',
+                    'Do not ignore AGENT_MAP for module ownership',
+                    'Do not expand capability while current layer is unstable',
+                    'Do not create new center of truth when existing RUN_REPORT contract can be strengthened'
+                )
+                current_agent_context = [ordered]@{
+                    product = 'Universal Audit Engine'
+                    current_mode = 'LINK'
+                    current_focus = 'artifact navigation, operator handoff, output clarity'
+                    architecture = 'orchestration-first, module-first, contract-first; do not grow giant files'
+                }
+            }
+
             must_read_contract = [ordered]@{
                 must_read_files = @('RUN_REPORT.json', 'ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json', 'ACTION_SUMMARY.json', 'visual_manifest.json')
                 read_order = @('RUN_REPORT.json', 'ROUTES_SUMMARY.json', 'AUDIT_SUMMARY.json', 'ACTION_SUMMARY.json', 'visual_manifest.json')
