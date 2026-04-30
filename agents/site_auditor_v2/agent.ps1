@@ -2370,27 +2370,52 @@ if ((Test-Path (Join-Path $PSScriptRoot "ROUTES_SUMMARY.json")) -and (Test-Path 
         }
         Write-Host 'RECON: EXIT_READY'
         if ($counterMismatchDetected) {
-            $report.status = 'FAIL'
-            $report.execution_status = 'FAILED'
-            $report.execution_report.final_outcome = 'FAIL'
-            $report.execution_report.status_detail = 'FAIL'
-            $report.summary = 'Run failed: run_budget_violation'
-            $report.next_step = 'run_budget_violation'
-            $report.decision_allowed = $false
-            $report.decision_disabled = $true
-            $report.capture_report.status = 'FAIL'
-            $report.capture_report.counter_mismatch = $true
-            $report.failure_or_limit_report = [ordered]@{
-                kind = 'FAILURE'
-                failure_summary = 'failure_summary.json'
-                notes = @('run_budget_violation')
-                reason = 'run_budget_violation'
+            $capturesSuccess = 0
+            if ($report.capture_report -and $report.capture_report.PSObject.Properties['captures_success']) {
+                $capturesSuccess = [int]$report.capture_report.captures_success
             }
-            $report.trust_boundary.visual_evidence = 'invalid'
-            $report.trust_boundary.reason = 'run_budget_violation'
-            $shouldFail = $true
-            $errorCode = 'RUN_BUDGET_VIOLATION'
-            $errorMessage = 'run_budget_violation'
+
+            if ($capturesSuccess -gt 0) {
+                $report.status = 'PARTIAL'
+                $report.execution_status = 'COMPLETED_WITH_LIMITATIONS'
+                $report.execution_report.final_outcome = 'PARTIAL'
+                $report.execution_report.status_detail = 'PARTIAL'
+                $report.summary = 'Run completed with limited coverage: run_budget_violation'
+                $report.next_step = 'review_partial_coverage'
+                $report.decision_allowed = $false
+                $report.decision_disabled = $true
+                $report.capture_report.counter_mismatch = $true
+                $report.failure_or_limit_report = [ordered]@{
+                    kind = 'LIMITATION'
+                    notes = @('run_budget_violation')
+                    reason = 'run_budget_violation'
+                }
+                $report.trust_boundary.visual_evidence = 'partial'
+                $report.trust_boundary.reason = 'run_budget_violation'
+            }
+            else {
+                $report.status = 'FAIL'
+                $report.execution_status = 'FAILED'
+                $report.execution_report.final_outcome = 'FAIL'
+                $report.execution_report.status_detail = 'FAIL'
+                $report.summary = 'Run failed: run_budget_violation'
+                $report.next_step = 'run_budget_violation'
+                $report.decision_allowed = $false
+                $report.decision_disabled = $true
+                $report.capture_report.status = 'FAIL'
+                $report.capture_report.counter_mismatch = $true
+                $report.failure_or_limit_report = [ordered]@{
+                    kind = 'FAILURE'
+                    failure_summary = 'failure_summary.json'
+                    notes = @('run_budget_violation')
+                    reason = 'run_budget_violation'
+                }
+                $report.trust_boundary.visual_evidence = 'invalid'
+                $report.trust_boundary.reason = 'run_budget_violation'
+                $shouldFail = $true
+                $errorCode = 'RUN_BUDGET_VIOLATION'
+                $errorMessage = 'run_budget_violation'
+            }
         }
 
         $routeIssueMap = @{}
