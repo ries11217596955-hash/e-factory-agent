@@ -38,6 +38,40 @@ function New-AgentMapObject {
             [ordered]@{ path='agents/site_auditor_v2/lib/fail_output.ps1'; layer='failure_output'; role='Failure output contract.' }
             [ordered]@{ path='agents/site_auditor_v2/lib/decision.ps1'; layer='legacy_or_support'; role='Decision support library; verify ownership before modifying.' }
         )
+        runtime_info = [ordered]@{
+            run_timestamp = (Get-Date).ToUniversalTime().ToString("o")
+            mode = 'LINK'
+            map_type = 'runtime_debug_navigation'
+        }
+
+        repair_links = [ordered]@{
+            LINK = 'agents/site_auditor_v2/modules/stage_link_fetch.ps1'
+            RECON = 'agents/site_auditor_v2/modules/stage_capture_reconciliation.ps1'
+            REPORT = 'agents/site_auditor_v2/modules/report_layer.ps1'
+            OUTPUT = 'agents/site_auditor_v2/lib/post_output.ps1'
+        }
+
+        module_debug_map = @(
+            [ordered]@{
+                module='stage_link_fetch.ps1'
+                responsibility='fetch + route discovery'
+                breaks_when=@('no routes found','html empty')
+                debug_entry='open this file if LINK stage fails'
+            }
+            [ordered]@{
+                module='stage_capture_reconciliation.ps1'
+                responsibility='prepare evidence before report'
+                breaks_when=@('visual mismatch','missing captures')
+                debug_entry='open this file if RECON fails'
+            }
+            [ordered]@{
+                module='report_layer.ps1'
+                responsibility='decision + action summary'
+                breaks_when=@('empty findings','status mismatch')
+                debug_entry='open this file if REPORT fails'
+            }
+        )
+
         current_bottleneck = $CurrentBottleneck
         next_safe_build_move = 'SELF_DIAGNOSTIC v1 before audit capability expansion.'
         forbidden_drift = @(
