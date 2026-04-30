@@ -68,7 +68,7 @@ jobs:
 from pathlib import Path
 import shutil, json
 
-src = Path(__import__("os").environ["LATEST_OUTPUT"])
+src = Path("${LATEST_OUTPUT}")
 dst = Path("site_auditor_v2_artifact_bundle")
 
 allowed_files = {
