@@ -1,20 +1,29 @@
 function Invoke-InputModule {
     param(
-        [string]$BaseUrl
+        [Parameter(Mandatory)]$PipelineState,
+        [Parameter(Mandatory)]$InputData
     )
 
-    if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
+    $request = $InputData.request
+    $targetUrl = [string]$request.target_url
+
+    if ([string]::IsNullOrWhiteSpace($targetUrl)) {
         return @{
             status = "FAIL"
-            error = "EMPTY_INPUT"
+            data = @{
+                error = "target_url is required"
+            }
         }
     }
 
     return @{
         status = "OK"
         data = @{
-            base_url = $BaseUrl
-            timestamp = (Get-Date).ToUniversalTime().ToString("o")
+            target_url = $targetUrl
+            base_url = $targetUrl.TrimEnd("/")
+            route_allowlist = @($request.route_allowlist)
+            route_denylist = @($request.route_denylist)
+            viewport_profiles = @($request.viewport_profiles)
         }
     }
 }

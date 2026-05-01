@@ -10,7 +10,7 @@
       "ordinal": 1,
       "enabled": true,
       "file_path": "agents/site_auditor_v3/modules/01_input.ps1",
-      "entry_function": "Invoke-Module01Input",
+      "entry_function": "Invoke-InputModule",
       "depends_on": [],
       "reads_state_paths": [
         "request"
@@ -30,7 +30,7 @@
       "ordinal": 2,
       "enabled": true,
       "file_path": "agents/site_auditor_v3/modules/02_route_audit.ps1",
-      "entry_function": "Invoke-Module02RouteAudit",
+      "entry_function": "Invoke-RouteAuditModule",
       "depends_on": [
         "01_input"
       ],
@@ -52,7 +52,7 @@
       "ordinal": 3,
       "enabled": true,
       "file_path": "agents/site_auditor_v3/modules/03_selection.ps1",
-      "entry_function": "Invoke-Module03Selection",
+      "entry_function": "Invoke-SelectionModule",
       "depends_on": [
         "02_route_audit"
       ],

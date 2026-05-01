@@ -1,21 +1,46 @@
 function Invoke-RouteAuditModule {
     param(
-        [hashtable]$InputData
+        [Parameter(Mandatory)]$PipelineState,
+        [Parameter(Mandatory)]$InputData
     )
 
-    if ($InputData.status -ne "OK") {
+    $inputState = $InputData.input
+
+    if ($inputState.status -eq "FAIL") {
         return @{
-            status = "SKIP"
-            reason = "INPUT_NOT_OK"
+            status = "FAIL"
+            data = @{ routes = @() }
         }
     }
 
-    $baseUrl = $InputData.data.base_url
+    $baseUrl = [string]$inputState.base_url
+    $allow = @($inputState.route_allowlist)
+
+    if ($allow.Count -eq 0) {
+        $allow = @("/")
+    }
+
+    $routes = @()
+    $i = 1
+    foreach ($path in $allow) {
+        $routes += @{
+            route_id = ("R{0:D3}" -f $i)
+            path = [string]$path
+            url = ($baseUrl + [string]$path)
+            eligible = $true
+        }
+        $i++
+    }
 
     return @{
         status = "OK"
-        routes = @(
-            "$baseUrl/"
-        )
+        data = @{
+            routes = $routes
+            totals = @{
+                discovered = $routes.Count
+                eligible = $routes.Count
+                excluded = 0
+            }
+        }
     }
 }

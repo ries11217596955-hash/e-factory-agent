@@ -1,44 +1,45 @@
 param(
-    [string]$Mode = "LINK",
-    [string]$BaseUrl = ""
+    [Parameter(Mandatory)][string]$RequestPath,
+    [string]$RegistryPath = 'agents/site_auditor_v3/contracts/module_registry.json'
 )
 
-Write-Host "V3: START"
+$ErrorActionPreference = "Stop"
 
-$root = $PSScriptRoot
-$registryPath = Join-Path $root "contracts/module_registry.json"
-
-if (-not (Test-Path $registryPath)) {
-    Write-Error "MODULE_REGISTRY_NOT_FOUND"
-    exit 1
+function Read-Json($p) {
+    Get-Content $p -Raw | ConvertFrom-Json -AsHashtable
 }
 
-$registry = Get-Content $registryPath -Raw | ConvertFrom-Json
+$registry = Read-Json $RegistryPath
+$request  = Read-Json $RequestPath
 
-$pipeline = @{}
-
-foreach ($m in $registry.modules) {
-    if ($m.enabled -ne $true) { continue }
-
-    $moduleFullPath = Join-Path $root ($m.path -replace "agents/site_auditor_v3/", "")
-
-    if (-not (Test-Path $moduleFullPath)) {
-        Write-Host "V3: SKIP (not found) $($m.id)"
-        continue
-    }
-
-    . $moduleFullPath
-
-    if ($m.id -eq "01_input") {
-        $pipeline["input"] = Invoke-InputModule -BaseUrl $BaseUrl
-    }
-
-    if ($m.id -eq "02_route_audit") {
-        $pipeline["route_audit"] = Invoke-RouteAuditModule -InputData $pipeline["input"]
-    }
+$pipeline_state = @{
+    request = $request
 }
 
-Write-Host "V3: PIPELINE STATE"
-$pipeline | ConvertTo-Json -Depth 5
+foreach ($m in ($registry.modules | Sort-Object ordinal)) {
 
-Write-Host "V3: END"
+    if (-not $m.enabled) { continue }
+
+    . $m.file_path
+
+    $fn = Get-Command $m.entry_function -ErrorAction Stop
+
+    $input = @{}
+
+    foreach ($k in $m.reads_state_paths) {
+        if (-not $pipeline_state.ContainsKey($k)) {
+            throw "Missing pipeline key: $k for module $($m.module_id)"
+        }
+        $input[$k] = $pipeline_state[$k]
+    }
+
+    $result = & $fn -PipelineState $pipeline_state -InputData $input
+
+    if ($result.status -ne "OK") {
+        throw "Module failed: $($m.module_id)"
+    }
+
+    $pipeline_state[$m.writes_state_paths[0]] = $result.data
+}
+
+$pipeline_state | ConvertTo-Json -Depth 10
