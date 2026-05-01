@@ -13,6 +13,9 @@ $registry = Read-Json $RegistryPath
 $request  = Read-Json $RequestPath
 
 $pipeline_state = @{
+    run = @{
+        execution_status = "RUNNING"
+    }
     request = $request
 }
 
@@ -41,5 +44,7 @@ foreach ($m in ($registry.modules | Sort-Object ordinal)) {
 
     $pipeline_state[$m.writes_state_paths[0]] = $result.data
 }
+
+$pipeline_state.run.execution_status = "SUCCESS"
 
 $pipeline_state | ConvertTo-Json -Depth 10

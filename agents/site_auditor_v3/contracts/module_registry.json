@@ -121,7 +121,7 @@
     {
       "module_id": "06_decision",
       "ordinal": 6,
-      "enabled": false,
+      "enabled": true,
       "file_path": "agents/site_auditor_v3/modules/06_decision.ps1",
       "entry_function": "Invoke-Module06Decision",
       "depends_on": [
