@@ -148,7 +148,7 @@
     {
       "module_id": "07_output",
       "ordinal": 7,
-      "enabled": false,
+      "enabled": true,
       "file_path": "agents/site_auditor_v3/modules/07_output.ps1",
       "entry_function": "Invoke-Module07Output",
       "depends_on": [],
@@ -160,8 +160,7 @@
         "selection",
         "capture",
         "reconcile",
-        "decision",
-        "diagnostics"
+        "decision"
       ],
       "writes_state_paths": [
         "output"
