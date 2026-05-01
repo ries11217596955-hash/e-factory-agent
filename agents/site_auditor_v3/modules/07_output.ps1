@@ -91,7 +91,7 @@ function Invoke-Module07Output {
         }
 
         next_step = [ordered]@{
-            action = "Verify RUN_REPORT.json content and commit 07_output v1"
+            action = "Build RUN_REPORT as operator re-entry file: verify generated RUN_REPORT.json content, then commit 07_output v1"
             why = "RUN_REPORT must become the first readable artifact before deeper audit capabilities are added."
             expected_result = "Future chats can restart from RUN_REPORT.json without guessing."
         }
