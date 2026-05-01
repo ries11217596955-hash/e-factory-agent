@@ -49,7 +49,23 @@ function Invoke-OutputContractFilter {
                     }
                 }
             }
-            $runReport.produced_artifacts = @($cleanArtifacts | Sort-Object)
+            
+            # === FIX: CLEAN LINKED_ARTIFACTS (TRUTH ONLY) ===
+            $existingFiles = @($cleanArtifacts)
+            $cleanLinked = @()
+
+            foreach ($item in @($runReport.linked_artifacts)) {
+                if ($null -ne $item.path) {
+                    $name = [System.IO.Path]::GetFileName($item.path)
+                    if ($existingFiles -contains $name) {
+                        $cleanLinked += $item
+                    }
+                }
+            }
+
+            $runReport.linked_artifacts = @($cleanLinked)
+
+$runReport.produced_artifacts = @($cleanArtifacts | Sort-Object)
             $runReport | ConvertTo-Json -Depth 100 | Out-File -LiteralPath $runReportPath -Encoding UTF8
             Write-Host "OUTPUT_CONTRACT_FILTER: RUN_REPORT_REWRITTEN_AFTER_FILTER"
         } catch {
