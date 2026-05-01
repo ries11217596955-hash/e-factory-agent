@@ -25,7 +25,7 @@ function Invoke-Module07Output {
             agent = "SITE_AUDITOR_V3"
             mode = "BUILD"
             run_id = $runId
-            current_stage = "RUN_REPORT_V1"
+            current_stage = "RUN_REPORT_REENTRY_V1"
         }
 
         mission = [ordered]@{
@@ -96,7 +96,7 @@ function Invoke-Module07Output {
             "add ZIP/REPO/PROMPT before RUN_REPORT is verified",
             "add benchmark before evidence index exists",
             "add screenshots before output contract is stable",
-            "claim PASS beyond current stub evidence"
+            "claim PASS beyond current baseline evidence"
         )
     }
 
