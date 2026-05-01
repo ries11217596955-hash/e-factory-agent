@@ -30,8 +30,11 @@ foreach ($m in $registry.modules) {
     . $moduleFullPath
 
     if ($m.id -eq "01_input") {
-        $result = Invoke-InputModule -BaseUrl $BaseUrl
-        $pipeline["input"] = $result
+        $pipeline["input"] = Invoke-InputModule -BaseUrl $BaseUrl
+    }
+
+    if ($m.id -eq "02_route_audit") {
+        $pipeline["route_audit"] = Invoke-RouteAuditModule -InputData $pipeline["input"]
     }
 }
 
