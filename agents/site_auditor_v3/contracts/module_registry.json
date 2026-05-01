@@ -8,49 +8,84 @@
       "path": "agents/site_auditor_v3/modules/01_input.ps1",
       "layer": "input",
       "owns": "input normalization",
-      "output": "input_result"
+      "output": "input_result",
+      "enabled": true,
+      "optional": false,
+      "depends_on": []
     },
     {
       "id": "02_route_audit",
       "path": "agents/site_auditor_v3/modules/02_route_audit.ps1",
       "layer": "audit",
       "owns": "route discovery and route status",
-      "output": "route_audit_result"
+      "output": "route_audit_result",
+      "enabled": true,
+      "optional": false,
+      "depends_on": [
+        "01_input"
+      ]
     },
     {
       "id": "03_selection",
       "path": "agents/site_auditor_v3/modules/03_selection.ps1",
       "layer": "selection",
       "owns": "capture target selection",
-      "output": "selection_result"
+      "output": "selection_result",
+      "enabled": true,
+      "optional": false,
+      "depends_on": [
+        "02_route_audit"
+      ]
     },
     {
       "id": "04_capture",
       "path": "agents/site_auditor_v3/modules/04_capture.ps1",
       "layer": "evidence",
       "owns": "visual capture input and manifest",
-      "output": "capture_result"
+      "output": "capture_result",
+      "enabled": true,
+      "optional": false,
+      "depends_on": [
+        "03_selection"
+      ]
     },
     {
       "id": "05_reconcile",
       "path": "agents/site_auditor_v3/modules/05_reconcile.ps1",
       "layer": "truth",
       "owns": "evidence reconciliation",
-      "output": "reconciliation_result"
+      "output": "reconciliation_result",
+      "enabled": true,
+      "optional": false,
+      "depends_on": [
+        "04_capture"
+      ]
     },
     {
       "id": "06_decision",
       "path": "agents/site_auditor_v3/modules/06_decision.ps1",
       "layer": "decision",
       "owns": "findings, priorities and actions",
-      "output": "action_summary"
+      "output": "action_summary",
+      "enabled": true,
+      "optional": false,
+      "depends_on": [
+        "05_reconcile",
+        "02_route_audit"
+      ]
     },
     {
       "id": "07_output",
       "path": "agents/site_auditor_v3/modules/07_output.ps1",
       "layer": "output",
       "owns": "final runpack assembly",
-      "output": "RUN_REPORT.json"
+      "output": "RUN_REPORT.json",
+      "enabled": true,
+      "optional": false,
+      "depends_on": [
+        "06_decision",
+        "05_reconcile"
+      ]
     }
   ]
 }

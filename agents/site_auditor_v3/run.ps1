@@ -6,28 +6,36 @@ param(
 Write-Host "V3: START"
 
 $root = $PSScriptRoot
-$contractsPath = Join-Path $root "contracts/module_registry.json"
+$registryPath = Join-Path $root "contracts/module_registry.json"
 
-if (-not (Test-Path $contractsPath)) {
+if (-not (Test-Path $registryPath)) {
     Write-Error "MODULE_REGISTRY_NOT_FOUND"
     exit 1
 }
 
-$registry = Get-Content $contractsPath -Raw | ConvertFrom-Json
+$registry = Get-Content $registryPath -Raw | ConvertFrom-Json
 
-Write-Host "V3: MODULE COUNT = $($registry.modules.Count)"
+$pipeline = @{}
 
 foreach ($m in $registry.modules) {
     if ($m.enabled -ne $true) { continue }
 
-    Write-Host "V3: MODULE -> $($m.id)"
+    $moduleFullPath = Join-Path $root ($m.path -replace "agents/site_auditor_v3/", "")
 
-    if (-not (Test-Path $m.path)) {
-        Write-Host "V3: SKIP (module not implemented)"
+    if (-not (Test-Path $moduleFullPath)) {
+        Write-Host "V3: SKIP (not found) $($m.id)"
         continue
     }
 
-    . $m.path
+    . $moduleFullPath
+
+    if ($m.id -eq "01_input") {
+        $result = Invoke-InputModule -BaseUrl $BaseUrl
+        $pipeline["input"] = $result
+    }
 }
+
+Write-Host "V3: PIPELINE STATE"
+$pipeline | ConvertTo-Json -Depth 5
 
 Write-Host "V3: END"
