@@ -6,3 +6,5 @@ agents/site_auditor_v2/*.txt
 REPORT_EN.txt
 REPORT_RU.txt
 .devcontainer/
+
+agents/site_auditor_v3/runs/
