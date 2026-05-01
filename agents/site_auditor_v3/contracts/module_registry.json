@@ -73,7 +73,7 @@
     {
       "module_id": "04_capture",
       "ordinal": 4,
-      "enabled": false,
+      "enabled": true,
       "file_path": "agents/site_auditor_v3/modules/04_capture.ps1",
       "entry_function": "Invoke-Module04Capture",
       "depends_on": [
