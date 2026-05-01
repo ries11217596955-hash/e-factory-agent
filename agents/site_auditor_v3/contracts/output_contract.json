@@ -1,0 +1,40 @@
+{
+  "schema_version": "3.0.0",
+  "pipeline_id": "site_auditor_v3",
+  "runpack_root_template": "agents/site_auditor_v3/runs/{run_id}",
+  "operator_entrypoint": "RUN_REPORT.json",
+  "always_write": [
+    "AGENT_MAP.json",
+    "AUDIT_RESULT.json",
+    "evidence/CAPTURE_MANIFEST.json",
+    "RUN_REPORT.json"
+  ],
+  "conditional_write": [
+    {
+      "when_execution_status_in": [
+        "PARTIAL",
+        "FAIL"
+      ],
+      "path": "SELF_DIAGNOSTIC.json"
+    }
+  ],
+  "evidence_globs": [
+    "evidence/screens/*.png",
+    "evidence/dom/*.json"
+  ],
+  "forbidden_output_globs": [
+    "agents/site_auditor_v3/*.json",
+    "agents/site_auditor_v3/*.log",
+    "agents/site_auditor_v3/*.txt",
+    "agents/site_auditor_v3/*.csv",
+    "agents/site_auditor_v3/*.tmp",
+    "agents/site_auditor_v3/PIPELINE_STATE.json",
+    "agents/site_auditor_v3/DEBUG_STATE.json",
+    "agents/site_auditor_v3/modules/**/*.json",
+    "agents/site_auditor_v3/contracts/**/*.runtime.*",
+    "agents/site_auditor_v3/runs/*/MODULE_*.json",
+    "agents/site_auditor_v3/runs/*/PHASE_*.json",
+    "agents/site_auditor_v3/runs/*/TRANSCRIPT*",
+    "agents/site_auditor_v3/runs/*/*.md"
+  ]
+}

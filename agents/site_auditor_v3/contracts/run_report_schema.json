@@ -1,59 +1,563 @@
 {
-  "version": "v3.0",
-  "file": "RUN_REPORT.json",
-  "role": "single operator entrypoint and source of truth",
-  "required_sections": {
-    "identity": {
-      "who_am_i": "system operator building a universal audit engine",
-      "product_scope": "universal audit engine; website LINK audit is one execution lane only",
-      "business_goal": "paid audit-result engine; monetization happens through useful results, not inside audit logic"
-    },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "site_auditor_v3 RUN_REPORT",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "run",
+    "entrypoint",
+    "target",
+    "registry",
+    "execution",
+    "module_results",
+    "artifacts",
+    "summary",
+    "errors",
+    "self_diagnostic"
+  ],
+  "properties": {
     "run": {
-      "run_id": "string",
-      "mode": "LINK",
-      "input": "object",
-      "pipeline_status": "PASS | PARTIAL | FAIL",
-      "site_verdict": "CLEAN | DEFECT | UNKNOWN",
-      "confidence": "HIGH | MEDIUM | LOW"
-    },
-    "truth": {
-      "artifact_integrity": "PASS | PARTIAL | FAIL",
-      "evidence_reconciliation": "PASS | PARTIAL | FAIL",
-      "physical_outputs": "array",
-      "missing_outputs": "array",
-      "extra_outputs": "array"
-    },
-    "decision": {
-      "finding_count": "integer",
-      "top_problem": "string | null",
-      "priority": "P0 | P1 | P2 | NONE",
-      "action": "one concrete next action"
-    },
-    "operator": {
-      "read_order": [
-        "RUN_REPORT.json",
-        "ACTION_SUMMARY.json",
-        "AGENT_MAP.json",
-        "SELF_DIAGNOSTIC.json only if FAIL or PARTIAL",
-        "visual_manifest.json only if evidence is disputed"
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "pipeline_id",
+        "run_id",
+        "started_at_utc",
+        "finished_at_utc"
       ],
-      "next_step": "one step only",
-      "forbidden_steps": [
-        "do not refactor blindly",
-        "do not inspect screenshots manually unless reconciliation fails",
-        "do not use stale memory over this RUN_REPORT",
-        "do not collapse universal product scope into current website run"
-      ]
+      "properties": {
+        "schema_version": {
+          "const": "3.0.0"
+        },
+        "pipeline_id": {
+          "const": "site_auditor_v3"
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "started_at_utc": {
+          "type": "string",
+          "minLength": 1
+        },
+        "finished_at_utc": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
     },
-    "module_map": {
-      "source": "contracts/module_registry.json",
-      "rule": "AGENT_MAP.json must be generated from registry, not static hand-written text"
+    "entrypoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_ps1_path",
+        "module_registry_path",
+        "output_contract_path",
+        "run_report_schema_path"
+      ],
+      "properties": {
+        "run_ps1_path": {
+          "const": "agents/site_auditor_v3/run.ps1"
+        },
+        "module_registry_path": {
+          "const": "agents/site_auditor_v3/contracts/module_registry.json"
+        },
+        "output_contract_path": {
+          "const": "agents/site_auditor_v3/contracts/output_contract.json"
+        },
+        "run_report_schema_path": {
+          "const": "agents/site_auditor_v3/contracts/run_report_schema.json"
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_url",
+        "normalized_base_url"
+      ],
+      "properties": {
+        "target_url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "normalized_base_url": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "registry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "registry_path",
+        "registry_sha256",
+        "module_count",
+        "agent_map_generated_from"
+      ],
+      "properties": {
+        "registry_path": {
+          "const": "agents/site_auditor_v3/contracts/module_registry.json"
+        },
+        "registry_sha256": {
+          "type": "string",
+          "minLength": 1
+        },
+        "module_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "agent_map_generated_from": {
+          "const": "agents/site_auditor_v3/contracts/module_registry.json"
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "final_status",
+        "exit_code",
+        "stop_reason",
+        "final_module_id",
+        "duration_ms"
+      ],
+      "properties": {
+        "final_status": {
+          "enum": [
+            "SUCCESS",
+            "PARTIAL",
+            "FAIL"
+          ]
+        },
+        "exit_code": {
+          "enum": [
+            0,
+            1,
+            2
+          ]
+        },
+        "stop_reason": {
+          "enum": [
+            "COMPLETED",
+            "INPUT_FAIL",
+            "MODULE_FAIL",
+            "CONTRACT_FAIL",
+            "NO_SELECTION",
+            "CAPTURE_FAIL",
+            "OUTPUT_FAIL"
+          ]
+        },
+        "final_module_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "module_results": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/module_result"
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runpack_root",
+        "operator_entrypoint_relative_path",
+        "agent_map_relative_path",
+        "audit_result_relative_path",
+        "capture_manifest_relative_path",
+        "self_diagnostic_relative_path",
+        "files"
+      ],
+      "properties": {
+        "runpack_root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operator_entrypoint_relative_path": {
+          "const": "RUN_REPORT.json"
+        },
+        "agent_map_relative_path": {
+          "const": "AGENT_MAP.json"
+        },
+        "audit_result_relative_path": {
+          "const": "AUDIT_RESULT.json"
+        },
+        "capture_manifest_relative_path": {
+          "const": "evidence/CAPTURE_MANIFEST.json"
+        },
+        "self_diagnostic_relative_path": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "const": "SELF_DIAGNOSTIC.json"
+            }
+          ]
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifact_file"
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "audit_verdict",
+        "score",
+        "data_quality",
+        "route_counts",
+        "capture_counts",
+        "finding_counts"
+      ],
+      "properties": {
+        "audit_verdict": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "INCONCLUSIVE"
+          ]
+        },
+        "score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "data_quality": {
+          "enum": [
+            "COMPLETE",
+            "PARTIAL",
+            "FAILED"
+          ]
+        },
+        "route_counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "discovered",
+            "eligible",
+            "selected",
+            "fully_covered",
+            "partially_covered",
+            "uncovered"
+          ],
+          "properties": {
+            "discovered": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "eligible": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "selected": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "fully_covered": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "partially_covered": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "uncovered": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "capture_counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "requested",
+            "succeeded",
+            "failed"
+          ],
+          "properties": {
+            "requested": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "succeeded": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "failed": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "finding_counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "critical",
+            "high",
+            "medium",
+            "low",
+            "info"
+          ],
+          "properties": {
+            "critical": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "high": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "medium": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "low": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "info": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/error_item"
+      }
+    },
+    "self_diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "present",
+        "relative_path"
+      ],
+      "properties": {
+        "present": {
+          "type": "boolean"
+        },
+        "relative_path": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "const": "SELF_DIAGNOSTIC.json"
+            }
+          ]
+        }
+      }
     }
   },
-  "forbidden": [
-    "contradictory PASS/DEFECT without pipeline_status/site_verdict separation",
-    "linked artifacts that do not physically exist",
-    "operator instructions outside RUN_REPORT",
-    "multiple competing truth files"
-  ]
+  "$defs": {
+    "warning_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "error_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "module_id",
+        "code",
+        "message",
+        "fatal"
+      ],
+      "properties": {
+        "module_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fatal": {
+          "type": "boolean"
+        }
+      }
+    },
+    "artifact_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "relative_path",
+        "kind",
+        "sha256",
+        "bytes"
+      ],
+      "properties": {
+        "relative_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "module_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "module_id",
+        "ordinal",
+        "file_path",
+        "entry_function",
+        "status",
+        "started_at_utc",
+        "finished_at_utc",
+        "duration_ms",
+        "contract_valid",
+        "reads_state_paths",
+        "writes_state_paths",
+        "tool_paths",
+        "artifact_write_count",
+        "warnings",
+        "errors",
+        "counters"
+      ],
+      "properties": {
+        "module_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ordinal": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "file_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "entry_function": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "SUCCESS",
+            "PARTIAL",
+            "FAIL",
+            "SKIPPED"
+          ]
+        },
+        "started_at_utc": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1
+            }
+          ]
+        },
+        "finished_at_utc": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1
+            }
+          ]
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "contract_valid": {
+          "type": "boolean"
+        },
+        "reads_state_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "writes_state_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tool_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "artifact_write_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/warning_item"
+          }
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/error_item"
+          }
+        },
+        "counters": {
+          "type": "object"
+        }
+      }
+    }
+  }
 }

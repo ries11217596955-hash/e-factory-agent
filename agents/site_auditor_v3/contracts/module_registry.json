@@ -1,91 +1,177 @@
 {
-  "version": "v3.0",
-  "product": "SITE_AUDITOR_V3",
-  "purpose": "Universal audit engine module registry",
+  "schema_version": "3.0.0",
+  "pipeline_id": "site_auditor_v3",
+  "entrypoint_path": "agents/site_auditor_v3/run.ps1",
+  "output_contract_path": "agents/site_auditor_v3/contracts/output_contract.json",
+  "run_report_schema_path": "agents/site_auditor_v3/contracts/run_report_schema.json",
   "modules": [
     {
-      "id": "01_input",
-      "path": "agents/site_auditor_v3/modules/01_input.ps1",
-      "layer": "input",
-      "owns": "input normalization",
-      "output": "input_result",
+      "module_id": "01_input",
+      "ordinal": 1,
       "enabled": true,
-      "optional": false,
-      "depends_on": []
+      "file_path": "agents/site_auditor_v3/modules/01_input.ps1",
+      "entry_function": "Invoke-Module01Input",
+      "depends_on": [],
+      "reads_state_paths": [
+        "request"
+      ],
+      "writes_state_paths": [
+        "input"
+      ],
+      "tool_paths": [],
+      "timeout_sec": 30,
+      "stop_on_status": [
+        "FAIL"
+      ],
+      "writes_final_outputs": false
     },
     {
-      "id": "02_route_audit",
-      "path": "agents/site_auditor_v3/modules/02_route_audit.ps1",
-      "layer": "audit",
-      "owns": "route discovery and route status",
-      "output": "route_audit_result",
+      "module_id": "02_route_audit",
+      "ordinal": 2,
       "enabled": true,
-      "optional": false,
+      "file_path": "agents/site_auditor_v3/modules/02_route_audit.ps1",
+      "entry_function": "Invoke-Module02RouteAudit",
       "depends_on": [
         "01_input"
-      ]
+      ],
+      "reads_state_paths": [
+        "input"
+      ],
+      "writes_state_paths": [
+        "route_audit"
+      ],
+      "tool_paths": [],
+      "timeout_sec": 60,
+      "stop_on_status": [
+        "FAIL"
+      ],
+      "writes_final_outputs": false
     },
     {
-      "id": "03_selection",
-      "path": "agents/site_auditor_v3/modules/03_selection.ps1",
-      "layer": "selection",
-      "owns": "capture target selection",
-      "output": "selection_result",
+      "module_id": "03_selection",
+      "ordinal": 3,
       "enabled": true,
-      "optional": false,
+      "file_path": "agents/site_auditor_v3/modules/03_selection.ps1",
+      "entry_function": "Invoke-Module03Selection",
       "depends_on": [
         "02_route_audit"
-      ]
+      ],
+      "reads_state_paths": [
+        "input",
+        "route_audit"
+      ],
+      "writes_state_paths": [
+        "selection"
+      ],
+      "tool_paths": [],
+      "timeout_sec": 30,
+      "stop_on_status": [
+        "FAIL"
+      ],
+      "writes_final_outputs": false
     },
     {
-      "id": "04_capture",
-      "path": "agents/site_auditor_v3/modules/04_capture.ps1",
-      "layer": "evidence",
-      "owns": "visual capture input and manifest",
-      "output": "capture_result",
-      "enabled": true,
-      "optional": false,
+      "module_id": "04_capture",
+      "ordinal": 4,
+      "enabled": false,
+      "file_path": "agents/site_auditor_v3/modules/04_capture.ps1",
+      "entry_function": "Invoke-Module04Capture",
       "depends_on": [
         "03_selection"
-      ]
+      ],
+      "reads_state_paths": [
+        "input",
+        "selection"
+      ],
+      "writes_state_paths": [
+        "capture"
+      ],
+      "tool_paths": [
+        "agents/site_auditor_v3/tools/capture_visuals.mjs"
+      ],
+      "timeout_sec": 300,
+      "stop_on_status": [
+        "FAIL"
+      ],
+      "writes_final_outputs": false
     },
     {
-      "id": "05_reconcile",
-      "path": "agents/site_auditor_v3/modules/05_reconcile.ps1",
-      "layer": "truth",
-      "owns": "evidence reconciliation",
-      "output": "reconciliation_result",
-      "enabled": true,
-      "optional": false,
+      "module_id": "05_reconcile",
+      "ordinal": 5,
+      "enabled": false,
+      "file_path": "agents/site_auditor_v3/modules/05_reconcile.ps1",
+      "entry_function": "Invoke-Module05Reconcile",
       "depends_on": [
         "04_capture"
-      ]
+      ],
+      "reads_state_paths": [
+        "selection",
+        "capture"
+      ],
+      "writes_state_paths": [
+        "reconcile"
+      ],
+      "tool_paths": [],
+      "timeout_sec": 30,
+      "stop_on_status": [
+        "FAIL"
+      ],
+      "writes_final_outputs": false
     },
     {
-      "id": "06_decision",
-      "path": "agents/site_auditor_v3/modules/06_decision.ps1",
-      "layer": "decision",
-      "owns": "findings, priorities and actions",
-      "output": "action_summary",
-      "enabled": true,
-      "optional": false,
+      "module_id": "06_decision",
+      "ordinal": 6,
+      "enabled": false,
+      "file_path": "agents/site_auditor_v3/modules/06_decision.ps1",
+      "entry_function": "Invoke-Module06Decision",
       "depends_on": [
-        "05_reconcile",
-        "02_route_audit"
-      ]
-    },
-    {
-      "id": "07_output",
-      "path": "agents/site_auditor_v3/modules/07_output.ps1",
-      "layer": "output",
-      "owns": "final runpack assembly",
-      "output": "RUN_REPORT.json",
-      "enabled": true,
-      "optional": false,
-      "depends_on": [
-        "06_decision",
         "05_reconcile"
-      ]
+      ],
+      "reads_state_paths": [
+        "run",
+        "input",
+        "route_audit",
+        "selection",
+        "capture",
+        "reconcile"
+      ],
+      "writes_state_paths": [
+        "decision"
+      ],
+      "tool_paths": [],
+      "timeout_sec": 30,
+      "stop_on_status": [
+        "FAIL"
+      ],
+      "writes_final_outputs": false
+    },
+    {
+      "module_id": "07_output",
+      "ordinal": 7,
+      "enabled": false,
+      "file_path": "agents/site_auditor_v3/modules/07_output.ps1",
+      "entry_function": "Invoke-Module07Output",
+      "depends_on": [],
+      "reads_state_paths": [
+        "run",
+        "request",
+        "input",
+        "route_audit",
+        "selection",
+        "capture",
+        "reconcile",
+        "decision",
+        "diagnostics"
+      ],
+      "writes_state_paths": [
+        "output"
+      ],
+      "tool_paths": [],
+      "timeout_sec": 60,
+      "stop_on_status": [
+        "FAIL"
+      ],
+      "writes_final_outputs": true
     }
   ]
 }
