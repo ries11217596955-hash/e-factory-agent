@@ -5,3 +5,4 @@ agents/site_auditor_v2/*.json
 agents/site_auditor_v2/*.txt
 REPORT_EN.txt
 REPORT_RU.txt
+.devcontainer/
