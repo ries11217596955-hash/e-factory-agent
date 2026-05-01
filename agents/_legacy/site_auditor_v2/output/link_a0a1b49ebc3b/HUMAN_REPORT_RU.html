@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Краткий системный аудит</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 28px; color: #1f2937; line-height: 1.45; }
+    h1 { font-size: 28px; margin-bottom: 12px; }
+    h2 { font-size: 18px; margin: 20px 0 8px; }
+    .box { border: 1px solid #d1d5db; background: #f9fafb; border-radius: 8px; padding: 12px 14px; }
+    ul { margin: 0; padding-left: 20px; }
+    p { margin: 6px 0; }
+    table { border-collapse: collapse; width: 100%; max-width: 560px; }
+    th, td { border: 1px solid #d1d5db; text-align: left; padding: 6px 8px; font-size: 14px; }
+    th { width: 45%; background: #f3f4f6; }
+  </style>
+</head>
+<body>
+  <h1>Краткий системный аудит</h1>
+  <section class="box">
+    <h2>Краткий вердикт</h2>
+    <p>Вердикт: DEFECT: confirmed finding(s) in sampled LINK evidence.</p><p>Уверенность: LOW.</p><p>Контекст поверхности: Тип поверхности не удалось надёжно нормализовать.</p><p>Главное действие: analyze broken route pattern and benchmark alternatives</p>
+  </section>
+  <section>
+    <h2>Главная системная проблема</h2>
+    <p>Broken internal route blocks user navigation and weakens audit confidence.</p>
+  </section>
+  <section><h2>К чему это приводит</h2><ul><li>Пользователь сталкивается с повторяющимся барьером до результата.</li><li>Ключевые поверхности работают несогласованно и снижают доверие к выбору.</li><li>Один и тот же сбой повторяется на нескольких поверхностях.</li></ul></section>
+  <section>
+    <h2>Что делать дальше</h2>
+    <ul><li>analyze broken route pattern and benchmark alternatives</li></ul>
+  </section>
+  <section><h2>Подтверждающие примеры</h2><ul><li>https://automation-kb.pages.dev/downloads/ (UNKNOWN: Broken route detected: https://automation-kb.pages.dev/downloads/ returned non-200.)</li></ul></section>
+  
+  <section>
+    <h2>Технический срез</h2>
+    <table><tr><th>Проверено страниц</th><td>11</td></tr><tr><th>Находки высокой уверенности</th><td>5</td></tr><tr><th>Категория</th><td>DEFECT</td></tr><tr><th>Уверенность</th><td>LOW</td></tr></table>
+  </section>
+</body>
+</html>

@@ -1,0 +1,25 @@
+Site: https://automation-kb.pages.dev/
+Total pages checked: 27
+Shell: 0
+Thin: 0
+Broken: 5
+
+URL: https://automation-kb.pages.dev/downloads/
+Issue: broken
+Action: analyze broken route pattern and benchmark alternatives
+
+URL: https://automation-kb.pages.dev/contact/
+Issue: broken
+Action: analyze broken route pattern and benchmark alternatives
+
+URL: https://automation-kb.pages.dev/privacy/
+Issue: broken
+Action: analyze broken route pattern and benchmark alternatives
+
+URL: https://automation-kb.pages.dev/terms/
+Issue: broken
+Action: analyze broken route pattern and benchmark alternatives
+
+URL: https://automation-kb.pages.dev/cookies/
+Issue: broken
+Action: analyze broken route pattern and benchmark alternatives

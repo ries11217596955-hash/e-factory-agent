@@ -1,0 +1,349 @@
+{
+  "status": "SUCCESS",
+  "requested_pages": 11,
+  "processed_pages": 11,
+  "failed_pages": 0,
+  "pages": [
+    {
+      "index": 1,
+      "url": "https://automation-kb.pages.dev/",
+      "status": "SUCCESS",
+      "error": "",
+      "captures": [
+        {
+          "segment": "top",
+          "file": "screenshots/page-01-0b142469e7-top.png",
+          "size_bytes": 781182,
+          "status": "ok",
+          "error": ""
+        },
+        {
+          "segment": "mid",
+          "file": "screenshots/page-01-0b142469e7-mid.png",
+          "size_bytes": 124763,
+          "status": "ok",
+          "error": ""
+        },
+        {
+          "segment": "bottom",
+          "file": "screenshots/page-01-0b142469e7-bottom.png",
+          "size_bytes": 130153,
+          "status": "ok",
+          "error": ""
+        }
+      ],
+      "source_url": "https://automation-kb.pages.dev/",
+      "route": "/"
+    },
+    {
+      "index": 2,
+      "url": "https://automation-kb.pages.dev/search",
+      "status": "SUCCESS",
+      "error": "",
+      "captures": [
+        {
+          "segment": "top",
+          "file": "screenshots/page-02-555ce7c2f6-top.png",
+          "size_bytes": 349658,
+          "status": "ok",
+          "error": ""
+        },
+        {
+          "segment": "mid",
+          "file": "screenshots/page-02-555ce7c2f6-mid.png",
+          "size_bytes": 236365,
+          "status": "ok",
+          "error": ""
+        },
+        {
+          "segment": "bottom",
+          "file": "screenshots/page-02-555ce7c2f6-bottom.png",
+          "size_bytes": 124675,
+          "status": "ok",
+          "error": ""
+        }
+      ],
+      "source_url": "https://automation-kb.pages.dev/search",
+      "route": "/search"
+    },
+    {
+      "index": 3,
+      "url": "https://automation-kb.pages.dev/hubs/operations",
+      "status": "SUCCESS",
+      "error": "",
+      "captures": [
+        {
+          "segment": "top",
+          "file": "screenshots/page-03-f5c2c495c9-top.png",
+          "size_bytes": 416789,
+          "status": "ok",
+          "error": ""
+        },
+        {
+          "segment": "mid",
+          "file": "screenshots/page-03-f5c2c495c9-mid.png",
+          "size_bytes": 174989,
+          "status": "ok",
+          "error": ""
+        },
+        {
+          "segment": "bottom",
+          "file": "screenshots/page-03-f5c2c495c9-bottom.png",
+          "size_bytes": 124708,
+          "status": "ok",
+          "error": ""
+        }
+      ],
+      "source_url": "https://automation-kb.pages.dev/hubs/operations",
+      "route": "/hubs/operations"
+    },
+    {
+      "index": 4,
+      "url": "https://automation-kb.pages.dev/tools",
+      "status": "SUCCESS",
+      "error": "",
+      "captures": [
+        {
+          "segment": "top",
+          "file": "screenshots/page-04-e65bfa398a-top.png",
+          "size_bytes": 460997,
+          "status": "ok",
+          "error": ""
+        },
+        {
+          "segment": "mid",
+          "file": "screenshots/page-04-e65bfa398a-mid.png",
+          "size_bytes": 259933,
+          "status": "ok",
+          "error": ""
+        },
+        {
+          "segment": "bottom",
+          "file": "screenshots/page-04-e65bfa398a-bottom.png",
+          "size_bytes": 119122,
+          "status": "ok",
+          "error": ""
+        }
+      ],
+      "source_url": "https://automation-kb.pages.dev/tools",
+      "route": "/tools"
+    },
+    {
+      "index": 5,
+      "url": "https://automation-kb.pages.dev/hubs/workflow",
+      "status": "SUCCESS",
+      "error": "",
+      "captures": [
+        {
+          "segment": "top",
+          "file": "screenshots/page-05-56098a7678-top.png",
+          "size_bytes": 445107,
+          "status": "ok",
+          "error": ""
+        },
+        {
+          "segment": "mid",
+          "file": "screenshots/page-05-56098a7678-mid.png",
+          "size_bytes": 214914,
+          "status": "ok",
+          "error": ""
+        },
+        {
+          "segment": "bottom",
+          "file": "screenshots/page-05-56098a7678-bottom.png",
+          "size_bytes": 124361,
+          "status": "ok",
+          "error": ""
+        }
+      ],
+      "source_url": "https://automation-kb.pages.dev/hubs/workflow",
+      "route": "/hubs/workflow"
+    },
+    {
+      "index": 6,
+      "url": "https://automation-kb.pages.dev/hubs",
+      "status": "SUCCESS",
+      "error": "",
+      "captures": [
+        {
+          "segment": "top",
+          "file": "screenshots/page-06-96841b9af3-top.png",
+          "size_bytes": 622736,
+          "status": "ok",
+          "error": ""
+        },
+        {
+          "segment": "mid",
+          "file": "screenshots/page-06-96841b9af3-mid.png",
+          "size_bytes": 432406,
+          "status": "ok",
+          "error": ""
+        },
+        {
+          "segment": "bottom",
+          "file": "screenshots/page-06-96841b9af3-bottom.png",
+          "size_bytes": 292020,
+          "status": "ok",
+          "error": ""
+        }
+      ],
+      "source_url": "https://automation-kb.pages.dev/hubs",
+      "route": "/hubs"
+    },
+    {
+      "index": 7,
+      "url": "https://automation-kb.pages.dev/start",
+      "status": "SUCCESS",
+      "error": "",
+      "captures": [
+        {
+          "segment": "top",
+          "file": "screenshots/page-07-a1fb24a533-top.png",
+          "size_bytes": 408350,
+          "status": "ok",
+          "error": ""
+        },
+        {
+          "segment": "mid",
+          "file": "screenshots/page-07-a1fb24a533-mid.png",
+          "size_bytes": 140800,
+          "status": "ok",
+          "error": ""
+        },
+        {
+          "segment": "bottom",
+          "file": "screenshots/page-07-a1fb24a533-bottom.png",
+          "size_bytes": 148754,
+          "status": "ok",
+          "error": ""
+        }
+      ],
+      "source_url": "https://automation-kb.pages.dev/start",
+      "route": "/start"
+    },
+    {
+      "index": 8,
+      "url": "https://automation-kb.pages.dev/hubs/amazon-ai",
+      "status": "SUCCESS",
+      "error": "",
+      "captures": [
+        {
+          "segment": "top",
+          "file": "screenshots/page-08-7d1e60a8a5-top.png",
+          "size_bytes": 409215,
+          "status": "ok",
+          "error": ""
+        },
+        {
+          "segment": "mid",
+          "file": "screenshots/page-08-7d1e60a8a5-mid.png",
+          "size_bytes": 279599,
+          "status": "ok",
+          "error": ""
+        },
+        {
+          "segment": "bottom",
+          "file": "screenshots/page-08-7d1e60a8a5-bottom.png",
+          "size_bytes": 137554,
+          "status": "ok",
+          "error": ""
+        }
+      ],
+      "source_url": "https://automation-kb.pages.dev/hubs/amazon-ai",
+      "route": "/hubs/amazon-ai"
+    },
+    {
+      "index": 9,
+      "url": "https://automation-kb.pages.dev/posts",
+      "status": "SUCCESS",
+      "error": "",
+      "captures": [
+        {
+          "segment": "top",
+          "file": "screenshots/page-09-033a85c292-top.png",
+          "size_bytes": 268911,
+          "status": "ok",
+          "error": ""
+        },
+        {
+          "segment": "mid",
+          "file": "screenshots/page-09-033a85c292-mid.png",
+          "size_bytes": 167442,
+          "status": "ok",
+          "error": ""
+        },
+        {
+          "segment": "bottom",
+          "file": "screenshots/page-09-033a85c292-bottom.png",
+          "size_bytes": 137017,
+          "status": "ok",
+          "error": ""
+        }
+      ],
+      "source_url": "https://automation-kb.pages.dev/posts",
+      "route": "/posts"
+    },
+    {
+      "index": 10,
+      "url": "https://automation-kb.pages.dev/compare",
+      "status": "SUCCESS",
+      "error": "",
+      "captures": [
+        {
+          "segment": "top",
+          "file": "screenshots/page-10-0fa705739f-top.png",
+          "size_bytes": 376654,
+          "status": "ok",
+          "error": ""
+        },
+        {
+          "segment": "mid",
+          "file": "screenshots/page-10-0fa705739f-mid.png",
+          "size_bytes": 204054,
+          "status": "ok",
+          "error": ""
+        },
+        {
+          "segment": "bottom",
+          "file": "screenshots/page-10-0fa705739f-bottom.png",
+          "size_bytes": 142032,
+          "status": "ok",
+          "error": ""
+        }
+      ],
+      "source_url": "https://automation-kb.pages.dev/compare",
+      "route": "/compare"
+    },
+    {
+      "index": 11,
+      "url": "https://automation-kb.pages.dev/hubs/ai-for-sales",
+      "status": "SUCCESS",
+      "error": "",
+      "captures": [
+        {
+          "segment": "top",
+          "file": "screenshots/page-11-fd37ff2a07-top.png",
+          "size_bytes": 416822,
+          "status": "ok",
+          "error": ""
+        },
+        {
+          "segment": "mid",
+          "file": "screenshots/page-11-fd37ff2a07-mid.png",
+          "size_bytes": 276978,
+          "status": "ok",
+          "error": ""
+        },
+        {
+          "segment": "bottom",
+          "file": "screenshots/page-11-fd37ff2a07-bottom.png",
+          "size_bytes": 117910,
+          "status": "ok",
+          "error": ""
+        }
+      ],
+      "source_url": "https://automation-kb.pages.dev/hubs/ai-for-sales",
+      "route": "/hubs/ai-for-sales"
+    }
+  ]
+}

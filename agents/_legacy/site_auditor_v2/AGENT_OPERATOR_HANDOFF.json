@@ -1,0 +1,17 @@
+{
+  "must_read_files": [
+    "RUN_REPORT.json",
+    "failure_summary.json",
+    "AGENT_FAILURE_REPORT.txt",
+    "AGENT_OPERATOR_HANDOFF.json"
+  ],
+  "forbidden_moves": [
+    "do not add new audit signals",
+    "do not redesign human audit reports",
+    "do not touch CI/workflows"
+  ],
+  "next_1_fix": "Patch agent stage 'REPORT_LAYER' contract and rerun LINK mode.",
+  "next_2_optional": "Re-run with the same BaseUrl after applying next_1_fix and compare deterministic artifacts.",
+  "next_3_optional": "Only after stable rerun, continue object audit and feature tasks.",
+  "rerun_condition": "Rerun only after next_1_fix is completed and artifacts are generated successfully."
+}

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Concise System Audit</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 28px; color: #1f2937; line-height: 1.45; }
+    h1 { font-size: 28px; margin-bottom: 12px; }
+    h2 { font-size: 18px; margin: 20px 0 8px; }
+    .box { border: 1px solid #d1d5db; background: #f9fafb; border-radius: 8px; padding: 12px 14px; }
+    ul { margin: 0; padding-left: 20px; }
+    p { margin: 6px 0; }
+    table { border-collapse: collapse; width: 100%; max-width: 560px; }
+    th, td { border: 1px solid #d1d5db; text-align: left; padding: 6px 8px; font-size: 14px; }
+    th { width: 45%; background: #f3f4f6; }
+  </style>
+</head>
+<body>
+  <h1>Concise System Audit</h1>
+  <section class="box">
+    <h2>Executive Verdict</h2>
+    <p>Verdict: DEFECT: confirmed finding(s) in sampled LINK evidence.</p><p>Confidence: LOW.</p><p>Surface context: Surface type could not be normalized with high confidence.</p><p>Main action: analyze broken route pattern and benchmark alternatives</p>
+  </section>
+  <section>
+    <h2>Main System Problem</h2>
+    <p>Single strongest defect: BROKEN_ROUTE</p>
+  </section>
+  <section><h2>What This Causes</h2><ul><li>Users face repeated friction before reaching the expected outcome.</li><li>Critical surfaces lose consistency, reducing decision confidence.</li><li>The same failure pattern scales across multiple surfaces.</li></ul></section>
+  <section>
+    <h2>What To Do Next</h2>
+    <ul><li>analyze broken route pattern and benchmark alternatives</li></ul>
+  </section>
+  <section><h2>Supporting Evidence</h2><ul><li>https://automation-kb.pages.dev/downloads/ (UNKNOWN: Broken route detected: https://automation-kb.pages.dev/downloads/ returned non-200.)</li></ul></section>
+  
+  <section>
+    <h2>Technical Snapshot</h2>
+    <table><tr><th>Pages checked</th><td>11</td></tr><tr><th>High-confidence findings</th><td>5</td></tr><tr><th>Primary category</th><td>DEFECT</td></tr><tr><th>Confidence</th><td>LOW</td></tr></table>
+  </section>
+</body>
+</html>

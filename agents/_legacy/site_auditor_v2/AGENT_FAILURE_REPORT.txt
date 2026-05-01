@@ -1,0 +1,7 @@
+last_completed_stage=SURFACE_CONTEXT
+current_failure_stage=REPORT_LAYER
+failure_class=AGENT_DEFECT
+raw_error=The variable '$finding' cannot be retrieved because it has not been set.
+human_explanation=The failure is inside agent logic/contract and must be fixed in agent code before trusting feature progress.
+likely_root_cause=report layer failure
+first_fix_step=The variable '$finding' cannot be retrieved because it has not been set.

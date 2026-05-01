@@ -1,0 +1,140 @@
+{
+  "map_version": "1.0",
+  "purpose": "Prevent drift, giant-file growth, and wrong-layer patching.",
+  "orchestrator": {
+    "path": "agents/site_auditor_v2/agent.ps1",
+    "role": "Orchestrates stages only; should not absorb module logic."
+  },
+  "flow": [
+    "ENTRY",
+    "LINK_FETCH",
+    "ROUTE_EXTRACTION",
+    "ROUTE_SELECTION",
+    "CAPTURE",
+    "RECON",
+    "REPORT_LAYER",
+    "OUTPUT",
+    "AGENT_MAP",
+    "HUMAN_REPORT"
+  ],
+  "modules": [
+    {
+      "path": "agents/site_auditor_v2/modules/stage_link_fetch.ps1",
+      "layer": "input",
+      "role": "Base URL, HTML fetch, link signals, shallow route discovery."
+    },
+    {
+      "path": "agents/site_auditor_v2/modules/stage_route_keys.ps1",
+      "layer": "routing",
+      "role": "Canonical route keys, route classification, visual target selection."
+    },
+    {
+      "path": "agents/site_auditor_v2/modules/stage_capture_reconciliation.ps1",
+      "layer": "recon",
+      "role": "Prepare capture/reconciliation evidence before report layer."
+    },
+    {
+      "path": "agents/site_auditor_v2/modules/surface_context.ps1",
+      "layer": "context",
+      "role": "Surface type, expectations, value satisfaction signals."
+    },
+    {
+      "path": "agents/site_auditor_v2/modules/report_contract.ps1",
+      "layer": "contract",
+      "role": "Normalize finding contract and required report fields."
+    },
+    {
+      "path": "agents/site_auditor_v2/modules/report_layer.ps1",
+      "layer": "decision",
+      "role": "Build system_problem, decision_summary, action_summary, human payloads, consistency lock."
+    },
+    {
+      "path": "agents/site_auditor_v2/modules/report_safe_helpers.ps1",
+      "layer": "decision_helpers",
+      "role": "Safe list/null helpers for report layer."
+    },
+    {
+      "path": "agents/site_auditor_v2/modules/self_build_protocol.ps1",
+      "layer": "self_diagnostic",
+      "role": "Failure class, build ladder, failure report, operator handoff."
+    },
+    {
+      "path": "agents/site_auditor_v2/modules/runtime_safe.ps1",
+      "layer": "runtime",
+      "role": "Runtime safety, URI normalization, stage trace, script failure diagnostics."
+    },
+    {
+      "path": "agents/site_auditor_v2/modules/util_io.ps1",
+      "layer": "io",
+      "role": "Directory and JSON output helpers."
+    },
+    {
+      "path": "agents/site_auditor_v2/modules/util_json.ps1",
+      "layer": "json",
+      "role": "ISO UTC timestamp and not-implemented status helpers."
+    },
+    {
+      "path": "agents/site_auditor_v2/lib/post_output.ps1",
+      "layer": "output",
+      "role": "Post-output handling and artifact copy behavior."
+    },
+    {
+      "path": "agents/site_auditor_v2/lib/fail_output.ps1",
+      "layer": "failure_output",
+      "role": "Failure output contract."
+    },
+    {
+      "path": "agents/site_auditor_v2/lib/decision.ps1",
+      "layer": "legacy_or_support",
+      "role": "Decision support library; verify ownership before modifying."
+    }
+  ],
+  "runtime_info": {
+    "run_timestamp": "2026-05-01T07:51:53.0156252Z",
+    "mode": "LINK",
+    "map_type": "runtime_debug_navigation"
+  },
+  "repair_links": {
+    "LINK": "agents/site_auditor_v2/modules/stage_link_fetch.ps1",
+    "RECON": "agents/site_auditor_v2/modules/stage_capture_reconciliation.ps1",
+    "REPORT": "agents/site_auditor_v2/modules/report_layer.ps1",
+    "OUTPUT": "agents/site_auditor_v2/lib/post_output.ps1"
+  },
+  "module_debug_map": [
+    {
+      "module": "stage_link_fetch.ps1",
+      "responsibility": "fetch + route discovery",
+      "breaks_when": [
+        "no routes found",
+        "html empty"
+      ],
+      "debug_entry": "open this file if LINK stage fails"
+    },
+    {
+      "module": "stage_capture_reconciliation.ps1",
+      "responsibility": "prepare evidence before report",
+      "breaks_when": [
+        "visual mismatch",
+        "missing captures"
+      ],
+      "debug_entry": "open this file if RECON fails"
+    },
+    {
+      "module": "report_layer.ps1",
+      "responsibility": "decision + action summary",
+      "breaks_when": [
+        "empty findings",
+        "status mismatch"
+      ],
+      "debug_entry": "open this file if REPORT fails"
+    }
+  ],
+  "current_bottleneck": "human_report_low_value",
+  "next_safe_build_move": "SELF_DIAGNOSTIC v1 before audit capability expansion.",
+  "forbidden_drift": [
+    "do not turn agent.ps1 into giant runtime",
+    "do not patch report_layer unless failure is proven inside report contract/check",
+    "do not add benchmark/CTA/crawler features before map + self-diagnostic + operator memory feed",
+    "do not treat successful run as product readiness"
+  ]
+}
