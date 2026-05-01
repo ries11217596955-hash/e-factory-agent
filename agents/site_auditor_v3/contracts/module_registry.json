@@ -1,0 +1,56 @@
+{
+  "version": "v3.0",
+  "product": "SITE_AUDITOR_V3",
+  "purpose": "Universal audit engine module registry",
+  "modules": [
+    {
+      "id": "01_input",
+      "path": "agents/site_auditor_v3/modules/01_input.ps1",
+      "layer": "input",
+      "owns": "input normalization",
+      "output": "input_result"
+    },
+    {
+      "id": "02_route_audit",
+      "path": "agents/site_auditor_v3/modules/02_route_audit.ps1",
+      "layer": "audit",
+      "owns": "route discovery and route status",
+      "output": "route_audit_result"
+    },
+    {
+      "id": "03_selection",
+      "path": "agents/site_auditor_v3/modules/03_selection.ps1",
+      "layer": "selection",
+      "owns": "capture target selection",
+      "output": "selection_result"
+    },
+    {
+      "id": "04_capture",
+      "path": "agents/site_auditor_v3/modules/04_capture.ps1",
+      "layer": "evidence",
+      "owns": "visual capture input and manifest",
+      "output": "capture_result"
+    },
+    {
+      "id": "05_reconcile",
+      "path": "agents/site_auditor_v3/modules/05_reconcile.ps1",
+      "layer": "truth",
+      "owns": "evidence reconciliation",
+      "output": "reconciliation_result"
+    },
+    {
+      "id": "06_decision",
+      "path": "agents/site_auditor_v3/modules/06_decision.ps1",
+      "layer": "decision",
+      "owns": "findings, priorities and actions",
+      "output": "action_summary"
+    },
+    {
+      "id": "07_output",
+      "path": "agents/site_auditor_v3/modules/07_output.ps1",
+      "layer": "output",
+      "owns": "final runpack assembly",
+      "output": "RUN_REPORT.json"
+    }
+  ]
+}
