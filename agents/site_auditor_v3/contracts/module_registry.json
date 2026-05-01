@@ -98,7 +98,7 @@
     {
       "module_id": "05_reconcile",
       "ordinal": 5,
-      "enabled": false,
+      "enabled": true,
       "file_path": "agents/site_auditor_v3/modules/05_reconcile.ps1",
       "entry_function": "Invoke-Module05Reconcile",
       "depends_on": [
