@@ -2139,7 +2139,14 @@ if ((Test-Path (Join-Path $PSScriptRoot "ROUTES_SUMMARY.json")) -and (Test-Path 
 
         $captureReportStatus = if ($capabilityCapture) { [string]$reconciliationPrep.capture_report_status } else { 'PARTIAL' }
         $captureFailTypes = if ($capabilityCapture) { @($reconciliationPrep.fail_types) } else { @('capture_not_available') }
-        $report.capture_report = [ordered]@{
+        
+# === HARD TRUTH: COUNT REAL SCREENSHOTS ===
+$capturesTakenCount = 0
+if (Test-Path -LiteralPath $screenshotsPath -PathType Container) {
+    $capturesTakenCount = @(Get-ChildItem -LiteralPath $screenshotsPath -File -Filter '*.png').Count
+}
+
+$report.capture_report = [ordered]@{
             status = $captureReportStatus
             pages_attempted = $pagesAttempted
             pages_processed = $pagesProcessed
@@ -3038,7 +3045,10 @@ $lastCompletedStage = 'SURFACE_CONTEXT'
             'do not claim monetization readiness beyond observable LINK evidence'
         )
         $routesCheckedCount = @($report.selected_routes).Count
-        $capturesTakenCount = if ($report.capture_report -and $report.capture_report.PSObject.Properties['captures_success']) { [int]$report.capture_report.captures_success } else { 0 }
+        $capturesTakenCount = 0
+if (Test-Path -LiteralPath $screenshotsPath -PathType Container) {
+    $capturesTakenCount = @(Get-ChildItem -LiteralPath $screenshotsPath -File -Filter '*.png').Count
+}
         $captureAttemptedCount = if ($report.capture_report -and $report.capture_report.PSObject.Properties['captures_attempted']) { [int]$report.capture_report.captures_attempted } else { 0 }
         $overflowCount = if ($report.run_budget -and $report.run_budget.PSObject.Properties['overflow_routes']) { [int]$report.run_budget.overflow_routes } else { 0 }
         $limitNotes = New-Object System.Collections.Generic.List[string]
