@@ -87,11 +87,11 @@ function Invoke-Module07Output {
 
         agent_capability_state = [ordered]@{
             source = "agents/site_auditor_v3/docs/CAPABILITY_MAP.md"
-            next_capability_to_build = "RUN_REPORT as operator re-entry file"
+            next_capability_to_build = "self_diagnostic generation in decision layer"
         }
 
         next_step = [ordered]@{
-            action = "Build RUN_REPORT as operator re-entry file: verify generated RUN_REPORT.json content, then commit 07_output v1"
+            action = "Add self_diagnostic to 06_decision: include failed_stage, what_worked, what_failed, limitations"
             why = "RUN_REPORT must become the first readable artifact before deeper audit capabilities are added."
             expected_result = "Future chats can restart from RUN_REPORT.json without guessing."
         }
