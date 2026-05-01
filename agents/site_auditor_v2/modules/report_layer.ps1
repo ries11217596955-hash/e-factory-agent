@@ -251,10 +251,22 @@ function New-ActionSummaryFromDecision {
         })
 
     if ($actions.Count -lt 3 -and $effectiveIssueType -eq 'DEFECT' -and @($SortedFindings).Count -gt 1) {
+
+        $seenActions = @{}
+        $seenActions[$actions[0].action] = $true
+
         foreach ($finding in @($SortedFindings | Select-Object -Skip 1)) {
             if ($actions.Count -ge 3) { break }
+
+            $a = [string]$finding.recommended_action
+            if ([string]::IsNullOrWhiteSpace($a)) { continue }
+
+            if ($seenActions.ContainsKey($a)) { continue }
+
+            $seenActions[$a] = $true
+
             $null = $actions.Add([ordered]@{
-                    action = [string]$finding.recommended_action
+                    action = $a
                     why = [string]$finding.why_it_matters
                     priority = [string]$finding.priority
                 })
