@@ -79,19 +79,15 @@ function Invoke-Module07Output {
             gaps_count = @($PipelineState.reconcile.gaps).Count
         }
 
-        diagnostic_summary = [ordered]@{
-            status = $PipelineState.run.execution_status
-            failed_stage = $null
-            limitations = @()
-        }
+        diagnostic_summary = $PipelineState.decision.self_diagnostic
 
         agent_capability_state = [ordered]@{
             source = "agents/site_auditor_v3/docs/CAPABILITY_MAP.md"
-            next_capability_to_build = "self_diagnostic generation in decision layer"
+            next_capability_to_build = "self_diagnostic to 06_decision"
         }
 
         next_step = [ordered]@{
-            action = "Add self_diagnostic to 06_decision: include failed_stage, what_worked, what_failed, limitations"
+            action = "Add self_diagnostic to 06_decision: include failed_stage, what_worked, what_failed, limitations, evidence_gaps, confidence, next_debug_step, next_build_step"
             why = "RUN_REPORT must become the first readable artifact before deeper audit capabilities are added."
             expected_result = "Future chats can restart from RUN_REPORT.json without guessing."
         }
