@@ -9,7 +9,7 @@ rm -rf "$RUNS"/* 2>/dev/null || true
 
 echo "=== RUN AGENT ==="
 pwsh -NoProfile -File "$ROOT/run.ps1" \
-  -RequestPath "$ROOT/tests/fixtures/smoke.request.json"
+  -RequestPath "${REQUEST_PATH:-$ROOT/tests/fixtures/smoke.request.json}"
 
 echo "=== FIND LATEST RUN_REPORT ==="
 LATEST_REPORT="$(ls -1dt $RUNS/* 2>/dev/null | head -n1)/RUN_REPORT.json"

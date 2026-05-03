@@ -2,6 +2,11 @@ name: Site Auditor V3
 
 on:
   workflow_dispatch:
+    inputs:
+      target_url:
+        description: "URL to audit"
+        required: true
+        default: "https://example.com"
 
 jobs:
   run-v3:
@@ -16,10 +21,15 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y zip powershell python3
 
+      - name: Prepare request
+        run: |
+          cp agents/site_auditor_v3/tests/fixtures/link.request.json /tmp/v3.request.json
+          sed -i "s#__TARGET_URL__#${{ github.event.inputs.target_url }}#g" /tmp/v3.request.json
+
       - name: Run Site Auditor V3
         run: |
           chmod +x agents/site_auditor_v3/tests/run_and_validate.sh
-          ./agents/site_auditor_v3/tests/run_and_validate.sh
+          REQUEST_PATH=/tmp/v3.request.json ./agents/site_auditor_v3/tests/run_and_validate.sh
 
       - name: Upload V3 runpack
         uses: actions/upload-artifact@v4
