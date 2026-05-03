@@ -8,3 +8,5 @@ REPORT_RU.txt
 .devcontainer/
 
 agents/site_auditor_v3/runs/
+
+agents/site_auditor_v3/_deliver/

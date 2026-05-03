@@ -37,4 +37,22 @@ print("next_capability:", j["agent_capability_state"]["next_capability_to_build"
 print("limitations:", j["diagnostic_summary"]["limitations"])
 PY
 
+
+echo "=== PACKAGE RUNPACK ==="
+DELIVER_ROOT="$ROOT/_deliver"
+mkdir -p "$DELIVER_ROOT"
+
+RUN_DIR="$(dirname "$LATEST_REPORT")"
+RUN_ID="$(basename "$RUN_DIR")"
+ZIP_PATH="$DELIVER_ROOT/SITE_AUDITOR_V3_RUNPACK_${RUN_ID}.zip"
+
+if command -v zip >/dev/null 2>&1; then
+  (cd "$RUN_DIR" && zip -qr "../../_deliver/SITE_AUDITOR_V3_RUNPACK_${RUN_ID}.zip" .)
+else
+  tar -czf "$DELIVER_ROOT/SITE_AUDITOR_V3_RUNPACK_${RUN_ID}.tar.gz" -C "$RUN_DIR" .
+  ZIP_PATH="$DELIVER_ROOT/SITE_AUDITOR_V3_RUNPACK_${RUN_ID}.tar.gz"
+fi
+
+echo "DELIVERABLE=$ZIP_PATH"
+
 echo "PASS: END-TO-END"
