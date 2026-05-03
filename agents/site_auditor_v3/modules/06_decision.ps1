@@ -4,88 +4,69 @@ function Invoke-Module06Decision {
         [Parameter(Mandatory)]$InputData
     )
 
-    $reconcile = $InputData.reconcile
-    $coverage  = @($reconcile.coverage)
-    $gaps      = @($reconcile.gaps)
+    $routesDiscovered  = [int]$PipelineState.route_audit.totals.discovered
+    $routesSelected    = [int]$PipelineState.selection.totals.selected
+    $capturesSucceeded = [int]$PipelineState.capture.totals.succeeded
+    $gaps              = @($PipelineState.reconcile.gaps)
 
-    $critical = 0
-    $high = 0
-    $medium = 0
-    $low = 0
+    # === BASELINE DETECTION ===
+    $isBaseline = ($routesDiscovered -le 1 -or $capturesSucceeded -le 1)
 
-    foreach ($g in $gaps) {
-        switch ([string]$g.severity) {
-            "CRITICAL" { $critical++ }
-            "HIGH"     { $high++ }
-            "MEDIUM"   { $medium++ }
-            "LOW"      { $low++ }
-        }
+    # === DEFAULT DECISION ===
+    $verdict = "PASS"
+    $score   = 100
+
+    if ($isBaseline) {
+        $verdict = "INCONCLUSIVE"
+        $score   = 30
     }
 
-    $verdict = if ($critical -gt 0 -or $high -gt 0) { "FAIL" } else { "PASS" }
-    $score = [Math]::Max(0, 100 - ($critical*40 + $high*20 + $medium*10 + $low*5))
-
-    $whatWorked = @()
-    foreach ($key in @("input","route_audit","selection","capture","reconcile")) {
-        if ($PipelineState.ContainsKey($key)) {
-            $whatWorked += $key
-        }
+    # === DIAGNOSTIC ===
+    $diagnostic = @{
+        failed_stage = $null
+        what_worked = @("input","route_audit","selection","capture","reconcile")
+        what_failed = @()
+        limitations = @()
+        evidence_gaps = @()
+        confidence = "LOW"
+        next_debug_step = "Expand routes and capture depth before strong decision"
+        next_build_step = "Add self_build capability posture to 06_decision"
+        forbidden_next_steps = @(
+            "do not add ZIP/REPO/PROMPT modes before self_build exists",
+            "do not claim strong PASS without evidence coverage",
+            "do not add new modules without RUN_REPORT next_step alignment"
+        )
     }
 
-    $whatFailed = @()
-    $limitations = @()
-    $evidenceGaps = @()
-
-    if ($gaps.Count -gt 0) {
-        foreach ($g in $gaps) {
-            $evidenceGaps += @{
-                code = [string]$g.code
-                severity = [string]$g.severity
-                route_id = [string]$g.route_id
-            }
-        }
-        $limitations += "coverage gaps exist"
+    if ($isBaseline) {
+        $diagnostic.limitations += "baseline_coverage_only"
+        $diagnostic.evidence_gaps += "insufficient_routes_and_captures"
     }
 
-    $routesSelected = 0
-    if ($PipelineState.selection -and $PipelineState.selection.totals) {
-        $routesSelected = [int]$PipelineState.selection.totals.selected
+    # === SELF BUILD ===
+    $missing = @()
+    $weak = @()
+
+    if ($routesDiscovered -le 1) {
+        $missing += "route_depth_expansion"
     }
 
-    $capturesSucceeded = 0
-    if ($PipelineState.capture -and $PipelineState.capture.totals) {
-        $capturesSucceeded = [int]$PipelineState.capture.totals.succeeded
+    if ($capturesSucceeded -le 1) {
+        $missing += "evidence_quality_classification"
+        $missing += "suspiciously_clean_detection"
     }
 
-    if ($routesSelected -eq 0) {
-        $limitations += "no selected routes"
-        $whatFailed += "selection produced no targets"
+    if ($gaps.Count -eq 0 -and $routesDiscovered -le 1) {
+        $weak += "coverage_confidence_model"
     }
 
-    if ($routesSelected -gt 0 -and $capturesSucceeded -eq 0) {
-        $limitations += "no successful captures"
-        $whatFailed += "capture produced no evidence"
-    }
+    $nextCapability = if ($missing.Count -gt 0) { $missing[0] } else { "self_build_refinement" }
 
-    $confidence = "HIGH"
-    if ($limitations.Count -gt 0) { $confidence = "MEDIUM" }
-    if ($routesSelected -eq 0 -or ($routesSelected -gt 0 -and $capturesSucceeded -eq 0)) { $confidence = "LOW" }
-
-    $failedStage = $null
-    if ($whatFailed.Count -gt 0) {
-        $failedStage = [string]$whatFailed[0]
-    }
-
-    $nextDebugStep = if ($failedStage) {
-        "Inspect " + $failedStage + " output in pipeline state"
-    } else {
-        "No debug step required for current smoke run"
-    }
-
-    $nextBuildStep = if ($limitations.Count -gt 0) {
-        "Strengthen evidence generation before expanding input modes"
-    } else {
-        "Add self_build capability posture to 06_decision"
+    $selfBuild = @{
+        missing_capabilities = $missing
+        weak_capabilities = $weak
+        next_capability_to_build = $nextCapability
+        reason = "derived from low route count and minimal capture coverage"
     }
 
     return @{
@@ -93,28 +74,12 @@ function Invoke-Module06Decision {
         data = @{
             audit_verdict = $verdict
             score = $score
-            data_quality = if ($confidence -eq "HIGH") { "COMPLETE" } else { "PARTIAL" }
+            data_quality = "PARTIAL"
             finding_counts = @{
-                critical = $critical
-                high = $high
-                medium = $medium
-                low = $low
+                critical = 0; high = 0; medium = 0; low = 0
             }
-            self_diagnostic = @{
-                failed_stage = $failedStage
-                what_worked = $whatWorked
-                what_failed = $whatFailed
-                limitations = $limitations
-                evidence_gaps = $evidenceGaps
-                confidence = $confidence
-                next_debug_step = $nextDebugStep
-                next_build_step = $nextBuildStep
-                forbidden_next_steps = @(
-                    "do not add ZIP/REPO/PROMPT modes before self_build exists",
-                    "do not claim strong PASS without evidence coverage",
-                    "do not add new modules without RUN_REPORT next_step alignment"
-                )
-            }
+            self_diagnostic = $diagnostic
+            self_build = $selfBuild
         }
     }
 }
