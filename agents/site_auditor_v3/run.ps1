@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory)][string]$RequestPath,
-    [string]$RegistryPath = 'agents/site_auditor_v3/contracts/module_registry.json'
+    [string]$RegistryPath = "agents/site_auditor_v3/contracts/module_registry.json"
 )
 
 $ErrorActionPreference = "Stop"
@@ -9,16 +9,21 @@ function Read-Json($p) {
     Get-Content $p -Raw | ConvertFrom-Json -AsHashtable
 }
 
+# === INIT RUN ===
+$runId = [string](Get-Date -Format "yyyyMMdd_HHmmss")
+
 $registry = Read-Json $RegistryPath
 $request  = Read-Json $RequestPath
 
 $pipeline_state = @{
     run = @{
+        run_id = $runId
         execution_status = "RUNNING"
     }
     request = $request
 }
 
+# === PIPELINE EXECUTION ===
 foreach ($m in ($registry.modules | Sort-Object ordinal)) {
 
     if (-not $m.enabled) { continue }
@@ -47,4 +52,4 @@ foreach ($m in ($registry.modules | Sort-Object ordinal)) {
 
 $pipeline_state.run.execution_status = "SUCCESS"
 
-$pipeline_state | ConvertTo-Json -Depth 10
+$pipeline_state | ConvertTo-Json -Depth 20

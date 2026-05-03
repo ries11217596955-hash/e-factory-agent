@@ -2,7 +2,10 @@ import json
 import sys
 from pathlib import Path
 
-p = Path("agents/site_auditor_v3/runs/manual-smoke/RUN_REPORT.json")
+
+import os
+p = Path(os.environ.get("RUN_REPORT_PATH", "agents/site_auditor_v3/runs/manual-smoke/RUN_REPORT.json"))
+
 if not p.exists():
     print("FAIL: RUN_REPORT missing")
     sys.exit(1)
