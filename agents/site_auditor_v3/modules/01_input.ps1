@@ -27,7 +27,11 @@ function Invoke-InputModule {
         data = @{
             target_url = $uri.AbsoluteUri.TrimEnd("/")
             base_url = ($uri.Scheme + "://" + $uri.Authority)
-            route_allowlist = @($request.route_allowlist)
+            route_allowlist = @(
+                if ($uri.AbsolutePath -and $uri.AbsolutePath -ne "/") { $uri.AbsolutePath }
+                foreach ($r in @($request.route_allowlist)) { $r }
+            ) | Select-Object -Unique
+            primary_route = if ($uri.AbsolutePath) { $uri.AbsolutePath } else { "/" }
             route_denylist = @($request.route_denylist)
             viewport_profiles = @($request.viewport_profiles)
         }
