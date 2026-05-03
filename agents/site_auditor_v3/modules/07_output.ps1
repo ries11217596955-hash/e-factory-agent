@@ -11,10 +11,38 @@ function Invoke-Module07Output {
 
     $pipelineStatus = [ordered]@{}
     foreach ($key in @("input","route_audit","selection","capture","reconcile","decision","output")) {
-        if ($PipelineState.ContainsKey($key)) {
-            $pipelineStatus[$key] = "OK"
-        } else {
-            $pipelineStatus[$key] = "SKIPPED"
+        if ($PipelineState.ContainsKey($key)) { $pipelineStatus[$key] = "OK" }
+        else { $pipelineStatus[$key] = "SKIPPED" }
+    }
+
+    $diag = if ($PipelineState.decision -and $PipelineState.decision.self_diagnostic) {
+        $PipelineState.decision.self_diagnostic
+    } else {
+        [ordered]@{
+            failed_stage = $PipelineState.run.failed_module
+            what_worked = @()
+            what_failed = @($PipelineState.run.failed_module)
+            limitations = @("pipeline stopped before decision")
+            evidence_gaps = @("decision_not_generated")
+            confidence = "LOW"
+            next_debug_step = "Inspect failed module output in RUN_REPORT"
+            next_build_step = "Harden FAIL routing and diagnostic fallback"
+            forbidden_next_steps = @(
+                "do not treat invalid input as audit PASS",
+                "do not continue after input failure",
+                "do not ship runpack without diagnostic_summary"
+            )
+        }
+    }
+
+    $cap = if ($PipelineState.decision -and $PipelineState.decision.self_build) {
+        $PipelineState.decision.self_build
+    } else {
+        [ordered]@{
+            missing_capabilities = @("fail_path_diagnostic_generation")
+            weak_capabilities = @()
+            next_capability_to_build = "fail_path_diagnostic_generation"
+            reason = "pipeline stopped before decision layer"
         }
     }
 
@@ -30,12 +58,7 @@ function Invoke-Module07Output {
 
         mission = [ordered]@{
             goal = "input -> weak points -> evidence -> decision -> action -> next capability"
-            forbidden = @(
-                "silent fail",
-                "fake PASS",
-                "decision without evidence",
-                "output inventing findings"
-            )
+            forbidden = @("silent fail","fake PASS","decision without evidence","output inventing findings")
         }
 
         operator_instruction = [ordered]@{
@@ -64,36 +87,32 @@ function Invoke-Module07Output {
         pipeline_status = $pipelineStatus
 
         audit_result = [ordered]@{
-            verdict = $PipelineState.decision.audit_verdict
-            score = $PipelineState.decision.score
-            data_quality = $PipelineState.decision.data_quality
-            finding_counts = $PipelineState.decision.finding_counts
+            verdict = if ($PipelineState.decision) { $PipelineState.decision.audit_verdict } else { "INCONCLUSIVE" }
+            score = if ($PipelineState.decision) { $PipelineState.decision.score } else { 0 }
+            data_quality = if ($PipelineState.decision) { $PipelineState.decision.data_quality } else { "FAILED" }
+            finding_counts = if ($PipelineState.decision) { $PipelineState.decision.finding_counts } else { [ordered]@{ critical=0; high=0; medium=0; low=0 } }
         }
 
         evidence_summary = [ordered]@{
-            routes_discovered = $PipelineState.route_audit.totals.discovered
-            routes_selected = $PipelineState.selection.totals.selected
-            captures_requested = $PipelineState.capture.totals.requested
-            captures_succeeded = $PipelineState.capture.totals.succeeded
-            coverage_status = $PipelineState.reconcile.status
-            gaps_count = @($PipelineState.reconcile.gaps).Count
+            routes_discovered = if ($PipelineState.route_audit) { $PipelineState.route_audit.totals.discovered } else { 0 }
+            routes_selected = if ($PipelineState.selection) { $PipelineState.selection.totals.selected } else { 0 }
+            captures_requested = if ($PipelineState.capture) { $PipelineState.capture.totals.requested } else { 0 }
+            captures_succeeded = if ($PipelineState.capture) { $PipelineState.capture.totals.succeeded } else { 0 }
+            coverage_status = if ($PipelineState.reconcile) { $PipelineState.reconcile.status } else { "NOT_RUN" }
+            gaps_count = if ($PipelineState.reconcile) { @($PipelineState.reconcile.gaps).Count } else { 0 }
         }
 
-        diagnostic_summary = $PipelineState.decision.self_diagnostic
-
-        agent_capability_state = [ordered]@{
-            source = "agents/site_auditor_v3/docs/CAPABILITY_MAP.md"
-            next_capability_to_build = "self_diagnostic to 06_decision"
-        }
+        diagnostic_summary = $diag
+        agent_capability_state = $cap
 
         next_step = [ordered]@{
-            action = "Add self_diagnostic to 06_decision: include failed_stage, what_worked, what_failed, limitations, evidence_gaps, confidence, next_debug_step, next_build_step"
-            why = "RUN_REPORT must become the first readable artifact before deeper audit capabilities are added."
-            expected_result = "Future chats can restart from RUN_REPORT.json without guessing."
+            action = $cap.next_capability_to_build
+            why = $cap.reason
+            expected_result = "Agent selects the next build capability from evidence and diagnostic state."
         }
 
         forbidden_steps = @(
-            "add ZIP/REPO/PROMPT before RUN_REPORT is verified",
+            "add ZIP/REPO/PROMPT before self_build is verified",
             "add benchmark before evidence index exists",
             "add screenshots before output contract is stable",
             "claim PASS beyond current baseline evidence"
@@ -103,11 +122,5 @@ function Invoke-Module07Output {
     $reportPath = Join-Path $runRoot "RUN_REPORT.json"
     $report | ConvertTo-Json -Depth 20 | Set-Content -Path $reportPath -Encoding UTF8
 
-    return @{
-        status = "OK"
-        data = @{
-            runpack_root = $runRoot
-            run_report = $reportPath
-        }
-    }
+    return @{ status = "OK"; data = @{ runpack_root = $runRoot; run_report = $reportPath } }
 }
