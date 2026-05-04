@@ -37,7 +37,7 @@ function Invoke-Module06Decision {
     } elseif ($weak.Count -gt 0) {
         $weak[0]
     } else {
-        "capability_task_output"
+        "route_depth_expansion"
     }
 
     
@@ -96,7 +96,7 @@ function Invoke-Module06Decision {
     } elseif ($weak.Count -gt 0) {
         $weak[0]
     } else {
-        "capability_task_output"
+        "route_depth_expansion"
     }
 
     $decisionReason = @()
