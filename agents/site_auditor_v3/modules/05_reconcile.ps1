@@ -36,11 +36,30 @@ function Invoke-Module05Reconcile {
         }
     }
 
+    
+    # === EVIDENCE QUALITY CHECK ===
+    $lowQuality = 0
+
+    foreach ($c in $PipelineState.capture.records) {
+        if (-not $c.url -or $c.status -ne "SUCCESS") {
+            $lowQuality++
+        }
+    }
+
+    $qualityFlag = "GOOD"
+    if ($lowQuality -gt 0) {
+        $qualityFlag = "WEAK"
+    }
+
     return @{
         status = "OK"
         data = @{
             coverage = $coverage
             gaps     = $gaps
+            evidence_quality = @{
+                status = $qualityFlag
+                low_quality_count = $lowQuality
+            }
             status   = "READY"
         }
     }

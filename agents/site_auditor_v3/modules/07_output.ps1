@@ -100,6 +100,7 @@ function Invoke-Module07Output {
             captures_succeeded = if ($PipelineState.capture) { $PipelineState.capture.totals.succeeded } else { 0 }
             coverage_status = if ($PipelineState.reconcile) { $PipelineState.reconcile.status } else { "NOT_RUN" }
             gaps_count = if ($PipelineState.reconcile) { @($PipelineState.reconcile.gaps).Count } else { 0 }
+            evidence_quality = if ($PipelineState.reconcile -and $PipelineState.reconcile.evidence_quality) { $PipelineState.reconcile.evidence_quality } else { $null }
         }
 
         diagnostic_summary = $diag
