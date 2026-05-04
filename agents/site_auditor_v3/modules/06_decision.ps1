@@ -37,7 +37,7 @@ function Invoke-Module06Decision {
     } elseif ($weak.Count -gt 0) {
         $weak[0]
     } else {
-        "decision_action_mapping"
+        "execution_layer_bootstrap"
     }
 
     
@@ -96,7 +96,7 @@ function Invoke-Module06Decision {
     } elseif ($weak.Count -gt 0) {
         $weak[0]
     } else {
-        "decision_action_mapping"
+        "execution_layer_bootstrap"
     }
 
     $decisionReason = @()
