@@ -21,7 +21,11 @@ function Invoke-Module08Execution {
     $allowlist = @{
         "proceed_next_layer" = @{
             command_id = "READ_NEXT_CAPABILITY"
-            command = "read_latest_run_report"
+            command = @{
+                type = "internal"
+                handler = "read_latest_run_report"
+                args = @{}
+            }
             mode = "SAFE_EXECUTE"
             status = "READY"
             target = "RUN_REPORT.agent_capability_state.next_capability_to_build"
