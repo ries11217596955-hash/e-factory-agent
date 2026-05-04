@@ -42,14 +42,26 @@ function Invoke-Module06Decision {
     }
 
     
-    # === COVERAGE CONFIDENCE MODEL ===
+    # === COVERAGE CONFIDENCE MODEL (RECONCILE-BOUND) ===
+
+    $coverageData = if ($PipelineState.reconcile) { $PipelineState.reconcile.coverage } else { @() }
+    $gapsData = if ($PipelineState.reconcile) { $PipelineState.reconcile.gaps } else { @() }
+
+    $totalRoutes = @($coverageData).Count
+    $fullCovered = @($coverageData | Where-Object { $_.coverage_status -eq "FULL" }).Count
+    $missingCovered = @($coverageData | Where-Object { $_.coverage_status -eq "NONE" }).Count
+
     $coverageConfidence = "LOW"
 
-    if ($routes -ge 3 -and $captures -ge 3) {
-        $coverageConfidence = "HIGH"
-    }
-    elseif ($routes -ge 2 -and $captures -ge 2) {
-        $coverageConfidence = "MEDIUM"
+    if ($totalRoutes -gt 0) {
+        $coverageRatio = $fullCovered / $totalRoutes
+
+        if ($coverageRatio -ge 0.8 -and $missingCovered -eq 0) {
+            $coverageConfidence = "HIGH"
+        }
+        elseif ($coverageRatio -ge 0.5) {
+            $coverageConfidence = "MEDIUM"
+        }
     }
 
     if ($coverageConfidence -eq "LOW") {
@@ -57,6 +69,12 @@ function Invoke-Module06Decision {
         $score = 40
         if (-not ($limitations -contains "low_coverage_confidence")) {
             $limitations += "low_coverage_confidence"
+        }
+    }
+
+    if ($missingCovered -gt 0) {
+        if (-not ($limitations -contains "coverage_gaps_present")) {
+            $limitations += "coverage_gaps_present"
         }
     }
 
