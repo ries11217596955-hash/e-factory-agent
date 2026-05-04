@@ -22,35 +22,15 @@ function Expand-Routes {
         [Parameter(Mandatory)][string]$BaseUrl
     )
 
-    $commonPaths = @(
-        "/about",
-        "/contact",
-        "/pricing",
-        "/blog",
-        "/tools",
-        "/hubs",
-        "/start"
-    )
-
-    $paths = New-Object System.Collections.ArrayList
+    # STRICT MODE: no fake expansion
+    $expanded = @()
+    $i = 1
 
     foreach ($r in @($BaseRoutes)) {
         if ($r -and $r.path) {
-            [void]$paths.Add([string]$r.path)
+            $expanded += New-RouteObject -Index $i -BaseUrl $BaseUrl -Path ([string]$r.path)
+            $i++
         }
-    }
-
-    foreach ($p in $commonPaths) {
-        [void]$paths.Add($p)
-    }
-
-    $uniquePaths = @($paths | Select-Object -Unique | Select-Object -First 15)
-
-    $expanded = @()
-    $i = 1
-    foreach ($p in $uniquePaths) {
-        $expanded += New-RouteObject -Index $i -BaseUrl $BaseUrl -Path $p
-        $i++
     }
 
     return $expanded
