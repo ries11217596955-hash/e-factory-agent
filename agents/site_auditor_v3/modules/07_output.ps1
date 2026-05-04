@@ -50,9 +50,20 @@ function Invoke-Module07Output {
     $decisionData = if ($PipelineState.decision) { $PipelineState.decision } else { $null }
     $verdict = if ($decisionData -and $decisionData.audit_verdict) { [string]$decisionData.audit_verdict } else { "INCONCLUSIVE" }
     $score = if ($decisionData -and $null -ne $decisionData.score) { [int]$decisionData.score } else { 0 }
-    $limitations = if ($diag -and $diag.limitations) { @($diag.limitations) } else { @("decision_module_not_run") }
+    $limitations = New-Object System.Collections.ArrayList
+    if ($decisionData -and $decisionData.limitations) {
+        foreach ($item in @($decisionData.limitations)) {
+            [void]$limitations.Add([string]$item)
+        }
+    } elseif (-not $decisionData) {
+        [void]$limitations.Add("decision_module_not_run")
+    }
     $findingCounts = if ($decisionData -and $decisionData.finding_counts) { $decisionData.finding_counts } else { [ordered]@{ critical=0; high=0; medium=0; low=0 } }
-    $evidenceQuality = if ($PipelineState.reconcile -and $PipelineState.reconcile.evidence_quality) { [string]$PipelineState.reconcile.evidence_quality } else { "UNKNOWN" }
+    $evidenceQuality = if ($PipelineState.reconcile -and $PipelineState.reconcile.evidence_quality) {
+        $PipelineState.reconcile.evidence_quality
+    } else {
+        "UNKNOWN"
+    }
     $decisionReason = if ($decisionData -and $decisionData.decision_reason) { @($decisionData.decision_reason) } else { @("Decision module unavailable; diagnostic fallback emitted") }
     $decision = if ($decisionData) { $decisionData } else { [ordered]@{ status = "NOT_RUN"; source = "07_output_fallback" } }
 
