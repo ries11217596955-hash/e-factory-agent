@@ -4,71 +4,58 @@ function Invoke-InternalCommand {
         [Parameter(Mandatory)]$PipelineState
     )
 
-    $handler = [string]$Command.handler
+    if ($Command.handler -eq "prepare_capability_task") {
 
-    if ($handler -eq "read_latest_run_report") {
-    
-    if ($handler -eq "prepare_capability_task") {
         $targetCapability = [string]$PipelineState.decision.self_build.next_capability_to_build
-        $actionId = if ($PipelineState.decision.decision_action) { [string]$PipelineState.decision.decision_action.action_id } else { "unknown" }
+
+        $gaps = @()
+        if ($PipelineState.decision.self_diagnostic.limitations) {
+            $gaps += $PipelineState.decision.self_diagnostic.limitations
+        }
+
+        if ($PipelineState.reconcile -and $PipelineState.reconcile.gaps) {
+            $gaps += $PipelineState.reconcile.gaps
+        }
+
+        $task = @{
+            capability_id = $targetCapability
+            task_type = "BUILD_CAPABILITY"
+
+            input = @{
+                missing_capabilities = $PipelineState.decision.self_build.missing_capabilities
+                weak_capabilities = $PipelineState.decision.self_build.weak_capabilities
+                evidence_gaps = $gaps
+            }
+
+            expected_output = @{
+                state_key = $targetCapability
+                validation = "state_key must appear in PipelineState"
+            }
+
+            constraints = @{
+                forbidden = @(
+                    "do not modify selector",
+                    "do not modify completion engine",
+                    "do not break pipeline order"
+                )
+            }
+
+            diagnostic = @{
+                reason = $PipelineState.decision.self_build.reason
+                next_debug_step = $PipelineState.decision.self_diagnostic.next_debug_step
+            }
+        }
 
         return @{
             status = "OK"
             data = @{
-                handler = $handler
-                result = @{
-                    task_type = "capability_build"
-                    target_capability = $targetCapability
-                    source_action_id = $actionId
-                    mode = "HUMAN_REVIEW"
-                    objective = "Build the next capability selected by self_build."
-                    validation = "./agents/site_auditor_v3/tests/run_suite.sh"
-                    fail_mode = "Do not commit. Return RUN_REPORT and failing validator output."
-                }
+                result = $task
             }
         }
     }
 
     return @{
-            status = "OK"
-            data = @{
-                handler = $handler
-                result = @{
-                    next_capability = $PipelineState.decision.self_build.next_capability_to_build
-                    verdict = $PipelineState.decision.audit_verdict
-                    score = $PipelineState.decision.score
-                }
-            }
-        }
-    }
-
-
-    if ($handler -eq "prepare_capability_task") {
-        $targetCapability = [string]$PipelineState.decision.self_build.next_capability_to_build
-        $actionId = if ($PipelineState.decision.decision_action) { [string]$PipelineState.decision.decision_action.action_id } else { "unknown" }
-
-        return @{
-            status = "OK"
-            data = @{
-                handler = $handler
-                result = @{
-                    task_type = "capability_build"
-                    target_capability = $targetCapability
-                    source_action_id = $actionId
-                    mode = "HUMAN_REVIEW"
-                    objective = "Build the next capability selected by self_build."
-                    validation = "./agents/site_auditor_v3/tests/run_suite.sh"
-                    fail_mode = "Do not commit. Return RUN_REPORT and failing validator output."
-                }
-            }
-        }
-    }
-
-    return @{
-        status = "BLOCKED"
-        data = @{
-            handler = $handler
-            reason = "handler_not_allowlisted"
-        }
+        status = "UNKNOWN_COMMAND"
+        data = @{}
     }
 }

@@ -162,10 +162,21 @@ function Invoke-Module07Output {
     $reportPath = Join-Path $runRoot "RUN_REPORT.json"
     $report | ConvertTo-Json -Depth 20 | Set-Content -Path $reportPath -Encoding UTF8
 
-    $task = if ($PipelineState.execution -and $PipelineState.execution.execution_result -and $PipelineState.execution.execution_result.data) {
-        $PipelineState.execution.execution_result.data.result
-    } else {
-        $null
+    $task = $null
+    if ($PipelineState.execution -and $PipelineState.execution.execution_result -and $PipelineState.execution.execution_result.data) {
+        $task = $PipelineState.execution.execution_result.data.result
+    }
+    elseif ($PipelineState.decision -and $PipelineState.decision.self_build -and $PipelineState.decision.self_build.next_capability_to_build) {
+        . "agents/site_auditor_v3/modules/internal_command_handlers.ps1"
+        $internalCommand = @{
+            type = "internal"
+            handler = "prepare_capability_task"
+            args = @{}
+        }
+        $internalResult = Invoke-InternalCommand -Command $internalCommand -PipelineState $PipelineState
+        if ($internalResult -and $internalResult.status -eq "OK" -and $internalResult.data -and $internalResult.data.result) {
+            $task = $internalResult.data.result
+        }
     }
 
     $taskPath = $null
