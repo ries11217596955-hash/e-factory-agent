@@ -37,7 +37,7 @@ function Invoke-Module06Decision {
     } elseif ($weak.Count -gt 0) {
         $weak[0]
     } else {
-        "execution_layer_bootstrap"
+        "capability_task_output"
     }
 
     
@@ -96,7 +96,7 @@ function Invoke-Module06Decision {
     } elseif ($weak.Count -gt 0) {
         $weak[0]
     } else {
-        "execution_layer_bootstrap"
+        "capability_task_output"
     }
 
     $decisionReason = @()
