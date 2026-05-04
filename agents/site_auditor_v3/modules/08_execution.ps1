@@ -69,6 +69,8 @@ function Invoke-Module08Execution {
         }
     }
 
+    . "agents/site_auditor_v3/modules/internal_command_handlers.ps1"
+
     $plan = $allowlist[$actionId].Clone()
     $plan.action_id = $actionId
     $plan.source_action = $action.action
@@ -79,10 +81,16 @@ function Invoke-Module08Execution {
         network = $false
     }
 
+    $executionResult = $null
+    if ($plan.mode -eq "SAFE_EXECUTE" -and $plan.command.type -eq "internal") {
+        $executionResult = Invoke-InternalCommand -Command $plan.command -PipelineState $PipelineState
+    }
+
     return @{
         status = "OK"
         data = @{
             execution_plan = $plan
+            execution_result = $executionResult
         }
     }
 }
