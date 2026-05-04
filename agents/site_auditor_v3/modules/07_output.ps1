@@ -135,6 +135,7 @@ function Invoke-Module07Output {
             gaps_count = if ($PipelineState.reconcile) { @($PipelineState.reconcile.gaps).Count } else { 0 }
             evidence_quality = $evidenceQuality
             findings = if ($PipelineState.reconcile -and $PipelineState.reconcile.findings) { $PipelineState.reconcile.findings } else { @() }
+            finding_actions = if ($PipelineState.reconcile -and $PipelineState.reconcile.finding_actions) { $PipelineState.reconcile.finding_actions } else { @() }
         }
 
         diagnostic_summary = $diag
