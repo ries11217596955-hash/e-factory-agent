@@ -141,6 +141,7 @@ function Invoke-Module07Output {
         agent_capability_state = $cap
 
         decision_action = $PipelineState.decision.decision_action
+        execution = if ($PipelineState.execution) { $PipelineState.execution } else { $null }
 
         next_step = [ordered]@{
             action = $PipelineState.decision.decision_action.action

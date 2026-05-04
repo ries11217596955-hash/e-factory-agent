@@ -6,6 +6,19 @@
   "run_report_schema_path": "agents/site_auditor_v3/contracts/run_report_schema.json",
   "modules": [
     {
+      "name": "08_execution",
+      "file_path": "agents/site_auditor_v3/modules/08_execution.ps1",
+      "entry_function": "Invoke-Module08Execution",
+      "enabled": true,
+      "order": 80,
+      "reads_state_paths": [
+        "decision"
+      ],
+      "writes_state_paths": [
+        "execution"
+      ]
+    },
+    {
       "module_id": "01_input",
       "ordinal": 1,
       "enabled": true,
