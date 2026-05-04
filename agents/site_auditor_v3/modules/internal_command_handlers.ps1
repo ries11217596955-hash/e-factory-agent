@@ -5,7 +5,8 @@ function Invoke-InternalCommand {
     )
 
     if ($Command.handler -eq "prepare_capability_task") {
-        $targetCapability = [string]$PipelineState.decision.self_build.next_capability_to_build
+        $selectedCapability = [string]$PipelineState.decision.self_build.next_capability_to_build
+        $targetCapability = $selectedCapability
 
         $detectedGaps = @()
 
@@ -32,6 +33,14 @@ function Invoke-InternalCommand {
         $routesDiscovered = if ($PipelineState.route_audit -and $PipelineState.route_audit.totals) { [int]$PipelineState.route_audit.totals.discovered } else { 0 }
         $capturesSucceeded = if ($PipelineState.capture -and $PipelineState.capture.totals) { [int]$PipelineState.capture.totals.succeeded } else { 0 }
 
+        if ($routesDiscovered -le 1) {
+            $detectedGaps += @{
+                source = "route_audit.totals.discovered"
+                type = "baseline_route_coverage_only"
+                routes_discovered = $routesDiscovered
+            }
+        }
+
         if ($routesDiscovered -gt 0 -and $capturesSucceeded -lt $routesDiscovered) {
             $detectedGaps += @{
                 source = "route_audit_vs_capture"
@@ -55,7 +64,16 @@ function Invoke-InternalCommand {
             }
         }
 
-        if ($targetCapability -eq "capability_discovery" -and @($detectedGaps).Count -eq 0) {
+        # FIRST REAL CAPABILITY DISCOVERY RULE:
+        # capability_discovery converts evidence gaps into a concrete next capability.
+        if ($selectedCapability -eq "capability_discovery") {
+            $hasBaselineOnly = @($detectedGaps | Where-Object { $_.type -eq "baseline_route_coverage_only" -or $_.value -eq "baseline_coverage_only" }).Count -gt 0
+            if ($hasBaselineOnly) {
+                $targetCapability = "route_discovery"
+            }
+        }
+
+        if (@($detectedGaps).Count -eq 0) {
             $detectedGaps += @{
                 source = "capability_discovery"
                 type = "no_actionable_gap_detected"
@@ -65,6 +83,7 @@ function Invoke-InternalCommand {
 
         $task = @{
             capability_id = $targetCapability
+            discovered_from = $selectedCapability
             task_type = "BUILD_CAPABILITY"
             input = @{
                 missing_capabilities = $PipelineState.decision.self_build.missing_capabilities
@@ -79,12 +98,13 @@ function Invoke-InternalCommand {
                 forbidden = @(
                     "do not modify selector",
                     "do not modify completion engine",
-                    "do not break pipeline order"
+                    "do not break pipeline order",
+                    "do not reintroduce fake common routes"
                 )
             }
             diagnostic = @{
-                reason = $PipelineState.decision.self_build.reason
-                next_debug_step = $PipelineState.decision.self_diagnostic.next_debug_step
+                reason = "capability_discovery converted evidence gaps into concrete capability"
+                next_debug_step = "Build route_discovery from real page evidence, not hardcoded common paths"
             }
         }
 
