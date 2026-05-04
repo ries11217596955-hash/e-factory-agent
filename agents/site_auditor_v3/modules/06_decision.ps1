@@ -24,7 +24,9 @@ function Invoke-Module06Decision {
         "coverage_confidence_model",
         "decision_action_mapping",
         "execution_layer_bootstrap",
-        "capability_task_output"
+        "capability_task_output",
+        "route_depth_expansion",
+        "capture_expansion"
     )
 
     $auditorCapabilityQueue = @(
