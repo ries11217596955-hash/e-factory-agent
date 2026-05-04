@@ -93,7 +93,10 @@ function Invoke-Module06Decision {
             score = $score
             data_quality = "COMPLETE"
             finding_counts = @{
-                critical = 0; high = 0; medium = 0; low = 0
+                critical = @($PipelineState.reconcile.findings | Where-Object { $_.type -eq "critical" }).Count
+                high = @($PipelineState.reconcile.findings | Where-Object { $_.type -eq "high" }).Count
+                medium = @($PipelineState.reconcile.findings | Where-Object { $_.type -eq "medium" }).Count
+                low = @($PipelineState.reconcile.findings | Where-Object { $_.type -eq "low" }).Count
             }
             self_diagnostic = @{
                 failed_stage = $null

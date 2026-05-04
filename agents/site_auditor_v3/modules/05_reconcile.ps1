@@ -51,6 +51,26 @@ function Invoke-Module05Reconcile {
         $qualityFlag = "WEAK"
     }
 
+    
+    # === BASIC FINDING DETECTION ===
+    $findings = @()
+
+    if ($PipelineState.capture.totals.succeeded -eq 0) {
+        $findings += @{
+            type = "critical"
+            code = "NO_CAPTURE"
+            message = "No successful captures"
+        }
+    }
+
+    if ($PipelineState.route_audit.totals.discovered -le 1) {
+        $findings += @{
+            type = "medium"
+            code = "LOW_ROUTE_COVERAGE"
+            message = "Only one route discovered"
+        }
+    }
+
     return @{
         status = "OK"
         data = @{
@@ -61,6 +81,7 @@ function Invoke-Module05Reconcile {
                 low_quality_count = $lowQuality
             }
             status   = "READY"
+            findings = $findings
         }
     }
 }
