@@ -137,7 +137,7 @@ function Invoke-Module06Decision {
                 evidence_gaps = @()
                 confidence = if ($verdict -eq "PASS") { "HIGH" } else { "LOW" }
                 next_debug_step = "Expand routes/capture if inconclusive"
-                next_build_step = "Improve self_build decision logic"
+                next_build_step = $nextCapability
                 forbidden_next_steps = @(
                     "do not claim PASS without sufficient coverage",
                     "do not skip route expansion",
