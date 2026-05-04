@@ -29,9 +29,8 @@ function Invoke-Module06Decision {
         $missing += "capture_expansion"
     }
 
-    if ($routes -gt 1 -and $captures -gt 1) {
-        $weak += "coverage_confidence_model"
-    }
+    # coverage_confidence_model is evaluated after reconcile-bound confidence is computed.
+    # Do not mark it weak upfront just because routes/captures are above baseline.
 
     $nextCapability = if ($missing.Count -gt 0) {
         $missing[0]
@@ -78,12 +77,26 @@ function Invoke-Module06Decision {
         }
     }
 
+    if ($coverageConfidence -ne "HIGH") {
+        if (-not ($weak -contains "coverage_confidence_model")) {
+            $weak += "coverage_confidence_model"
+        }
+    }
+
     
     # === DECISION EVIDENCE BINDING ===
     $evidenceQuality = if ($PipelineState.reconcile -and $PipelineState.reconcile.evidence_quality) {
         $PipelineState.reconcile.evidence_quality.status
     } else {
         "UNKNOWN"
+    }
+
+    $nextCapability = if ($missing.Count -gt 0) {
+        $missing[0]
+    } elseif ($weak.Count -gt 0) {
+        $weak[0]
+    } else {
+        "self_build_refinement"
     }
 
     $decisionReason = @()
