@@ -20,6 +20,20 @@ function Invoke-Module06Decision {
     # === SELF BUILD REAL LOGIC ===
     $missing = @()
     $weak = @()
+    $completedCapabilities = @(
+        "coverage_confidence_model",
+        "decision_action_mapping",
+        "execution_layer_bootstrap",
+        "capability_task_output"
+    )
+
+    $auditorCapabilityQueue = @(
+        "route_depth_expansion",
+        "capture_expansion",
+        "findings_action_mapping",
+        "visual_capture"
+    )
+
 
     if ($routes -le 1) {
         $missing += "route_depth_expansion"
@@ -37,7 +51,7 @@ function Invoke-Module06Decision {
     } elseif ($weak.Count -gt 0) {
         $weak[0]
     } else {
-        "route_depth_expansion"
+        @($auditorCapabilityQueue | Where-Object { -not ($completedCapabilities -contains $_) })[0]
     }
 
     
@@ -91,12 +105,15 @@ function Invoke-Module06Decision {
         "UNKNOWN"
     }
 
+    $missing = @($missing | Where-Object { -not ($completedCapabilities -contains $_) })
+    $weak = @($weak | Where-Object { -not ($completedCapabilities -contains $_) })
+
     $nextCapability = if ($missing.Count -gt 0) {
         $missing[0]
     } elseif ($weak.Count -gt 0) {
         $weak[0]
     } else {
-        "route_depth_expansion"
+        @($auditorCapabilityQueue | Where-Object { -not ($completedCapabilities -contains $_) })[0]
     }
 
     $decisionReason = @()
@@ -209,7 +226,9 @@ if ($PipelineState.reconcile -and $PipelineState.reconcile.findings) {
                 missing_capabilities = $missing
                 weak_capabilities = $weak
                 next_capability_to_build = $nextCapability
-                reason = "derived from pipeline coverage and capture depth"
+                completed_capabilities = $completedCapabilities
+                auditor_capability_queue = $auditorCapabilityQueue
+                reason = "derived from pipeline coverage, capture depth, and completed capability state"
             }
         }
     }
