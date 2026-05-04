@@ -17,42 +17,32 @@ function Invoke-Module06Decision {
         $limitations += "baseline_coverage_only"
     }
 
-    # === SELF BUILD REAL LOGIC ===
-    $missing = @()
-    $weak = @()
+    # === SELF BUILD / UNIVERSAL COMPLETION ENGINE ===
     $completedCapabilities = @(
         "coverage_confidence_model",
         "decision_action_mapping",
         "execution_layer_bootstrap",
-        "capability_task_output",
-        "route_depth_expansion",
-        "capture_expansion"
+        "capability_task_output"
     )
 
-    
+    $auditorCapabilityQueue = @(
+        @{ id = "route_depth_expansion"; state = "route_audit" }
+        @{ id = "capture_expansion"; state = "capture" }
+        @{ id = "findings_action_mapping"; state = "reconcile" }
+        @{ id = "visual_capture"; state = "visual_capture" }
+    )
+
     $autoCompleted = @()
-
-    if ($PipelineState.route_audit -and $PipelineState.route_audit.totals.discovered -gt 1) {
-        $autoCompleted += "route_depth_expansion"
-    }
-
-    if ($PipelineState.capture -and $PipelineState.capture.totals.succeeded -gt 0) {
-        $autoCompleted += "capture_expansion"
-    }
-
-    if (Get-Command New-FindingAction -ErrorAction SilentlyContinue) {
-        $autoCompleted += "findings_action_mapping"
+    foreach ($cap in $auditorCapabilityQueue) {
+        if ($PipelineState.ContainsKey($cap.state)) {
+            $autoCompleted += $cap.id
+        }
     }
 
     $completedCapabilities = @($completedCapabilities + $autoCompleted | Select-Object -Unique)
 
-    $auditorCapabilityQueue = @(
-        "route_depth_expansion",
-        "capture_expansion",
-        "findings_action_mapping",
-        "visual_capture"
-    )
-
+    $missing = @()
+    $weak = @()
 
     if ($routes -le 1) {
         $missing += "route_depth_expansion"
@@ -62,22 +52,8 @@ function Invoke-Module06Decision {
         $missing += "capture_expansion"
     }
 
-    # coverage_confidence_model is evaluated after reconcile-bound confidence is computed.
-    # Do not mark it weak upfront just because routes/captures are above baseline.
-
-    $nextCapability = if ($missing.Count -gt 0) {
-        $missing[0]
-    } elseif ($weak.Count -gt 0) {
-        $weak[0]
-    } else {
-        @($auditorCapabilityQueue | Where-Object { -not ($completedCapabilities -contains $_) })[0]
-    }
-
-    
     # === COVERAGE CONFIDENCE MODEL (RECONCILE-BOUND) ===
-
     $coverageData = if ($PipelineState.reconcile) { $PipelineState.reconcile.coverage } else { @() }
-    $gapsData = if ($PipelineState.reconcile) { $PipelineState.reconcile.gaps } else { @() }
 
     $totalRoutes = @($coverageData).Count
     $fullCovered = @($coverageData | Where-Object { $_.coverage_status -eq "FULL" }).Count
@@ -116,14 +92,6 @@ function Invoke-Module06Decision {
         }
     }
 
-    
-    # === DECISION EVIDENCE BINDING ===
-    $evidenceQuality = if ($PipelineState.reconcile -and $PipelineState.reconcile.evidence_quality) {
-        $PipelineState.reconcile.evidence_quality.status
-    } else {
-        "UNKNOWN"
-    }
-
     $missing = @($missing | Where-Object { -not ($completedCapabilities -contains $_) })
     $weak = @($weak | Where-Object { -not ($completedCapabilities -contains $_) })
 
@@ -132,7 +100,14 @@ function Invoke-Module06Decision {
     } elseif ($weak.Count -gt 0) {
         $weak[0]
     } else {
-        @($auditorCapabilityQueue | Where-Object { -not ($completedCapabilities -contains $_) })[0]
+        $(if (@($auditorCapabilityQueue | Where-Object { -not ($completedCapabilities -contains $_.id) }).Count -gt 0) { @($auditorCapabilityQueue | Where-Object { -not ($completedCapabilities -contains $_.id) })[0].id } else { "capability_discovery" })
+    }
+
+    # === DECISION EVIDENCE BINDING ===
+    $evidenceQuality = if ($PipelineState.reconcile -and $PipelineState.reconcile.evidence_quality) {
+        $PipelineState.reconcile.evidence_quality.status
+    } else {
+        "UNKNOWN"
     }
 
     $decisionReason = @()
@@ -153,8 +128,11 @@ function Invoke-Module06Decision {
         $decisionReason += "sufficient_coverage_and_quality"
     }
 
-    
     # === DECISION ACTION MAPPING ===
+    $hasFindings = $false
+    if ($PipelineState.reconcile -and $PipelineState.reconcile.findings) {
+        $hasFindings = @($PipelineState.reconcile.findings).Count -gt 0
+    }
 
     $decisionAction = @{
         action_id = "unknown"
@@ -164,11 +142,6 @@ function Invoke-Module06Decision {
         target_module = "none"
         next_command_hint = "none"
     }
-
-    $hasFindings = $false
-if ($PipelineState.reconcile -and $PipelineState.reconcile.findings) {
-    $hasFindings = @($PipelineState.reconcile.findings).Count -gt 0
-}
 
     if ($verdict -eq "INCONCLUSIVE" -and ($limitations -contains "baseline_coverage_only")) {
         $decisionAction = @{
@@ -207,10 +180,9 @@ if ($PipelineState.reconcile -and $PipelineState.reconcile.findings) {
             action = "advance to next capability layer"
             why = "clean_pass"
             target_module = "meta"
-            next_command_hint = "build decision_action_mapping"
+            next_command_hint = "build next selected capability"
         }
     }
-
 
     return @{
         status = "OK"
@@ -226,12 +198,12 @@ if ($PipelineState.reconcile -and $PipelineState.reconcile.findings) {
             }
             self_diagnostic = @{
                 failed_stage = $null
-                what_worked = @("input","route_audit","selection","capture","reconcile")
+                what_worked = @("input","route_audit","selection","capture","visual_capture","reconcile")
                 what_failed = @()
                 limitations = $limitations
                 evidence_gaps = @()
                 confidence = if ($verdict -eq "PASS") { "HIGH" } else { "LOW" }
-                next_debug_step = "Expand routes/capture if inconclusive"
+                next_debug_step = "Read RUN_REPORT, evidence_summary, and TASK.json"
                 next_build_step = $nextCapability
                 forbidden_next_steps = @(
                     "do not claim PASS without sufficient coverage",
@@ -244,10 +216,10 @@ if ($PipelineState.reconcile -and $PipelineState.reconcile.findings) {
             self_build = @{
                 missing_capabilities = $missing
                 weak_capabilities = $weak
-                next_capability_to_build = $nextCapability
                 completed_capabilities = $completedCapabilities
                 auditor_capability_queue = $auditorCapabilityQueue
-                reason = "derived from pipeline coverage, capture depth, and completed capability state"
+                next_capability_to_build = $nextCapability
+                reason = "derived from pipeline state, capability queue, and completed capability evidence"
             }
         }
     }
