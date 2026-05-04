@@ -41,6 +41,25 @@ function Invoke-Module06Decision {
         "self_build_refinement"
     }
 
+    
+    # === COVERAGE CONFIDENCE MODEL ===
+    $coverageConfidence = "LOW"
+
+    if ($routes -ge 3 -and $captures -ge 3) {
+        $coverageConfidence = "HIGH"
+    }
+    elseif ($routes -ge 2 -and $captures -ge 2) {
+        $coverageConfidence = "MEDIUM"
+    }
+
+    if ($coverageConfidence -eq "LOW") {
+        $verdict = "INCONCLUSIVE"
+        $score = 40
+        if (-not ($limitations -contains "low_coverage_confidence")) {
+            $limitations += "low_coverage_confidence"
+        }
+    }
+
     return @{
         status = "OK"
         data = @{
