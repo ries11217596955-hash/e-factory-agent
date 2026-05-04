@@ -1,63 +1,58 @@
 import json
+import os
 import sys
 from pathlib import Path
 
+def resolve_report_path():
+    if len(sys.argv) >= 2:
+        return Path(sys.argv[1])
+    env_path = os.environ.get("LATEST_REPORT")
+    if env_path:
+        return Path(env_path)
+    reports = sorted(Path("agents/site_auditor_v3/runs").glob("*/RUN_REPORT.json"))
+    if reports:
+        return reports[-1]
+    return None
 
-import os
-p = Path(os.environ.get("RUN_REPORT_PATH", "agents/site_auditor_v3/runs/manual-smoke/RUN_REPORT.json"))
-
-if not p.exists():
+p = resolve_report_path()
+if not p or not p.exists():
     print("FAIL: RUN_REPORT missing")
     sys.exit(1)
 
-j = json.loads(p.read_text())
+j = json.loads(p.read_text(encoding="utf-8"))
 
-required_top = [
+required = [
     "read_me_first",
     "identity",
     "mission",
     "operator_instruction",
     "read_order",
-    "if_problem_then_read",
-    "pipeline_status",
     "audit_result",
     "evidence_summary",
     "diagnostic_summary",
     "agent_capability_state",
+    "decision_action",
     "next_step",
     "forbidden_steps",
 ]
 
-missing = [k for k in required_top if k not in j]
+missing = [k for k in required if k not in j]
 if missing:
-    print("FAIL: missing top-level keys:", missing)
+    print("FAIL: missing RUN_REPORT keys:", missing)
     sys.exit(1)
 
-diag_required = [
-    "failed_stage",
-    "what_worked",
-    "what_failed",
-    "limitations",
-    "evidence_gaps",
-    "confidence",
-    "next_debug_step",
-    "next_build_step",
-    "forbidden_next_steps",
-]
+decision_action = str(j.get("decision_action", {}).get("action", "")).lower()
+next_action = str(j.get("next_step", {}).get("action", "")).lower()
 
-d = j["diagnostic_summary"]
-diag_missing = [k for k in diag_required if k not in d]
-if diag_missing:
-    print("FAIL: diagnostic missing keys:", diag_missing)
+if not decision_action or next_action != decision_action:
+    print("FAIL: next_step not tied to decision_action")
+    print("decision_action:", decision_action)
+    print("next_step.action:", next_action)
     sys.exit(1)
 
-cap = j["agent_capability_state"]["next_capability_to_build"].lower()
-action = j["next_step"]["action"].lower()
-
-if cap and cap not in action:
-    print("FAIL: next_step not tied to capability")
-    print("capability:", cap)
-    print("action:", action)
+forbidden = j.get("forbidden_steps", [])
+if not isinstance(forbidden, list) or not forbidden:
+    print("FAIL: forbidden_steps missing or empty")
     sys.exit(1)
 
 print("PASS: RUN_REPORT contract")

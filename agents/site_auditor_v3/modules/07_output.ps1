@@ -140,8 +140,10 @@ function Invoke-Module07Output {
         diagnostic_summary = $diag
         agent_capability_state = $cap
 
+        decision_action = $PipelineState.decision.decision_action
+
         next_step = [ordered]@{
-            action = $cap.next_capability_to_build
+            action = $PipelineState.decision.decision_action.action
             why = $cap.reason
             expected_result = "Agent selects the next build capability from evidence and diagnostic state."
         }

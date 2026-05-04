@@ -117,6 +117,65 @@ function Invoke-Module06Decision {
         $decisionReason += "sufficient_coverage_and_quality"
     }
 
+    
+    # === DECISION ACTION MAPPING ===
+
+    $decisionAction = @{
+        action_id = "unknown"
+        priority = "normal"
+        action = "none"
+        why = "no_mapping"
+        target_module = "none"
+        next_command_hint = "none"
+    }
+
+    $hasFindings = $false
+if ($PipelineState.reconcile -and $PipelineState.reconcile.findings) {
+    $hasFindings = @($PipelineState.reconcile.findings).Count -gt 0
+}
+
+    if ($verdict -eq "INCONCLUSIVE" -and ($limitations -contains "baseline_coverage_only")) {
+        $decisionAction = @{
+            action_id = "expand_routes"
+            priority = "high"
+            action = "run route_depth_expansion"
+            why = "insufficient_route_coverage"
+            target_module = "route_audit"
+            next_command_hint = "build route_depth_expansion capability"
+        }
+    }
+    elseif ($verdict -eq "INCONCLUSIVE" -and ($limitations -contains "low_coverage_confidence")) {
+        $decisionAction = @{
+            action_id = "improve_capture"
+            priority = "high"
+            action = "run capture_expansion"
+            why = "low_coverage_confidence"
+            target_module = "capture"
+            next_command_hint = "build capture_expansion capability"
+        }
+    }
+    elseif ($hasFindings) {
+        $decisionAction = @{
+            action_id = "fix_findings"
+            priority = "medium"
+            action = "analyze and resolve findings"
+            why = "findings_present"
+            target_module = "reconcile"
+            next_command_hint = "build findings_action_mapping"
+        }
+    }
+    elseif ($verdict -eq "PASS") {
+        $decisionAction = @{
+            action_id = "proceed_next_layer"
+            priority = "low"
+            action = "advance to next capability layer"
+            why = "clean_pass"
+            target_module = "meta"
+            next_command_hint = "build decision_action_mapping"
+        }
+    }
+
+
     return @{
         status = "OK"
         data = @{
@@ -145,6 +204,7 @@ function Invoke-Module06Decision {
                 )
             }
             decision_reason = $decisionReason
+            decision_action = $decisionAction
             self_build = @{
                 missing_capabilities = $missing
                 weak_capabilities = $weak

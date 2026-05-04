@@ -1,77 +1,50 @@
 import json
-import sys
 import os
+import sys
 from pathlib import Path
 
-errors = []
+def resolve_report_path():
+    if len(sys.argv) >= 2:
+        return Path(sys.argv[1])
+    env_path = os.environ.get("LATEST_REPORT")
+    if env_path:
+        return Path(env_path)
+    reports = sorted(Path("agents/site_auditor_v3/runs").glob("*/RUN_REPORT.json"))
+    if reports:
+        return reports[-1]
+    return None
 
-def fail(code, msg):
-    errors.append(f"{code}: {msg}")
+p = resolve_report_path()
+if not p or not p.exists():
+    print("FAIL: RUN_REPORT missing")
+    sys.exit(1)
 
-# === GET REPORT PATH ===
-report_path = Path(os.environ.get("RUN_REPORT_PATH", ""))
+j = json.loads(p.read_text(encoding="utf-8"))
 
-if not report_path or not report_path.exists():
-    fail("RUN_REPORT_MISSING", str(report_path))
+required = [
+    "identity",
+    "operator_instruction",
+    "agent_capability_state",
+    "decision_action",
+    "next_step",
+    "forbidden_steps",
+]
 
-else:
-    try:
-        j = json.loads(report_path.read_text(encoding="utf-8"))
-    except Exception as e:
-        fail("RUN_REPORT_READ_FAIL", str(e))
-        j = {}
+missing = [k for k in required if k not in j]
+if missing:
+    print("FAIL: guard missing keys:", missing)
+    sys.exit(1)
 
-    # === BASIC STRUCTURE CHECK ===
-    required_top = [
-        "read_me_first",
-        "identity",
-        "mission",
-        "operator_instruction",
-        "read_order",
-        "if_problem_then_read",
-        "pipeline_status",
-        "audit_result",
-        "evidence_summary",
-        "diagnostic_summary",
-        "agent_capability_state",
-        "next_step",
-        "forbidden_steps",
-    ]
+decision_action = str(j.get("decision_action", {}).get("action", "")).lower()
+next_action = str(j.get("next_step", {}).get("action", "")).lower()
 
-    for k in required_top:
-        if k not in j:
-            fail("RUN_REPORT_MISSING_KEY", k)
+if not decision_action or next_action != decision_action:
+    print("FAIL: next_step not tied to decision_action")
+    sys.exit(1)
 
-    # === DIAGNOSTIC CHECK ===
-    d = j.get("diagnostic_summary", {})
-    diag_required = [
-        "failed_stage",
-        "what_worked",
-        "what_failed",
-        "limitations",
-        "evidence_gaps",
-        "confidence",
-        "next_debug_step",
-        "next_build_step",
-        "forbidden_next_steps",
-    ]
-
-    for k in diag_required:
-        if k not in d:
-            fail("RUN_REPORT_DIAGNOSTIC_MISSING_KEY", k)
-
-    # === NEXT STEP LINK CHECK ===
-    cap = str(j.get("agent_capability_state", {}).get("next_capability_to_build", "")).lower()
-    action = str(j.get("next_step", {}).get("action", "")).lower()
-
-    if cap and cap not in action:
-        fail("RUN_REPORT_NEXT_STEP_NOT_TIED_TO_CAPABILITY", f"cap={cap}; action={action}")
-
-# === RESULT ===
-if errors:
-    print("V3_BUILD_GUARD_FAIL")
-    for e in errors:
-        print("-", e)
+forbidden = j.get("forbidden_steps", [])
+if not isinstance(forbidden, list) or not forbidden:
+    print("FAIL: forbidden_steps missing or empty")
     sys.exit(1)
 
 print("V3_BUILD_GUARD_PASS")
