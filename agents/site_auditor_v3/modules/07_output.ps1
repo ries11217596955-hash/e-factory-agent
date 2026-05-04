@@ -160,5 +160,17 @@ function Invoke-Module07Output {
     $reportPath = Join-Path $runRoot "RUN_REPORT.json"
     $report | ConvertTo-Json -Depth 20 | Set-Content -Path $reportPath -Encoding UTF8
 
-    return @{ status = "OK"; data = @{ runpack_root = $runRoot; run_report = $reportPath } }
+    $task = if ($PipelineState.execution -and $PipelineState.execution.execution_result -and $PipelineState.execution.execution_result.data) {
+        $PipelineState.execution.execution_result.data.result
+    } else {
+        $null
+    }
+
+    $taskPath = $null
+    if ($task) {
+        $taskPath = Join-Path $runRoot "TASK.json"
+        $task | ConvertTo-Json -Depth 20 | Set-Content -Path $taskPath -Encoding UTF8
+    }
+
+    return @{ status = "OK"; data = @{ runpack_root = $runRoot; run_report = $reportPath; task = $taskPath } }
 }
