@@ -46,8 +46,29 @@ function Invoke-Module07Output {
         }
     }
 
+
+    $decisionData = if ($PipelineState.decision) { $PipelineState.decision } else { $null }
+    $verdict = if ($decisionData -and $decisionData.audit_verdict) { [string]$decisionData.audit_verdict } else { "INCONCLUSIVE" }
+    $score = if ($decisionData -and $null -ne $decisionData.score) { [int]$decisionData.score } else { 0 }
+    $limitations = if ($diag -and $diag.limitations) { @($diag.limitations) } else { @("decision_module_not_run") }
+    $findingCounts = if ($decisionData -and $decisionData.finding_counts) { $decisionData.finding_counts } else { [ordered]@{ critical=0; high=0; medium=0; low=0 } }
+    $evidenceQuality = if ($PipelineState.reconcile -and $PipelineState.reconcile.evidence_quality) { [string]$PipelineState.reconcile.evidence_quality } else { "UNKNOWN" }
+    $decisionReason = if ($decisionData -and $decisionData.decision_reason) { @($decisionData.decision_reason) } else { @("Decision module unavailable; diagnostic fallback emitted") }
+    $decision = if ($decisionData) { $decisionData } else { [ordered]@{ status = "NOT_RUN"; source = "07_output_fallback" } }
+
     $report = [ordered]@{
         read_me_first = $true
+
+        run_id = $runId
+        verdict = $verdict
+        score = $score
+        limitations = $limitations
+        finding_counts = $findingCounts
+        evidence_quality = $evidenceQuality
+        decision_reason = $decisionReason
+        decision = $decision
+        self_build = $cap
+        self_diagnostic = $diag
 
         identity = [ordered]@{
             agent = "SITE_AUDITOR_V3"
@@ -87,11 +108,11 @@ function Invoke-Module07Output {
         pipeline_status = $pipelineStatus
 
         audit_result = [ordered]@{
-            verdict = if ($PipelineState.decision) { $PipelineState.decision.audit_verdict } else { "INCONCLUSIVE" }
-            score = if ($PipelineState.decision) { $PipelineState.decision.score } else { 0 }
+            verdict = $verdict
+            score = $score
             data_quality = if ($PipelineState.decision) { $PipelineState.decision.data_quality } else { "FAILED" }
-            finding_counts = if ($PipelineState.decision) { $PipelineState.decision.finding_counts } else { [ordered]@{ critical=0; high=0; medium=0; low=0 } }
-            decision_reason = if ($PipelineState.decision -and $PipelineState.decision.decision_reason) { $PipelineState.decision.decision_reason } else { @() }
+            finding_counts = $findingCounts
+            decision_reason = $decisionReason
         }
 
         evidence_summary = [ordered]@{
@@ -101,7 +122,7 @@ function Invoke-Module07Output {
             captures_succeeded = if ($PipelineState.capture) { $PipelineState.capture.totals.succeeded } else { 0 }
             coverage_status = if ($PipelineState.reconcile) { $PipelineState.reconcile.status } else { "NOT_RUN" }
             gaps_count = if ($PipelineState.reconcile) { @($PipelineState.reconcile.gaps).Count } else { 0 }
-            evidence_quality = if ($PipelineState.reconcile -and $PipelineState.reconcile.evidence_quality) { $PipelineState.reconcile.evidence_quality } else { $null }
+            evidence_quality = $evidenceQuality
             findings = if ($PipelineState.reconcile -and $PipelineState.reconcile.findings) { $PipelineState.reconcile.findings } else { @() }
         }
 
