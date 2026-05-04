@@ -27,6 +27,39 @@ function New-FindingAction {
         }
     }
 
+    if ($code -eq "VISUAL_CAPTURE_FAILED") {
+        return @{
+            action_id = "repair_visual_capture"
+            priority = "high"
+            action = "Fix visual capture for failed routes."
+            target_module = "visual_capture"
+            why = "Visual evidence is required for UX and conversion checks."
+            acceptance = "visual_capture.totals.failed = 0"
+        }
+    }
+
+    if ($code -eq "MISSING_H1") {
+        return @{
+            action_id = "add_clear_page_heading"
+            priority = "medium"
+            action = "Add or expose a clear H1 heading for the page."
+            target_module = "content"
+            why = "A missing H1 weakens page clarity and intent recognition."
+            acceptance = "has_h1 = true"
+        }
+    }
+
+    if ($code -eq "NO_CTA_SIGNAL") {
+        return @{
+            action_id = "add_visible_action"
+            priority = "medium"
+            action = "Add a visible next action or CTA."
+            target_module = "conversion"
+            why = "A page without an action does not move the user forward."
+            acceptance = "has_cta = true"
+        }
+    }
+
     return @{
         action_id = "review_finding"
         priority = "medium"
@@ -103,6 +136,35 @@ function Invoke-Module05Reconcile {
             type = "medium"
             code = "LOW_ROUTE_COVERAGE"
             message = "Only one route discovered"
+        }
+    }
+
+    if ($PipelineState.visual_capture -and $PipelineState.visual_capture.totals.failed -gt 0) {
+        $findings += @{
+            type = "medium"
+            code = "VISUAL_CAPTURE_FAILED"
+            message = "One or more visual captures failed"
+        }
+    }
+
+    if ($PipelineState.visual_capture -and $PipelineState.visual_capture.visual_records) {
+        foreach ($v in @($PipelineState.visual_capture.visual_records)) {
+            if ($v.status -eq "SUCCESS" -and -not $v.signals.has_h1) {
+                $findings += @{
+                    type = "medium"
+                    code = "MISSING_H1"
+                    message = "Page has no visible H1 signal"
+                    route_id = $v.route_id
+                }
+            }
+            if ($v.status -eq "SUCCESS" -and -not $v.signals.has_cta) {
+                $findings += @{
+                    type = "low"
+                    code = "NO_CTA_SIGNAL"
+                    message = "Page has no basic CTA signal"
+                    route_id = $v.route_id
+                }
+            }
         }
     }
 

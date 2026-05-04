@@ -6,19 +6,6 @@
   "run_report_schema_path": "agents/site_auditor_v3/contracts/run_report_schema.json",
   "modules": [
     {
-      "name": "08_execution",
-      "file_path": "agents/site_auditor_v3/modules/08_execution.ps1",
-      "entry_function": "Invoke-Module08Execution",
-      "enabled": true,
-      "order": 80,
-      "reads_state_paths": [
-        "decision"
-      ],
-      "writes_state_paths": [
-        "execution"
-      ]
-    },
-    {
       "module_id": "01_input",
       "ordinal": 1,
       "enabled": true,
@@ -109,6 +96,19 @@
       "writes_final_outputs": false
     },
     {
+      "module_id": "08_visual_capture",
+      "ordinal": 4.5,
+      "file_path": "agents/site_auditor_v3/modules/08_visual_capture.ps1",
+      "entry_function": "Invoke-Module08VisualCapture",
+      "enabled": true,
+      "reads_state_paths": [
+        "capture"
+      ],
+      "writes_state_paths": [
+        "visual_capture"
+      ]
+    },
+    {
       "module_id": "05_reconcile",
       "ordinal": 5,
       "enabled": true,
@@ -184,6 +184,19 @@
         "FAIL"
       ],
       "writes_final_outputs": true
+    },
+    {
+      "name": "08_execution",
+      "file_path": "agents/site_auditor_v3/modules/08_execution.ps1",
+      "entry_function": "Invoke-Module08Execution",
+      "enabled": true,
+      "order": 80,
+      "reads_state_paths": [
+        "decision"
+      ],
+      "writes_state_paths": [
+        "execution"
+      ]
     }
   ]
 }

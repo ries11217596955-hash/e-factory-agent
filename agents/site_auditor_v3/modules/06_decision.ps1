@@ -29,6 +29,23 @@ function Invoke-Module06Decision {
         "capture_expansion"
     )
 
+    
+    $autoCompleted = @()
+
+    if ($PipelineState.route_audit -and $PipelineState.route_audit.totals.discovered -gt 1) {
+        $autoCompleted += "route_depth_expansion"
+    }
+
+    if ($PipelineState.capture -and $PipelineState.capture.totals.succeeded -gt 0) {
+        $autoCompleted += "capture_expansion"
+    }
+
+    if (Get-Command New-FindingAction -ErrorAction SilentlyContinue) {
+        $autoCompleted += "findings_action_mapping"
+    }
+
+    $completedCapabilities = @($completedCapabilities + $autoCompleted | Select-Object -Unique)
+
     $auditorCapabilityQueue = @(
         "route_depth_expansion",
         "capture_expansion",
