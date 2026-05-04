@@ -57,8 +57,6 @@ function Invoke-Module07Output {
     $decision = if ($decisionData) { $decisionData } else { [ordered]@{ status = "NOT_RUN"; source = "07_output_fallback" } }
 
     $report = [ordered]@{
-        read_me_first = $true
-
         run_id = $runId
         verdict = $verdict
         score = $score
@@ -69,6 +67,8 @@ function Invoke-Module07Output {
         decision = $decision
         self_build = $cap
         self_diagnostic = $diag
+
+        read_me_first = $true
 
         identity = [ordered]@{
             agent = "SITE_AUDITOR_V3"
