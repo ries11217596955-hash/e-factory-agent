@@ -60,6 +60,32 @@ function Invoke-Module06Decision {
         }
     }
 
+    
+    # === DECISION EVIDENCE BINDING ===
+    $evidenceQuality = if ($PipelineState.reconcile -and $PipelineState.reconcile.evidence_quality) {
+        $PipelineState.reconcile.evidence_quality.status
+    } else {
+        "UNKNOWN"
+    }
+
+    $decisionReason = @()
+
+    if ($routes -le 1) {
+        $decisionReason += "insufficient_route_coverage"
+    }
+
+    if ($captures -le 1) {
+        $decisionReason += "insufficient_capture_coverage"
+    }
+
+    if ($evidenceQuality -eq "WEAK") {
+        $decisionReason += "low_evidence_quality"
+    }
+
+    if ($decisionReason.Count -eq 0) {
+        $decisionReason += "sufficient_coverage_and_quality"
+    }
+
     return @{
         status = "OK"
         data = @{
@@ -84,6 +110,7 @@ function Invoke-Module06Decision {
                     "do not invent findings"
                 )
             }
+            decision_reason = $decisionReason
             self_build = @{
                 missing_capabilities = $missing
                 weak_capabilities = $weak

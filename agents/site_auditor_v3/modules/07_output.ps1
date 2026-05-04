@@ -91,6 +91,7 @@ function Invoke-Module07Output {
             score = if ($PipelineState.decision) { $PipelineState.decision.score } else { 0 }
             data_quality = if ($PipelineState.decision) { $PipelineState.decision.data_quality } else { "FAILED" }
             finding_counts = if ($PipelineState.decision) { $PipelineState.decision.finding_counts } else { [ordered]@{ critical=0; high=0; medium=0; low=0 } }
+            decision_reason = if ($PipelineState.decision -and $PipelineState.decision.decision_reason) { $PipelineState.decision.decision_reason } else { @() }
         }
 
         evidence_summary = [ordered]@{
