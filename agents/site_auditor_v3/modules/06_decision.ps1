@@ -166,7 +166,7 @@ if ($PipelineState.reconcile -and $PipelineState.reconcile.findings) {
     }
     elseif ($verdict -eq "PASS") {
         $decisionAction = @{
-            action_id = "proceed_next_layer"
+            action_id = "prepare_next_capability_task"
             priority = "low"
             action = "advance to next capability layer"
             why = "clean_pass"

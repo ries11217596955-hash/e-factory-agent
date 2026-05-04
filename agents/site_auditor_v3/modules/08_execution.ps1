@@ -19,11 +19,11 @@ function Invoke-Module08Execution {
     }
 
     $allowlist = @{
-        "proceed_next_layer" = @{
-            command_id = "READ_NEXT_CAPABILITY"
+        "prepare_next_capability_task" = @{
+            command_id = "PREPARE_CAPABILITY_TASK"
             command = @{
                 type = "internal"
-                handler = "read_latest_run_report"
+                handler = "prepare_capability_task"
                 args = @{}
             }
             mode = "SAFE_EXECUTE"
