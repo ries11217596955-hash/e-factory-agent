@@ -67,6 +67,25 @@ function Invoke-Module07Output {
     $decisionReason = if ($decisionData -and $decisionData.decision_reason) { @($decisionData.decision_reason) } else { @("Decision module unavailable; diagnostic fallback emitted") }
     $decision = if ($decisionData) { $decisionData } else { [ordered]@{ status = "NOT_RUN"; source = "07_output_fallback" } }
 
+    $routeDiscoveryResult = $null
+    if ($PipelineState.execution -and $PipelineState.execution.execution_result -and $PipelineState.execution.execution_result.data) {
+        $routeDiscoveryResult = $PipelineState.execution.execution_result.data
+    }
+
+    $task = $null
+    if ($routeDiscoveryResult -and $routeDiscoveryResult.result) {
+        $task = $routeDiscoveryResult.result
+    }
+    else {
+        $handlerPath = (Resolve-Path "agents/site_auditor_v3/modules/internal_command_handlers.ps1").Path
+        . $handlerPath
+        $internalCommand = @{ type = "internal"; handler = "prepare_capability_task"; args = @{} }
+        $internalResult = Invoke-InternalCommand -Command $internalCommand -PipelineState $PipelineState
+        if ($internalResult -and $internalResult.status -eq "OK" -and $internalResult.data -and $internalResult.data.result) {
+            $task = $internalResult.data.result
+        }
+    }
+
     $report = [ordered]@{
         run_id = $runId
         verdict = $verdict
@@ -144,6 +163,8 @@ function Invoke-Module07Output {
 
         decision_action = $PipelineState.decision.decision_action
         execution = if ($PipelineState.execution) { $PipelineState.execution } else { $null }
+          route_discovery_result = $routeDiscoveryResult
+          task = $task
 
         next_step = [ordered]@{
             action = $PipelineState.decision.decision_action.action
@@ -161,23 +182,6 @@ function Invoke-Module07Output {
 
     $reportPath = Join-Path $runRoot "RUN_REPORT.json"
     $report | ConvertTo-Json -Depth 20 | Set-Content -Path $reportPath -Encoding UTF8
-
-    $task = $null
-    if ($PipelineState.execution -and $PipelineState.execution.execution_result -and $PipelineState.execution.execution_result.data) {
-        $task = $PipelineState.execution.execution_result.data.result
-    }
-    elseif ($PipelineState.decision -and $PipelineState.decision.self_build -and $PipelineState.decision.self_build.next_capability_to_build) {
-        . "agents/site_auditor_v3/modules/internal_command_handlers.ps1"
-        $internalCommand = @{
-            type = "internal"
-            handler = "prepare_capability_task"
-            args = @{}
-        }
-        $internalResult = Invoke-InternalCommand -Command $internalCommand -PipelineState $PipelineState
-        if ($internalResult -and $internalResult.status -eq "OK" -and $internalResult.data -and $internalResult.data.result) {
-            $task = $internalResult.data.result
-        }
-    }
 
     $taskPath = $null
     if ($task) {
