@@ -236,11 +236,14 @@ function Invoke-Module07Output {
           build = if ($PipelineState.build) { $PipelineState.build } else { $null }
           route_discovery_result = $routeDiscoveryResult
           task = $task
+          build_truth_gate = if ($PipelineState.post_build_decision -and $PipelineState.post_build_decision.build_truth_gate) { $PipelineState.post_build_decision.build_truth_gate } else { $null }
 
-        next_step = if ($PipelineState.build -and $PipelineState.build.next_action) {
+        next_step = if ($PipelineState.post_build_decision -and $PipelineState.post_build_decision.decision_action) {
+            $PipelineState.post_build_decision.decision_action
+        } elseif ($PipelineState.build -and $PipelineState.build.next_action) {
             $PipelineState.build.next_action
         } else {
-            if ($PipelineState.post_build_decision -and $PipelineState.post_build_decision.decision_action) { $PipelineState.post_build_decision.decision_action } else { $PipelineState.decision.decision_action }
+            $PipelineState.decision.decision_action
         }
 
         forbidden_steps = @(
