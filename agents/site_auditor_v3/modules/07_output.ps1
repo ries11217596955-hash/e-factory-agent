@@ -163,6 +163,7 @@ function Invoke-Module07Output {
 
         decision_action = $PipelineState.decision.decision_action
         execution = if ($PipelineState.execution) { $PipelineState.execution } else { $null }
+          build = if ($PipelineState.build) { $PipelineState.build } else { $null }
           route_discovery_result = $routeDiscoveryResult
           task = $task
 

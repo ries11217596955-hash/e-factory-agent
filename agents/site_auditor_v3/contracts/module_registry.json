@@ -159,8 +159,43 @@
       "writes_final_outputs": false
     },
     {
+      "file_path": "agents/site_auditor_v3/modules/08_execution.ps1",
+      "entry_function": "Invoke-Module08Execution",
+      "enabled": true,
+      "reads_state_paths": [
+        "decision"
+      ],
+      "writes_state_paths": [
+        "execution"
+      ],
+      "module_id": "08_execution",
+      "ordinal": 7
+    },
+    {
+      "module_id": "09_capability_builder",
+      "ordinal": 8,
+      "enabled": true,
+      "file_path": "agents/site_auditor_v3/modules/09_capability_builder.ps1",
+      "entry_function": "Invoke-Module09CapabilityBuilder",
+      "depends_on": [
+        "08_execution"
+      ],
+      "reads_state_paths": [
+        "execution"
+      ],
+      "writes_state_paths": [
+        "build"
+      ],
+      "tool_paths": [],
+      "timeout_sec": 30,
+      "stop_on_status": [
+        "FAIL"
+      ],
+      "writes_final_outputs": false
+    },
+    {
       "module_id": "07_output",
-      "ordinal": 7,
+      "ordinal": 9,
       "enabled": true,
       "file_path": "agents/site_auditor_v3/modules/07_output.ps1",
       "entry_function": "Invoke-Module07Output",
@@ -173,7 +208,8 @@
         "selection",
         "capture",
         "reconcile",
-        "decision"
+        "decision",
+        "build"
       ],
       "writes_state_paths": [
         "output"
@@ -184,19 +220,6 @@
         "FAIL"
       ],
       "writes_final_outputs": true
-    },
-    {
-      "name": "08_execution",
-      "file_path": "agents/site_auditor_v3/modules/08_execution.ps1",
-      "entry_function": "Invoke-Module08Execution",
-      "enabled": true,
-      "order": 80,
-      "reads_state_paths": [
-        "decision"
-      ],
-      "writes_state_paths": [
-        "execution"
-      ]
     }
   ]
 }
