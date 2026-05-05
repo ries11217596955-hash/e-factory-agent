@@ -35,6 +35,32 @@ function Invoke-Module09CapabilityBuilder {
     $capId = [string]$task.capability_id
     $functionName = "Invoke-GeneratedRouteDiscovery"
 
+    if ($capId -eq "route_discovery" -and (Get-Command Invoke-RouteDiscoveryInternal -ErrorAction SilentlyContinue)) {
+        return @{
+            status = "OK"
+            data = @{
+                build_status = "ALREADY_AVAILABLE"
+                capability_id = $capId
+                mode = "EXISTING_HANDLER"
+                target_file = $handlerPath
+                existing_function = "Invoke-RouteDiscoveryInternal"
+                reason = "route_discovery capability already exists in internal_command_handlers.ps1"
+                validation = @{
+                    target_file_exists = (Test-Path $handlerPath)
+                    existing_function_found = $true
+                }
+                next_action = @{
+                    action_id = "advance_after_existing_capability"
+                    action = "advance after existing route discovery capability"
+                    why = "route_discovery already has an executable internal handler"
+                    source = "build_state"
+                    priority = "high"
+                    target_module = "capability_discovery"
+                }
+            }
+        }
+    }
+
     if ($capId -ne "route_discovery") {
         return @{
             status = "OK"
