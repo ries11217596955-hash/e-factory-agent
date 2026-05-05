@@ -152,7 +152,23 @@ function Invoke-Module07Output {
             )
         }
 
-        current_warning = "Builder is not yet real if it returns GENERATED without generated_code and target_file. Do not proceed to integration before fixing builder."
+        function_done_gate = [ordered]@{
+            rule = "Do not close any function/step until every required check is verified."
+            required_checks = @(
+                "happy_path_pass",
+                "fail_path_pass",
+                "run_report_has_decision_action_and_next_step",
+                "next_step_names_exact_owner_module",
+                "reported_evidence_matches_actual_target",
+                "operator_control_current_warning_is_fresh",
+                "validator_does_not_crash",
+                "runpack_exists",
+                "post_commit_status_clean"
+            )
+            fail_rule = "If any required check is missing, stale, or unverified, the step is NOT DONE."
+        }
+
+        current_warning = "Use function_done_gate before closing the step. A green run is not enough if fail-path, evidence handoff, next_step, operator_control freshness, validator stability, runpack, or post-commit status are not verified."
     }
 
     $report = [ordered]@{
@@ -183,9 +199,9 @@ function Invoke-Module07Output {
         }
 
         operator_instruction = [ordered]@{
-            for_chatgpt = "Read this RUN_REPORT.json first. Do not guess. Use read_order and if_problem_then_read. Choose one bottleneck and one next step."
+            for_chatgpt = "Read this RUN_REPORT.json first. Do not guess. Use read_order, if_problem_then_read, and operator_control.function_done_gate. Choose one bottleneck and one next step. Do not close any step until function_done_gate is satisfied."
             for_agent = "Return a usable result or a diagnostic. Declare missing capability instead of pretending."
-            for_owner = "This file explains what happened, what to read, and what to do next."
+            for_owner = "This file explains what happened, what to read, what to do next, and which Function Done-Gate checks must pass before a step is closed."
         }
 
         read_order = @(
