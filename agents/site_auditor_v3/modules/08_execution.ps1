@@ -31,11 +31,15 @@ function Invoke-Module08Execution {
             target = "RUN_REPORT.agent_capability_state.next_capability_to_build"
         }
         "expand_routes" = @{
-            command_id = "BUILD_ROUTE_DEPTH_EXPANSION"
-            command = "prepare_capability_task"
-            mode = "DRY_RUN"
+            command_id = "EXECUTE_ROUTE_DISCOVERY"
+            command = @{
+                type = "internal"
+                handler = "route_discovery"
+                args = @{}
+            }
+            mode = "SAFE_EXECUTE"
             status = "READY"
-            target = "route_audit"
+            target = "route_discovery"
         }
         "improve_capture" = @{
             command_id = "BUILD_CAPTURE_EXPANSION"
