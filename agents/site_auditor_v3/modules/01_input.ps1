@@ -6,6 +6,13 @@ function Invoke-InputModule {
 
     $request = $InputData.request
     $targetUrl = [string]$request.target_url
+    $scanProfileRaw = if ($request.scan_profile) { [string]$request.scan_profile } else { "STANDARD" }
+    $scanProfile = $scanProfileRaw.Trim().ToUpperInvariant()
+    if ($scanProfile -notin @("STANDARD", "DEEP")) {
+        return @{ status = "FAIL"; data = @{ error_code = "INPUT_INVALID_SCAN_PROFILE"; error_message = "scan_profile must be STANDARD or DEEP" } }
+    }
+    $maxRoutes = if ($scanProfile -eq "DEEP") { 150 } else { 50 }
+    $maxDepth = if ($scanProfile -eq "DEEP") { 3 } else { 2 }
 
     if ([string]::IsNullOrWhiteSpace($targetUrl)) {
         return @{ status = "FAIL"; data = @{ error_code = "INPUT_EMPTY"; error_message = "target_url is required" } }

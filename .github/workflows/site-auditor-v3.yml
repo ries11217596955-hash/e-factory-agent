@@ -7,6 +7,14 @@ on:
         description: "URL to audit"
         required: true
         default: "https://example.com"
+      scan_profile:
+        description: "Audit depth profile"
+        required: true
+        default: "STANDARD"
+        type: choice
+        options:
+          - STANDARD
+          - DEEP
 
 jobs:
   run-v3:
@@ -25,6 +33,7 @@ jobs:
         run: |
           cp agents/site_auditor_v3/tests/fixtures/link.request.json /tmp/v3.request.json
           sed -i "s#__TARGET_URL__#${{ github.event.inputs.target_url }}#g" /tmp/v3.request.json
+          sed -i "s#__SCAN_PROFILE__#${{ github.event.inputs.scan_profile }}#g" /tmp/v3.request.json
 
       - name: Run Site Auditor V3
         run: |

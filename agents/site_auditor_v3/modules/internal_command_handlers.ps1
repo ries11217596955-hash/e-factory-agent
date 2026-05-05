@@ -20,13 +20,65 @@ function Test-RouteUrl {
     }
 }
 
+function Normalize-InternalRoutePath {
+    param(
+        [Parameter(Mandatory)][string]$Href,
+        [Parameter(Mandatory)][System.Uri]$BaseUri
+    )
+
+    $cleanHref = $Href.Trim()
+    if ([string]::IsNullOrWhiteSpace($cleanHref)) { return $null }
+    if ($cleanHref.StartsWith("#")) { return $null }
+    if ($cleanHref.StartsWith("mailto:")) { return $null }
+    if ($cleanHref.StartsWith("tel:")) { return $null }
+    if ($cleanHref.StartsWith("javascript:")) { return $null }
+
+    $cleanHref = $cleanHref.Split("#")[0].Split("?")[0].Trim()
+    if ([string]::IsNullOrWhiteSpace($cleanHref)) { return $null }
+
+    try {
+        $u = if ($cleanHref.StartsWith("/")) {
+            [System.Uri]::new($BaseUri, $cleanHref)
+        } elseif ($cleanHref -match "^https?://") {
+            [System.Uri]$cleanHref
+        } else {
+            [System.Uri]::new($BaseUri, $cleanHref)
+        }
+
+        if ($u.Host -ne $BaseUri.Host) { return $null }
+
+        $path = $u.AbsolutePath
+        if ([string]::IsNullOrWhiteSpace($path)) { return "/" }
+        if (-not $path.StartsWith("/")) { $path = "/" + $path }
+        if (($path.Length -gt 1) -and $path.EndsWith("/")) { $path = $path.TrimEnd("/") }
+        return $path
+    }
+    catch {
+        return $null
+    }
+}
+
+function Get-RouteDepth {
+    param([Parameter(Mandatory)][string]$Path)
+
+    if ($Path -eq "/") { return 0 }
+    return @($Path.Trim("/") -split "/" | Where-Object { $_ }).Count
+}
+
 function Invoke-RouteDiscoveryInternal {
     param([Parameter(Mandatory)]$PipelineState)
 
     $baseUrl = [string]$PipelineState.input.base_url
     $base = $baseUrl.TrimEnd("/")
-    $candidates = New-Object System.Collections.ArrayList
+    $baseUri = [System.Uri]$base
 
+    $scanProfile = if ($PipelineState.input.scan_profile) { [string]$PipelineState.input.scan_profile } else { "STANDARD" }
+    $maxRoutes = if ($PipelineState.input.max_routes) { [int]$PipelineState.input.max_routes } else { 50 }
+    $maxDepth = if ($PipelineState.input.max_depth) { [int]$PipelineState.input.max_depth } else { 2 }
+    $hardCap = if ($PipelineState.input.hard_cap_routes) { [int]$PipelineState.input.hard_cap_routes } else { 200 }
+    if ($maxRoutes -gt $hardCap) { $maxRoutes = $hardCap }
+
+    $candidates = New-Object System.Collections.ArrayList
     [void]$candidates.Add("/")
 
     if ($PipelineState.input.primary_route) {
@@ -43,15 +95,18 @@ function Invoke-RouteDiscoveryInternal {
         $root = Invoke-WebRequest -Uri ($base + "/") -UseBasicParsing -TimeoutSec 10
         $html = [string]$root.Content
         $matches = [regex]::Matches($html, 'href=["'']([^"'']+)["'']')
+
         foreach ($m in $matches) {
             $href = [string]$m.Groups[1].Value
-            if ($href.StartsWith("/")) {
-                [void]$candidates.Add($href.Split("#")[0].Split("?")[0])
+            $path = Normalize-InternalRoutePath -Href $href -BaseUri $baseUri
+            if (-not $path) { continue }
+
+            $depth = Get-RouteDepth -Path $path
+            if ($depth -le $maxDepth) {
+                [void]$candidates.Add($path)
             }
-            elseif ($href.StartsWith($base)) {
-                $u = [System.Uri]$href
-                [void]$candidates.Add($u.AbsolutePath)
-            }
+
+            if ($candidates.Count -ge $maxRoutes) { break }
         }
     }
     catch {
@@ -59,10 +114,11 @@ function Invoke-RouteDiscoveryInternal {
     }
 
     $paths = @($candidates | Where-Object { $_ } | ForEach-Object {
-        if ($_ -eq "") { "/" }
-        elseif ($_.StartsWith("/")) { $_ }
-        else { "/" + $_ }
-    } | Select-Object -Unique)
+        $p = [string]$_
+        if ($p -eq "") { "/" }
+        elseif ($p.StartsWith("/")) { $p }
+        else { "/" + $p }
+    } | Select-Object -Unique | Select-Object -First $maxRoutes)
 
     $discovered = @()
     $rejected = @()
@@ -92,6 +148,11 @@ function Invoke-RouteDiscoveryInternal {
             capability_id = "route_discovery"
             mode = "READ_ONLY"
             source = "base_url_plus_existing_candidates_plus_root_links"
+            scan_profile = $scanProfile
+            discovery_limit = $maxRoutes
+            max_depth = $maxDepth
+            hard_cap_routes = $hardCap
+            truncated = ($candidates.Count -gt $paths.Count)
             checked_count = $paths.Count
             discovered_count = $discovered.Count
             rejected_count = $rejected.Count

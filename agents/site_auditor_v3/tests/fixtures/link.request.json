@@ -1,8 +1,16 @@
 {
   "target_url": "__TARGET_URL__",
-  "route_allowlist": ["/"],
+  "route_allowlist": [
+    "/"
+  ],
   "route_denylist": [],
   "viewport_profiles": [
-    { "viewport_id": "desktop", "width": 1440, "height": 900, "is_default": true }
-  ]
+    {
+      "viewport_id": "desktop",
+      "width": 1440,
+      "height": 900,
+      "is_default": true
+    }
+  ],
+  "scan_profile": "__SCAN_PROFILE__"
 }
