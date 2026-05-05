@@ -1,0 +1,22 @@
+=== MODULE IMPORT / DOTSOURCE MAP ===
+agents/_legacy/site_auditor_v2/agent.ps1:43:. "$PSScriptRoot/modules/runtime_safe.ps1"
+agents/_legacy/site_auditor_v2/agent.ps1:44:. "$PSScriptRoot/modules/util_io.ps1"
+agents/_legacy/site_auditor_v2/agent.ps1:45:. "$PSScriptRoot/modules/util_json.ps1"
+agents/_legacy/site_auditor_v2/agent.ps1:46:. "$PSScriptRoot/modules/surface_context.ps1"
+agents/_legacy/site_auditor_v2/agent.ps1:47:. "$PSScriptRoot/modules/report_safe_helpers.ps1"
+agents/_legacy/site_auditor_v2/agent.ps1:48:. "$PSScriptRoot/modules/report_contract.ps1"
+agents/_legacy/site_auditor_v2/agent.ps1:49:. "$PSScriptRoot/modules/report_layer.ps1"
+agents/_legacy/site_auditor_v2/agent.ps1:50:. "$PSScriptRoot/modules/stage_link_fetch.ps1"
+agents/_legacy/site_auditor_v2/agent.ps1:51:. "$PSScriptRoot/modules/stage_route_keys.ps1"
+agents/_legacy/site_auditor_v2/agent.ps1:52:. "$PSScriptRoot/modules/stage_capture_reconciliation.ps1"
+agents/_legacy/site_auditor_v2/agent.ps1:53:. "$PSScriptRoot/modules/self_build_protocol.ps1"
+agents/site_auditor_v3/run.ps1:3:    [string]$RegistryPath = "agents/site_auditor_v3/contracts/module_registry.json"
+agents/site_auditor_v3/run.ps1:35:    foreach ($k in $m.reads_state_paths) {
+agents/site_auditor_v3/run.ps1:47:    $pipeline_state[$m.writes_state_paths[0]] = $result.data
+agents/site_auditor_v3/run.ps1:65:    $pipeline_state[$outputModule.writes_state_paths[0]] = $outResult.data
+agents/site_auditor_v3/modules/07_output.ps1:80:        $handlerPath = (Resolve-Path "agents/site_auditor_v3/modules/internal_command_handlers.ps1").Path
+agents/site_auditor_v3/modules/07_output.ps1:114:            orchestration = "run.ps1 executes module_registry.json in ordinal order"
+agents/site_auditor_v3/modules/07_output.ps1:197:            "agents/site_auditor_v3/contracts/module_registry.json"
+agents/site_auditor_v3/modules/07_output.ps1:205:            pipeline_or_module_question = "agents/site_auditor_v3/contracts/module_registry.json"
+agents/site_auditor_v3/modules/09_capability_builder.ps1:7:    $handlerPath = "agents/site_auditor_v3/modules/internal_command_handlers.ps1"
+agents/site_auditor_v3/modules/08_execution.ps1:76:    . "agents/site_auditor_v3/modules/internal_command_handlers.ps1"

@@ -1,0 +1,154 @@
+=== POWERSHELL FUNCTION MAP ===
+--- agents/_legacy/site_auditor_v2/agent.ps1
+16:function Get-SafePropValue {
+57:function Get-OwnershipMode {
+61:function Get-ActionTextByOwnership {
+79:function Get-DefectPriorityByIssueType {
+94:function Get-PageSignalThresholds {
+106:function Get-PageTypeHeuristic {
+126:function Test-PageTypeRequiresAnswer {
+131:function Get-FindingTypeSortRank {
+142:function Get-SystemProblemMapping {
+174:function Get-EvidenceSnippet {
+189:function Test-HighSignalConfidence {
+204:function Escape-HtmlText {
+213:function New-ClientReportHtml {
+285:function Get-SurfaceTypeByPageType {
+300:function Convert-RunReportValue {
+360:function Write-RunReportBounded {
+370:    function Convert-ToMaterializedArray {
+391:    function Get-SafeCount {
+803:function Get-DeterministicRunKey {
+818:function Test-PrimaryRouteValue {
+851:function Get-NormalizedPrimaryRouteIdentity {
+895:function Normalize-PrimaryRouteContractFields {
+928:function Test-RouteContract {
+939:    function Add-RouteViolation {
+1011:function Invoke-VisualCapture {
+1048:function Invoke-EvidenceReconciliation {
+1207:function Get-LocalizedErrorFromExceptionMessage {
+1228:function Get-EffectiveFailureClass {
+1309:function Get-ProducedArtifacts {
+1340:function Add-ProducedArtifactIfExists {
+1362:function Add-ProducedArtifactsFromScan {
+1384:function Get-FinalProducedArtifacts {
+--- agents/_legacy/site_auditor_v2/lib/decision.ps1
+4:function Get-IntOrDefault {
+21:function Test-ObjectHasKey {
+44:function Get-ObjectValueOrDefault {
+65:function Resolve-MinimalDecision {
+--- agents/_legacy/site_auditor_v2/lib/fail_output.ps1
+1:function Write-MinimalFailRunReport {
+--- agents/_legacy/site_auditor_v2/lib/post_output.ps1
+2:function Get-SafeProp {
+8:function Invoke-PostOutput {
+--- agents/_legacy/site_auditor_v2/modules/agent_map.ps1
+1:function New-AgentMapObject {
+86:function Write-AgentMapJson {
+--- agents/_legacy/site_auditor_v2/modules/diagnostic_repair_guidance.ps1
+1:function New-DiagnosticRepairGuidance {
+--- agents/_legacy/site_auditor_v2/modules/output_contract_filter.ps1
+1:function Invoke-OutputContractFilter {
+--- agents/_legacy/site_auditor_v2/modules/report_contract.ps1
+4:function Get-ContractFieldValue {
+25:function Get-ContractNonEmptyString {
+34:function Convert-ContractArray {
+46:function New-NormalizedFinding {
+170:function Normalize-FindingContract {
+--- agents/_legacy/site_auditor_v2/modules/report_layer.ps1
+1:function New-SystemProblemFromFindings {
+178:function New-DecisionSummaryFromSystemProblem {
+201:function New-ActionSummaryFromDecision {
+307:function New-HumanReportPayloads {
+398:function Ensure-OperatorMemoryBridgeRequiredFields {
+460:function Test-ReportConsistencyLock {
+--- agents/_legacy/site_auditor_v2/modules/report_safe_helpers.ps1
+1:function Get-FirstOrNull {
+15:function Test-HasItems {
+24:function Resolve-RepresentativeExamples {
+46:function Resolve-DominantSurface {
+--- agents/_legacy/site_auditor_v2/modules/runtime_safe.ps1
+3:function New-SafeList {
+12:function New-CaseInsensitiveKeyMap {
+19:function Get-NormalizedKey {
+29:function Add-KeyIfMissing {
+53:function Test-KeyExists {
+65:function Get-KeyMapKeys {
+74:function Get-KeyMapCount {
+83:function New-SafeUtf8NoBom {
+87:function ConvertTo-SafeAbsoluteUri {
+102:function Resolve-SafeUri {
+156:function Get-NormalizedAbsoluteUriString {
+195:function Write-BootstrapStageTrace {
+204:function Get-ScriptFailureDiagnostics {
+--- agents/_legacy/site_auditor_v2/modules/self_build_protocol.ps1
+3:function Get-FailureClass {
+28:function Get-BuildLadderContract {
+54:function New-AgentFailureReportText {
+88:function New-OperatorHandoffContract {
+--- agents/_legacy/site_auditor_v2/modules/self_diagnostic.ps1
+2:function New-SelfDiagnosticObject {
+64:function Write-SelfDiagnosticJson {
+--- agents/_legacy/site_auditor_v2/modules/stage_capture_reconciliation.ps1
+3:function Invoke-CaptureReconciliationPrepStage {
+--- agents/_legacy/site_auditor_v2/modules/stage_link_fetch.ps1
+3:function Resolve-CanonicalBaseUrl {
+68:function Get-ResponseHtml {
+89:function Get-LinkSignals {
+122:function Get-NormalizedRouteResult {
+172:function Get-HrefResolutionResult {
+226:function Get-ShallowRoutes {
+--- agents/_legacy/site_auditor_v2/modules/stage_route_keys.ps1
+3:function Get-CanonicalRouteKeyResult {
+64:function Get-SafeRouteClassification {
+113:function Get-VisualTargets {
+129:    function Get-RouteTypeAndPriority {
+164:    function Get-SafeRouteClassification {
+--- agents/_legacy/site_auditor_v2/modules/surface_context.ps1
+1:function Resolve-SurfaceType {
+17:function Get-NormalizedSurfaceType {
+70:function Get-SurfaceExpectation {
+103:function Test-SurfaceMediaListingSignals {
+119:function Test-SurfaceArticleValueSatisfied {
+127:function Test-SurfaceDirectoryValueSatisfied {
+--- agents/_legacy/site_auditor_v2/modules/util_io.ps1
+3:function Ensure-Directory {
+14:function Write-JsonFile {
+--- agents/_legacy/site_auditor_v2/modules/util_json.ps1
+3:function Get-IsoUtcNow {
+7:function New-NotImplementedStatus {
+--- agents/site_auditor_v3/modules/01_input.ps1
+1:function Invoke-InputModule {
+--- agents/site_auditor_v3/modules/02_route_audit.ps1
+1:function New-RouteObject {
+19:function Expand-Routes {
+39:function Invoke-RouteAuditModule {
+--- agents/site_auditor_v3/modules/03_selection.ps1
+1:function Invoke-SelectionModule {
+--- agents/site_auditor_v3/modules/04_capture.ps1
+1:function Invoke-Module04Capture {
+--- agents/site_auditor_v3/modules/05_reconcile.ps1
+1:function New-FindingAction {
+73:function Invoke-Module05Reconcile {
+--- agents/site_auditor_v3/modules/06_decision.ps1
+1:function Invoke-Module06Decision {
+--- agents/site_auditor_v3/modules/07_output.ps1
+1:function Invoke-Module07Output {
+--- agents/site_auditor_v3/modules/08_execution.ps1
+1:function Invoke-Module08Execution {
+--- agents/site_auditor_v3/modules/08_visual_capture.ps1
+1:function Get-PageHtml {
+11:function Extract-VisualSignals {
+33:function Invoke-Module08VisualCapture {
+--- agents/site_auditor_v3/modules/09_capability_builder.ps1
+1:function Invoke-Module09CapabilityBuilder {
+50:function Invoke-GeneratedRouteDiscovery {
+--- agents/site_auditor_v3/modules/10_post_build_decision.ps1
+1:function Invoke-Module10PostBuildDecision {
+--- agents/site_auditor_v3/modules/internal_command_handlers.ps1
+1:function Test-RouteUrl {
+23:function Invoke-RouteDiscoveryInternal {
+104:function Invoke-PrepareCapabilityTaskInternal {
+130:function Invoke-InternalCommand {
+--- agents/site_auditor_v3/run.ps1
+8:function Read-Json($p) {

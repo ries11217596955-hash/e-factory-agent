@@ -1,0 +1,159 @@
+=== GENERATED FUNCTION SEARCH ===
+./_audit_agent_repo_20260505_115333/06_RUN_REPORTS_INDEX.txt:7:  "action_id": "integrate_generated_capability",
+./_audit_agent_repo_20260505_115333/06_RUN_REPORTS_INDEX.txt:9:  "target_file": "agents/site_auditor_v3/modules/internal_command_handlers.ps1",
+./_audit_agent_repo_20260505_115333/06_RUN_REPORTS_INDEX.txt:10:  "generated_function": "Invoke-GeneratedRouteDiscovery",
+./_audit_agent_repo_20260505_115333/07_PS_FUNCTION_MAP.txt:145:50:function Invoke-GeneratedRouteDiscovery {
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:2:./agents/_legacy/site_auditor_v2/output/link_a0a1b49ebc3b/SELF_DIAGNOSTIC.json:9:    "route_discovery",
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:3:./agents/_legacy/site_auditor_v2/SELF_DIAGNOSTIC.json:9:    "route_discovery",
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:4:./agents/_legacy/site_auditor_v2/modules/self_diagnostic.ps1:22:            'route_discovery',
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:5:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:177:        "do not trust GENERATED without generated_code and target_file",
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:6:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:213:        "if build_status=GENERATED then generated_code and target_file must exist",
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:7:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:220:    "current_warning": "Builder is not yet real if it returns GENERATED without generated_code and target_file. Do not proceed to integration before fixing builder."
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:8:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:407:    "action_id": "integrate_generated_capability",
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:9:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:410:    "why": "builder produced generated_code and target_file",
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:10:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:427:        "capability_id": "route_discovery",
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:11:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:436:        "handler": "route_discovery",
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:12:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:442:      "target": "route_discovery",
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:13:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:456:      "target_file_exists": true,
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:14:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:457:      "has_target_file": true,
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:15:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:458:      "has_generated_code": true
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:16:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:461:      "action_id": "integrate_generated_capability",
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:17:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:464:      "why": "builder produced generated_code and target_file",
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:18:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:469:    "target_file": "agents/site_auditor_v3/modules/internal_command_handlers.ps1",
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:19:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:470:    "generated_function": "Invoke-GeneratedRouteDiscovery",
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:20:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:472:    "capability_id": "route_discovery",
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:21:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:473:    "generated_code": "function Invoke-GeneratedRouteDiscovery {\n    param(\n        [Parameter(Mandatory)]$PipelineState\n    )\n\n    $baseUrl = [string]$PipelineState.input.base_url\n    $routes = @()\n\n    if ($PipelineState.route_audit -and $PipelineState.route_audit.routes) {\n        foreach ($r in @($PipelineState.route_audit.routes)) {\n            if ($r.path -and $r.url) {\n                $routes += @{\n                    path = [string]$r.path\n                    url = [string]$r.url\n                    status = \"OK\"\n                }\n            }\n        }\n    }\n\n    return @{\n        status = \"OK\"\n        data = @{\n            capability_id = \"route_discovery\"\n            mode = \"GENERATED_READ_ONLY\"\n            generated_by = \"09_capability_builder\"\n            discovered_routes = $routes\n            discovered_count = @($routes).Count\n            rejected_routes = @()\n            rejected_count = 0\n            checked_count = @($routes).Count\n        }\n    }\n}"
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:22:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:475:  "route_discovery_result": {
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:23:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:486:    "capability_id": "route_discovery",
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:24:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:499:      "state_key": "route_discovery"
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:25:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:503:      "selected": "route_discovery",
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:26:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:505:        "route_discovery"
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:27:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:508:        "baseline_coverage_or_route_discovery_needed"
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:28:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:514:    "capability_id": "route_discovery"
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:29:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:517:    "action_id": "integrate_generated_capability",
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:30:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:520:    "why": "builder produced generated_code and target_file",
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:31:./agents/site_auditor_v3/runs/20260505_110440/TASK.json:9:    "state_key": "route_discovery"
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:32:./agents/site_auditor_v3/runs/20260505_110440/TASK.json:13:    "selected": "route_discovery",
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:33:./agents/site_auditor_v3/runs/20260505_110440/TASK.json:15:      "route_discovery"
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:34:./agents/site_auditor_v3/runs/20260505_110440/TASK.json:18:      "baseline_coverage_or_route_discovery_needed"
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:35:./agents/site_auditor_v3/runs/20260505_110440/TASK.json:24:  "capability_id": "route_discovery"
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:36:./agents/site_auditor_v3/tests/validate_self_build_loop.py:16:if not j.get("route_discovery_result"):
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:37:./agents/site_auditor_v3/tests/validate_self_build_loop.py:17:    errors.append("route_discovery_result missing")
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:38:./agents/site_auditor_v3/tests/validate_self_build_loop.py:21:data = j.get("route_discovery_result") or {}
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:39:./agents/site_auditor_v3/tests/validate_self_build_loop.py:22:if data.get("capability_id") != "route_discovery":
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:40:./agents/site_auditor_v3/tests/validate_self_build_loop.py:23:    errors.append("route_discovery_result wrong capability")
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:41:./agents/site_auditor_v3/tests/validate_self_build_loop.py:25:    errors.append("route_discovery_result not READ_ONLY")
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:42:./agents/site_auditor_v3/modules/internal_command_handlers.ps1:92:            capability_id = "route_discovery"
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:43:./agents/site_auditor_v3/modules/internal_command_handlers.ps1:111:                capability_id = "route_discovery"
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:44:./agents/site_auditor_v3/modules/internal_command_handlers.ps1:114:                    candidates = @("route_discovery")
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:45:./agents/site_auditor_v3/modules/internal_command_handlers.ps1:115:                    selected = "route_discovery"
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:46:./agents/site_auditor_v3/modules/internal_command_handlers.ps1:116:                    evidence_gaps = @("baseline_coverage_or_route_discovery_needed")
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:47:./agents/site_auditor_v3/modules/internal_command_handlers.ps1:119:                    state_key = "route_discovery"
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:48:./agents/site_auditor_v3/modules/internal_command_handlers.ps1:140:    if ($Command.handler -eq "route_discovery") {
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:49:./agents/site_auditor_v3/modules/07_output.ps1:108:                "do not trust GENERATED without generated_code and target_file",
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:50:./agents/site_auditor_v3/modules/07_output.ps1:147:                "if build_status=GENERATED then generated_code and target_file must exist",
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:51:./agents/site_auditor_v3/modules/07_output.ps1:155:        current_warning = "Builder is not yet real if it returns GENERATED without generated_code and target_file. Do not proceed to integration before fixing builder."
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:52:./agents/site_auditor_v3/modules/07_output.ps1:237:          route_discovery_result = $routeDiscoveryResult
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:53:./agents/site_auditor_v3/modules/06_decision.ps1:191:            action_id = "integrate_generated_capability"
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:54:./agents/site_auditor_v3/modules/09_capability_builder.ps1:15:                target_file = $handlerPath
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:55:./agents/site_auditor_v3/modules/09_capability_builder.ps1:36:    $functionName = "Invoke-GeneratedRouteDiscovery"
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:56:./agents/site_auditor_v3/modules/09_capability_builder.ps1:38:    if ($capId -ne "route_discovery") {
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:57:./agents/site_auditor_v3/modules/09_capability_builder.ps1:50:function Invoke-GeneratedRouteDiscovery {
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:58:./agents/site_auditor_v3/modules/09_capability_builder.ps1:73:            capability_id = "route_discovery"
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:59:./agents/site_auditor_v3/modules/09_capability_builder.ps1:92:            target_file = $handlerPath
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:60:./agents/site_auditor_v3/modules/09_capability_builder.ps1:93:            generated_code = $generatedCode
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:61:./agents/site_auditor_v3/modules/09_capability_builder.ps1:96:                has_generated_code = (-not [string]::IsNullOrWhiteSpace($generatedCode))
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:62:./agents/site_auditor_v3/modules/09_capability_builder.ps1:97:                has_target_file = (-not [string]::IsNullOrWhiteSpace($handlerPath))
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:63:./agents/site_auditor_v3/modules/09_capability_builder.ps1:98:                target_file_exists = (Test-Path $handlerPath)
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:64:./agents/site_auditor_v3/modules/09_capability_builder.ps1:101:                action_id = "integrate_generated_capability"
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:65:./agents/site_auditor_v3/modules/09_capability_builder.ps1:103:                why = "builder produced generated_code and target_file"
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:66:./agents/site_auditor_v3/modules/08_execution.ps1:37:                handler = "route_discovery"
+./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:67:./agents/site_auditor_v3/modules/08_execution.ps1:42:            target = "route_discovery"
+./_audit_agent_repo_20260505_115408/05_GENERATED_FUNCTION_SEARCH.txt:2:./_audit_agent_repo_20260505_115333/06_RUN_REPORTS_INDEX.txt:7:  "action_id": "integrate_generated_capability",
+./_audit_agent_repo_20260505_115408/05_GENERATED_FUNCTION_SEARCH.txt:3:./_audit_agent_repo_20260505_115333/06_RUN_REPORTS_INDEX.txt:9:  "target_file": "agents/site_auditor_v3/modules/internal_command_handlers.ps1",
+./_audit_agent_repo_20260505_115408/05_GENERATED_FUNCTION_SEARCH.txt:4:./_audit_agent_repo_20260505_115333/06_RUN_REPORTS_INDEX.txt:10:  "generated_function": "Invoke-GeneratedRouteDiscovery",
+./_audit_agent_repo_20260505_115408/05_GENERATED_FUNCTION_SEARCH.txt:5:./_audit_agent_repo_20260505_115333/07_PS_FUNCTION_MAP.txt:145:50:function Invoke-GeneratedRouteDiscovery {
+./_audit_agent_repo_20260505_115408/05_GENERATED_FUNCTION_SEARCH.txt:6:./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:2:./agents/_legacy/site_auditor_v2/output/link_a0a1b49ebc3b/SELF_DIAGNOSTIC.json:9:    "route_discovery",
+./_audit_agent_repo_20260505_115408/05_GENERATED_FUNCTION_SEARCH.txt:7:./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:3:./agents/_legacy/site_auditor_v2/SELF_DIAGNOSTIC.json:9:    "route_discovery",
+./_audit_agent_repo_20260505_115408/05_GENERATED_FUNCTION_SEARCH.txt:8:./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:4:./agents/_legacy/site_auditor_v2/modules/self_diagnostic.ps1:22:            'route_discovery',
+./_audit_agent_repo_20260505_115408/05_GENERATED_FUNCTION_SEARCH.txt:9:./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:5:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:177:        "do not trust GENERATED without generated_code and target_file",
+./_audit_agent_repo_20260505_115408/05_GENERATED_FUNCTION_SEARCH.txt:10:./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:6:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:213:        "if build_status=GENERATED then generated_code and target_file must exist",
+./_audit_agent_repo_20260505_115408/05_GENERATED_FUNCTION_SEARCH.txt:11:./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:7:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:220:    "current_warning": "Builder is not yet real if it returns GENERATED without generated_code and target_file. Do not proceed to integration before fixing builder."
+./_audit_agent_repo_20260505_115408/05_GENERATED_FUNCTION_SEARCH.txt:12:./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:8:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:407:    "action_id": "integrate_generated_capability",
+./_audit_agent_repo_20260505_115408/05_GENERATED_FUNCTION_SEARCH.txt:13:./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:9:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:410:    "why": "builder produced generated_code and target_file",
+./_audit_agent_repo_20260505_115408/05_GENERATED_FUNCTION_SEARCH.txt:14:./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:10:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:427:        "capability_id": "route_discovery",
+./_audit_agent_repo_20260505_115408/05_GENERATED_FUNCTION_SEARCH.txt:15:./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:11:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:436:        "handler": "route_discovery",
+./_audit_agent_repo_20260505_115408/05_GENERATED_FUNCTION_SEARCH.txt:16:./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:12:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:442:      "target": "route_discovery",
+./_audit_agent_repo_20260505_115408/05_GENERATED_FUNCTION_SEARCH.txt:17:./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:13:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:456:      "target_file_exists": true,
+./_audit_agent_repo_20260505_115408/05_GENERATED_FUNCTION_SEARCH.txt:18:./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:14:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:457:      "has_target_file": true,
+./_audit_agent_repo_20260505_115408/05_GENERATED_FUNCTION_SEARCH.txt:19:./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:15:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:458:      "has_generated_code": true
+./_audit_agent_repo_20260505_115408/05_GENERATED_FUNCTION_SEARCH.txt:20:./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:16:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:461:      "action_id": "integrate_generated_capability",
+./_audit_agent_repo_20260505_115408/05_GENERATED_FUNCTION_SEARCH.txt:21:./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:17:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:464:      "why": "builder produced generated_code and target_file",
+./_audit_agent_repo_20260505_115408/05_GENERATED_FUNCTION_SEARCH.txt:22:./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:18:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:469:    "target_file": "agents/site_auditor_v3/modules/internal_command_handlers.ps1",
+./_audit_agent_repo_20260505_115408/05_GENERATED_FUNCTION_SEARCH.txt:23:./_audit_agent_repo_20260505_115333/05_GENERATED_FUNCTION_SEARCH.txt:19:./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:470:    "generated_function": "Invoke-GeneratedRouteDiscovery",
+./agents/_legacy/site_auditor_v2/output/link_a0a1b49ebc3b/SELF_DIAGNOSTIC.json:9:    "route_discovery",
+./agents/_legacy/site_auditor_v2/SELF_DIAGNOSTIC.json:9:    "route_discovery",
+./agents/_legacy/site_auditor_v2/modules/self_diagnostic.ps1:22:            'route_discovery',
+./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:177:        "do not trust GENERATED without generated_code and target_file",
+./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:213:        "if build_status=GENERATED then generated_code and target_file must exist",
+./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:220:    "current_warning": "Builder is not yet real if it returns GENERATED without generated_code and target_file. Do not proceed to integration before fixing builder."
+./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:407:    "action_id": "integrate_generated_capability",
+./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:410:    "why": "builder produced generated_code and target_file",
+./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:427:        "capability_id": "route_discovery",
+./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:436:        "handler": "route_discovery",
+./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:442:      "target": "route_discovery",
+./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:456:      "target_file_exists": true,
+./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:457:      "has_target_file": true,
+./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:458:      "has_generated_code": true
+./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:461:      "action_id": "integrate_generated_capability",
+./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:464:      "why": "builder produced generated_code and target_file",
+./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:469:    "target_file": "agents/site_auditor_v3/modules/internal_command_handlers.ps1",
+./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:470:    "generated_function": "Invoke-GeneratedRouteDiscovery",
+./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:472:    "capability_id": "route_discovery",
+./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:473:    "generated_code": "function Invoke-GeneratedRouteDiscovery {\n    param(\n        [Parameter(Mandatory)]$PipelineState\n    )\n\n    $baseUrl = [string]$PipelineState.input.base_url\n    $routes = @()\n\n    if ($PipelineState.route_audit -and $PipelineState.route_audit.routes) {\n        foreach ($r in @($PipelineState.route_audit.routes)) {\n            if ($r.path -and $r.url) {\n                $routes += @{\n                    path = [string]$r.path\n                    url = [string]$r.url\n                    status = \"OK\"\n                }\n            }\n        }\n    }\n\n    return @{\n        status = \"OK\"\n        data = @{\n            capability_id = \"route_discovery\"\n            mode = \"GENERATED_READ_ONLY\"\n            generated_by = \"09_capability_builder\"\n            discovered_routes = $routes\n            discovered_count = @($routes).Count\n            rejected_routes = @()\n            rejected_count = 0\n            checked_count = @($routes).Count\n        }\n    }\n}"
+./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:475:  "route_discovery_result": {
+./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:486:    "capability_id": "route_discovery",
+./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:499:      "state_key": "route_discovery"
+./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:503:      "selected": "route_discovery",
+./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:505:        "route_discovery"
+./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:508:        "baseline_coverage_or_route_discovery_needed"
+./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:514:    "capability_id": "route_discovery"
+./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:517:    "action_id": "integrate_generated_capability",
+./agents/site_auditor_v3/runs/20260505_110440/RUN_REPORT.json:520:    "why": "builder produced generated_code and target_file",
+./agents/site_auditor_v3/runs/20260505_110440/TASK.json:9:    "state_key": "route_discovery"
+./agents/site_auditor_v3/runs/20260505_110440/TASK.json:13:    "selected": "route_discovery",
+./agents/site_auditor_v3/runs/20260505_110440/TASK.json:15:      "route_discovery"
+./agents/site_auditor_v3/runs/20260505_110440/TASK.json:18:      "baseline_coverage_or_route_discovery_needed"
+./agents/site_auditor_v3/runs/20260505_110440/TASK.json:24:  "capability_id": "route_discovery"
+./agents/site_auditor_v3/tests/validate_self_build_loop.py:16:if not j.get("route_discovery_result"):
+./agents/site_auditor_v3/tests/validate_self_build_loop.py:17:    errors.append("route_discovery_result missing")
+./agents/site_auditor_v3/tests/validate_self_build_loop.py:21:data = j.get("route_discovery_result") or {}
+./agents/site_auditor_v3/tests/validate_self_build_loop.py:22:if data.get("capability_id") != "route_discovery":
+./agents/site_auditor_v3/tests/validate_self_build_loop.py:23:    errors.append("route_discovery_result wrong capability")
+./agents/site_auditor_v3/tests/validate_self_build_loop.py:25:    errors.append("route_discovery_result not READ_ONLY")
+./agents/site_auditor_v3/modules/internal_command_handlers.ps1:92:            capability_id = "route_discovery"
+./agents/site_auditor_v3/modules/internal_command_handlers.ps1:111:                capability_id = "route_discovery"
+./agents/site_auditor_v3/modules/internal_command_handlers.ps1:114:                    candidates = @("route_discovery")
+./agents/site_auditor_v3/modules/internal_command_handlers.ps1:115:                    selected = "route_discovery"
+./agents/site_auditor_v3/modules/internal_command_handlers.ps1:116:                    evidence_gaps = @("baseline_coverage_or_route_discovery_needed")
+./agents/site_auditor_v3/modules/internal_command_handlers.ps1:119:                    state_key = "route_discovery"
+./agents/site_auditor_v3/modules/internal_command_handlers.ps1:140:    if ($Command.handler -eq "route_discovery") {
+./agents/site_auditor_v3/modules/07_output.ps1:108:                "do not trust GENERATED without generated_code and target_file",
+./agents/site_auditor_v3/modules/07_output.ps1:147:                "if build_status=GENERATED then generated_code and target_file must exist",
+./agents/site_auditor_v3/modules/07_output.ps1:155:        current_warning = "Builder is not yet real if it returns GENERATED without generated_code and target_file. Do not proceed to integration before fixing builder."
+./agents/site_auditor_v3/modules/07_output.ps1:237:          route_discovery_result = $routeDiscoveryResult
+./agents/site_auditor_v3/modules/06_decision.ps1:191:            action_id = "integrate_generated_capability"
+./agents/site_auditor_v3/modules/09_capability_builder.ps1:15:                target_file = $handlerPath
+./agents/site_auditor_v3/modules/09_capability_builder.ps1:36:    $functionName = "Invoke-GeneratedRouteDiscovery"
+./agents/site_auditor_v3/modules/09_capability_builder.ps1:38:    if ($capId -ne "route_discovery") {
+./agents/site_auditor_v3/modules/09_capability_builder.ps1:50:function Invoke-GeneratedRouteDiscovery {
+./agents/site_auditor_v3/modules/09_capability_builder.ps1:73:            capability_id = "route_discovery"
+./agents/site_auditor_v3/modules/09_capability_builder.ps1:92:            target_file = $handlerPath
+./agents/site_auditor_v3/modules/09_capability_builder.ps1:93:            generated_code = $generatedCode
+./agents/site_auditor_v3/modules/09_capability_builder.ps1:96:                has_generated_code = (-not [string]::IsNullOrWhiteSpace($generatedCode))
+./agents/site_auditor_v3/modules/09_capability_builder.ps1:97:                has_target_file = (-not [string]::IsNullOrWhiteSpace($handlerPath))
+./agents/site_auditor_v3/modules/09_capability_builder.ps1:98:                target_file_exists = (Test-Path $handlerPath)
+./agents/site_auditor_v3/modules/09_capability_builder.ps1:101:                action_id = "integrate_generated_capability"
+./agents/site_auditor_v3/modules/09_capability_builder.ps1:103:                why = "builder produced generated_code and target_file"
+./agents/site_auditor_v3/modules/08_execution.ps1:37:                handler = "route_discovery"
+./agents/site_auditor_v3/modules/08_execution.ps1:42:            target = "route_discovery"

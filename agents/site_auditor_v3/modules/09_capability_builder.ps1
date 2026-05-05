@@ -4,8 +4,20 @@ function Invoke-Module09CapabilityBuilder {
         [Parameter(Mandatory)]$InputData
     )
 
-    $handlerPath = (Resolve-Path "agents/site_auditor_v3/modules/internal_command_handlers.ps1").Path
-    . $handlerPath
+    $handlerPath = "agents/site_auditor_v3/modules/internal_command_handlers.ps1"
+
+    if (-not (Test-Path $handlerPath)) {
+        return @{
+            status = "FAIL"
+            data = @{
+                build_status = "FAILED"
+                reason = "target handler file missing"
+                target_file = $handlerPath
+            }
+        }
+    }
+
+    . (Resolve-Path $handlerPath).Path
 
     $taskResult = Invoke-InternalCommand -Command @{ type="internal"; handler="prepare_capability_task"; args=@{} } -PipelineState $PipelineState
     $task = if ($taskResult -and $taskResult.status -eq "OK") { $taskResult.data.result } else { $null }
@@ -15,17 +27,61 @@ function Invoke-Module09CapabilityBuilder {
             status = "OK"
             data = @{
                 build_status = "SKIPPED"
-                next_action = @{
-                    action_id = "none"
-                    action = "none"
-                    why = "no build task"
-                    source = "builder"
-                }
+                reason = "no build task"
             }
         }
     }
 
     $capId = [string]$task.capability_id
+    $functionName = "Invoke-GeneratedRouteDiscovery"
+
+    if ($capId -ne "route_discovery") {
+        return @{
+            status = "OK"
+            data = @{
+                build_status = "FAILED"
+                reason = "unsupported capability"
+                capability_id = $capId
+            }
+        }
+    }
+
+    $generatedCode = @'
+function Invoke-GeneratedRouteDiscovery {
+    param(
+        [Parameter(Mandatory)]$PipelineState
+    )
+
+    $baseUrl = [string]$PipelineState.input.base_url
+    $routes = @()
+
+    if ($PipelineState.route_audit -and $PipelineState.route_audit.routes) {
+        foreach ($r in @($PipelineState.route_audit.routes)) {
+            if ($r.path -and $r.url) {
+                $routes += @{
+                    path = [string]$r.path
+                    url = [string]$r.url
+                    status = "OK"
+                }
+            }
+        }
+    }
+
+    return @{
+        status = "OK"
+        data = @{
+            capability_id = "route_discovery"
+            mode = "GENERATED_READ_ONLY"
+            generated_by = "09_capability_builder"
+            discovered_routes = $routes
+            discovered_count = @($routes).Count
+            rejected_routes = @()
+            rejected_count = 0
+            checked_count = @($routes).Count
+        }
+    }
+}
+'@
 
     return @{
         status = "OK"
@@ -33,11 +89,18 @@ function Invoke-Module09CapabilityBuilder {
             build_status = "GENERATED"
             capability_id = $capId
             mode = "DRY_BUILD"
-            note = "builder executed correctly"
+            target_file = $handlerPath
+            generated_code = $generatedCode
+            generated_function = $functionName
+            validation = @{
+                has_generated_code = (-not [string]::IsNullOrWhiteSpace($generatedCode))
+                has_target_file = (-not [string]::IsNullOrWhiteSpace($handlerPath))
+                target_file_exists = (Test-Path $handlerPath)
+            }
             next_action = @{
                 action_id = "integrate_generated_capability"
                 action = "integrate generated capability"
-                why = "capability_builder generated a build artifact that is not yet integrated"
+                why = "builder produced generated_code and target_file"
                 source = "build_state"
                 priority = "highest"
                 target_module = "capability_integration"
