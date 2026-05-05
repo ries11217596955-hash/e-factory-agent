@@ -79,10 +79,13 @@ function Invoke-RouteDiscoveryInternal {
     if ($maxRoutes -gt $hardCap) { $maxRoutes = $hardCap }
 
     $candidates = New-Object System.Collections.ArrayList
-    [void]$candidates.Add("/")
+    $primaryRoute = if ($PipelineState.input.primary_route) { [string]$PipelineState.input.primary_route } else { "/" }
 
-    if ($PipelineState.input.primary_route) {
-        [void]$candidates.Add([string]$PipelineState.input.primary_route)
+    if ($primaryRoute -and $primaryRoute -ne "/") {
+        [void]$candidates.Add($primaryRoute)
+        [void]$candidates.Add("/")
+    } else {
+        [void]$candidates.Add("/")
     }
 
     if ($PipelineState.route_audit -and $PipelineState.route_audit.routes) {
