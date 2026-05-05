@@ -194,8 +194,31 @@
       "writes_final_outputs": false
     },
     {
+      "module_id": "10_post_build_decision",
+      "ordinal": 10,
+      "enabled": true,
+      "file_path": "agents/site_auditor_v3/modules/10_post_build_decision.ps1",
+      "entry_function": "Invoke-Module10PostBuildDecision",
+      "depends_on": [
+        "09_capability_builder"
+      ],
+      "reads_state_paths": [
+        "decision",
+        "build"
+      ],
+      "writes_state_paths": [
+        "post_build_decision"
+      ],
+      "tool_paths": [],
+      "timeout_sec": 30,
+      "stop_on_status": [
+        "FAIL"
+      ],
+      "writes_final_outputs": false
+    },
+    {
       "module_id": "07_output",
-      "ordinal": 9,
+      "ordinal": 11,
       "enabled": true,
       "file_path": "agents/site_auditor_v3/modules/07_output.ps1",
       "entry_function": "Invoke-Module07Output",
@@ -209,7 +232,8 @@
         "capture",
         "reconcile",
         "decision",
-        "build"
+        "build",
+        "post_build_decision"
       ],
       "writes_state_paths": [
         "output"

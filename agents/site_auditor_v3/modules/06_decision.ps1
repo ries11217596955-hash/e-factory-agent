@@ -184,7 +184,19 @@ function Invoke-Module06Decision {
         }
     }
 
-    return @{
+    
+    # === BUILD STATE OVERRIDE ===
+    if ($PipelineState.build -and $PipelineState.build.build_status -eq "GENERATED") {
+        $decisionAction = @{
+            action_id = "integrate_generated_capability"
+            action = "integrate generated capability"
+            why = "build artifact exists but is not integrated"
+            target_module = "capability_integration"
+            priority = "highest"
+        }
+    }
+
+return @{
         status = "OK"
         data = @{
             audit_verdict = $verdict

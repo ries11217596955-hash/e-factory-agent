@@ -161,16 +161,16 @@ function Invoke-Module07Output {
         diagnostic_summary = $diag
         agent_capability_state = $cap
 
-        decision_action = $PipelineState.decision.decision_action
+        decision_action = if ($PipelineState.post_build_decision -and $PipelineState.post_build_decision.decision_action) { $PipelineState.post_build_decision.decision_action } else { $PipelineState.decision.decision_action }
         execution = if ($PipelineState.execution) { $PipelineState.execution } else { $null }
           build = if ($PipelineState.build) { $PipelineState.build } else { $null }
           route_discovery_result = $routeDiscoveryResult
           task = $task
 
-        next_step = [ordered]@{
-            action = $PipelineState.decision.decision_action.action
-            why = $cap.reason
-            expected_result = "Agent selects the next build capability from evidence and diagnostic state."
+        next_step = if ($PipelineState.build -and $PipelineState.build.next_action) {
+            $PipelineState.build.next_action
+        } else {
+            if ($PipelineState.post_build_decision -and $PipelineState.post_build_decision.decision_action) { $PipelineState.post_build_decision.decision_action } else { $PipelineState.decision.decision_action }
         }
 
         forbidden_steps = @(
