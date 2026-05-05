@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       target_url:
-        description: "URL to audit"
+        description: "URL or page to audit"
         required: true
         default: "https://example.com"
       scan_profile:
@@ -30,10 +30,25 @@ jobs:
           sudo apt-get install -y zip powershell python3
 
       - name: Prepare request
+        env:
+          TARGET_URL: ${{ github.event.inputs.target_url }}
+          SCAN_PROFILE: ${{ github.event.inputs.scan_profile }}
         run: |
-          cp agents/site_auditor_v3/tests/fixtures/link.request.json /tmp/v3.request.json
-          sed -i "s#__TARGET_URL__#${{ github.event.inputs.target_url }}#g" /tmp/v3.request.json
-          sed -i "s#__SCAN_PROFILE__#${{ github.event.inputs.scan_profile }}#g" /tmp/v3.request.json
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          src = Path("agents/site_auditor_v3/tests/fixtures/link.request.json")
+          dst = Path("/tmp/v3.request.json")
+
+          data = json.loads(src.read_text())
+          data["target_url"] = os.environ["TARGET_URL"]
+          data["scan_profile"] = os.environ.get("SCAN_PROFILE") or "STANDARD"
+
+          dst.write_text(json.dumps(data, indent=2) + "\n")
+          print(dst.read_text())
+          PY
 
       - name: Run Site Auditor V3
         run: |
