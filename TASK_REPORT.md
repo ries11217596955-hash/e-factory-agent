@@ -1,20 +1,23 @@
 # TASK_REPORT
 
 ## Summary
-- Updated Site Auditor V3 workflow artifact upload action from `actions/upload-artifact@v5` to `actions/upload-artifact@v6` to align with Node24-safe action runtime.
-- Preserved artifact upload behavior: artifact name, artifact path, and `if-no-files-found: error` are unchanged.
+- Updated `agents/site_auditor_v3/tests/run_and_validate.sh` to sanitize validator request inputs before running the agent wrapper.
+- Added default normalization values for placeholder/missing request fields: `target_url=https://automation-kb.pages.dev/` and `scan_profile=STANDARD`.
+- Preserved custom `REQUEST_PATH` support while adding a clean failure when non-bundled custom request files still contain placeholder tokens.
+- Added bundled-fixture-only normalization behavior so `agents/site_auditor_v3/tests/fixtures/link.request.json` can be used safely in local validation runs.
 
 ## Changed files
-- `.github/workflows/site-auditor-v3.yml`
+- `agents/site_auditor_v3/tests/run_and_validate.sh`
 - `TASK_REPORT.md`
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- Workflow entrypoint remains `.github/workflows/site-auditor-v3.yml` (`workflow_dispatch` -> `run-v3`).
-- Upload step remains `Upload V3 runpack` with artifact name `site-auditor-v3-runpack` and path `agents/site_auditor_v3/_deliver/*.zip`.
+- Validation entrypoint remains `agents/site_auditor_v3/tests/run_and_validate.sh`.
+- Agent runtime entrypoint remains `agents/site_auditor_v3/run.ps1` (invoked by the test wrapper with a resolved request path).
+- Bundled placeholder fixture path is `agents/site_auditor_v3/tests/fixtures/link.request.json` and is now normalized at runtime by the wrapper when used.
 
 ## Risks/blockers
-- No blockers encountered.
-- Validation in this environment is limited to static checks (YAML parse and file-diff scope); an actual GitHub Actions run is required to confirm live logs exclude Node.js 20 deprecation warnings and artifact upload succeeds.
+- The environment used for validation does not include `pwsh`, so full end-to-end execution cannot complete past the wrapper handoff to `run.ps1`.
+- Placeholder normalization and guard behavior were validated up to wrapper-level preflight checks; full runtime assertions require a PowerShell-capable environment.
