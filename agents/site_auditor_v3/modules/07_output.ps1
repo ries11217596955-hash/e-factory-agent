@@ -92,6 +92,34 @@ function Invoke-Module07Output {
     }
 
 
+    $fallbackDecisionAction = [ordered]@{
+        action_id = "repair_failed_module"
+        action = "repair failed module before continuing"
+        why = "pipeline stopped before decision layer"
+        target_module = if ($PipelineState.run -and $PipelineState.run.failed_module) { $PipelineState.run.failed_module } else { "unknown" }
+        source = "07_output_fail_path_fallback"
+        priority = "highest"
+        next_command_hint = "inspect failed module output in RUN_REPORT"
+    }
+
+    $safeDecisionAction = if ($PipelineState.post_build_decision -and $PipelineState.post_build_decision.decision_action) {
+        $PipelineState.post_build_decision.decision_action
+    } elseif ($PipelineState.decision -and $PipelineState.decision.decision_action) {
+        $PipelineState.decision.decision_action
+    } else {
+        $fallbackDecisionAction
+    }
+
+    $safeNextStep = if ($PipelineState.post_build_decision -and $PipelineState.post_build_decision.decision_action) {
+        $PipelineState.post_build_decision.decision_action
+    } elseif ($PipelineState.build -and $PipelineState.build.next_action) {
+        $PipelineState.build.next_action
+    } elseif ($PipelineState.decision -and $PipelineState.decision.decision_action) {
+        $PipelineState.decision.decision_action
+    } else {
+        $fallbackDecisionAction
+    }
+
     $operatorControl = [ordered]@{
         role = [ordered]@{
             who_i_am = "System Operator / Product Lead"
@@ -252,20 +280,14 @@ function Invoke-Module07Output {
         diagnostic_summary = $diag
         agent_capability_state = $cap
 
-        decision_action = if ($PipelineState.post_build_decision -and $PipelineState.post_build_decision.decision_action) { $PipelineState.post_build_decision.decision_action } else { $PipelineState.decision.decision_action }
+        decision_action = $safeDecisionAction
         execution = if ($PipelineState.execution) { $PipelineState.execution } else { $null }
           build = if ($PipelineState.build) { $PipelineState.build } else { $null }
           route_discovery_result = $routeDiscoveryResult
           task = $task
           build_truth_gate = if ($PipelineState.post_build_decision -and $PipelineState.post_build_decision.build_truth_gate) { $PipelineState.post_build_decision.build_truth_gate } else { $null }
 
-        next_step = if ($PipelineState.post_build_decision -and $PipelineState.post_build_decision.decision_action) {
-            $PipelineState.post_build_decision.decision_action
-        } elseif ($PipelineState.build -and $PipelineState.build.next_action) {
-            $PipelineState.build.next_action
-        } else {
-            $PipelineState.decision.decision_action
-        }
+        next_step = $safeNextStep
 
         forbidden_steps = @(
             "add ZIP/REPO/PROMPT before self_build is verified",
