@@ -64,7 +64,12 @@ done_gate = get(["operator_control", "function_done_gate", "required_checks"], [
 next_step = get(["next_step"], {}) or {}
 decision = get(["decision_action"], {}) or {}
 route_first = get(["route_discovery_result", "discovered_routes", 0], {}) or {}
+operator_control = get(["operator_control"], {}) or {}
+operator_control_keys = ", ".join(operator_control.keys()) if isinstance(operator_control, dict) else "MISSING"
 
+print("read_full_report:", p)
+print("full_control_book:", "RUN_REPORT.json -> operator_control")
+print("operator_control_keys:", operator_control_keys)
 print("operator_instruction:", get(["operator_instruction", "for_chatgpt"], "MISSING"))
 print("current_warning:", get(["operator_control", "current_warning"], "MISSING"))
 print("function_done_gate_checks:", len(done_gate))
