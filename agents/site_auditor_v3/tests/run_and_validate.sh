@@ -3,13 +3,104 @@ set -euo pipefail
 
 ROOT="agents/site_auditor_v3"
 RUNS="$ROOT/runs"
+DEFAULT_TARGET_URL="https://automation-kb.pages.dev/"
+DEFAULT_SCAN_PROFILE="STANDARD"
+DEFAULT_REQUEST="$ROOT/tests/fixtures/smoke.request.json"
+BUNDLED_PLACEHOLDER_FIXTURE="$ROOT/tests/fixtures/link.request.json"
+
+REQUEST_INPUT="${REQUEST_PATH:-$DEFAULT_REQUEST}"
+REQUEST_EFFECTIVE="$REQUEST_INPUT"
+TMP_REQUEST=""
+
+prepare_request() {
+  local request_path="$1"
+  local default_fixture="$2"
+  local target_url="$3"
+  local scan_profile="$4"
+
+  python3 - "$request_path" "$default_fixture" "$target_url" "$scan_profile" <<'PY'
+import json
+import os
+import sys
+import tempfile
+
+request_path = sys.argv[1]
+default_fixture = os.path.normpath(sys.argv[2])
+default_target = sys.argv[3]
+default_scan = sys.argv[4]
+
+normalized_request_path = os.path.normpath(request_path)
+if not os.path.isfile(request_path):
+    print(f"ERROR: REQUEST_PATH not found: {request_path}", file=sys.stderr)
+    sys.exit(2)
+
+with open(request_path, "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+target_url = data.get("target_url")
+scan_profile = data.get("scan_profile")
+is_target_placeholder = target_url == "__TARGET_URL__"
+is_scan_placeholder = scan_profile == "__SCAN_PROFILE__"
+
+if is_target_placeholder or is_scan_placeholder:
+    if normalized_request_path != default_fixture:
+        print(
+            "ERROR: REQUEST_PATH contains unresolved placeholders "
+            "(__TARGET_URL__ and/or __SCAN_PROFILE__). "
+            "Use real values or use the bundled default fixture.",
+            file=sys.stderr,
+        )
+        sys.exit(3)
+
+    if is_target_placeholder:
+        data["target_url"] = default_target
+    if is_scan_placeholder:
+        data["scan_profile"] = default_scan
+
+    fd, tmp_path = tempfile.mkstemp(prefix="site_auditor_v3_request_", suffix=".json")
+    os.close(fd)
+    with open(tmp_path, "w", encoding="utf-8") as out:
+        json.dump(data, out, indent=2)
+        out.write("\n")
+    print(tmp_path)
+    sys.exit(0)
+
+if target_url in (None, ""):
+    data["target_url"] = default_target
+if scan_profile in (None, ""):
+    data["scan_profile"] = default_scan
+
+if data.get("target_url") != target_url or data.get("scan_profile") != scan_profile:
+    fd, tmp_path = tempfile.mkstemp(prefix="site_auditor_v3_request_", suffix=".json")
+    os.close(fd)
+    with open(tmp_path, "w", encoding="utf-8") as out:
+        json.dump(data, out, indent=2)
+        out.write("\n")
+    print(tmp_path)
+else:
+    print(request_path)
+PY
+}
+
+REQUEST_EFFECTIVE="$(prepare_request "$REQUEST_INPUT" "$BUNDLED_PLACEHOLDER_FIXTURE" "$DEFAULT_TARGET_URL" "$DEFAULT_SCAN_PROFILE")"
+if [ "$REQUEST_EFFECTIVE" != "$REQUEST_INPUT" ]; then
+  TMP_REQUEST="$REQUEST_EFFECTIVE"
+  echo "INFO: Normalized request fixture for validator run: $REQUEST_INPUT"
+fi
+
+cleanup() {
+  if [ -n "$TMP_REQUEST" ] && [ -f "$TMP_REQUEST" ]; then
+    rm -f "$TMP_REQUEST"
+  fi
+}
+trap cleanup EXIT
 
 echo "=== CLEAN RUNS ==="
 rm -rf "$RUNS"/* 2>/dev/null || true
 
 echo "=== RUN AGENT ==="
 pwsh -NoProfile -File "$ROOT/run.ps1" \
-  -RequestPath "${REQUEST_PATH:-$ROOT/tests/fixtures/smoke.request.json}"
+  -RequestPath "$REQUEST_EFFECTIVE"
 
 echo "=== FIND LATEST RUN_REPORT ==="
 LATEST_REPORT="$(ls -1dt "$RUNS"/* 2>/dev/null | head -n1)/RUN_REPORT.json"
