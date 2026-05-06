@@ -68,13 +68,18 @@ function Invoke-Module07Output {
     $decision = if ($decisionData) { $decisionData } else { [ordered]@{ status = "NOT_RUN"; source = "07_output_fallback" } }
 
     $routeDiscoveryResult = $null
-    if ($PipelineState.execution -and $PipelineState.execution.execution_result -and $PipelineState.execution.execution_result.data) {
-        $routeDiscoveryResult = $PipelineState.execution.execution_result.data
+    $handlerPath = "agents/site_auditor_v3/modules/internal_command_handlers.ps1"
+    if (Test-Path -LiteralPath $handlerPath) {
+        . (Resolve-Path $handlerPath).Path
+        $discovery = Invoke-InternalCommand -Command @{ type="internal"; handler="route_discovery"; args=@{} } -PipelineState $PipelineState
+        if ($discovery -and $discovery.status -eq "OK") {
+            $routeDiscoveryResult = $discovery.data
+        }
     }
 
     $task = $null
-    if ($routeDiscoveryResult -and $routeDiscoveryResult.result) {
-        $task = $routeDiscoveryResult.result
+    if ($PipelineState.execution -and $PipelineState.execution.execution_result -and $PipelineState.execution.execution_result.data -and $PipelineState.execution.execution_result.data.result) {
+        $task = $PipelineState.execution.execution_result.data.result
     }
     else {
         $handlerPath = (Resolve-Path "agents/site_auditor_v3/modules/internal_command_handlers.ps1").Path

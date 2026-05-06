@@ -63,6 +63,15 @@ function Invoke-RouteAuditModule {
     $baseUrl = [string]$inputState.base_url
     $allow = @($inputState.route_allowlist)
 
+    $primaryRoute = if ($inputState.primary_route) { [string]$inputState.primary_route } else { "/" }
+    if ([string]::IsNullOrWhiteSpace($primaryRoute)) { $primaryRoute = "/" }
+    if (-not $primaryRoute.StartsWith("/")) { $primaryRoute = "/" + $primaryRoute }
+    if (($primaryRoute.Length -gt 1) -and $primaryRoute.EndsWith("/")) { $primaryRoute = $primaryRoute.TrimEnd("/") }
+
+    if ($primaryRoute -ne "/") {
+        $allow = @($primaryRoute) + @($allow | Where-Object { $_ -and ([string]$_) -ne $primaryRoute })
+    }
+
     if ($allow.Count -eq 0) {
         $allow = @("/")
     }
