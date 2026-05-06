@@ -22,7 +22,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install tools
         run: |
@@ -56,7 +56,7 @@ jobs:
           REQUEST_PATH=/tmp/v3.request.json ./agents/site_auditor_v3/tests/run_and_validate.sh
 
       - name: Upload V3 runpack
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: site-auditor-v3-runpack
           path: agents/site_auditor_v3/_deliver/*.zip
