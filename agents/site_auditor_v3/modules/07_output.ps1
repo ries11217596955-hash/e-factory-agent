@@ -226,6 +226,14 @@ function Invoke-Module07Output {
             current_stage = "RUN_REPORT_REENTRY_V1"
         }
 
+        packaging = [ordered]@{
+            mode = "RAW_RUN"
+            runpack_expected = $false
+            runpack_created = $false
+            deliverable = $null
+            note = "Direct run.ps1 execution creates RUN_REPORT/TASK only. Use tests/run_and_validate.sh for packaged runpack ZIP."
+        }
+
         mission = [ordered]@{
             goal = "input -> weak points -> evidence -> decision -> action -> next capability"
             forbidden = @("silent fail","fake PASS","decision without evidence","output inventing findings")

@@ -99,5 +99,23 @@ else
   ZIP_PATH="$DELIVER_ROOT/SITE_AUDITOR_V3_RUNPACK_${RUN_ID}.tar.gz"
 fi
 
+echo "=== UPDATE RUN_REPORT PACKAGING MODE ==="
+python3 - "$LATEST_REPORT" "$ZIP_PATH" <<'PY'
+import json, sys
+report_path, deliverable = sys.argv[1], sys.argv[2]
+with open(report_path, 'r', encoding='utf-8') as f:
+    report = json.load(f)
+report["packaging"] = {
+    "mode": "WRAPPER_RUN",
+    "runpack_expected": True,
+    "runpack_created": True,
+    "deliverable": deliverable,
+    "note": "Validation wrapper created runpack ZIP."
+}
+with open(report_path, 'w', encoding='utf-8') as f:
+    json.dump(report, f, indent=2)
+    f.write("\n")
+PY
+
 echo "DELIVERABLE=$ZIP_PATH"
 echo "PASS: END-TO-END"
