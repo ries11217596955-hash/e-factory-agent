@@ -1,10 +1,11 @@
 ## Summary
-- Added a root-level `packaging` object to RUN_REPORT generation in `07_output` so direct `run.ps1` executions are explicitly labeled as `RAW_RUN` with runpack expectation and creation both set to false.
-- Updated the validation wrapper script to rewrite RUN_REPORT packaging metadata after archive creation, marking wrapper execution as `WRAPPER_RUN` and recording the produced deliverable path.
-- Kept all changes scoped to the two requested V3 files and preserved existing run flow and validator steps.
+- Added wrapper-run artifact manifest generation to `agents/site_auditor_v3/tests/run_and_validate.sh`, producing `ARTIFACT_MANIFEST.json` in the run directory before archive creation.
+- Manifest now records run identity, run directory, wrapper packaging mode, deliverable path, produced files, expected files, missing expected files, extra files, and UTC creation timestamp.
+- Updated wrapper packaging rewrite logic so `RUN_REPORT.packaging` includes `manifest`, `produced_files_count`, and `missing_expected_files` sourced from `ARTIFACT_MANIFEST.json`.
+- Kept raw-run behavior unchanged (`RAW_RUN` remains emitted by module `07_output` and wrapper-only manifest logic remains in the test wrapper).
+- Scope remained limited to the requested wrapper script plus mandatory task report update.
 
 ## Changed files
-- `agents/site_auditor_v3/modules/07_output.ps1`
 - `agents/site_auditor_v3/tests/run_and_validate.sh`
 - `docs/TASK_REPORT.md`
 
@@ -12,10 +13,10 @@
 - None.
 
 ## Current entrypoints/paths
-- Raw run entrypoint remains `agents/site_auditor_v3/run.ps1` and now emits default packaging metadata (`RAW_RUN`) in `RUN_REPORT.json`.
-- Wrapper flow remains `agents/site_auditor_v3/tests/run_and_validate.sh`, now additionally updating `RUN_REPORT.json` packaging fields after ZIP/TAR creation.
-- RUN artifacts remain under `agents/site_auditor_v3/runs/<run_id>/`.
+- Raw run entrypoint remains `agents/site_auditor_v3/run.ps1`; raw runs continue to report `packaging.mode = RAW_RUN` and do not claim wrapper manifest creation.
+- Wrapper packaging flow remains `agents/site_auditor_v3/tests/run_and_validate.sh`; it now writes `ARTIFACT_MANIFEST.json` inside `agents/site_auditor_v3/runs/<run_id>/` before ZIP/TAR creation.
+- Deliverables remain under `agents/site_auditor_v3/_deliver/`.
 
 ## Risks/blockers
-- Runtime validation of PowerShell execution modes and validators could not be executed in this environment unless `pwsh` is available.
-- Wrapper metadata currently marks the wrapper artifact note as ZIP-oriented per requirement text, even when tar.gz fallback is used on systems without `zip`.
+- End-to-end acceptance could not be executed in this environment because `pwsh` is not installed, so wrapper-run PASS and archive content assertions were not runtime-verified here.
+- Manifest `deliverable` is computed as the ZIP target path pre-packaging; on hosts using tar fallback this path may differ from the actual deliverable file extension.

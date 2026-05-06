@@ -92,6 +92,43 @@ RUN_DIR="$(dirname "$LATEST_REPORT")"
 RUN_ID="$(basename "$RUN_DIR")"
 ZIP_PATH="$DELIVER_ROOT/SITE_AUDITOR_V3_RUNPACK_${RUN_ID}.zip"
 
+echo "=== WRITE ARTIFACT MANIFEST (WRAPPER RUN) ==="
+python3 - "$RUN_DIR" "$RUN_ID" <<'PY'
+import datetime as dt
+import json
+import os
+import sys
+
+run_dir, run_id = sys.argv[1], sys.argv[2]
+deliverable = os.path.abspath(os.path.join("agents/site_auditor_v3/_deliver", f"SITE_AUDITOR_V3_RUNPACK_{run_id}.zip"))
+expected_files = ["RUN_REPORT.json", "TASK.json"]
+
+produced_files = []
+for name in sorted(os.listdir(run_dir)):
+    full = os.path.join(run_dir, name)
+    if os.path.isfile(full):
+        produced_files.append(name)
+
+missing_expected_files = [name for name in expected_files if name not in produced_files]
+extra_files = [name for name in produced_files if name not in expected_files]
+
+manifest = {
+    "run_id": run_id,
+    "run_dir": os.path.abspath(run_dir),
+    "packaging_mode": "WRAPPER_RUN",
+    "deliverable": deliverable,
+    "produced_files": produced_files,
+    "expected_files": expected_files,
+    "missing_expected_files": missing_expected_files,
+    "extra_files": extra_files,
+    "created_at_utc": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+}
+
+with open(os.path.join(run_dir, "ARTIFACT_MANIFEST.json"), "w", encoding="utf-8") as f:
+    json.dump(manifest, f, indent=2)
+    f.write("\n")
+PY
+
 if command -v zip >/dev/null 2>&1; then
   (cd "$RUN_DIR" && zip -qr "$(cd ../../_deliver && pwd)/SITE_AUDITOR_V3_RUNPACK_${RUN_ID}.zip" .)
 else
@@ -105,11 +142,20 @@ import json, sys
 report_path, deliverable = sys.argv[1], sys.argv[2]
 with open(report_path, 'r', encoding='utf-8') as f:
     report = json.load(f)
+
+manifest_path = report_path.replace("RUN_REPORT.json", "ARTIFACT_MANIFEST.json")
+manifest = {}
+with open(manifest_path, 'r', encoding='utf-8') as f:
+    manifest = json.load(f)
+
 report["packaging"] = {
     "mode": "WRAPPER_RUN",
     "runpack_expected": True,
     "runpack_created": True,
     "deliverable": deliverable,
+    "manifest": "ARTIFACT_MANIFEST.json",
+    "produced_files_count": len(manifest.get("produced_files", [])),
+    "missing_expected_files": manifest.get("missing_expected_files", []),
     "note": "Validation wrapper created runpack ZIP."
 }
 with open(report_path, 'w', encoding='utf-8') as f:
