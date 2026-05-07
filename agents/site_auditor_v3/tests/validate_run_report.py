@@ -70,6 +70,37 @@ if isinstance(build, dict):
         sys.exit(1)
 
     gate = j.get("build_truth_gate") or {}
+    if build.get("build_status") and not gate:
+        print("FAIL: build_truth_gate missing for build_status")
+        sys.exit(1)
+
+    if gate and not isinstance(gate, dict):
+        print("FAIL: build_truth_gate must be an object")
+        sys.exit(1)
+
+    if gate and (gate.get("checked") is not True or not str(gate.get("reason", "")).strip()):
+        print("FAIL: build_truth_gate must be checked with a non-empty reason")
+        sys.exit(1)
+
+    if build.get("build_status") == "ALREADY_AVAILABLE":
+        if gate.get("passed") is not True:
+            print("FAIL: ALREADY_AVAILABLE build_truth_gate must pass")
+            sys.exit(1)
+        if not gate.get("target_file") or not gate.get("existing_function") or gate.get("mode") != "EXISTING_HANDLER":
+            print("FAIL: ALREADY_AVAILABLE build_truth_gate missing target/function/mode proof")
+            sys.exit(1)
+        if gate.get("command_available") is not True and gate.get("function_in_target") is not True:
+            print("FAIL: ALREADY_AVAILABLE existing_function not verified")
+            sys.exit(1)
+
+    if build.get("build_status") == "SKIPPED" and (gate.get("passed") is not True or gate.get("reason") != "no build task"):
+        print("FAIL: SKIPPED build_truth_gate invalid")
+        sys.exit(1)
+
+    if build.get("build_status") == "FAILED" and gate.get("passed") is not False:
+        print("FAIL: FAILED build_truth_gate must fail")
+        sys.exit(1)
+
     if (
         build.get("build_status") == "GENERATED"
         and build.get("build_recommendation")

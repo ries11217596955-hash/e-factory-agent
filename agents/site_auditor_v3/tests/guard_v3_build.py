@@ -61,4 +61,24 @@ if isinstance(build, dict):
         print("FAIL: next_action is not a compatibility alias")
         sys.exit(1)
 
+    gate = j.get("build_truth_gate") or {}
+    if build.get("build_status") and not gate:
+        print("FAIL: build_truth_gate missing")
+        sys.exit(1)
+
+    if gate and (gate.get("checked") is not True or not str(gate.get("reason", "")).strip()):
+        print("FAIL: build_truth_gate incomplete")
+        sys.exit(1)
+
+    if build.get("build_status") == "ALREADY_AVAILABLE":
+        if gate.get("passed") is not True:
+            print("FAIL: ALREADY_AVAILABLE build_truth_gate failed")
+            sys.exit(1)
+        if gate.get("mode") != "EXISTING_HANDLER":
+            print("FAIL: ALREADY_AVAILABLE build_truth_gate mode mismatch")
+            sys.exit(1)
+        if gate.get("command_available") is not True and gate.get("function_in_target") is not True:
+            print("FAIL: ALREADY_AVAILABLE existing_function not verified")
+            sys.exit(1)
+
 print("V3_BUILD_GUARD_PASS")
