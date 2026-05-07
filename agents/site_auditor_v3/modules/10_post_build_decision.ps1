@@ -6,8 +6,15 @@ function Invoke-Module10PostBuildDecision {
 
     $baseDecision = $PipelineState.decision
     $build = $PipelineState.build
+    $buildRecommendation = if ($build -and $build.build_recommendation) {
+        $build.build_recommendation
+    } elseif ($build -and $build.next_action) {
+        $build.next_action
+    } else {
+        $null
+    }
 
-    if ($build -and $build.build_status -eq "GENERATED" -and $build.next_action) {
+    if ($build -and $build.build_status -eq "GENERATED" -and $buildRecommendation) {
         $targetFile = if ($build.target_file) { [string]$build.target_file } else { "" }
         $generatedFunction = if ($build.generated_function) { [string]$build.generated_function } else { "" }
         $targetExists = (-not [string]::IsNullOrWhiteSpace($targetFile)) -and (Test-Path -LiteralPath $targetFile)
@@ -55,9 +62,9 @@ function Invoke-Module10PostBuildDecision {
         return @{
             status = "OK"
             data = @{
-                decision_action = $build.next_action
+                decision_action = $buildRecommendation
                 source = "post_build_decision"
-                reason = "build generated next action"
+                reason = "build generated recommendation"
                 build_truth_gate = @{
                     checked = $true
                     passed = $true
