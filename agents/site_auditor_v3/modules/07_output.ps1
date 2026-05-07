@@ -1,4 +1,5 @@
 . (Resolve-Path "agents/site_auditor_v3/lib/operator_control.ps1").Path
+. (Resolve-Path "agents/site_auditor_v3/lib/decision_next_step.ps1").Path
 
 function Invoke-Module07Output {
     param(
@@ -104,23 +105,9 @@ function Invoke-Module07Output {
         next_command_hint = "inspect failed module output in RUN_REPORT"
     }
 
-    $safeDecisionAction = if ($PipelineState.post_build_decision -and $PipelineState.post_build_decision.decision_action) {
-        $PipelineState.post_build_decision.decision_action
-    } elseif ($PipelineState.decision -and $PipelineState.decision.decision_action) {
-        $PipelineState.decision.decision_action
-    } else {
-        $fallbackDecisionAction
-    }
-
-    $safeNextStep = if ($PipelineState.post_build_decision -and $PipelineState.post_build_decision.decision_action) {
-        $PipelineState.post_build_decision.decision_action
-    } elseif ($PipelineState.build -and $PipelineState.build.next_action) {
-        $PipelineState.build.next_action
-    } elseif ($PipelineState.decision -and $PipelineState.decision.decision_action) {
-        $PipelineState.decision.decision_action
-    } else {
-        $fallbackDecisionAction
-    }
+    $decisionNextStep = New-SiteAuditorV3DecisionNextStepBlock -PipelineState $PipelineState -FallbackDecisionAction $fallbackDecisionAction
+    $safeDecisionAction = $decisionNextStep.decision_action
+    $safeNextStep = $decisionNextStep.next_step
 
     $operatorControl = New-SiteAuditorV3OperatorControlBlock
 
