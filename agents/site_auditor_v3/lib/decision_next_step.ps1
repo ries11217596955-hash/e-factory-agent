@@ -12,14 +12,29 @@ function New-SiteAuditorV3DecisionNextStepBlock {
         $FallbackDecisionAction
     }
 
-    $safeNextStep = if ($PipelineState.post_build_decision -and $PipelineState.post_build_decision.decision_action) {
-        $PipelineState.post_build_decision.decision_action
-    } elseif ($PipelineState.build -and $PipelineState.build.next_action) {
-        $PipelineState.build.next_action
-    } elseif ($PipelineState.decision -and $PipelineState.decision.decision_action) {
-        $PipelineState.decision.decision_action
+    $actionText = if ($safeDecisionAction -and $safeDecisionAction.action) {
+        [string]$safeDecisionAction.action
     } else {
-        $FallbackDecisionAction
+        "inspect RUN_REPORT decision_action"
+    }
+
+    $targetModule = if ($safeDecisionAction -and $safeDecisionAction.target_module) {
+        [string]$safeDecisionAction.target_module
+    } else {
+        "unknown"
+    }
+
+    $why = if ($safeDecisionAction -and $safeDecisionAction.why) {
+        [string]$safeDecisionAction.why
+    } else {
+        "decision_action selected this as the next executable action"
+    }
+
+    $safeNextStep = [ordered]@{
+        action = $actionText
+        instruction = ("{0}. Owner module: {1}. Verify evidence before closing." -f $actionText, $targetModule)
+        target_module = $targetModule
+        why = $why
     }
 
     return [ordered]@{
