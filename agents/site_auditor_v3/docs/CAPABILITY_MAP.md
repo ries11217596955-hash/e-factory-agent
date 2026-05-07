@@ -3,12 +3,12 @@
 Known now:
 - registry-driven orchestrator
 - LINK request intake
-- route stub
-- selection stub
-- capture stub
-- reconcile stub
-- decision stub
-- output packaging stub
+- route capability: STUB / TRANSITIONAL (documentation-only placeholder)
+- selection capability: STUB / TRANSITIONAL (not complete)
+- capture capability: STUB / TRANSITIONAL (not complete)
+- reconcile capability: STUB / TRANSITIONAL (not complete)
+- decision capability: STUB / TRANSITIONAL (not complete)
+- output packaging capability: STUB / TRANSITIONAL (not complete)
 
 Weak now:
 - real route discovery
@@ -27,6 +27,11 @@ Missing now:
 - suspiciously clean logic
 - benchmark layer
 - trust/risk layer
+
+## Structural Debt
+- Fallback decision action exists in `07_output.ps1`.
+- Output fail-path fallback exists.
+- This capability map is documentation truth, not runtime proof.
 
 Next capability:
 RUN_REPORT as operator re-entry file.
