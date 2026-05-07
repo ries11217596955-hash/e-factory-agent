@@ -47,4 +47,18 @@ if not isinstance(forbidden, list) or not forbidden:
     print("FAIL: forbidden_steps missing or empty")
     sys.exit(1)
 
+build = j.get("build") or {}
+if isinstance(build, dict):
+    if "decision_action" in build:
+        print("FAIL: build emitted decision_action")
+        sys.exit(1)
+
+    if build.get("next_action") and not build.get("build_recommendation"):
+        print("FAIL: build action missing build_recommendation")
+        sys.exit(1)
+
+    if build.get("next_action") and build.get("build_recommendation") != build.get("next_action"):
+        print("FAIL: next_action is not a compatibility alias")
+        sys.exit(1)
+
 print("V3_BUILD_GUARD_PASS")

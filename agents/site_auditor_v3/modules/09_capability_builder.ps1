@@ -36,6 +36,15 @@ function Invoke-Module09CapabilityBuilder {
     $functionName = "Invoke-GeneratedRouteDiscovery"
 
     if ($capId -eq "route_discovery" -and (Get-Command Invoke-RouteDiscoveryInternal -ErrorAction SilentlyContinue)) {
+        $buildRecommendation = @{
+            action_id = "advance_after_existing_capability"
+            action = "advance after existing route discovery capability"
+            why = "route_discovery already has an executable internal handler"
+            source = "build_state"
+            priority = "high"
+            target_module = "capability_discovery"
+        }
+
         return @{
             status = "OK"
             data = @{
@@ -49,14 +58,8 @@ function Invoke-Module09CapabilityBuilder {
                     target_file_exists = (Test-Path $handlerPath)
                     existing_function_found = $true
                 }
-                next_action = @{
-                    action_id = "advance_after_existing_capability"
-                    action = "advance after existing route discovery capability"
-                    why = "route_discovery already has an executable internal handler"
-                    source = "build_state"
-                    priority = "high"
-                    target_module = "capability_discovery"
-                }
+                build_recommendation = $buildRecommendation
+                next_action = $buildRecommendation
             }
         }
     }
@@ -109,6 +112,15 @@ function Invoke-GeneratedRouteDiscovery {
 }
 '@
 
+    $buildRecommendation = @{
+        action_id = "integrate_generated_capability"
+        action = "integrate generated capability"
+        why = "builder produced generated_code and target_file"
+        source = "build_state"
+        priority = "highest"
+        target_module = "capability_integration"
+    }
+
     return @{
         status = "OK"
         data = @{
@@ -123,14 +135,8 @@ function Invoke-GeneratedRouteDiscovery {
                 has_target_file = (-not [string]::IsNullOrWhiteSpace($handlerPath))
                 target_file_exists = (Test-Path $handlerPath)
             }
-            next_action = @{
-                action_id = "integrate_generated_capability"
-                action = "integrate generated capability"
-                why = "builder produced generated_code and target_file"
-                source = "build_state"
-                priority = "highest"
-                target_module = "capability_integration"
-            }
+            build_recommendation = $buildRecommendation
+            next_action = $buildRecommendation
         }
     }
 }

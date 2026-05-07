@@ -55,4 +55,29 @@ if not isinstance(forbidden, list) or not forbidden:
     print("FAIL: forbidden_steps missing or empty")
     sys.exit(1)
 
+build = j.get("build") or {}
+if isinstance(build, dict):
+    if "decision_action" in build:
+        print("FAIL: build must not emit decision_action")
+        sys.exit(1)
+
+    if build.get("next_action") and not build.get("build_recommendation"):
+        print("FAIL: build next_action missing build_recommendation")
+        sys.exit(1)
+
+    if build.get("next_action") and build.get("build_recommendation") != build.get("next_action"):
+        print("FAIL: build next_action must remain a compatibility alias of build_recommendation")
+        sys.exit(1)
+
+    gate = j.get("build_truth_gate") or {}
+    if (
+        build.get("build_status") == "GENERATED"
+        and build.get("build_recommendation")
+        and isinstance(gate, dict)
+        and gate.get("passed") is True
+        and j.get("decision_action") != build.get("build_recommendation")
+    ):
+        print("FAIL: generated build recommendation was not promoted by post_build_decision")
+        sys.exit(1)
+
 print("PASS: RUN_REPORT contract")
