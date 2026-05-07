@@ -1,23 +1,25 @@
 # TASK_REPORT
 
 ## Summary
-- Updated `agents/site_auditor_v3/docs/CAPABILITY_MAP.md` to remove false maturity language and mark capability areas as **STUB / TRANSITIONAL**.
-- Explicitly marked current transitional areas for selection, capture, reconcile, decision, and output packaging as not complete.
-- Added a `Structural Debt` section documenting fallback behavior and clarifying documentation-truth versus runtime-proof boundaries.
-- No runtime behavior or runtime files were changed.
+- Extracted the Site Auditor V3 `operator_control` ordered data-block from module output ownership code into a dedicated helper builder function.
+- Added `New-SiteAuditorV3OperatorControlBlock` in `agents/site_auditor_v3/lib/operator_control.ps1` with the same ordered structure and values as before.
+- Updated `agents/site_auditor_v3/modules/07_output.ps1` to dot-source the helper and call the builder while preserving 07_output as RUN_REPORT composer.
+- Kept RUN_REPORT shape unchanged for `operator_control` and did not alter decision, fallback, next_step, packaging, diagnostic, or self_build logic.
+- No protected paths or forbidden module files were modified.
 
 ## Changed files
-- `agents/site_auditor_v3/docs/CAPABILITY_MAP.md`
+- `agents/site_auditor_v3/modules/07_output.ps1`
+- `agents/site_auditor_v3/lib/operator_control.ps1`
 - `TASK_REPORT.md`
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- No entrypoints changed.
-- Runtime path remains `agents/site_auditor_v3/run.ps1` (unchanged; outside this task scope).
-- Capability documentation path updated: `agents/site_auditor_v3/docs/CAPABILITY_MAP.md`.
+- Entrypoint remains `agents/site_auditor_v3/run.ps1` (unchanged).
+- Output owner remains `agents/site_auditor_v3/modules/07_output.ps1` (still composes RUN_REPORT).
+- New helper path: `agents/site_auditor_v3/lib/operator_control.ps1`.
 
 ## Risks/blockers
-- This change is documentation-only; runtime capabilities remain dependent on module implementation status.
-- Capability map accuracy now explicitly reflects transitional structural debt and should be kept aligned with future runtime changes.
+- Dot-sourcing assumes `agents/site_auditor_v3/lib/operator_control.ps1` remains present and loadable at runtime.
+- Any future edits to operator control contract must be kept synchronized with RUN_REPORT consumers expecting the current shape.
