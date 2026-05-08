@@ -194,6 +194,28 @@
       "writes_final_outputs": false
     },
     {
+      "module_id": "08_route_promotion",
+      "ordinal": 7.6,
+      "enabled": true,
+      "file_path": "agents/site_auditor_v3/modules/08_route_promotion.ps1",
+      "entry_function": "Invoke-Module08RoutePromotion",
+      "depends_on": [
+        "08_route_feedback"
+      ],
+      "reads_state_paths": [
+        "route_feedback"
+      ],
+      "writes_state_paths": [
+        "route_promotion"
+      ],
+      "tool_paths": [],
+      "timeout_sec": 30,
+      "stop_on_status": [
+        "FAIL"
+      ],
+      "writes_final_outputs": false
+    },
+    {
       "module_id": "09_capability_builder",
       "ordinal": 8,
       "enabled": true,
@@ -256,7 +278,8 @@
         "decision",
         "build",
         "post_build_decision",
-        "route_feedback"
+        "route_feedback",
+        "route_promotion"
       ],
       "writes_state_paths": [
         "output"

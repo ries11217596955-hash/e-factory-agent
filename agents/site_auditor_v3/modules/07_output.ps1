@@ -202,6 +202,16 @@ function Invoke-Module07Output {
                 next_owner_module = "route_audit"
                 required_next_contract = "no route_feedback state available"
             } }
+            route_promotion = if ($PipelineState.route_promotion) { $PipelineState.route_promotion } else { [ordered]@{
+                source = "08_route_promotion"
+                promotion_applied = $false
+                reason = "no route_promotion state available"
+                promoted_route_audit = $null
+                promoted_selection = $null
+                ready_for_promoted_capture = $false
+                next_owner_module = "capture"
+                required_next_contract = "no route promotion available"
+            } }
         }
 
         diagnostic_summary = $diag

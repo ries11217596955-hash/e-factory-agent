@@ -40,6 +40,7 @@ function New-SiteAuditorV3AgentMap {
                 "06_decision" { "Evaluate verdict, score, limitations, diagnostic state"; break }
                 "08_execution" { "Translate decision action into safe execution plan/result"; break }
                 "08_route_feedback" { "Normalize execution route discovery into route feedback state"; break }
+                "08_route_promotion" { "Promote route feedback into promoted audit/selection state"; break }
                 "09_capability_builder" { "Produce build state and build recommendation only"; break }
                 "10_post_build_decision" { "Apply build truth gate and final decision action override"; break }
                 "07_output" { "Compose and write operator artifacts"; break }
