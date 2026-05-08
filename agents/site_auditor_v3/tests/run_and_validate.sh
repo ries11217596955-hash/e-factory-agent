@@ -117,6 +117,9 @@ RUN_REPORT_PATH="$LATEST_REPORT" python3 "$ROOT/tests/validate_run_report.py"
 echo "=== VALIDATE BUILD GUARD ==="
 RUN_REPORT_PATH="$LATEST_REPORT" python3 "$ROOT/tests/guard_v3_build.py"
 
+echo "=== VALIDATE ARCHITECTURE GUARD ==="
+RUN_REPORT_PATH="$LATEST_REPORT" python3 "$ROOT/tests/guard_v3_architecture.py"
+
 echo "=== VALIDATE SELF BUILD LOOP ==="
 RUN_REPORT_PATH="$LATEST_REPORT" python3 "$ROOT/tests/validate_self_build_loop.py"
 

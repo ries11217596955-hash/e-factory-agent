@@ -1,5 +1,6 @@
 . (Resolve-Path "agents/site_auditor_v3/lib/operator_control.ps1").Path
 . (Resolve-Path "agents/site_auditor_v3/lib/decision_next_step.ps1").Path
+. (Resolve-Path "agents/site_auditor_v3/lib/agent_map_builder.ps1").Path
 
 function Invoke-Module07Output {
     param(
@@ -195,6 +196,11 @@ function Invoke-Module07Output {
         diagnostic_summary = $diag
         agent_capability_state = $cap
 
+        agent_map = [ordered]@{
+            json = "AGENT_MAP.json"
+            markdown = "AGENT_MAP.md"
+        }
+
         decision_action = $safeDecisionAction
         execution = if ($PipelineState.execution) { $PipelineState.execution } else { $null }
           build = if ($PipelineState.build) { $PipelineState.build } else { $null }
@@ -212,6 +218,13 @@ function Invoke-Module07Output {
         )
     }
 
+    $agentMap = New-SiteAuditorV3AgentMap -PipelineState $PipelineState -RunRoot $runRoot
+    $agentMapJsonPath = Join-Path $runRoot "AGENT_MAP.json"
+    $agentMapMdPath = Join-Path $runRoot "AGENT_MAP.md"
+
+    $agentMap | ConvertTo-Json -Depth 20 | Set-Content -Path $agentMapJsonPath -Encoding UTF8
+    Convert-SiteAuditorV3AgentMapToMarkdown -AgentMap $agentMap | Set-Content -Path $agentMapMdPath -Encoding UTF8
+
     $reportPath = Join-Path $runRoot "RUN_REPORT.json"
     $report | ConvertTo-Json -Depth 20 | Set-Content -Path $reportPath -Encoding UTF8
 
@@ -221,5 +234,5 @@ function Invoke-Module07Output {
         $task | ConvertTo-Json -Depth 20 | Set-Content -Path $taskPath -Encoding UTF8
     }
 
-    return @{ status = "OK"; data = @{ runpack_root = $runRoot; run_report = $reportPath; task = $taskPath } }
+    return @{ status = "OK"; data = @{ runpack_root = $runRoot; run_report = $reportPath; task = $taskPath; agent_map_json = $agentMapJsonPath; agent_map_md = $agentMapMdPath } }
 }
