@@ -111,4 +111,41 @@ if isinstance(build, dict):
         print("FAIL: generated build recommendation was not promoted by post_build_decision")
         sys.exit(1)
 
+
+# Route feedback contract: if execution discovered more routes than baseline audit,
+# RUN_REPORT must expose that gap in evidence_summary.route_feedback.
+ev = j.get("evidence_summary") or {}
+rf = ev.get("route_feedback")
+execution = j.get("execution") or {}
+er = ((execution.get("execution_result") or {}).get("data") or {})
+baseline = ev.get("routes_discovered") or 0
+discovered = er.get("discovered_count") or 0
+
+try:
+    baseline_i = int(baseline)
+    discovered_i = int(discovered)
+except Exception:
+    baseline_i = 0
+    discovered_i = 0
+
+if discovered_i > baseline_i:
+    if not isinstance(rf, dict):
+        print("FAIL: evidence_summary.route_feedback missing while execution discovered more routes than route_audit")
+        sys.exit(1)
+    if rf.get("available") is not True:
+        print("FAIL: route_feedback.available must be true when execution discovered more routes than baseline")
+        sys.exit(1)
+    if int(rf.get("baseline_routes_discovered") or 0) != baseline_i:
+        print("FAIL: route_feedback.baseline_routes_discovered mismatch")
+        sys.exit(1)
+    if int(rf.get("execution_routes_discovered") or 0) != discovered_i:
+        print("FAIL: route_feedback.execution_routes_discovered mismatch")
+        sys.exit(1)
+    if len(rf.get("discovered_routes") or []) != discovered_i:
+        print("FAIL: route_feedback.discovered_routes count mismatch")
+        sys.exit(1)
+    if rf.get("next_owner_module") != "route_audit":
+        print("FAIL: route_feedback.next_owner_module must be route_audit")
+        sys.exit(1)
+
 print("PASS: RUN_REPORT contract")
