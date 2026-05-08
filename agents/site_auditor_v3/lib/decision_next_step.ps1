@@ -30,7 +30,14 @@ function New-SiteAuditorV3DecisionNextStepBlock {
         "decision_action selected this as the next executable action"
     }
 
+    $actionId = if ($safeDecisionAction -and $safeDecisionAction.action_id) {
+        [string]$safeDecisionAction.action_id
+    } else {
+        "inspect_decision_action"
+    }
+
     $safeNextStep = [ordered]@{
+        action_id = $actionId
         action = $actionText
         instruction = ("{0}. Owner module: {1}. Verify evidence before closing." -f $actionText, $targetModule)
         target_module = $targetModule
