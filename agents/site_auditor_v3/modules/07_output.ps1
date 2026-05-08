@@ -191,32 +191,17 @@ function Invoke-Module07Output {
             findings = if ($PipelineState.reconcile -and $PipelineState.reconcile.findings) { $PipelineState.reconcile.findings } else { @() }
             finding_actions = if ($PipelineState.reconcile -and $PipelineState.reconcile.finding_actions) { $PipelineState.reconcile.finding_actions } else { @() }
             visual_capture = if ($PipelineState.visual_capture) { $PipelineState.visual_capture } else { $null }
-            route_feedback = if ($PipelineState.execution -and $PipelineState.execution.execution_result -and $PipelineState.execution.execution_result.data) {
-                $er = $PipelineState.execution.execution_result.data
-                $baselineCount = if ($PipelineState.route_audit -and $PipelineState.route_audit.totals) { [int]$PipelineState.route_audit.totals.discovered } else { 0 }
-                $discoveredCount = if ($er.discovered_count) { [int]$er.discovered_count } else { 0 }
-                [ordered]@{
-                    source = "execution.route_discovery"
-                    available = ($discoveredCount -gt $baselineCount)
-                    baseline_routes_discovered = $baselineCount
-                    execution_routes_discovered = $discoveredCount
-                    rejected_routes = if ($er.rejected_count) { [int]$er.rejected_count } else { 0 }
-                    discovered_routes = @($er.discovered_routes)
-                    next_owner_module = "route_audit"
-                    required_next_contract = "promote execution.discovered_routes into route_audit.routes before selection/capture decision"
-                }
-            } else {
-                [ordered]@{
-                    source = "execution.route_discovery"
-                    available = $false
-                    baseline_routes_discovered = if ($PipelineState.route_audit -and $PipelineState.route_audit.totals) { [int]$PipelineState.route_audit.totals.discovered } else { 0 }
-                    execution_routes_discovered = 0
-                    rejected_routes = 0
-                    discovered_routes = @()
-                    next_owner_module = "route_audit"
-                    required_next_contract = "no execution route feedback available"
-                }
-            }
+            route_feedback = if ($PipelineState.route_feedback) { $PipelineState.route_feedback } else { [ordered]@{
+                source = "execution.route_discovery"
+                available = $false
+                baseline_routes_discovered = if ($PipelineState.route_audit -and $PipelineState.route_audit.totals) { [int]$PipelineState.route_audit.totals.discovered } else { 0 }
+                execution_routes_discovered = 0
+                rejected_routes = 0
+                discovered_routes = @()
+                promoted_routes = @()
+                next_owner_module = "route_audit"
+                required_next_contract = "no route_feedback state available"
+            } }
         }
 
         diagnostic_summary = $diag
