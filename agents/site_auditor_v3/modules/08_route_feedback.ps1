@@ -26,6 +26,8 @@ function Invoke-Module08RouteFeedback {
                 baseline_routes_discovered = $baselineCount
                 execution_routes_discovered = 0
                 rejected_routes = 0
+                rejected_routes_count = 0
+                rejected_route_details = @()
                 discovered_routes = @()
                 promoted_routes = @()
                 next_owner_module = "route_audit"
@@ -35,7 +37,9 @@ function Invoke-Module08RouteFeedback {
     }
 
     $discoveredCount = if ($er.discovered_count) { [int]$er.discovered_count } else { 0 }
+    $rejectedCount = if ($er.rejected_count) { [int]$er.rejected_count } else { 0 }
     $routes = @($er.discovered_routes)
+    $rejectedDetails = @($er.rejected_routes)
     $promoted = @()
     $i = 1
 
@@ -58,7 +62,9 @@ function Invoke-Module08RouteFeedback {
             available = ($discoveredCount -gt $baselineCount)
             baseline_routes_discovered = $baselineCount
             execution_routes_discovered = $discoveredCount
-            rejected_routes = if ($er.rejected_count) { [int]$er.rejected_count } else { 0 }
+            rejected_routes = $rejectedCount
+            rejected_routes_count = $rejectedCount
+            rejected_route_details = $rejectedDetails
             discovered_routes = $routes
             promoted_routes = $promoted
             next_owner_module = "route_audit"
