@@ -65,6 +65,16 @@ function Get-RouteDepth {
     return @($Path.Trim("/") -split "/" | Where-Object { $_ }).Count
 }
 
+function Test-AssetLikePath {
+    param([string]$Path)
+    if (-not $Path) { return $false }
+    $p = [string]$Path
+    if ($p -match '\.(css|js|webmanifest|png|jpg|jpeg|svg|ico|woff|woff2|gif|webp|bmp|tiff|map|pdf|zip|rar|7z|mp4|mp3|json|xml)$') { return $true }
+    if ($p -match '^/(assets?|static|images?|img|fonts?|scripts?|js|css|media|downloads?)(/|$)') { return $true }
+    if ($p -match '/(sitemap|feed)\.xml$') { return $true }
+    return $false
+}
+
 function Invoke-RouteDiscoveryInternal {
     param([Parameter(Mandatory)]$PipelineState)
 
@@ -78,26 +88,47 @@ function Invoke-RouteDiscoveryInternal {
     $hardCap = if ($PipelineState.input.hard_cap_routes) { [int]$PipelineState.input.hard_cap_routes } else { 200 }
     if ($maxRoutes -gt $hardCap) { $maxRoutes = $hardCap }
 
-    $candidates = New-Object System.Collections.ArrayList
+    $pageCandidateQueue = New-Object System.Collections.ArrayList
+    $allCandidates = New-Object System.Collections.ArrayList
+    $discoverySources = New-Object System.Collections.ArrayList
+    [void]$discoverySources.Add("baseline_candidates")
     $primaryRoute = if ($PipelineState.input.primary_route) { [string]$PipelineState.input.primary_route } else { "/" }
 
     if ($primaryRoute -and $primaryRoute -ne "/") {
-        [void]$candidates.Add($primaryRoute)
-        [void]$candidates.Add("/")
+        [void]$allCandidates.Add($primaryRoute)
+        [void]$allCandidates.Add("/")
     } else {
-        [void]$candidates.Add("/")
+        [void]$allCandidates.Add("/")
     }
+    [void]$pageCandidateQueue.Add("/")
 
     if ($PipelineState.route_audit -and $PipelineState.route_audit.routes) {
         foreach ($r in @($PipelineState.route_audit.routes)) {
-            if ($r.path) { [void]$candidates.Add([string]$r.path) }
+            if ($r.path) { [void]$allCandidates.Add([string]$r.path) }
         }
     }
+
+    $sitemapFetched = $false
+    $sitemapUri = $base + "/sitemap.xml"
+    try {
+        $sitemap = Invoke-WebRequest -Uri $sitemapUri -UseBasicParsing -TimeoutSec 10
+        $sx = [string]$sitemap.Content
+        foreach ($m in [regex]::Matches($sx, '<loc>\s*([^<]+)\s*</loc>')) {
+            $path = Normalize-InternalRoutePath -Href ([string]$m.Groups[1].Value) -BaseUri $baseUri
+            if ($path) {
+                [void]$allCandidates.Add($path)
+                [void]$pageCandidateQueue.Add($path)
+                $sitemapFetched = $true
+            }
+        }
+    } catch { }
+    if ($sitemapFetched) { [void]$discoverySources.Add("sitemap_xml") }
 
     try {
         $root = Invoke-WebRequest -Uri ($base + "/") -UseBasicParsing -TimeoutSec 10
         $html = [string]$root.Content
         $matches = [regex]::Matches($html, 'href=["'']([^"'']+)["'']')
+        $rootLinksAdded = $false
 
         foreach ($m in $matches) {
             $href = [string]$m.Groups[1].Value
@@ -106,35 +137,70 @@ function Invoke-RouteDiscoveryInternal {
 
             $depth = Get-RouteDepth -Path $path
             if ($depth -le $maxDepth) {
-                [void]$candidates.Add($path)
+                [void]$allCandidates.Add($path)
+                [void]$pageCandidateQueue.Add($path)
+                $rootLinksAdded = $true
             }
 
-            if ($candidates.Count -ge $maxRoutes) { break }
+            if ($allCandidates.Count -ge $hardCap) { break }
         }
+        if ($rootLinksAdded) { [void]$discoverySources.Add("root_links") }
     }
     catch {
         # root fetch failure is captured through route checks below
     }
 
-    $paths = @($candidates | Where-Object { $_ } | ForEach-Object {
+    $discoveryLimit = [Math]::Min($maxRoutes, $hardCap)
+    $normalizedPaths = @($allCandidates | Where-Object { $_ } | ForEach-Object {
         $p = [string]$_
         if ($p -eq "") { "/" }
         elseif ($p.StartsWith("/")) { $p }
         else { "/" + $p }
-    } | Select-Object -Unique | Select-Object -First $maxRoutes)
+    } | Select-Object -Unique)
 
-    $discovered = @()
+    $pageRoutes = @()
+    $assetRoutes = @()
     $rejected = @()
+    $visited = @{}
+    $crawlQueue = New-Object System.Collections.Queue
+    foreach ($path in @($pageCandidateQueue | Where-Object { $_ } | Select-Object -Unique)) {
+        $crawlQueue.Enqueue(@{ path = $path; depth = (Get-RouteDepth -Path $path) })
+    }
+    [void]$discoverySources.Add("recursive_internal_crawl")
 
-    foreach ($p in $paths) {
+    while ($crawlQueue.Count -gt 0 -and ($pageRoutes.Count + $assetRoutes.Count) -lt $discoveryLimit) {
+        $item = $crawlQueue.Dequeue()
+        $p = [string]$item.path
+        $depth = [int]$item.depth
+        if ($visited.ContainsKey($p)) { continue }
+        $visited[$p] = $true
+        if ($depth -gt $maxDepth) { continue }
+
+        if (Test-AssetLikePath -Path $p) {
+            $assetRoutes += @{ path = $p; url = ($base + $p); status = "ASSET_EXCLUDED" }
+            continue
+        }
         $url = $base + $p
         $check = Test-RouteUrl -Url $url
         if ($check.ok) {
-            $discovered += @{
+            $pageRoutes += @{
                 path = $p
                 url = $url
                 status = "OK"
             }
+            try {
+                $resp = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 10
+                if ($resp.Content) {
+                    foreach ($m in [regex]::Matches([string]$resp.Content, 'href=["'']([^"'']+)["'']')) {
+                        $child = Normalize-InternalRoutePath -Href ([string]$m.Groups[1].Value) -BaseUri $baseUri
+                        if (-not $child) { continue }
+                        $childDepth = Get-RouteDepth -Path $child
+                        if ($childDepth -le $maxDepth -and -not $visited.ContainsKey($child)) {
+                            $crawlQueue.Enqueue(@{ path = $child; depth = $childDepth })
+                        }
+                    }
+                }
+            } catch { }
         } else {
             $rejected += @{
                 path = $p
@@ -145,21 +211,40 @@ function Invoke-RouteDiscoveryInternal {
         }
     }
 
+    foreach ($p in $normalizedPaths) {
+        if (($pageRoutes | Where-Object { $_.path -eq $p }).Count -gt 0) { continue }
+        if (($assetRoutes | Where-Object { $_.path -eq $p }).Count -gt 0) { continue }
+        if (($rejected | Where-Object { $_.path -eq $p }).Count -gt 0) { continue }
+        if (Test-AssetLikePath -Path $p) {
+            $assetRoutes += @{ path = $p; url = ($base + $p); status = "ASSET_EXCLUDED" }
+        }
+    }
+    $truncated = (($normalizedPaths.Count -gt $discoveryLimit) -or (($pageRoutes.Count + $assetRoutes.Count) -ge $discoveryLimit))
+    $scopeStatus = if ($truncated -or $maxDepth -ge 0 -or $maxRoutes -lt $hardCap) { "PARTIAL" } else { "COMPLETE" }
+    $scopeReason = if ($truncated) { "route_discovery_limits_reached" } else { "bounded_by_configured_depth_or_limits" }
+
     return @{
         status = "OK"
         data = @{
             capability_id = "route_discovery"
             mode = "READ_ONLY"
-            source = "base_url_plus_existing_candidates_plus_root_links"
+            source = "baseline_plus_root_plus_sitemap_plus_recursive_crawl"
+            discovery_sources = @($discoverySources | Select-Object -Unique)
+            scope_status = $scopeStatus
+            scope_reason = $scopeReason
             scan_profile = $scanProfile
-            discovery_limit = $maxRoutes
+            discovery_limit = $discoveryLimit
             max_depth = $maxDepth
             hard_cap_routes = $hardCap
-            truncated = ($candidates.Count -gt $paths.Count)
-            checked_count = $paths.Count
-            discovered_count = $discovered.Count
+            truncated = $truncated
+            checked_count = $visited.Keys.Count
+            discovered_count = $pageRoutes.Count
+            pages_discovered_count = $pageRoutes.Count
+            assets_excluded_count = $assetRoutes.Count
             rejected_count = $rejected.Count
-            discovered_routes = $discovered
+            page_routes = $pageRoutes
+            asset_routes = $assetRoutes
+            discovered_routes = $pageRoutes
             rejected_routes = $rejected
         }
     }

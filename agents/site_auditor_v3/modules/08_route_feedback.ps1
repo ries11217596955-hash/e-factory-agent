@@ -37,13 +37,16 @@ function Invoke-Module08RouteFeedback {
     }
 
     $discoveredCount = if ($er.discovered_count) { [int]$er.discovered_count } else { 0 }
+    $pagesDiscoveredCount = if ($null -ne $er.pages_discovered_count) { [int]$er.pages_discovered_count } else { $discoveredCount }
+    $assetsExcludedCount = if ($null -ne $er.assets_excluded_count) { [int]$er.assets_excluded_count } else { 0 }
     $rejectedCount = if ($er.rejected_count) { [int]$er.rejected_count } else { 0 }
-    $routes = @($er.discovered_routes)
+    $pageRoutes = if ($er.page_routes) { @($er.page_routes) } else { @($er.discovered_routes) }
+    $assetRoutes = if ($er.asset_routes) { @($er.asset_routes) } else { @() }
     $rejectedDetails = @($er.rejected_routes)
     $promoted = @()
     $i = 1
 
-    foreach ($r in $routes) {
+    foreach ($r in $pageRoutes) {
         if (-not $r.path -or -not $r.url) { continue }
         $promoted += [ordered]@{
             route_id = ("R{0:D3}" -f $i)
@@ -60,12 +63,20 @@ function Invoke-Module08RouteFeedback {
         data = [ordered]@{
             source = "execution.route_discovery"
             available = ($discoveredCount -gt $baselineCount)
+            discovery_sources = if ($er.discovery_sources) { @($er.discovery_sources) } else { @("baseline_candidates") }
+            scope_status = if ($er.scope_status) { [string]$er.scope_status } else { "PARTIAL" }
+            scope_reason = if ($er.scope_reason) { [string]$er.scope_reason } else { "scope_truth_unavailable" }
             baseline_routes_discovered = $baselineCount
             execution_routes_discovered = $discoveredCount
+            checked_count = if ($null -ne $er.checked_count) { [int]$er.checked_count } else { 0 }
+            pages_discovered_count = $pagesDiscoveredCount
+            assets_excluded_count = $assetsExcludedCount
             rejected_routes = $rejectedCount
             rejected_routes_count = $rejectedCount
             rejected_route_details = $rejectedDetails
-            discovered_routes = $routes
+            asset_route_details = $assetRoutes
+            page_route_details = $pageRoutes
+            discovered_routes = $pageRoutes
             promoted_routes = $promoted
             next_owner_module = "route_audit"
             required_next_contract = "promote route_feedback.promoted_routes into route_audit.routes before selection/capture decision"
