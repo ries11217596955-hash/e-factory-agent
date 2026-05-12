@@ -1,23 +1,20 @@
 ## Summary
-Implemented PROMOTED_ROUTE_CONSUMPTION_PACK v0.1 by introducing a pre-audit route bootstrap discovery path and a canonical audit selection handoff so capture/reconcile/decision share one route truth source.
+- Attempted hardening patch for AUDIT_SESSION_LEDGER_PACK v0.1.
+- Blocked: repository does not contain `agents/site_auditor_v2/` runtime or any AUDIT_SESSION_LEDGER/NEXT_BATCH/FINAL_SUMMARY implementation to patch.
+- Confirmed only active runtime in this checkout is `agents/site_auditor_v3/`.
+- No runtime logic changes were made to avoid out-of-scope speculative refactor.
 
 ## Changed files
-- agents/site_auditor_v3/contracts/module_registry.json
-- agents/site_auditor_v3/modules/03_5_route_bootstrap.ps1
-- agents/site_auditor_v3/modules/03_7_audit_selection.ps1
-- agents/site_auditor_v3/modules/06_decision.ps1
-- agents/site_auditor_v3/modules/07_output.ps1
-- agents/site_auditor_v3/modules/08_route_feedback.ps1
+- docs/TASK_REPORT.md (updated with blocker report)
 
 ## Moved files/folders
 - None.
 
 ## Current entrypoints/paths
-- Entrypoint unchanged: `agents/site_auditor_v3/run.ps1`
-- Pre-audit route discovery bootstrap now executes via `03_5_route_bootstrap`.
-- Canonical audit selection now finalized in `03_7_audit_selection` before `04_capture`.
-- Post-decision `08_execution` remains in pipeline for action-driven execution/capability workflow.
+- Active entrypoint present: `agents/site_auditor_v3/run.ps1`.
+- Expected target path from request is absent: `agents/site_auditor_v2/`.
 
 ## Risks/blockers
-- No blocker encountered.
-- Residual risk: external discovery source variability may still change promoted set sizes across targets; canonical routing now guarantees consistency across capture/reconcile/decision for whichever promoted/baseline set is selected.
+- Hard blocker: requested patch targets unavailable code paths and symbols (`AUDIT_SESSION_LEDGER_PACK`, `START/NEXT/FINAL_SUMMARY`, `audit_session` ledger fields) that do not exist in this branch.
+- Risk of unsafe change if attempting to retrofit these semantics into unrelated v3 modules without explicit scope approval.
+- Need operator to provide the branch/repo that contains AUDIT_SESSION_LEDGER_PACK v0.1 or explicitly authorize porting this behavior into v3.
