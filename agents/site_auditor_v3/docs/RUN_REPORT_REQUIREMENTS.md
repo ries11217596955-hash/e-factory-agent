@@ -20,9 +20,22 @@ It must include:
 - capability state
 - one next step
 - forbidden steps
+- operator control / re-entry guidance
+- tool recommendation for the next move
+- reason for that tool recommendation
+
+Tool recommendation must be explicit enough to answer:
+- should the next move be terminal/runtime verification?
+- should it be a direct local patch?
+- should it be a bounded Codex task?
+- should execution stop until artifacts are inspected?
+
+If the next move depends on the Windows execution contour, RUN_REPORT should point the operator to:
+- `agents/site_auditor_v3/docs/EXECUTION_CONTOUR.md`
 
 It must not:
 - invent findings
 - hide weak coverage
 - replace evidence files
 - become a vague summary
+- claim a tool is appropriate without a stated reason
