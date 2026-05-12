@@ -6,7 +6,7 @@ function Invoke-Module06Decision {
         [Parameter(Mandatory)]$InputData
     )
 
-    $routes = if ($PipelineState.route_audit) { [int]$PipelineState.route_audit.totals.discovered } else { 0 }
+    $routes = if ($PipelineState.selection -and $PipelineState.selection.totals) { [int]$PipelineState.selection.totals.selected } else { 0 }
     $captures = if ($PipelineState.capture) { [int]$PipelineState.capture.totals.succeeded } else { 0 }
 
     $verdict = "PASS"

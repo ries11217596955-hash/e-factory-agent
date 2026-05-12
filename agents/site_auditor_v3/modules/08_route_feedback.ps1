@@ -4,6 +4,7 @@ function Invoke-Module08RouteFeedback {
         [Parameter(Mandatory)]$InputData
     )
 
+        $bootstrapExecution = $InputData.bootstrap_execution
     $execution = $InputData.execution
     $routeAudit = if ($PipelineState.route_audit) { $PipelineState.route_audit } else { $null }
 
@@ -13,7 +14,10 @@ function Invoke-Module08RouteFeedback {
     }
 
     $er = $null
-    if ($execution -and $execution.execution_result -and $execution.execution_result.data) {
+    if ($bootstrapExecution -and $bootstrapExecution.execution_result -and $bootstrapExecution.execution_result.data) {
+        $er = $bootstrapExecution.execution_result.data
+    }
+    elseif ($execution -and $execution.execution_result -and $execution.execution_result.data) {
         $er = $execution.execution_result.data
     }
 
@@ -21,7 +25,7 @@ function Invoke-Module08RouteFeedback {
         return @{
             status = "OK"
             data = [ordered]@{
-                source = "execution.route_discovery"
+                source = "bootstrap.route_discovery"
                 available = $false
                 baseline_routes_discovered = $baselineCount
                 execution_routes_discovered = 0
@@ -53,7 +57,7 @@ function Invoke-Module08RouteFeedback {
             path = [string]$r.path
             url = [string]$r.url
             eligible = $true
-            source = "execution.route_discovery"
+            source = "bootstrap.route_discovery"
         }
         $i++
     }
@@ -61,7 +65,7 @@ function Invoke-Module08RouteFeedback {
     return @{
         status = "OK"
         data = [ordered]@{
-            source = "execution.route_discovery"
+            source = "bootstrap.route_discovery"
             available = ($discoveredCount -gt $baselineCount)
             discovery_sources = if ($er.discovery_sources) { @($er.discovery_sources) } else { @("baseline_candidates") }
             scope_status = if ($er.scope_status) { [string]$er.scope_status } else { "PARTIAL" }

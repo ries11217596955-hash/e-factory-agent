@@ -71,13 +71,37 @@
       "writes_final_outputs": false
     },
     {
+      "module_id": "03_5_route_bootstrap",
+      "ordinal": 3.5,
+      "enabled": true,
+      "file_path": "agents/site_auditor_v3/modules/03_5_route_bootstrap.ps1",
+      "entry_function": "Invoke-Module035RouteBootstrap",
+      "depends_on": [
+        "03_selection"
+      ],
+      "reads_state_paths": [
+        "input",
+        "route_audit",
+        "selection"
+      ],
+      "writes_state_paths": [
+        "bootstrap_execution"
+      ],
+      "tool_paths": [],
+      "timeout_sec": 60,
+      "stop_on_status": [
+        "FAIL"
+      ],
+      "writes_final_outputs": false
+    },
+    {
       "module_id": "04_capture",
       "ordinal": 4,
       "enabled": true,
       "file_path": "agents/site_auditor_v3/modules/04_capture.ps1",
       "entry_function": "Invoke-Module04Capture",
       "depends_on": [
-        "03_selection"
+        "03_7_audit_selection"
       ],
       "reads_state_paths": [
         "input",
@@ -178,9 +202,10 @@
       "file_path": "agents/site_auditor_v3/modules/08_route_feedback.ps1",
       "entry_function": "Invoke-Module08RouteFeedback",
       "depends_on": [
-        "08_execution"
+        "03_5_route_bootstrap"
       ],
       "reads_state_paths": [
+        "bootstrap_execution",
         "execution"
       ],
       "writes_state_paths": [
@@ -207,6 +232,29 @@
       ],
       "writes_state_paths": [
         "route_promotion"
+      ],
+      "tool_paths": [],
+      "timeout_sec": 30,
+      "stop_on_status": [
+        "FAIL"
+      ],
+      "writes_final_outputs": false
+    },
+    {
+      "module_id": "03_7_audit_selection",
+      "ordinal": 3.7,
+      "enabled": true,
+      "file_path": "agents/site_auditor_v3/modules/03_7_audit_selection.ps1",
+      "entry_function": "Invoke-Module037AuditSelection",
+      "depends_on": [
+        "08_route_promotion"
+      ],
+      "reads_state_paths": [
+        "selection",
+        "route_promotion"
+      ],
+      "writes_state_paths": [
+        "selection"
       ],
       "tool_paths": [],
       "timeout_sec": 30,
