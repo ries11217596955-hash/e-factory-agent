@@ -2,6 +2,9 @@ import json
 import os
 import sys
 from pathlib import Path
+import re
+
+ASSET_RE = re.compile(r"\.(css|js|webmanifest|png|jpg|jpeg|svg|ico|woff|woff2|gif)$", re.I)
 
 def resolve_report_path():
     if len(sys.argv) >= 2:
@@ -146,6 +149,31 @@ if discovered_i > baseline_i:
         sys.exit(1)
     if rf.get("next_owner_module") != "route_audit":
         print("FAIL: route_feedback.next_owner_module must be route_audit")
+        sys.exit(1)
+
+if isinstance(rf, dict):
+    ds = rf.get("discovery_sources") or []
+    if not isinstance(ds, list) or not ds:
+        print("FAIL: route_feedback.discovery_sources must be a non-empty list")
+        sys.exit(1)
+    if rf.get("scope_status") not in ("COMPLETE", "PARTIAL"):
+        print("FAIL: route_feedback.scope_status invalid")
+        sys.exit(1)
+    page_details = rf.get("page_route_details") or []
+    asset_details = rf.get("asset_route_details") or []
+    if page_details and int(rf.get("pages_discovered_count") or 0) != len(page_details):
+        print("FAIL: pages_discovered_count mismatch against page_route_details")
+        sys.exit(1)
+    if asset_details and int(rf.get("assets_excluded_count") or 0) != len(asset_details):
+        print("FAIL: assets_excluded_count mismatch against asset_route_details")
+        sys.exit(1)
+    for pr in rf.get("promoted_routes") or []:
+        path = str(pr.get("path") or "")
+        if ASSET_RE.search(path) or path.endswith("/sitemap.xml") or path.endswith("/feed.xml"):
+            print("FAIL: promoted_routes contains asset/feed path:", path)
+            sys.exit(1)
+    if bool(er.get("truncated")) and rf.get("scope_status") != "PARTIAL":
+        print("FAIL: truncated discovery must report PARTIAL scope")
         sys.exit(1)
 
 print("PASS: RUN_REPORT contract")

@@ -16,6 +16,7 @@ function Invoke-Module08RoutePromotion {
     if ($feedback -and $feedback.promoted_routes) {
         $promotedRoutes = @($feedback.promoted_routes)
     }
+    $assetsExcludedCount = if ($feedback -and $null -ne $feedback.assets_excluded_count) { [int]$feedback.assets_excluded_count } else { 0 }
 
     $usePromotion = ($feedback -and $feedback.available -eq $true -and $promotedRoutes.Count -gt $baselineRoutes.Count)
 
@@ -27,6 +28,7 @@ function Invoke-Module08RoutePromotion {
         routes = $routesForAudit
         routes_original = $baselineRoutes
         routes_promoted_count = $promotedRoutes.Count
+        assets_excluded_count = $assetsExcludedCount
         routes_baseline_count = $baselineRoutes.Count
         totals = [ordered]@{
             discovered = $routesForAudit.Count
