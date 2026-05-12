@@ -94,7 +94,8 @@ function New-SiteAuditorV3AgentMap {
             "07_output does not own next_step shape",
             "09_capability_builder does not emit decision_action",
             "build_truth_gate required when build_status exists",
-            "module registry is SSOT for module order and state reads/writes"
+            "module registry is SSOT for module order and state reads/writes",
+            "build capability packs, not one-off isolated checks or one module per finding type"
         )
         runpack_links = [ordered]@{
             run_report = "RUN_REPORT.json"
@@ -104,12 +105,14 @@ function New-SiteAuditorV3AgentMap {
             artifact_manifest = "ARTIFACT_MANIFEST.json"
         }
         operator_reminder = [ordered]@{
-            rule = "Choose one bottleneck. Patch only owner module. Verify with wrapper and guards."
+            rule = "Choose one bottleneck. Patch only owner module. Build capability packs, not one-off checks. Verify with wrapper and guards."
             forbidden = @(
                 "blind refactor",
                 "feature before structural guard",
                 "claim DONE without runtime proof",
-                "manual module map edits"
+                "manual module map edits",
+                "new module for every isolated finding type",
+                "one-parameter-at-a-time auditor construction when a capability pack is required"
             )
         }
     }
@@ -149,6 +152,13 @@ function Convert-SiteAuditorV3AgentMapToMarkdown {
     $lines.Add("## Protected architecture rules")
     foreach ($r in @($AgentMap.protected_architecture_rules)) {
         $lines.Add("- $r")
+    }
+    $lines.Add("")
+    $lines.Add("## Operator reminder")
+    $lines.Add("- rule: $($AgentMap.operator_reminder.rule)")
+    $lines.Add("- forbidden:")
+    foreach ($f in @($AgentMap.operator_reminder.forbidden)) {
+        $lines.Add("  - $f")
     }
     return ($lines -join [Environment]::NewLine)
 }

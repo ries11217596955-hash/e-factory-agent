@@ -147,8 +147,22 @@ function Invoke-Module07Output {
             forbidden = @("silent fail","fake PASS","decision without evidence","output inventing findings")
         }
 
+        build_discipline = [ordered]@{
+            rule = "Build capability packs, not one-off isolated checks."
+            means = @(
+                "A single finding is a signal to strengthen an existing owner layer or a whole rule pack.",
+                "Do not create a new module for every finding type.",
+                "When a capability class is clear, design the pack path: evidence -> findings -> actions -> validator -> report."
+            )
+            forbidden = @(
+                "one-parameter-at-a-time auditor construction as the default mode",
+                "module proliferation for isolated symptoms",
+                "micro-patching a single check when the owner gap is a whole capability class"
+            )
+        }
+
         operator_instruction = [ordered]@{
-            for_chatgpt = "Read this RUN_REPORT.json first. Do not guess. Use read_order, if_problem_then_read, and operator_control.function_done_gate. Choose one bottleneck and one next step. Do not close any step until function_done_gate is satisfied."
+            for_chatgpt = "Read this RUN_REPORT.json first. Do not guess. Use read_order, if_problem_then_read, operator_control.function_done_gate, and build_discipline. Choose one bottleneck and one next step. Do not close any step until function_done_gate is satisfied. Build capability packs, not one-off checks."
             for_agent = "Return a usable result or a diagnostic. Declare missing capability instead of pretending."
             for_owner = "This file explains what happened, what to read, what to do next, and which Function Done-Gate checks must pass before a step is closed."
         }
