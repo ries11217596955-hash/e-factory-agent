@@ -95,15 +95,17 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "=== CLEAN RUNS ==="
-rm -rf "$RUNS"/* 2>/dev/null || true
+echo "=== CLEAN RUNS (PRESERVE SESSIONS) ==="
+mkdir -p "$RUNS"
+find "$RUNS" -mindepth 1 -maxdepth 1 ! -name "sessions" -exec rm -rf {} + 2>/dev/null || true
 
 echo "=== RUN AGENT ==="
 pwsh -NoProfile -File "$ROOT/run.ps1" \
   -RequestPath "$REQUEST_EFFECTIVE"
 
 echo "=== FIND LATEST RUN_REPORT ==="
-LATEST_REPORT="$(ls -1dt "$RUNS"/* 2>/dev/null | head -n1)/RUN_REPORT.json"
+LATEST_RUN_DIR="$(ls -1dt "$RUNS"/*/ 2>/dev/null | grep -v '/sessions/$' | head -n1)"
+LATEST_REPORT="${LATEST_RUN_DIR%/}/RUN_REPORT.json"
 if [ ! -f "$LATEST_REPORT" ]; then
   echo "FAIL: RUN_REPORT not created"
   exit 1
