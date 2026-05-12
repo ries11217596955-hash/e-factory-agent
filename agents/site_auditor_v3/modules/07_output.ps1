@@ -243,6 +243,17 @@ function Invoke-Module07Output {
             } }
         }
 
+        audit_session = [ordered]@{
+            session_id = if ($PipelineState.selection -and $PipelineState.selection.session_id) { [string]$PipelineState.selection.session_id } else { $null }
+            audit_action = if ($PipelineState.selection -and $PipelineState.selection.audit_action) { [string]$PipelineState.selection.audit_action } else { "START" }
+            batch_size = if ($PipelineState.selection -and $null -ne $PipelineState.selection.batch_size) { [int]$PipelineState.selection.batch_size } else { 250 }
+            batch_audited_count = if ($PipelineState.selection -and $PipelineState.selection.totals) { [int]$PipelineState.selection.totals.selected } else { 0 }
+            total_audited_count = 0
+            total_pending_count = 0
+            coverage_percent = 0
+            next_action = "NEXT_BATCH"
+        }
+
         diagnostic_summary = $diag
         agent_capability_state = $cap
 
@@ -266,6 +277,37 @@ function Invoke-Module07Output {
             "add screenshots before output contract is stable",
             "claim PASS beyond current baseline evidence"
         )
+    }
+
+    if ($PipelineState.selection -and $PipelineState.selection.session_ledger_path) {
+        $ledgerPath = [string]$PipelineState.selection.session_ledger_path
+        if (Test-Path -LiteralPath $ledgerPath) {
+            $ledger = Get-Content -Path $ledgerPath -Raw | ConvertFrom-Json -AsHashtable
+            $batchUrls = @($PipelineState.selection.selected | ForEach-Object { [string]$_.url })
+            foreach ($u in $batchUrls) {
+                if ($ledger.audited_urls -notcontains $u) { $ledger.audited_urls += $u }
+                $ledger.pending_urls = @($ledger.pending_urls | Where-Object { $_ -ne $u })
+            }
+            $batchId = "batch-" + ([string](@($ledger.completed_batch_ids).Count + 1).PadLeft(3,'0'))
+            $ledger.completed_batch_ids += $batchId
+            $ledger.last_completed_run_id = $runId
+            if ($PipelineState.decision -and $PipelineState.decision.finding_counts) {
+                foreach ($k in @("critical","high","medium","low")) {
+                    $ledger.aggregate_findings[$k] = [int]$ledger.aggregate_findings[$k] + [int]$PipelineState.decision.finding_counts[$k]
+                }
+            }
+            if ([int]$ledger.inventory_url_count -gt 0) {
+                $ledger.coverage_percent = [math]::Round((@($ledger.audited_urls).Count * 100.0) / [int]$ledger.inventory_url_count, 2)
+            }
+            $ledger.next_action = if (@($ledger.pending_urls).Count -eq 0) { "FINAL_SUMMARY" } elseif ($PipelineState.run.execution_status -eq "FAIL") { "STOP_NEEDS_REPAIR" } else { "NEXT_BATCH" }
+            $ledger | ConvertTo-Json -Depth 30 | Set-Content -Path $ledgerPath -Encoding UTF8
+
+            $report.audit_session.total_audited_count = @($ledger.audited_urls).Count
+            $report.audit_session.total_pending_count = @($ledger.pending_urls).Count
+            $report.audit_session.coverage_percent = $ledger.coverage_percent
+            $report.audit_session.next_action = [string]$ledger.next_action
+            $report.audit_session.aggregate_findings = $ledger.aggregate_findings
+        }
     }
 
     $agentMap = New-SiteAuditorV3AgentMap -PipelineState $PipelineState -RunRoot $runRoot

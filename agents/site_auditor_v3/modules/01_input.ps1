@@ -6,15 +6,20 @@ function Invoke-InputModule {
 
     $request = $InputData.request
     $targetUrl = [string]$request.target_url
-    $scanProfileRaw = if ($request.scan_profile) { [string]$request.scan_profile } else { "STANDARD" }
-    $scanProfile = $scanProfileRaw.Trim().ToUpperInvariant()
-
-    if ($scanProfile -notin @("STANDARD", "DEEP")) {
-        return @{ status = "FAIL"; data = @{ error_code = "INPUT_INVALID_SCAN_PROFILE"; error_message = "scan_profile must be STANDARD or DEEP" } }
+    $auditActionRaw = if ($request.audit_action) { [string]$request.audit_action } else { "START" }
+    $auditAction = $auditActionRaw.Trim().ToUpperInvariant()
+    if ($auditAction -notin @("START", "NEXT", "FINAL_SUMMARY")) {
+        return @{ status = "FAIL"; data = @{ error_code = "INPUT_INVALID_AUDIT_ACTION"; error_message = "audit_action must be START, NEXT, or FINAL_SUMMARY" } }
     }
 
-    $maxRoutes = if ($scanProfile -eq "DEEP") { 150 } else { 50 }
-    $maxDepth = if ($scanProfile -eq "DEEP") { 3 } else { 2 }
+    $batchSize = 250
+    if ($null -ne $request.batch_size -and [int]$request.batch_size -gt 0) {
+        $batchSize = [int]$request.batch_size
+    }
+    if ($batchSize -gt 250) { $batchSize = 250 }
+
+    $autoAudit = $false
+    if ($null -ne $request.auto_audit) { $autoAudit = [bool]$request.auto_audit }
 
     if ([string]::IsNullOrWhiteSpace($targetUrl)) {
         return @{ status = "FAIL"; data = @{ error_code = "INPUT_EMPTY"; error_message = "target_url is required" } }
@@ -46,10 +51,14 @@ function Invoke-InputModule {
         data = @{
             target_url = $normalizedTargetUrl
             base_url = ($uri.Scheme + "://" + $uri.Authority)
-            scan_profile = $scanProfile
-            max_routes = $maxRoutes
-            max_depth = $maxDepth
+            scan_profile = "BATCH"
+            max_routes = 50
+            max_depth = 2
             hard_cap_routes = 200
+            audit_action = $auditAction
+            auto_audit = $autoAudit
+            batch_size = $batchSize
+            session_id = if ($request.session_id) { [string]$request.session_id } else { $null }
 
             route_allowlist = @(
                 foreach ($r in @($request.route_allowlist)) { $r }
