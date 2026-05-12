@@ -170,12 +170,17 @@ Every task must end with:
 
 ## Active AGENTOPS line
 
-Primary active runtime:
-- agents/site_auditor_v2/
+Current AGENTOPS build/test focus:
+- `agents/site_auditor_v3/`
+- current development contour = session-ledger / long-run audit orchestration
+
+Retained older runtime line:
+- `agents/site_auditor_v2/`
+- retained in-repo, but not the current AGENTOPS build/test focus
 
 Architecture rule:
-- agent.ps1 = orchestrator only
-- logic must stay in modules/
+- `run.ps1` / orchestrator = execution coordinator only
+- owner logic must stay in modules/ or lib/
 
 Repair flow:
 run → inspect → isolate → patch → test → commit
@@ -184,6 +189,46 @@ Forbidden:
 - blind CI edits
 - broad refactor
 - legacy paths as active
+---
+
+## Operator / tool role matrix
+
+### ChatGPT / operator assistant
+Use for:
+- artifact interpretation
+- bottleneck choice
+- decision and next action selection
+- writing Codex tasks when Codex is actually needed
+
+Do not use as a truth source without artifacts.
+
+### Codex
+Use only when:
+- root cause is known
+- target file/function/contract is known
+- acceptance criteria are explicit
+- the patch is better delegated than directly applied through the terminal
+
+Do not use Codex for broad investigation, vague debugging, or deterministic micro-patches that are safer to apply directly.
+
+### CodeSpace / terminal execution lane
+Use for:
+- runtime verification
+- wrapper execution
+- diagnostics
+- local diff/status checks
+- artifact generation and evidence confirmation
+
+Terminal output is runtime evidence; it is not a substitute for RUN_REPORT/runpack truth.
+
+### Agent
+Use when:
+- execution is required
+- evidence/report/runpack must be produced
+
+Agent must produce a usable result or a diagnostic artifact.
+Silent failure is product failure.
+
 ---
 
 ## Runtime truth discipline
@@ -201,8 +246,21 @@ RUN_REPORT must remind the operator:
 - goal: Traffic -> Decision -> Action -> Monetization
 - rule: artifact truth over memory
 - workflow: run -> inspect -> isolate -> patch -> test -> commit
-- architecture: agent.ps1 is orchestrator; module-owned logic stays under modules/ or lib/
+- architecture: orchestrator coordinates; module-owned logic stays under modules/ or lib/
 
 If RUN_REPORT contradicts physical artifacts, artifact consistency is the next bottleneck.
 Do not patch business logic until report truth is aligned.
 
+---
+
+## Execution contour reference
+
+For the current Windows operator contour, use:
+- `agents/site_auditor_v3/docs/EXECUTION_CONTOUR.md`
+
+This file defines:
+- PowerShell role
+- Git Bash wrapper role
+- Python analysis role
+- Node / capture role
+- the local guard against invoking the wrong `bash` implementation
