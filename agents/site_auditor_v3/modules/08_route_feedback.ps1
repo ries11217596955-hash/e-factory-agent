@@ -73,11 +73,11 @@ function Invoke-Module08RouteFeedback {
             assets_excluded_count = $assetsExcludedCount
             rejected_routes = $rejectedCount
             rejected_routes_count = $rejectedCount
-            rejected_route_details = $rejectedDetails
-            asset_route_details = $assetRoutes
-            page_route_details = $pageRoutes
-            discovered_routes = $pageRoutes
-            promoted_routes = $promoted
+            rejected_route_details = @($rejectedDetails)
+            asset_route_details = @($assetRoutes)
+            page_route_details = @($pageRoutes)
+            discovered_routes = @($pageRoutes)
+            promoted_routes = @($promoted)
             next_owner_module = "route_audit"
             required_next_contract = "promote route_feedback.promoted_routes into route_audit.routes before selection/capture decision"
         }
