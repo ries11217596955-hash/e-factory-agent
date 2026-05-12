@@ -131,11 +131,11 @@ function Invoke-Module05Reconcile {
         }
     }
 
-    if ($PipelineState.route_audit.totals.discovered -le 1) {
+    if ($selected.Count -le 1) {
         $findings += @{
             type = "medium"
             code = "LOW_ROUTE_COVERAGE"
-            message = "Only one route discovered"
+            message = "Only one audit route selected"
         }
     }
 

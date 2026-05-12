@@ -95,6 +95,73 @@
       "writes_final_outputs": false
     },
     {
+      "module_id": "08_route_feedback",
+      "ordinal": 3.6,
+      "enabled": true,
+      "file_path": "agents/site_auditor_v3/modules/08_route_feedback.ps1",
+      "entry_function": "Invoke-Module08RouteFeedback",
+      "depends_on": [
+        "03_5_route_bootstrap"
+      ],
+      "reads_state_paths": [
+        "bootstrap_execution"
+      ],
+      "writes_state_paths": [
+        "route_feedback"
+      ],
+      "tool_paths": [],
+      "timeout_sec": 30,
+      "stop_on_status": [
+        "FAIL"
+      ],
+      "writes_final_outputs": false
+    },
+    {
+      "module_id": "08_route_promotion",
+      "ordinal": 3.65,
+      "enabled": true,
+      "file_path": "agents/site_auditor_v3/modules/08_route_promotion.ps1",
+      "entry_function": "Invoke-Module08RoutePromotion",
+      "depends_on": [
+        "08_route_feedback"
+      ],
+      "reads_state_paths": [
+        "route_feedback"
+      ],
+      "writes_state_paths": [
+        "route_promotion"
+      ],
+      "tool_paths": [],
+      "timeout_sec": 30,
+      "stop_on_status": [
+        "FAIL"
+      ],
+      "writes_final_outputs": false
+    },
+    {
+      "module_id": "03_7_audit_selection",
+      "ordinal": 3.7,
+      "enabled": true,
+      "file_path": "agents/site_auditor_v3/modules/03_7_audit_selection.ps1",
+      "entry_function": "Invoke-Module037AuditSelection",
+      "depends_on": [
+        "08_route_promotion"
+      ],
+      "reads_state_paths": [
+        "selection",
+        "route_promotion"
+      ],
+      "writes_state_paths": [
+        "selection"
+      ],
+      "tool_paths": [],
+      "timeout_sec": 30,
+      "stop_on_status": [
+        "FAIL"
+      ],
+      "writes_final_outputs": false
+    },
+    {
       "module_id": "04_capture",
       "ordinal": 4,
       "enabled": true,
@@ -194,74 +261,6 @@
       ],
       "module_id": "08_execution",
       "ordinal": 7
-    },
-    {
-      "module_id": "08_route_feedback",
-      "ordinal": 7.5,
-      "enabled": true,
-      "file_path": "agents/site_auditor_v3/modules/08_route_feedback.ps1",
-      "entry_function": "Invoke-Module08RouteFeedback",
-      "depends_on": [
-        "03_5_route_bootstrap"
-      ],
-      "reads_state_paths": [
-        "bootstrap_execution",
-        "execution"
-      ],
-      "writes_state_paths": [
-        "route_feedback"
-      ],
-      "tool_paths": [],
-      "timeout_sec": 30,
-      "stop_on_status": [
-        "FAIL"
-      ],
-      "writes_final_outputs": false
-    },
-    {
-      "module_id": "08_route_promotion",
-      "ordinal": 7.6,
-      "enabled": true,
-      "file_path": "agents/site_auditor_v3/modules/08_route_promotion.ps1",
-      "entry_function": "Invoke-Module08RoutePromotion",
-      "depends_on": [
-        "08_route_feedback"
-      ],
-      "reads_state_paths": [
-        "route_feedback"
-      ],
-      "writes_state_paths": [
-        "route_promotion"
-      ],
-      "tool_paths": [],
-      "timeout_sec": 30,
-      "stop_on_status": [
-        "FAIL"
-      ],
-      "writes_final_outputs": false
-    },
-    {
-      "module_id": "03_7_audit_selection",
-      "ordinal": 3.7,
-      "enabled": true,
-      "file_path": "agents/site_auditor_v3/modules/03_7_audit_selection.ps1",
-      "entry_function": "Invoke-Module037AuditSelection",
-      "depends_on": [
-        "08_route_promotion"
-      ],
-      "reads_state_paths": [
-        "selection",
-        "route_promotion"
-      ],
-      "writes_state_paths": [
-        "selection"
-      ],
-      "tool_paths": [],
-      "timeout_sec": 30,
-      "stop_on_status": [
-        "FAIL"
-      ],
-      "writes_final_outputs": false
     },
     {
       "module_id": "09_capability_builder",

@@ -34,6 +34,8 @@ function New-SiteAuditorV3AgentMap {
                 "01_input" { "Normalize request into input state"; break }
                 "02_route_audit" { "Discover and qualify routes"; break }
                 "03_selection" { "Select audit targets"; break }
+                "03_5_route_bootstrap" { "Run pre-audit route scope discovery bootstrap"; break }
+                "03_7_audit_selection" { "Finalize canonical audit selection from baseline or promoted routes"; break }
                 "04_capture" { "Capture structured route evidence"; break }
                 "08_visual_capture" { "Capture visual/html signals"; break }
                 "05_reconcile" { "Reconcile evidence into findings/actions"; break }
