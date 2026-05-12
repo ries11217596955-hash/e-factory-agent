@@ -197,6 +197,11 @@ function Invoke-Module07Output {
         evidence_summary = [ordered]@{
             routes_discovered = if ($PipelineState.route_audit) { $PipelineState.route_audit.totals.discovered } else { 0 }
             routes_selected = if ($PipelineState.selection) { $PipelineState.selection.totals.selected } else { 0 }
+            baseline_selection_count = if ($PipelineState.selection -and $null -ne $PipelineState.selection.baseline_selection_count) { [int]$PipelineState.selection.baseline_selection_count } else { if ($PipelineState.selection) { [int]$PipelineState.selection.totals.selected } else { 0 } }
+            promoted_selection_count = if ($PipelineState.selection -and $null -ne $PipelineState.selection.promoted_selection_count) { [int]$PipelineState.selection.promoted_selection_count } else { 0 }
+            audit_selection_source = if ($PipelineState.selection -and $PipelineState.selection.audit_selection_source) { [string]$PipelineState.selection.audit_selection_source } else { "baseline_selection" }
+            capture_requested_count = if ($PipelineState.capture) { [int]$PipelineState.capture.totals.requested } else { 0 }
+            route_coverage_truth = if ($PipelineState.selection) { [ordered]@{ selected_routes = [int]$PipelineState.selection.totals.selected; coverage_rows = if ($PipelineState.reconcile) { @($PipelineState.reconcile.coverage).Count } else { 0 } } } else { $null }
             captures_requested = if ($PipelineState.capture) { $PipelineState.capture.totals.requested } else { 0 }
             captures_succeeded = if ($PipelineState.capture) { $PipelineState.capture.totals.succeeded } else { 0 }
             coverage_status = if ($PipelineState.reconcile) { $PipelineState.reconcile.status } else { "NOT_RUN" }
