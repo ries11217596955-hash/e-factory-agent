@@ -5,8 +5,13 @@ Purpose:
 - separate canonical source files from quarantined legacy material
 - keep the repository root non-mixed and predictable
 
-Current active agents:
-- SITE_AUDITOR_V2 — agents/site_auditor_v2/
+Current AGENTOPS build/test focus:
+- `SITE_AUDITOR_V3` — `agents/site_auditor_v3/`
+- Current development contour: session-ledger / long-run audit orchestration.
+
+Retained older agent line:
+- `SITE_AUDITOR_V2` — `agents/site_auditor_v2/`
+- Retained in-repo, but not the current AGENTOPS build/test focus.
 
 Support / legacy agents:
 - `GH_BATCH`
