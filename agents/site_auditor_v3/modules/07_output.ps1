@@ -288,7 +288,8 @@ function Invoke-Module07Output {
                 if ($ledger.audited_urls -notcontains $u) { $ledger.audited_urls += $u }
                 $ledger.pending_urls = @($ledger.pending_urls | Where-Object { $_ -ne $u })
             }
-            $batchId = "batch-" + ([string](@($ledger.completed_batch_ids).Count + 1).PadLeft(3,'0'))
+            $batchOrdinal = @($ledger.completed_batch_ids).Count + 1
+            $batchId = "batch-" + ([string]$batchOrdinal).PadLeft(3,'0')
             $ledger.completed_batch_ids += $batchId
             $ledger.last_completed_run_id = $runId
             if ($PipelineState.decision -and $PipelineState.decision.finding_counts) {
