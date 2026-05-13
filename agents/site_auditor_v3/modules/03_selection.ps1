@@ -53,6 +53,7 @@ function Invoke-SelectionModule {
         status = "OK"
         data = @{
             selected = $selected
+            selected_urls = @($selectedUrls)
             rejected = @()
             totals = @{
                 selected = $selected.Count
