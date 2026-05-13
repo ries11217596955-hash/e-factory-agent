@@ -15,6 +15,31 @@ on:
         options:
           - STANDARD
           - DEEP
+      audit_action:
+        description: "Audit session action"
+        required: true
+        default: "START"
+        type: choice
+        options:
+          - START
+          - NEXT
+          - FINAL_SUMMARY
+      session_id:
+        description: "Existing session ID for NEXT or FINAL_SUMMARY; leave blank for START"
+        required: false
+        default: ""
+      batch_size:
+        description: "Batch size, capped by agent at 250"
+        required: true
+        default: "250"
+      auto_audit:
+        description: "Enable automatic audit continuation policy"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 jobs:
   run-v3:
@@ -33,6 +58,10 @@ jobs:
         env:
           TARGET_URL: ${{ github.event.inputs.target_url }}
           SCAN_PROFILE: ${{ github.event.inputs.scan_profile }}
+          AUDIT_ACTION: ${{ github.event.inputs.audit_action }}
+          SESSION_ID: ${{ github.event.inputs.session_id }}
+          BATCH_SIZE: ${{ github.event.inputs.batch_size }}
+          AUTO_AUDIT: ${{ github.event.inputs.auto_audit }}
         run: |
           python3 - <<'PY'
           import json
@@ -45,6 +74,27 @@ jobs:
           data = json.loads(src.read_text())
           data["target_url"] = os.environ["TARGET_URL"]
           data["scan_profile"] = os.environ.get("SCAN_PROFILE") or "STANDARD"
+          data["audit_action"] = (os.environ.get("AUDIT_ACTION") or "START").strip().upper()
+
+          session_id = (os.environ.get("SESSION_ID") or "").strip()
+          data["session_id"] = session_id or None
+
+          raw_batch_size = (os.environ.get("BATCH_SIZE") or "250").strip()
+          try:
+              parsed_batch_size = int(raw_batch_size)
+          except ValueError as exc:
+              raise SystemExit(f"Invalid BATCH_SIZE: {raw_batch_size!r}") from exc
+          if parsed_batch_size <= 0:
+              raise SystemExit(f"Invalid BATCH_SIZE: {raw_batch_size!r}; expected positive integer")
+          data["batch_size"] = parsed_batch_size
+
+          auto_audit = (os.environ.get("AUTO_AUDIT") or "false").strip().lower()
+          if auto_audit not in {"true", "false"}:
+              raise SystemExit(f"Invalid AUTO_AUDIT: {auto_audit!r}; expected true or false")
+          data["auto_audit"] = auto_audit == "true"
+
+          if data["audit_action"] in {"NEXT", "FINAL_SUMMARY"} and not data["session_id"]:
+              raise SystemExit("session_id is required when audit_action is NEXT or FINAL_SUMMARY")
 
           dst.write_text(json.dumps(data, indent=2) + "\n")
           print(dst.read_text())
@@ -59,5 +109,5 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: site-auditor-v3-runpack
-          path: agents/site_auditor_v3/_deliver/*.zip
+          path: agents/site_auditor_v3/_deliver/*
           if-no-files-found: error
