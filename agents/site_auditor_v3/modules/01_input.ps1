@@ -52,9 +52,9 @@ function Invoke-InputModule {
             target_url = $normalizedTargetUrl
             base_url = ($uri.Scheme + "://" + $uri.Authority)
             scan_profile = "BATCH"
-            max_routes = 50
+            max_routes = 5000
             max_depth = 2
-            hard_cap_routes = 200
+            hard_cap_routes = 5000
             audit_action = $auditAction
             auto_audit = $autoAudit
             batch_size = $batchSize
