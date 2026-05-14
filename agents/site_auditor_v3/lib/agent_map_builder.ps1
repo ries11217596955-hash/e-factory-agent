@@ -140,9 +140,9 @@ function New-SiteAuditorV3AgentMap {
         },
         [ordered]@{
             capability_id = "session_aggregation_and_finalization"
-            status = "IMPLEMENTED_PENDING_RUNTIME_PROOF"
+            status = "ACTIVE_PROVEN_HOSTED_FULL"
             owner = "session finalization engine + runtime/workflow entrypoints"
-            summary = "Completed audit sessions are transformed into a stream-aware aggregate model, final operator report, final action plan, and findings index, with FINALIZED session-state publication."
+            summary = "Completed audit sessions are transformed into a stream-aware aggregate model, final operator report, final action plan, and findings index, with FINALIZED session-state publication. Hosted FULL workflow proof confirmed the contour end-to-end."
             evidence = @(
                 "agents/site_auditor_v3/lib/session_finalization.ps1",
                 "agents/site_auditor_v3/tools/finalize_session.ps1",
@@ -151,13 +151,14 @@ function New-SiteAuditorV3AgentMap {
                 "agents/site_auditor_v3/run.ps1",
                 "agents/site_auditor_v3/tests/run_and_validate.sh",
                 "agents/site_auditor_v3/tools/workflow_full_loop.py",
-                "agents/site_auditor_v3/tools/workflow_session_state.py"
+                "agents/site_auditor_v3/tools/workflow_session_state.py",
+                "hosted FULL artifact: FINALIZATION_VALIDATION=PASS, SESSION_STATE_STATUS=FINALIZED, FULL_LOOP_STATUS=COMPLETED"
             )
         }
     )
 
     return [ordered]@{
-        schema_version = "1.2.0"
+        schema_version = "1.2.1"
         artifact = "AGENT_MAP"
         run_id = if ($PipelineState.run -and $PipelineState.run.run_id) { $PipelineState.run.run_id } else { "unknown" }
         product_scope = "Universal audit engine; website LINK is current execution lane only"
