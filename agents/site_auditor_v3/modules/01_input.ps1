@@ -8,8 +8,8 @@ function Invoke-InputModule {
     $targetUrl = [string]$request.target_url
     $auditActionRaw = if ($request.audit_action) { [string]$request.audit_action } else { "START" }
     $auditAction = $auditActionRaw.Trim().ToUpperInvariant()
-    if ($auditAction -notin @("START", "NEXT", "FINAL_SUMMARY")) {
-        return @{ status = "FAIL"; data = @{ error_code = "INPUT_INVALID_AUDIT_ACTION"; error_message = "audit_action must be START, NEXT, or FINAL_SUMMARY" } }
+    if ($auditAction -notin @("START", "NEXT")) {
+        return @{ status = "FAIL"; data = @{ error_code = "INPUT_INVALID_AUDIT_ACTION"; error_message = "audit_action must be START or NEXT; completed-session finalization is automatic" } }
     }
 
     $batchSize = 250
