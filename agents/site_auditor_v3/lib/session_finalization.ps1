@@ -45,7 +45,7 @@ function Get-SiteAuditorV3PriorityRank {
 function Get-SiteAuditorV3TopFindingGroups {
     param([Parameter(Mandatory)][object[]]$Findings)
 
-    $groups = @($Findings | Group-Object -Property code | Sort-Object Count -Descending, Name)
+    $groups = @($Findings | Group-Object -Property code | Sort-Object @{ Expression = { -1 * [int]$_.Count }; Ascending = $true }, @{ Expression = { [string]$_.Name }; Ascending = $true })
     $result = @()
 
     foreach ($group in $groups) {
