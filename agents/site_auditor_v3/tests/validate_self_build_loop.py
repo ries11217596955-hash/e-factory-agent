@@ -38,6 +38,26 @@ if "pages_discovered_count" not in data and "discovered_count" not in data:
 if "rejected_routes" in data and not isinstance(data.get("rejected_routes"), list):
     errors.append("rejected_routes invalid shape")
 
+self_build = j.get("agent_capability_state") or j.get("self_build") or {}
+task = j.get("task") or {}
+next_capability = self_build.get("next_capability_to_build")
+task_capability = task.get("capability_id")
+
+if not next_capability:
+    errors.append("next_capability_to_build missing")
+elif task_capability != next_capability:
+    errors.append(
+        f"TASK capability drift: task.capability_id={task_capability!r} "
+        f"!= next_capability_to_build={next_capability!r}"
+    )
+
+if next_capability == "capability_discovery":
+    if task.get("task_type") != "DISCOVER_CAPABILITY":
+        errors.append("capability_discovery task_type must be DISCOVER_CAPABILITY")
+    expected_output = task.get("expected_output") or {}
+    if expected_output.get("state_key") != "capability_discovery":
+        errors.append("capability_discovery expected_output.state_key mismatch")
+
 if errors:
     print("FAIL: SELF_BUILD_LOOP_V1:", errors)
     sys.exit(1)
