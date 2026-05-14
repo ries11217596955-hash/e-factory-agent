@@ -1,12 +1,6 @@
 node_modules/
-agents/site_auditor_v2/output/
-agents/site_auditor_v2/screenshots/
-agents/site_auditor_v2/*.json
-agents/site_auditor_v2/*.txt
-REPORT_EN.txt
-REPORT_RU.txt
 .devcontainer/
 
 agents/site_auditor_v3/runs/
-
 agents/site_auditor_v3/_deliver/
+agents/site_auditor_v3/_session_state/

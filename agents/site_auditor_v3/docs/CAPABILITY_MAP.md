@@ -1,82 +1,72 @@
-# CAPABILITY_MAP
+# CAPABILITY_MAP — SITE_AUDITOR_V3
 
-## Active capability contour
+## Current proven capabilities
 
-### 1. Registry-driven runtime
-- `run.ps1` executes the module registry as the runtime SSOT.
-- Modules own business logic; the entrypoint coordinates only.
+### 1. Operator run modes
+- GitHub Actions exposes:
+  - `START`
+  - `NEXT`
+  - `FULL`
 
-### 2. Long-run audit orchestration
-- Operator modes: `START`, `NEXT`, `FULL`.
-- Session ledger: `runs/sessions/<session_id>/AUDIT_SESSION_LEDGER.json`.
-- Bounded batch auditing: inventory first, then audit in batches of up to 250 routes.
-- Hosted session restore from unified GitHub artifact.
+### 2. Session-ledger orchestration
+- START creates a scoped audit session.
+- NEXT restores the matching open session automatically.
+- FULL starts or resumes a session and advances it until completion.
 
-### 3. Inventory / route truth
-- Route discovery inventory feeds both report truth and session ledger truth.
-- Output must not re-crawl live routes during report composition.
-- Coverage parity is enforced as session truth, not inferred from a later crawl.
+### 3. Unified artifact truth
+One artifact carries:
+- `RUN_REPORT.json`
+- `AGENT_MAP.json`
+- `AGENT_MAP.md`
+- `TASK.json`
+- `SESSION_STATE.json`
+- session ledger truth
+- artifact manifest / packaging truth
 
-### 4. Unified report artifact
-- One hosted artifact contains:
-  - `RUN_REPORT.json`
-  - `TASK.json`
-  - `AGENT_MAP.json`
-  - `AGENT_MAP.md`
-  - `ARTIFACT_MANIFEST.json`
-  - `SESSION_STATE.json`
-  - `LATEST_RUN_REPORT.json`
-  - `sessions/<session_id>/AUDIT_SESSION_LEDGER.json`
-- The manifest and `RUN_REPORT.packaging` must reflect the actual uploaded payload.
+### 4. Inventory before batching
+- route inventory is discovered before audit batching
+- audit batches are capped separately from discovery scope
+- current batch model = up to 250 pages per bounded pass
 
-### 5. Session aggregation and finalization
-- Completed audit sessions are not left at a placeholder `FINAL_SUMMARY` state.
-- Finalization builds a stream-aware aggregation layer over the completed ledger.
-- Contract source: `contracts/session_aggregation_contract.json`.
-- Runtime owner: `tools/finalize_session.ps1` + `lib/session_finalization.ps1`.
+### 5. Inventory/report truth alignment
+- `RUN_REPORT.route_discovery_result`
+- session ledger inventory
+- audit continuation state
 
-Finalized-session outputs:
+must describe the same session truth.
+
+### 6. Generated agent map
+`AGENT_MAP` is generated from current runtime/contracts and exposes:
+- module topology
+- system capabilities
+- runtime session snapshot
+
+### 7. Session aggregation and finalization
+Completed audit sessions now finalize automatically after 100% coverage.
+
+Finalization layer produces:
 - `SESSION_AGGREGATE.json`
 - `FINAL_OPERATOR_REPORT.md`
 - `FINAL_ACTION_PLAN.json`
 - `FINAL_FINDINGS_INDEX.json`
 
-Finalization behavior:
-- allowed only when pending inventory = 0;
-- blocked when terminal batch failed;
-- session state transitions to `FINALIZED`;
-- next operator action becomes `REVIEW_FINAL_OPERATOR_REPORT`;
-- aggregation discloses future declared streams that do not yet have registered aggregators.
+Finalized session truth:
+- `SESSION_STATE.status = FINALIZED`
+- `RUN_REPORT.finalization.status = FINALIZED`
+- next operator action = `REVIEW_FINAL_OPERATOR_REPORT`
 
-### 6. Future stream compatibility
-The aggregation layer treats reporting growth as streams, not ad hoc reports.
-Currently supported streams:
-- coverage truth;
-- cumulative findings;
-- remediation actions;
-- batch execution history.
+Aggregation is stream-aware, not a one-off summary. Current streams:
+- coverage truth
+- cumulative findings
+- remediation actions
+- batch execution history
 
-Future reporting streams must plug into the same aggregation contract instead of creating isolated final-summary surfaces.
+Future reporting streams must attach to the same aggregation model instead of creating isolated final-summary outputs.
 
-## Current operator truth files
-Read in this order for a completed hosted run:
-1. `RUN_REPORT.json`
-2. `SESSION_AGGREGATE.json`
-3. `FINAL_OPERATOR_REPORT.md`
-4. `FINAL_ACTION_PLAN.json`
-5. `FINAL_FINDINGS_INDEX.json`
-6. `AGENT_MAP.json`
-7. `ARTIFACT_MANIFEST.json`
+## Still open product layer
+The next major product layer is no longer basic orchestration or finalization.
+It is the repair/execution layer that consumes `FINAL_ACTION_PLAN.json`, followed later by cross-session comparison and benchmark layers.
 
-## Still missing after this layer
-- New analytical stream families beyond the current session streams.
-- Repair execution layer driven by `FINAL_ACTION_PLAN.json`.
-- Cross-session trend / comparison layer.
-- Benchmark layer.
-
-## Structural guard
-Do not regress to:
-- one-off `FINAL_SUMMARY` shortcut files;
-- final verdicts built from only the last batch;
-- artifact self-description that diverges from the uploaded payload;
-- future reports that bypass the session aggregation contract.
+## Guard
+This map is a current capability summary.
+Runtime PASS/FAIL still belongs to artifacts and validator output.
