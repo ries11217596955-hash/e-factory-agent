@@ -137,15 +137,31 @@ function New-SiteAuditorV3AgentMap {
             evidence = @(
                 "agents/site_auditor_v3/modules/07_output.ps1"
             )
+        },
+        [ordered]@{
+            capability_id = "session_aggregation_and_finalization"
+            status = "ACTIVE"
+            owner = "session finalization engine + runtime/workflow entrypoints"
+            summary = "Completed audit sessions are transformed into a stream-aware aggregate model, final operator report, final action plan, and findings index, with FINALIZED session-state publication."
+            evidence = @(
+                "agents/site_auditor_v3/lib/session_finalization.ps1",
+                "agents/site_auditor_v3/tools/finalize_session.ps1",
+                "agents/site_auditor_v3/contracts/session_aggregation_contract.json",
+                "agents/site_auditor_v3/tests/validate_session_finalization.py",
+                "agents/site_auditor_v3/run.ps1",
+                "agents/site_auditor_v3/tests/run_and_validate.sh",
+                "agents/site_auditor_v3/tools/workflow_full_loop.py",
+                "agents/site_auditor_v3/tools/workflow_session_state.py"
+            )
         }
     )
 
     return [ordered]@{
-        schema_version = "1.1.0"
+        schema_version = "1.2.0"
         artifact = "AGENT_MAP"
         run_id = if ($PipelineState.run -and $PipelineState.run.run_id) { $PipelineState.run.run_id } else { "unknown" }
         product_scope = "Universal audit engine; website LINK is current execution lane only"
-        agent_loop = "input -> inventory truth -> batch audit -> evidence -> decision -> session/artifact -> next loop"
+        agent_loop = "input -> inventory truth -> batch audit -> evidence -> decision -> session aggregation/finalization -> next loop"
         registry_source = $registryPath
         entrypoint = $registry.entrypoint_path
         module_count = @($modules).Count
@@ -157,6 +173,7 @@ function New-SiteAuditorV3AgentMap {
             pending_after_selection = $sessionPending
             route_scope_status = $routeScopeStatus
             discovered_page_routes = $routeDiscovered
+            finalization_owner = "tools/finalize_session.ps1"
         }
         current_bottleneck = $currentBottleneck
         protected_architecture_rules = @(
@@ -167,7 +184,8 @@ function New-SiteAuditorV3AgentMap {
             "module registry is SSOT for module order and state reads/writes",
             "build capability packs, not one-off isolated checks or one module per finding type",
             "operator session continuity must be visible in report artifacts and AGENT_MAP",
-            "output must reuse already-produced discovery truth, not re-crawl live routes during report composition"
+            "output must reuse already-produced discovery truth, not re-crawl live routes during report composition",
+            "session finalization must aggregate through report streams and disclose future unaggregated streams instead of collapsing into a one-off summary"
         )
         runpack_links = [ordered]@{
             run_report = "RUN_REPORT.json"
@@ -178,6 +196,10 @@ function New-SiteAuditorV3AgentMap {
             session_state = "SESSION_STATE.json"
             latest_run_report = "LATEST_RUN_REPORT.json"
             ledger_root = "sessions/<session_id>/AUDIT_SESSION_LEDGER.json"
+            session_aggregate = "SESSION_AGGREGATE.json"
+            final_operator_report = "FINAL_OPERATOR_REPORT.md"
+            final_action_plan = "FINAL_ACTION_PLAN.json"
+            final_findings_index = "FINAL_FINDINGS_INDEX.json"
         }
         operator_reminder = [ordered]@{
             rule = "Choose one bottleneck. Patch only owner module. Build capability packs, not one-off checks. Verify with wrapper and guards."
@@ -187,7 +209,8 @@ function New-SiteAuditorV3AgentMap {
                 "claim DONE without runtime proof",
                 "manual module map edits",
                 "new module for every isolated finding type",
-                "one-parameter-at-a-time auditor construction when a capability pack is required"
+                "one-parameter-at-a-time auditor construction when a capability pack is required",
+                "single-report FINAL_SUMMARY shortcuts that bypass stream-aware session aggregation"
             )
         }
     }
@@ -211,6 +234,7 @@ function Convert-SiteAuditorV3AgentMapToMarkdown {
     $lines.Add("- pending_after_selection: $($AgentMap.runtime_session_snapshot.pending_after_selection)")
     $lines.Add("- route_scope_status: $($AgentMap.runtime_session_snapshot.route_scope_status)")
     $lines.Add("- discovered_page_routes: $($AgentMap.runtime_session_snapshot.discovered_page_routes)")
+    $lines.Add("- finalization_owner: $($AgentMap.runtime_session_snapshot.finalization_owner)")
     $lines.Add("")
     $lines.Add("## Current bottleneck")
     $lines.Add("- owner_module: $($AgentMap.current_bottleneck.owner_module)")
