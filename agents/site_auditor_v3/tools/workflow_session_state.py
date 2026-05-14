@@ -10,7 +10,7 @@ It provides:
 - START guard: block a new START when an unfinished session already exists for the same URL.
 - NEXT restore: recover one matching open session from prior workflow artifacts.
 - FULL resolve: either restore one matching open session or declare that FULL must begin from a fresh START.
-- Session publish: prepare resumable state artifacts after successful START/NEXT/FULL batch runs.
+- Session publish: prepare resumable/finalized state artifacts after successful START/NEXT/FULL runs.
 """
 
 from __future__ import annotations
@@ -28,12 +28,18 @@ import urllib.request
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, NoReturn
 
 SESSION_ARTIFACT_PREFIX = "site-auditor-v3-session-state"
 SESSION_STATE_FILE = "SESSION_STATE.json"
 LATEST_RUN_REPORT_FILE = "LATEST_RUN_REPORT.json"
 REPO_RUNS_SESSIONS = Path("agents/site_auditor_v3/runs/sessions")
+FINAL_ARTIFACT_KEYS = {
+    "session_aggregate": "SESSION_AGGREGATE.json",
+    "final_operator_report": "FINAL_OPERATOR_REPORT.md",
+    "final_action_plan": "FINAL_ACTION_PLAN.json",
+    "final_findings_index": "FINAL_FINDINGS_INDEX.json",
+}
 
 
 class SessionStateError(RuntimeError):
@@ -55,7 +61,7 @@ class SessionArtifact:
     state: dict[str, Any]
 
 
-def fail(code: str, message: str) -> "NoReturn":
+def fail(code: str, message: str) -> NoReturn:
     print(f"SAFE_STOP_CODE={code}", file=sys.stderr)
     print(message, file=sys.stderr)
     raise SystemExit(2)
@@ -131,14 +137,7 @@ def _download_redirect_target(redirect_url: str) -> bytes:
 
 
 def api_bytes(url: str, token: str) -> bytes:
-    """Download a workflow artifact ZIP through GitHub's signed redirect flow.
-
-    GitHub's artifact endpoint returns a temporary redirect to object storage. The
-    authenticated GitHub request must use GITHUB_TOKEN, but the second request to
-    the signed object-storage URL must be made without the GitHub Authorization
-    header. urllib's default redirect behavior obscures that split and caused the
-    Actions NEXT/FULL restore path to fail with Azure XML 401 responses.
-    """
+    """Download a workflow artifact ZIP through GitHub's signed redirect flow."""
 
     request = urllib.request.Request(
         url,
@@ -332,13 +331,17 @@ def restore_next(args: argparse.Namespace) -> int:
         fail(exc.code, exc.message)
 
     open_sessions = [item for item in latest if item.status == "OPEN" and item.pending_count > 0]
-    completed_sessions = [item for item in latest if item.pending_count <= 0 or item.status in {"READY_FOR_FINAL", "COMPLETED"}]
+    completed_sessions = [
+        item
+        for item in latest
+        if item.pending_count <= 0 or item.status in {"READY_FOR_FINAL", "FINALIZED", "COMPLETED"}
+    ]
 
     if not open_sessions:
         if completed_sessions:
             fail(
                 "SESSION_ALREADY_COMPLETED",
-                "No unfinished audit session exists for this URL. The latest matching session already has no pending pages. Run START for a new audit.",
+                "No unfinished audit session exists for this URL. The latest matching session is already completed/finalized. Run START for a new audit.",
             )
         fail(
             "NO_OPEN_SESSION_FOR_URL",
@@ -397,7 +400,7 @@ def resolve_full(args: argparse.Namespace) -> int:
         )
 
     if not open_sessions:
-        print(f"FULL_ENTRY_ACTION=START")
+        print("FULL_ENTRY_ACTION=START")
         print(f"FULL_TARGET_URL={normalized_target}")
         write_github_output(
             args.github_output,
@@ -414,7 +417,7 @@ def resolve_full(args: argparse.Namespace) -> int:
     chosen = open_sessions[0]
     ledger_target = restore_ledger_from_artifact(chosen)
 
-    print(f"FULL_ENTRY_ACTION=NEXT")
+    print("FULL_ENTRY_ACTION=NEXT")
     print(f"FULL_RESTORED_SESSION_ID={chosen.session_id}")
     print(f"FULL_RESTORED_PENDING_COUNT={chosen.pending_count}")
     print(f"FULL_RESTORED_LEDGER={ledger_target.as_posix()}")
@@ -432,6 +435,16 @@ def resolve_full(args: argparse.Namespace) -> int:
     return 0
 
 
+def _final_artifacts_from_report(report: dict[str, Any]) -> dict[str, str]:
+    finalization = report.get("finalization") or {}
+    artifacts = finalization.get("artifacts") or {}
+    return {
+        key: str(artifacts.get(key) or "")
+        for key in FINAL_ARTIFACT_KEYS
+        if str(artifacts.get(key) or "")
+    }
+
+
 def publish_state(args: argparse.Namespace) -> int:
     try:
         normalized_target = normalize_target_url(args.target_url)
@@ -444,6 +457,7 @@ def publish_state(args: argparse.Namespace) -> int:
 
     report = json.loads(report_path.read_text(encoding="utf-8"))
     audit_session = report.get("audit_session") or {}
+    finalization = report.get("finalization") or {}
     session_id = str(audit_session.get("session_id") or "")
     if not session_id:
         fail("SESSION_ID_MISSING", "RUN_REPORT.audit_session.session_id is missing")
@@ -454,9 +468,11 @@ def publish_state(args: argparse.Namespace) -> int:
 
     ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
     pending_count = len(ledger.get("pending_urls") or [])
-    status = "OPEN" if pending_count > 0 else "READY_FOR_FINAL"
+    finalization_status = str(finalization.get("status") or ledger.get("finalization_status") or "")
+    status = "OPEN" if pending_count > 0 else ("FINALIZED" if finalization_status == "FINALIZED" else "READY_FOR_FINAL")
     scope_key = scope_key_for_target(normalized_target)
     artifact_name = session_artifact_name(scope_key, session_id)
+    final_artifacts = _final_artifacts_from_report(report)
 
     out_dir = Path(args.out_dir)
     if out_dir.exists():
@@ -468,7 +484,7 @@ def publish_state(args: argparse.Namespace) -> int:
     shutil.copy2(report_path, state_root / LATEST_RUN_REPORT_FILE)
 
     state = {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "artifact_name": artifact_name,
         "scope_key": scope_key,
         "normalized_target_url": normalized_target,
@@ -482,6 +498,8 @@ def publish_state(args: argparse.Namespace) -> int:
         "run_id": str(report.get("run_id") or ""),
         "ledger_relative_path": f"sessions/{session_id}/AUDIT_SESSION_LEDGER.json",
         "latest_run_report": LATEST_RUN_REPORT_FILE,
+        "finalization_status": finalization_status or None,
+        "final_artifacts": final_artifacts,
     }
     (state_root / SESSION_STATE_FILE).write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
 
@@ -489,6 +507,7 @@ def publish_state(args: argparse.Namespace) -> int:
     print(f"SESSION_STATE_ARTIFACT_PATH={state_root.as_posix()}")
     print(f"SESSION_STATE_STATUS={status}")
     print(f"SESSION_STATE_PENDING_COUNT={pending_count}")
+    print(f"SESSION_STATE_FINALIZATION_STATUS={finalization_status or 'NOT_FINALIZED'}")
 
     write_github_output(
         args.github_output,
@@ -497,6 +516,7 @@ def publish_state(args: argparse.Namespace) -> int:
             "artifact_path": state_root.as_posix(),
             "session_status": status,
             "pending_count": str(pending_count),
+            "finalization_status": finalization_status or "NOT_FINALIZED",
         },
     )
     return 0

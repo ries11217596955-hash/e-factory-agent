@@ -38,11 +38,9 @@ function Invoke-Module037AuditSelection {
         }
     }
 
-    $selectedRoutes = if ($action -eq "FINAL_SUMMARY") {
-        @()
-    } else {
-        @($inventoryRoutes | Where-Object { $selectedUrls -contains [string]$_.url })
-    }
+    # FINAL_SUMMARY is no longer an operator/request audit_action.
+    # It remains only as an internal ledger marker consumed automatically by finalization.
+    $selectedRoutes = @($inventoryRoutes | Where-Object { $selectedUrls -contains [string]$_.url })
 
     $nextPendingCount = if ($action -eq "START") {
         @($inventoryRoutes | ForEach-Object { [string]$_.url } | Where-Object { $selectedUrls -notcontains $_ }).Count

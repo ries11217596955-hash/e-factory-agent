@@ -322,7 +322,7 @@ function Invoke-Module07Output {
             if ([int]$ledger.inventory_url_count -gt 0) {
                 $ledger.coverage_percent = [math]::Round((@($ledger.audited_urls).Count * 100.0) / [int]$ledger.inventory_url_count, 2)
             }
-            $ledger.next_action = if (@($ledger.pending_urls).Count -eq 0) { "FINAL_SUMMARY" } elseif ($PipelineState.run.execution_status -eq "FAIL") { "STOP_NEEDS_REPAIR" } else { "NEXT_BATCH" }
+            $ledger.next_action = if ($PipelineState.run.execution_status -eq "FAIL") { "STOP_NEEDS_REPAIR" } elseif (@($ledger.pending_urls).Count -eq 0) { "FINAL_SUMMARY" } else { "NEXT_BATCH" }
 
             $batchHistoryEntry = [ordered]@{
                 batch_id = $batchId
@@ -343,7 +343,7 @@ function Invoke-Module07Output {
             $report.audit_session.next_action = [string]$ledger.next_action
             $report.audit_session.aggregate_findings = $ledger.aggregate_findings
 
-            $sessionStatus = if (@($ledger.pending_urls).Count -eq 0) { "READY_FOR_FINAL" } else { "IN_PROGRESS" }
+            $sessionStatus = if ($ledger.next_action -eq "STOP_NEEDS_REPAIR") { "STOPPED_NEEDS_REPAIR" } elseif (@($ledger.pending_urls).Count -eq 0) { "READY_FOR_FINAL" } else { "IN_PROGRESS" }
             $report.session_summary = [ordered]@{
                 session_id = [string]$ledger.session_id
                 target_url = if ($ledger.ContainsKey("target_url")) { [string]$ledger.target_url } else { $null }

@@ -41,9 +41,31 @@ must describe the same session truth.
 - system capabilities
 - runtime session snapshot
 
+### 7. Session aggregation and finalization
+Completed audit sessions now finalize automatically after 100% coverage.
+
+Finalization layer produces:
+- `SESSION_AGGREGATE.json`
+- `FINAL_OPERATOR_REPORT.md`
+- `FINAL_ACTION_PLAN.json`
+- `FINAL_FINDINGS_INDEX.json`
+
+Finalized session truth:
+- `SESSION_STATE.status = FINALIZED`
+- `RUN_REPORT.finalization.status = FINALIZED`
+- next operator action = `REVIEW_FINAL_OPERATOR_REPORT`
+
+Aggregation is stream-aware, not a one-off summary. Current streams:
+- coverage truth
+- cumulative findings
+- remediation actions
+- batch execution history
+
+Future reporting streams must attach to the same aggregation model instead of creating isolated final-summary outputs.
+
 ## Still open product layer
-The next major product layer is not basic orchestration.
-It is a scalable session aggregation/finalization layer that can combine current and future reporting streams into one final audit outcome.
+The next major product layer is no longer basic orchestration or finalization.
+It is the repair/execution layer that consumes `FINAL_ACTION_PLAN.json`, followed later by cross-session comparison and benchmark layers.
 
 ## Guard
 This map is a current capability summary.

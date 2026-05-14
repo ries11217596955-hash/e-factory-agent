@@ -37,6 +37,7 @@ function Invoke-SelectionModule {
             aggregate_findings = [ordered]@{ critical = 0; high = 0; medium = 0; low = 0 }
             cumulative_findings = @()
             cumulative_finding_actions = @()
+            future_report_streams = @()
             coverage_percent = 0
             next_action = if ($nextPending.Count -eq 0) { "FINAL_SUMMARY" } else { "NEXT_BATCH" }
             auto_audit = [bool]$inputState.auto_audit
@@ -48,7 +49,7 @@ function Invoke-SelectionModule {
         }
         $ledger = Get-Content -Path $ledgerPath -Raw | ConvertFrom-Json -AsHashtable
         $pendingUrls = @($ledger.pending_urls)
-        $selectedUrls = if ($action -eq "FINAL_SUMMARY") { @() } else { @($pendingUrls | Select-Object -First ([int]$ledger.batch_size)) }
+        $selectedUrls = @($pendingUrls | Select-Object -First ([int]$ledger.batch_size))
         $selected = @($routes | Where-Object { $selectedUrls -contains $_.url })
         $nextPending = @($pendingUrls | Where-Object { $selectedUrls -notcontains $_ })
     }

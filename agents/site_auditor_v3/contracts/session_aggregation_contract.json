@@ -1,0 +1,50 @@
+{
+  "schema_version": "1.0.0",
+  "contract_id": "site_auditor_v3_session_aggregation",
+  "finalization_gate": {
+    "required_pending_count": 0,
+    "accepted_pre_final_next_actions": [
+      "FINAL_SUMMARY",
+      "REVIEW_FINAL_OPERATOR_REPORT"
+    ],
+    "finalized_status": "FINALIZED",
+    "final_next_action": "REVIEW_FINAL_OPERATOR_REPORT"
+  },
+  "supported_streams": [
+    {
+      "stream_id": "coverage_truth",
+      "stream_type": "session_coverage",
+      "required": true,
+      "source": "AUDIT_SESSION_LEDGER.json"
+    },
+    {
+      "stream_id": "cumulative_findings",
+      "stream_type": "finding_inventory",
+      "required": true,
+      "source": "AUDIT_SESSION_LEDGER.json:cumulative_findings"
+    },
+    {
+      "stream_id": "remediation_actions",
+      "stream_type": "action_inventory",
+      "required": true,
+      "source": "AUDIT_SESSION_LEDGER.json:cumulative_finding_actions"
+    },
+    {
+      "stream_id": "batch_execution_history",
+      "stream_type": "run_chain",
+      "required": true,
+      "source": "AUDIT_SESSION_LEDGER.json:batch_history"
+    }
+  ],
+  "final_artifacts": [
+    "SESSION_AGGREGATE.json",
+    "FINAL_OPERATOR_REPORT.md",
+    "FINAL_ACTION_PLAN.json",
+    "FINAL_FINDINGS_INDEX.json"
+  ],
+  "future_stream_policy": {
+    "declared_in_ledger_key": "future_report_streams",
+    "unknown_stream_status": "COMPLETE_WITH_UNAGGREGATED_FUTURE_STREAMS",
+    "rule": "Future streams may be declared before their aggregator exists, but final artifacts must disclose them explicitly."
+  }
+}
