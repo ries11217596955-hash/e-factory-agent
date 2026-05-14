@@ -9,7 +9,8 @@ This helper keeps the workflow from leaking session internals back to the owner.
 It provides:
 - START guard: block a new START when an unfinished session already exists for the same URL.
 - NEXT restore: recover one matching open session from prior workflow artifacts.
-- Session publish: prepare resumable state artifacts after successful START/NEXT runs.
+- FULL resolve: either restore one matching open session or declare that FULL must begin from a fresh START.
+- Session publish: prepare resumable state artifacts after successful START/NEXT/FULL batch runs.
 """
 
 from __future__ import annotations
@@ -211,6 +212,21 @@ def write_github_output(path: str | None, values: dict[str, str]) -> None:
             handle.write(f"{key}={value}\n")
 
 
+def restore_ledger_from_artifact(chosen: SessionArtifact) -> Path:
+    payload_root = chosen.temp_dir / "payload"
+    ledger_source = payload_root / "sessions" / chosen.session_id / "AUDIT_SESSION_LEDGER.json"
+    if not ledger_source.is_file():
+        fail(
+            "SESSION_STATE_NOT_RESTORABLE",
+            f"Stored session artifact {chosen.name} does not contain the ledger for {chosen.session_id}.",
+        )
+
+    ledger_target = REPO_RUNS_SESSIONS / chosen.session_id / "AUDIT_SESSION_LEDGER.json"
+    ledger_target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ledger_source, ledger_target)
+    return ledger_target
+
+
 def guard_start(args: argparse.Namespace) -> int:
     try:
         normalized_target = normalize_target_url(args.target_url)
@@ -285,17 +301,7 @@ def restore_next(args: argparse.Namespace) -> int:
         )
 
     chosen = open_sessions[0]
-    payload_root = chosen.temp_dir / "payload"
-    ledger_source = payload_root / "sessions" / chosen.session_id / "AUDIT_SESSION_LEDGER.json"
-    if not ledger_source.is_file():
-        fail(
-            "SESSION_STATE_NOT_RESTORABLE",
-            f"Stored session artifact {chosen.name} does not contain the ledger for {chosen.session_id}.",
-        )
-
-    ledger_target = REPO_RUNS_SESSIONS / chosen.session_id / "AUDIT_SESSION_LEDGER.json"
-    ledger_target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(ledger_source, ledger_target)
+    ledger_target = restore_ledger_from_artifact(chosen)
 
     print(f"RESTORED_SESSION_ID={chosen.session_id}")
     print(f"RESTORED_TARGET_URL={normalized_target}")
@@ -305,6 +311,66 @@ def restore_next(args: argparse.Namespace) -> int:
     write_github_output(
         args.github_output,
         {
+            "session_id": chosen.session_id,
+            "scope_key": scope_key,
+            "normalized_target_url": normalized_target,
+            "pending_count": str(chosen.pending_count),
+        },
+    )
+    return 0
+
+
+def resolve_full(args: argparse.Namespace) -> int:
+    try:
+        normalized_target = normalize_target_url(args.target_url)
+    except SessionStateError as exc:
+        fail(exc.code, exc.message)
+
+    scope_key = scope_key_for_target(normalized_target)
+    token = args.token or os.environ.get("GITHUB_TOKEN") or ""
+    if not token:
+        fail("GITHUB_TOKEN_REQUIRED", "GITHUB_TOKEN is required to resolve FULL session state")
+
+    try:
+        latest = load_latest_matching_sessions(args.repo, token, scope_key)
+    except SessionStateError as exc:
+        fail(exc.code, exc.message)
+
+    open_sessions = [item for item in latest if item.status == "OPEN" and item.pending_count > 0]
+    if len(open_sessions) > 1:
+        session_ids = ", ".join(sorted(item.session_id for item in open_sessions))
+        fail(
+            "AMBIGUOUS_OPEN_SESSIONS_FOR_URL",
+            f"More than one unfinished audit session exists for this URL: {session_ids}. Automatic FULL is blocked.",
+        )
+
+    if not open_sessions:
+        print(f"FULL_ENTRY_ACTION=START")
+        print(f"FULL_TARGET_URL={normalized_target}")
+        write_github_output(
+            args.github_output,
+            {
+                "entry_action": "START",
+                "session_id": "",
+                "scope_key": scope_key,
+                "normalized_target_url": normalized_target,
+                "pending_count": "0",
+            },
+        )
+        return 0
+
+    chosen = open_sessions[0]
+    ledger_target = restore_ledger_from_artifact(chosen)
+
+    print(f"FULL_ENTRY_ACTION=NEXT")
+    print(f"FULL_RESTORED_SESSION_ID={chosen.session_id}")
+    print(f"FULL_RESTORED_PENDING_COUNT={chosen.pending_count}")
+    print(f"FULL_RESTORED_LEDGER={ledger_target.as_posix()}")
+
+    write_github_output(
+        args.github_output,
+        {
+            "entry_action": "NEXT",
             "session_id": chosen.session_id,
             "scope_key": scope_key,
             "normalized_target_url": normalized_target,
@@ -402,7 +468,14 @@ def build_parser() -> argparse.ArgumentParser:
     restore.add_argument("--github-output", default="")
     restore.set_defaults(func=restore_next)
 
-    publish = subparsers.add_parser("publish", help="Prepare a session-state artifact after START/NEXT")
+    resolve = subparsers.add_parser("resolve-full", help="Resolve whether FULL starts fresh or resumes one open session")
+    resolve.add_argument("--target-url", required=True)
+    resolve.add_argument("--repo", required=True, help="owner/repo")
+    resolve.add_argument("--token", default="")
+    resolve.add_argument("--github-output", default="")
+    resolve.set_defaults(func=resolve_full)
+
+    publish = subparsers.add_parser("publish", help="Prepare a session-state artifact after START/NEXT/FULL batch runs")
     publish.add_argument("--target-url", required=True)
     publish.add_argument("--run-report", required=True)
     publish.add_argument("--out-dir", required=True)
