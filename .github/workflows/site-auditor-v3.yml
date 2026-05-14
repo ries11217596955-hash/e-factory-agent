@@ -4,42 +4,18 @@ on:
   workflow_dispatch:
     inputs:
       target_url:
-        description: "URL or page to audit"
+        description: "URL or site to audit"
         required: true
         default: "https://example.com"
-      scan_profile:
-        description: "Audit depth profile"
-        required: true
-        default: "STANDARD"
-        type: choice
-        options:
-          - STANDARD
-          - DEEP
-      audit_action:
-        description: "Audit session action"
+      run_mode:
+        description: "Operator run mode"
         required: true
         default: "START"
         type: choice
         options:
           - START
           - NEXT
-          - FINAL_SUMMARY
-      session_id:
-        description: "Existing session ID for NEXT or FINAL_SUMMARY; leave blank for START"
-        required: false
-        default: ""
-      batch_size:
-        description: "Batch size, capped by agent at 250"
-        required: true
-        default: "250"
-      auto_audit:
-        description: "Enable automatic audit continuation policy"
-        required: true
-        default: "false"
-        type: choice
-        options:
-          - "false"
-          - "true"
+          - FULL
 
 jobs:
   run-v3:
@@ -57,11 +33,7 @@ jobs:
       - name: Prepare request
         env:
           TARGET_URL: ${{ github.event.inputs.target_url }}
-          SCAN_PROFILE: ${{ github.event.inputs.scan_profile }}
-          AUDIT_ACTION: ${{ github.event.inputs.audit_action }}
-          SESSION_ID: ${{ github.event.inputs.session_id }}
-          BATCH_SIZE: ${{ github.event.inputs.batch_size }}
-          AUTO_AUDIT: ${{ github.event.inputs.auto_audit }}
+          RUN_MODE: ${{ github.event.inputs.run_mode }}
         run: |
           python3 - <<'PY'
           import json
@@ -71,30 +43,31 @@ jobs:
           src = Path("agents/site_auditor_v3/tests/fixtures/link.request.json")
           dst = Path("/tmp/v3.request.json")
 
+          target_url = (os.environ.get("TARGET_URL") or "").strip()
+          run_mode = (os.environ.get("RUN_MODE") or "START").strip().upper()
+
+          if not target_url:
+              raise SystemExit("target_url is required")
+          if run_mode not in {"START", "NEXT", "FULL"}:
+              raise SystemExit(f"Invalid RUN_MODE: {run_mode!r}; expected START, NEXT, or FULL")
+
+          # This branch is now exposing the final operator menu shape first.
+          # START remains executable. NEXT/FULL are intentionally blocked until
+          # workflow-level session restore / loop orchestration is implemented.
+          if run_mode in {"NEXT", "FULL"}:
+              raise SystemExit(
+                  f"RUN_MODE={run_mode} is not executable yet on this branch: "
+                  "operator-session restore / FULL orchestration is the next implementation step."
+              )
+
           data = json.loads(src.read_text())
-          data["target_url"] = os.environ["TARGET_URL"]
-          data["scan_profile"] = os.environ.get("SCAN_PROFILE") or "STANDARD"
-          data["audit_action"] = (os.environ.get("AUDIT_ACTION") or "START").strip().upper()
-
-          session_id = (os.environ.get("SESSION_ID") or "").strip()
-          data["session_id"] = session_id or None
-
-          raw_batch_size = (os.environ.get("BATCH_SIZE") or "250").strip()
-          try:
-              parsed_batch_size = int(raw_batch_size)
-          except ValueError as exc:
-              raise SystemExit(f"Invalid BATCH_SIZE: {raw_batch_size!r}") from exc
-          if parsed_batch_size <= 0:
-              raise SystemExit(f"Invalid BATCH_SIZE: {raw_batch_size!r}; expected positive integer")
-          data["batch_size"] = parsed_batch_size
-
-          auto_audit = (os.environ.get("AUTO_AUDIT") or "false").strip().lower()
-          if auto_audit not in {"true", "false"}:
-              raise SystemExit(f"Invalid AUTO_AUDIT: {auto_audit!r}; expected true or false")
-          data["auto_audit"] = auto_audit == "true"
-
-          if data["audit_action"] in {"NEXT", "FINAL_SUMMARY"} and not data["session_id"]:
-              raise SystemExit("session_id is required when audit_action is NEXT or FINAL_SUMMARY")
+          data["target_url"] = target_url
+          data["scan_profile"] = "STANDARD"
+          data["audit_action"] = "START"
+          data["session_id"] = None
+          data["batch_size"] = 250
+          data["auto_audit"] = False
+          data["run_mode"] = run_mode
 
           dst.write_text(json.dumps(data, indent=2) + "\n")
           print(dst.read_text())
