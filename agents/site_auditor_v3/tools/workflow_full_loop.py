@@ -22,7 +22,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 REQUEST_FIXTURE = Path("agents/site_auditor_v3/tests/fixtures/link.request.json")
 WRAPPER = Path("agents/site_auditor_v3/tests/run_and_validate.sh")
@@ -35,7 +35,7 @@ class FullLoopError(RuntimeError):
     pass
 
 
-def fail(message: str) -> "NoReturn":
+def fail(message: str) -> NoReturn:
     print(f"FULL_LOOP_FAIL: {message}", file=sys.stderr)
     raise SystemExit(2)
 
@@ -70,13 +70,28 @@ def write_request(target_url: str, audit_action: str, session_id: str | None) ->
     return path
 
 
-def resolve_bash_executable() -> str:
-    """Resolve bash for both GitHub Linux runners and Windows operator diagnostics."""
-    direct = shutil.which("bash")
-    if direct:
-        return direct
+def _is_windows_system_bash(path: str) -> bool:
+    normalized = path.replace("/", "\\").lower()
+    return normalized.endswith(r"\windows\system32\bash.exe")
 
-    candidates = []
+
+def resolve_bash_executable() -> str:
+    """Resolve an actual Bash implementation for CI and Windows operator diagnostics.
+
+    Windows exposes ``C:\\Windows\\System32\\bash.exe`` as a WSL shim. That executable
+    is not a safe Site Auditor wrapper runtime: it can resolve differently from Git Bash
+    and it makes CRLF checkout failures surface as ``/usr/bin/env: 'bash\\r'`` before the
+    agent even starts. Prefer Git Bash on Windows; accept PATH bash only when it is not
+    the system32 shim.
+    """
+
+    if os.name != "nt":
+        direct = shutil.which("bash")
+        if direct:
+            return direct
+        fail("bash executable not found on non-Windows runner")
+
+    candidates: list[Path] = []
     local_app_data = os.environ.get("LOCALAPPDATA")
     if local_app_data:
         candidates.append(Path(local_app_data) / "Programs" / "Git" / "bin" / "bash.exe")
@@ -91,7 +106,11 @@ def resolve_bash_executable() -> str:
         if candidate.is_file():
             return str(candidate)
 
-    fail("bash executable not found; install Git Bash or run FULL from a runner with bash available")
+    direct = shutil.which("bash")
+    if direct and not _is_windows_system_bash(direct):
+        return direct
+
+    fail("Git Bash executable not found; install Git Bash or run FULL from a Linux runner")
     return ""
 
 
@@ -106,14 +125,44 @@ def resolve_pwsh_executable() -> str:
     return ""
 
 
+def prepare_wrapper_for_bash() -> Path:
+    """Return a Bash-safe wrapper path, normalizing CRLF when required.
+
+    On Linux CI the repository wrapper is already executable and LF-safe. On Windows
+    operator checkouts Git may materialize CRLF shell files. A temp LF-normalized wrapper
+    prevents launcher-stage failures before runtime validation can begin.
+    """
+
+    if not WRAPPER.is_file():
+        raise FullLoopError(f"wrapper missing: {WRAPPER}")
+
+    raw = WRAPPER.read_bytes()
+    if b"\r\n" not in raw and b"\r" not in raw:
+        return WRAPPER
+
+    normalized = raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    fd, raw_path = tempfile.mkstemp(prefix="site_auditor_v3_wrapper_", suffix=".sh")
+    os.close(fd)
+    path = Path(raw_path)
+    path.write_bytes(normalized)
+    return path
+
+
 def run_wrapper(request_path: Path) -> Path:
     env = os.environ.copy()
     env["REQUEST_PATH"] = str(request_path)
     bash_executable = resolve_bash_executable()
-    wrapper_cmd = f"./{WRAPPER.as_posix()}"
-    print(f"FULL_LOOP_REQUEST={request_path}")
-    print(f"FULL_LOOP_BASH={bash_executable}")
-    subprocess.run([bash_executable, "-lc", wrapper_cmd], check=True, env=env)
+    wrapper_path = prepare_wrapper_for_bash()
+    wrapper_is_temp = wrapper_path != WRAPPER
+    try:
+        print(f"FULL_LOOP_REQUEST={request_path}")
+        print(f"FULL_LOOP_BASH={bash_executable}")
+        print(f"FULL_LOOP_WRAPPER={wrapper_path}")
+        print(f"FULL_LOOP_WRAPPER_NORMALIZED={'YES' if wrapper_is_temp else 'NO'}")
+        subprocess.run([bash_executable, str(wrapper_path)], check=True, env=env)
+    finally:
+        if wrapper_is_temp:
+            wrapper_path.unlink(missing_ok=True)
     return locate_latest_report()
 
 
