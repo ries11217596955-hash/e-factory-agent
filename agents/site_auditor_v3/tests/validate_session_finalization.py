@@ -7,7 +7,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 
 REQUIRED_FINAL_ARTIFACTS = {
@@ -18,7 +18,7 @@ REQUIRED_FINAL_ARTIFACTS = {
 }
 
 
-def fail(message: str) -> "NoReturn":
+def fail(message: str) -> NoReturn:
     print(f"FINALIZATION_VALIDATION_FAIL: {message}", file=sys.stderr)
     raise SystemExit(1)
 
@@ -76,7 +76,8 @@ def main() -> int:
         fail("SESSION_AGGREGATE.json finalization_status must be FINALIZED")
 
     coverage = aggregate.get("coverage_truth") or {}
-    if int(coverage.get("total_pending_count") or -1) != 0:
+    pending_count = coverage.get("total_pending_count")
+    if pending_count is None or int(pending_count) != 0:
         fail("SESSION_AGGREGATE coverage total_pending_count must be 0")
     if str(coverage.get("coverage_gate") or "") != "PASS":
         fail("SESSION_AGGREGATE coverage_gate must be PASS")
