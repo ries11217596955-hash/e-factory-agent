@@ -33,7 +33,7 @@ function New-SiteAuditorV3AgentMap {
             owner_responsibility = switch -Regex ($m.module_id) {
                 "01_input" { "Normalize request into input state"; break }
                 "02_route_audit" { "Discover and qualify routes"; break }
-                "03_selection" { "Select audit targets"; break }
+                "03_selection" { "Select audit targets and own the session ledger entrypoint"; break }
                 "03_5_route_bootstrap" { "Run pre-audit route scope discovery bootstrap"; break }
                 "03_7_audit_selection" { "Finalize canonical audit selection from baseline or promoted routes"; break }
                 "04_capture" { "Capture structured route evidence"; break }
@@ -45,7 +45,7 @@ function New-SiteAuditorV3AgentMap {
                 "08_route_promotion" { "Promote route feedback into promoted audit/selection state"; break }
                 "09_capability_builder" { "Produce build state and build recommendation only"; break }
                 "10_post_build_decision" { "Apply build truth gate and final decision action override"; break }
-                "07_output" { "Compose and write operator artifacts"; break }
+                "07_output" { "Compose operator artifacts, cumulative session truth, and AGENT_MAP"; break }
                 default { "Module responsibility must be declared" }
             }
             reads_state_paths = @($m.reads_state_paths)
@@ -80,16 +80,84 @@ function New-SiteAuditorV3AgentMap {
         next_action = if ($decisionAction -and $decisionAction.action) { $decisionAction.action } else { "inspect RUN_REPORT decision_action" }
     }
 
+    $auditSession = if ($PipelineState.selection) { $PipelineState.selection } else { $null }
+    $sessionMode = if ($auditSession -and $auditSession.audit_action) { [string]$auditSession.audit_action } else { "UNKNOWN" }
+    $sessionId = if ($auditSession -and $auditSession.session_id) { [string]$auditSession.session_id } else { $null }
+    $sessionPending = if ($auditSession -and $null -ne $auditSession.next_pending_count) { [int]$auditSession.next_pending_count } else { $null }
+    $routeFeedback = if ($PipelineState.route_feedback) { $PipelineState.route_feedback } else { $null }
+    $routeScopeStatus = if ($routeFeedback -and $routeFeedback.scope_status) { [string]$routeFeedback.scope_status } else { "UNKNOWN" }
+    $routeDiscovered = if ($routeFeedback -and $null -ne $routeFeedback.pages_discovered_count) { [int]$routeFeedback.pages_discovered_count } else { $null }
+
+    $systemCapabilities = @(
+        [ordered]@{
+            capability_id = "operator_run_modes"
+            status = "ACTIVE"
+            owner = "workflow + session helpers"
+            summary = "GitHub Actions operator menu supports START, NEXT, and FULL intents."
+            evidence = @(
+                ".github/workflows/site-auditor-v3.yml",
+                "agents/site_auditor_v3/tools/workflow_session_state.py",
+                "agents/site_auditor_v3/tools/workflow_full_loop.py"
+            )
+        },
+        [ordered]@{
+            capability_id = "session_resume_from_single_artifact"
+            status = "ACTIVE"
+            owner = "workflow_session_state.py"
+            summary = "NEXT/FULL restore audit ledger state from the unified report artifact rather than asking the operator for session_id."
+            evidence = @(
+                "agents/site_auditor_v3/tools/workflow_session_state.py"
+            )
+        },
+        [ordered]@{
+            capability_id = "unified_report_artifact"
+            status = "ACTIVE"
+            owner = "workflow + output packaging"
+            summary = "One artifact contains RUN_REPORT, AGENT_MAP, TASK, SESSION_STATE, and AUDIT_SESSION_LEDGER truth."
+            evidence = @(
+                ".github/workflows/site-auditor-v3.yml"
+            )
+        },
+        [ordered]@{
+            capability_id = "inventory_then_batch_250"
+            status = "ACTIVE"
+            owner = "input + route discovery + audit selection"
+            summary = "Route inventory is discovered before auditing; the audit session then advances in batches capped at 250 pages."
+            evidence = @(
+                "agents/site_auditor_v3/modules/01_input.ps1",
+                "agents/site_auditor_v3/modules/08_route_feedback.ps1",
+                "agents/site_auditor_v3/modules/03_7_audit_selection.ps1"
+            )
+        },
+        [ordered]@{
+            capability_id = "session_inventory_truth_alignment"
+            status = "ACTIVE"
+            owner = "07_output"
+            summary = "RUN_REPORT route_discovery_result reuses the same bootstrap discovery snapshot that feeds session inventory; output no longer re-crawls live routes and contradicts the ledger."
+            evidence = @(
+                "agents/site_auditor_v3/modules/07_output.ps1"
+            )
+        }
+    )
+
     return [ordered]@{
-        schema_version = "1.0.0"
+        schema_version = "1.1.0"
         artifact = "AGENT_MAP"
         run_id = if ($PipelineState.run -and $PipelineState.run.run_id) { $PipelineState.run.run_id } else { "unknown" }
         product_scope = "Universal audit engine; website LINK is current execution lane only"
-        agent_loop = "input -> audit -> evidence -> decision -> action -> next loop"
+        agent_loop = "input -> inventory truth -> batch audit -> evidence -> decision -> session/artifact -> next loop"
         registry_source = $registryPath
         entrypoint = $registry.entrypoint_path
         module_count = @($modules).Count
         modules = $modules
+        system_capabilities = $systemCapabilities
+        runtime_session_snapshot = [ordered]@{
+            audit_action = $sessionMode
+            session_id = $sessionId
+            pending_after_selection = $sessionPending
+            route_scope_status = $routeScopeStatus
+            discovered_page_routes = $routeDiscovered
+        }
         current_bottleneck = $currentBottleneck
         protected_architecture_rules = @(
             "06_decision does not own action mapping",
@@ -97,7 +165,9 @@ function New-SiteAuditorV3AgentMap {
             "09_capability_builder does not emit decision_action",
             "build_truth_gate required when build_status exists",
             "module registry is SSOT for module order and state reads/writes",
-            "build capability packs, not one-off isolated checks or one module per finding type"
+            "build capability packs, not one-off isolated checks or one module per finding type",
+            "operator session continuity must be visible in report artifacts and AGENT_MAP",
+            "output must reuse already-produced discovery truth, not re-crawl live routes during report composition"
         )
         runpack_links = [ordered]@{
             run_report = "RUN_REPORT.json"
@@ -105,6 +175,9 @@ function New-SiteAuditorV3AgentMap {
             agent_map_json = "AGENT_MAP.json"
             agent_map_md = "AGENT_MAP.md"
             artifact_manifest = "ARTIFACT_MANIFEST.json"
+            session_state = "SESSION_STATE.json"
+            latest_run_report = "LATEST_RUN_REPORT.json"
+            ledger_root = "sessions/<session_id>/AUDIT_SESSION_LEDGER.json"
         }
         operator_reminder = [ordered]@{
             rule = "Choose one bottleneck. Patch only owner module. Build capability packs, not one-off checks. Verify with wrapper and guards."
@@ -132,11 +205,28 @@ function Convert-SiteAuditorV3AgentMapToMarkdown {
     $lines.Add("## Agent loop")
     $lines.Add([string]$AgentMap.agent_loop)
     $lines.Add("")
+    $lines.Add("## Runtime session snapshot")
+    $lines.Add("- audit_action: $($AgentMap.runtime_session_snapshot.audit_action)")
+    $lines.Add("- session_id: $($AgentMap.runtime_session_snapshot.session_id)")
+    $lines.Add("- pending_after_selection: $($AgentMap.runtime_session_snapshot.pending_after_selection)")
+    $lines.Add("- route_scope_status: $($AgentMap.runtime_session_snapshot.route_scope_status)")
+    $lines.Add("- discovered_page_routes: $($AgentMap.runtime_session_snapshot.discovered_page_routes)")
+    $lines.Add("")
     $lines.Add("## Current bottleneck")
     $lines.Add("- owner_module: $($AgentMap.current_bottleneck.owner_module)")
     $lines.Add("- action_id: $($AgentMap.current_bottleneck.action_id)")
     $lines.Add("- reason: $($AgentMap.current_bottleneck.reason)")
     $lines.Add("- next_action: $($AgentMap.current_bottleneck.next_action)")
+    $lines.Add("")
+    $lines.Add("## System capabilities")
+    foreach ($c in @($AgentMap.system_capabilities)) {
+        $lines.Add("")
+        $lines.Add("### $($c.capability_id)")
+        $lines.Add("- status: $($c.status)")
+        $lines.Add("- owner: $($c.owner)")
+        $lines.Add("- summary: $($c.summary)")
+        $lines.Add("- evidence: $(@($c.evidence) -join ', ')")
+    }
     $lines.Add("")
     $lines.Add("## Modules")
     foreach ($m in @($AgentMap.modules)) {
