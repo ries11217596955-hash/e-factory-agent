@@ -145,7 +145,7 @@ jobs:
           echo "path=$REPORT" >> "$GITHUB_OUTPUT"
           echo "LATEST_RUN_REPORT=$REPORT"
 
-      - name: Prepare resumable session-state artifact
+      - name: Prepare unified report artifact
         id: session_state
         env:
           TARGET_URL: ${{ github.event.inputs.target_url }}
@@ -156,14 +156,21 @@ jobs:
             --out-dir "agents/site_auditor_v3/_session_state" \
             --github-output "$GITHUB_OUTPUT"
 
-      - name: Upload V3 runpack
-        uses: actions/upload-artifact@v6
-        with:
-          name: site-auditor-v3-runpack
-          path: agents/site_auditor_v3/_deliver/*
-          if-no-files-found: error
+      - name: Merge run outputs into unified report artifact
+        env:
+          RUN_REPORT_PATH: ${{ steps.latest_report.outputs.path }}
+          ARTIFACT_PATH: ${{ steps.session_state.outputs.artifact_path }}
+        run: |
+          RUN_DIR="$(dirname "$RUN_REPORT_PATH")"
+          if [ -z "$ARTIFACT_PATH" ] || [ ! -d "$ARTIFACT_PATH" ]; then
+            echo "Unified artifact path missing: $ARTIFACT_PATH" >&2
+            exit 1
+          fi
+          cp -a "$RUN_DIR"/. "$ARTIFACT_PATH"/
+          echo "UNIFIED_ARTIFACT_PATH=$ARTIFACT_PATH"
+          find "$ARTIFACT_PATH" -maxdepth 3 -type f | sort
 
-      - name: Upload resumable session state
+      - name: Upload unified V3 report artifact
         uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.session_state.outputs.artifact_name }}
