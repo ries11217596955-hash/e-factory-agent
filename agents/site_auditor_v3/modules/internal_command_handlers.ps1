@@ -220,8 +220,20 @@ function Invoke-RouteDiscoveryInternal {
         }
     }
     $truncated = (($normalizedPaths.Count -gt $discoveryLimit) -or (($pageRoutes.Count + $assetRoutes.Count) -ge $discoveryLimit))
-    $scopeStatus = if ($truncated -or $maxDepth -ge 0 -or $maxRoutes -lt $hardCap) { "PARTIAL" } else { "COMPLETE" }
-    $scopeReason = if ($truncated) { "route_discovery_limits_reached" } else { "bounded_by_configured_depth_or_limits" }
+    $scopeStatus = if ($truncated) {
+        "PARTIAL"
+    } elseif ($sitemapFetched) {
+        "COMPLETE"
+    } else {
+        "PARTIAL"
+    }
+    $scopeReason = if ($truncated) {
+        "route_discovery_limits_reached"
+    } elseif ($sitemapFetched) {
+        "sitemap_and_recursive_sources_exhausted_without_route_cap"
+    } else {
+        "recursive_discovery_without_sitemap_remains_depth_bounded"
+    }
 
     return @{
         status = "OK"
