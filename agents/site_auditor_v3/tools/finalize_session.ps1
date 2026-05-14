@@ -30,6 +30,13 @@ $report = Read-JsonHashtable -Path $reportPathResolved
 $auditSession = if ($report.ContainsKey("audit_session") -and $report.audit_session) { $report.audit_session } else { @{} }
 $sessionSummary = if ($report.ContainsKey("session_summary") -and $report.session_summary) { $report.session_summary } else { @{} }
 
+$existingFinalization = if ($report.ContainsKey("finalization") -and $report.finalization) { $report.finalization } else { $null }
+if ($existingFinalization -and $existingFinalization.status -eq "FINALIZED") {
+    Write-Host "FINALIZATION_STATUS=ALREADY_FINALIZED"
+    if ($auditSession.ContainsKey("session_id")) { Write-Host "FINALIZATION_SESSION_ID=$([string]$auditSession.session_id)" }
+    exit 0
+}
+
 $sessionId = if ($auditSession.ContainsKey("session_id")) { [string]$auditSession.session_id } else { "" }
 $totalPending = if ($auditSession.ContainsKey("total_pending_count")) { [int]$auditSession.total_pending_count } else { -1 }
 $nextAction = if ($auditSession.ContainsKey("next_action")) { [string]$auditSession.next_action } else { "UNKNOWN" }
