@@ -17,6 +17,10 @@ on:
           - NEXT
           - FULL
 
+permissions:
+  contents: read
+  actions: read
+
 jobs:
   run-v3:
     runs-on: ubuntu-latest
@@ -30,10 +34,23 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y zip powershell python3
 
+      - name: Restore prior session for NEXT
+        id: restore_next
+        if: ${{ github.event.inputs.run_mode == 'NEXT' }}
+        env:
+          TARGET_URL: ${{ github.event.inputs.target_url }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 agents/site_auditor_v3/tools/workflow_session_state.py restore-next \
+            --target-url "$TARGET_URL" \
+            --repo "${{ github.repository }}" \
+            --github-output "$GITHUB_OUTPUT"
+
       - name: Prepare request
         env:
           TARGET_URL: ${{ github.event.inputs.target_url }}
           RUN_MODE: ${{ github.event.inputs.run_mode }}
+          RESTORED_SESSION_ID: ${{ steps.restore_next.outputs.session_id }}
         run: |
           python3 - <<'PY'
           import json
@@ -45,29 +62,32 @@ jobs:
 
           target_url = (os.environ.get("TARGET_URL") or "").strip()
           run_mode = (os.environ.get("RUN_MODE") or "START").strip().upper()
+          restored_session_id = (os.environ.get("RESTORED_SESSION_ID") or "").strip()
 
           if not target_url:
               raise SystemExit("target_url is required")
           if run_mode not in {"START", "NEXT", "FULL"}:
               raise SystemExit(f"Invalid RUN_MODE: {run_mode!r}; expected START, NEXT, or FULL")
 
-          # This branch is now exposing the final operator menu shape first.
-          # START remains executable. NEXT/FULL are intentionally blocked until
-          # workflow-level session restore / loop orchestration is implemented.
-          if run_mode in {"NEXT", "FULL"}:
-              raise SystemExit(
-                  f"RUN_MODE={run_mode} is not executable yet on this branch: "
-                  "operator-session restore / FULL orchestration is the next implementation step."
-              )
-
           data = json.loads(src.read_text())
           data["target_url"] = target_url
           data["scan_profile"] = "STANDARD"
-          data["audit_action"] = "START"
-          data["session_id"] = None
           data["batch_size"] = 250
           data["auto_audit"] = False
           data["run_mode"] = run_mode
+
+          if run_mode == "START":
+              data["audit_action"] = "START"
+              data["session_id"] = None
+          elif run_mode == "NEXT":
+              if not restored_session_id:
+                  raise SystemExit("NEXT restore did not provide a session_id")
+              data["audit_action"] = "NEXT"
+              data["session_id"] = restored_session_id
+          else:
+              raise SystemExit(
+                  "RUN_MODE=FULL is not executable yet: FULL loop orchestration is the next implementation step."
+              )
 
           dst.write_text(json.dumps(data, indent=2) + "\n")
           print(dst.read_text())
@@ -78,9 +98,38 @@ jobs:
           chmod +x agents/site_auditor_v3/tests/run_and_validate.sh
           REQUEST_PATH=/tmp/v3.request.json ./agents/site_auditor_v3/tests/run_and_validate.sh
 
+      - name: Locate latest RUN_REPORT
+        id: latest_report
+        run: |
+          REPORT="$(find agents/site_auditor_v3/runs -mindepth 2 -maxdepth 2 -name RUN_REPORT.json -printf '%T@ %p\n' | sort -n | tail -n1 | cut -d' ' -f2-)"
+          if [ -z "$REPORT" ] || [ ! -f "$REPORT" ]; then
+            echo "RUN_REPORT not found after agent run" >&2
+            exit 1
+          fi
+          echo "path=$REPORT" >> "$GITHUB_OUTPUT"
+          echo "LATEST_RUN_REPORT=$REPORT"
+
+      - name: Prepare resumable session-state artifact
+        id: session_state
+        env:
+          TARGET_URL: ${{ github.event.inputs.target_url }}
+        run: |
+          python3 agents/site_auditor_v3/tools/workflow_session_state.py publish \
+            --target-url "$TARGET_URL" \
+            --run-report "${{ steps.latest_report.outputs.path }}" \
+            --out-dir "agents/site_auditor_v3/_session_state" \
+            --github-output "$GITHUB_OUTPUT"
+
       - name: Upload V3 runpack
         uses: actions/upload-artifact@v6
         with:
           name: site-auditor-v3-runpack
           path: agents/site_auditor_v3/_deliver/*
+          if-no-files-found: error
+
+      - name: Upload resumable session state
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ steps.session_state.outputs.artifact_name }}
+          path: ${{ steps.session_state.outputs.artifact_path }}
           if-no-files-found: error
