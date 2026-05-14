@@ -197,7 +197,7 @@ import sys
 
 run_dir, run_id = sys.argv[1], sys.argv[2]
 deliverable = os.path.abspath(os.path.join("agents/site_auditor_v3/_deliver", f"SITE_AUDITOR_V3_RUNPACK_{run_id}.zip"))
-expected_files = ["RUN_REPORT.json", "TASK.json"]
+expected_files = ["RUN_REPORT.json", "TASK.json", "AGENT_MAP.json", "AGENT_MAP.md"]
 
 produced_files = []
 for name in sorted(os.listdir(run_dir)):

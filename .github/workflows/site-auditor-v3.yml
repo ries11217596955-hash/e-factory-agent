@@ -170,6 +170,93 @@ jobs:
           echo "UNIFIED_ARTIFACT_PATH=$ARTIFACT_PATH"
           find "$ARTIFACT_PATH" -maxdepth 3 -type f | sort
 
+      - name: Refresh unified artifact manifest and packaging truth
+        env:
+          ARTIFACT_PATH: ${{ steps.session_state.outputs.artifact_path }}
+        run: |
+          python3 - "$ARTIFACT_PATH" <<'PY'
+          import datetime as dt
+          import json
+          import sys
+          from pathlib import Path
+
+          root = Path(sys.argv[1])
+          if not root.is_dir():
+              raise SystemExit(f"Unified artifact path missing: {root}")
+
+          session_state_path = root / "SESSION_STATE.json"
+          if not session_state_path.is_file():
+              raise SystemExit("SESSION_STATE.json missing from unified artifact")
+
+          state = json.loads(session_state_path.read_text(encoding="utf-8"))
+          session_id = str(state.get("session_id") or "").strip()
+          if not session_id:
+              raise SystemExit("SESSION_STATE.json is missing session_id")
+
+          expected_files = [
+              "RUN_REPORT.json",
+              "TASK.json",
+              "AGENT_MAP.json",
+              "AGENT_MAP.md",
+              "ARTIFACT_MANIFEST.json",
+              "SESSION_STATE.json",
+              "LATEST_RUN_REPORT.json",
+              f"sessions/{session_id}/AUDIT_SESSION_LEDGER.json",
+          ]
+
+          produced_files = sorted(
+              path.relative_to(root).as_posix()
+              for path in root.rglob("*")
+              if path.is_file()
+          )
+          missing_expected_files = [name for name in expected_files if name not in produced_files]
+          extra_files = [name for name in produced_files if name not in expected_files]
+
+          manifest_path = root / "ARTIFACT_MANIFEST.json"
+          prior_manifest = {}
+          if manifest_path.is_file():
+              prior_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+          manifest = dict(prior_manifest)
+          manifest.update({
+              "packaging_mode": "UNIFIED_SESSION_ARTIFACT",
+              "deliverable": str(state.get("artifact_name") or root.name),
+              "produced_files": produced_files,
+              "expected_files": expected_files,
+              "missing_expected_files": missing_expected_files,
+              "extra_files": extra_files,
+              "refreshed_at_utc": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+          })
+          manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+          packaging = {
+              "mode": "UNIFIED_SESSION_ARTIFACT",
+              "artifact_expected": True,
+              "artifact_created": True,
+              "deliverable": str(state.get("artifact_name") or root.name),
+              "manifest": "ARTIFACT_MANIFEST.json",
+              "produced_files_count": len(produced_files),
+              "missing_expected_files": missing_expected_files,
+              "extra_files": extra_files,
+              "note": "GitHub Actions uploaded one unified report artifact containing run output, session state, and ledger truth.",
+          }
+
+          for report_name in ("RUN_REPORT.json", "LATEST_RUN_REPORT.json"):
+              report_path = root / report_name
+              if not report_path.is_file():
+                  raise SystemExit(f"{report_name} missing from unified artifact")
+              report = json.loads(report_path.read_text(encoding="utf-8"))
+              report["packaging"] = packaging
+              report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+
+          if missing_expected_files:
+              raise SystemExit(f"Unified artifact missing expected files: {missing_expected_files}")
+
+          print("UNIFIED_MANIFEST_EXPECTED_FILES=OK")
+          print(f"UNIFIED_MANIFEST_EXTRA_FILES={len(extra_files)}")
+          print("UNIFIED_PACKAGING_MODE=UNIFIED_SESSION_ARTIFACT")
+          PY
+
       - name: Upload unified V3 report artifact
         uses: actions/upload-artifact@v6
         with:
