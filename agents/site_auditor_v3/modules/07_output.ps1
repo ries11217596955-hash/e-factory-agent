@@ -254,6 +254,9 @@ function Invoke-Module07Output {
             next_action = "NEXT_BATCH"
         }
 
+        session_summary = $null
+        current_batch_summary = $null
+
         diagnostic_summary = $diag
         agent_capability_state = $cap
 
@@ -283,6 +286,10 @@ function Invoke-Module07Output {
         $ledgerPath = [string]$PipelineState.selection.session_ledger_path
         if (Test-Path -LiteralPath $ledgerPath) {
             $ledger = Get-Content -Path $ledgerPath -Raw | ConvertFrom-Json -AsHashtable
+            if (-not $ledger.ContainsKey("batch_history")) { $ledger.batch_history = @() }
+            if (-not $ledger.ContainsKey("cumulative_findings")) { $ledger.cumulative_findings = @() }
+            if (-not $ledger.ContainsKey("cumulative_finding_actions")) { $ledger.cumulative_finding_actions = @() }
+
             $batchUrls = @($PipelineState.selection.selected | ForEach-Object { [string]$_.url })
             foreach ($u in $batchUrls) {
                 if ($ledger.audited_urls -notcontains $u) { $ledger.audited_urls += $u }
@@ -297,17 +304,69 @@ function Invoke-Module07Output {
                     $ledger.aggregate_findings[$k] = [int]$ledger.aggregate_findings[$k] + [int]$PipelineState.decision.finding_counts[$k]
                 }
             }
+            if ($PipelineState.reconcile -and $PipelineState.reconcile.findings) {
+                foreach ($finding in @($PipelineState.reconcile.findings)) {
+                    $ledger.cumulative_findings += $finding
+                }
+            }
+            if ($PipelineState.reconcile -and $PipelineState.reconcile.finding_actions) {
+                foreach ($findingAction in @($PipelineState.reconcile.finding_actions)) {
+                    $ledger.cumulative_finding_actions += $findingAction
+                }
+            }
             if ([int]$ledger.inventory_url_count -gt 0) {
                 $ledger.coverage_percent = [math]::Round((@($ledger.audited_urls).Count * 100.0) / [int]$ledger.inventory_url_count, 2)
             }
             $ledger.next_action = if (@($ledger.pending_urls).Count -eq 0) { "FINAL_SUMMARY" } elseif ($PipelineState.run.execution_status -eq "FAIL") { "STOP_NEEDS_REPAIR" } else { "NEXT_BATCH" }
-            $ledger | ConvertTo-Json -Depth 30 | Set-Content -Path $ledgerPath -Encoding UTF8
+
+            $batchHistoryEntry = [ordered]@{
+                batch_id = $batchId
+                run_id = $runId
+                audit_action = if ($PipelineState.selection -and $PipelineState.selection.audit_action) { [string]$PipelineState.selection.audit_action } else { "UNKNOWN" }
+                audited_count = $batchUrls.Count
+                audited_urls = @($batchUrls)
+                finding_counts = $findingCounts
+                verdict = $verdict
+                score = $score
+            }
+            $ledger.batch_history += $batchHistoryEntry
+            $ledger | ConvertTo-Json -Depth 40 | Set-Content -Path $ledgerPath -Encoding UTF8
 
             $report.audit_session.total_audited_count = @($ledger.audited_urls).Count
             $report.audit_session.total_pending_count = @($ledger.pending_urls).Count
             $report.audit_session.coverage_percent = $ledger.coverage_percent
             $report.audit_session.next_action = [string]$ledger.next_action
             $report.audit_session.aggregate_findings = $ledger.aggregate_findings
+
+            $sessionStatus = if (@($ledger.pending_urls).Count -eq 0) { "READY_FOR_FINAL" } else { "IN_PROGRESS" }
+            $report.session_summary = [ordered]@{
+                session_id = [string]$ledger.session_id
+                target_url = if ($ledger.ContainsKey("target_url")) { [string]$ledger.target_url } else { $null }
+                base_url = [string]$ledger.base_url
+                batches_completed = @($ledger.completed_batch_ids).Count
+                completed_batch_ids = @($ledger.completed_batch_ids)
+                total_inventory_count = [int]$ledger.inventory_url_count
+                total_audited_count = @($ledger.audited_urls).Count
+                total_pending_count = @($ledger.pending_urls).Count
+                coverage_percent = [double]$ledger.coverage_percent
+                aggregate_findings = $ledger.aggregate_findings
+                cumulative_findings_count = @($ledger.cumulative_findings).Count
+                cumulative_finding_actions_count = @($ledger.cumulative_finding_actions).Count
+                session_status = $sessionStatus
+                next_action = [string]$ledger.next_action
+            }
+            $report.current_batch_summary = [ordered]@{
+                batch_id = $batchId
+                run_id = $runId
+                audit_action = if ($PipelineState.selection -and $PipelineState.selection.audit_action) { [string]$PipelineState.selection.audit_action } else { "UNKNOWN" }
+                audited_in_this_run = $batchUrls.Count
+                findings_in_this_run = $findingCounts
+                batch_verdict = $verdict
+                batch_score = $score
+                session_total_audited_after_run = @($ledger.audited_urls).Count
+                session_total_pending_after_run = @($ledger.pending_urls).Count
+                session_coverage_after_run = [double]$ledger.coverage_percent
+            }
         }
     }
 
@@ -319,7 +378,7 @@ function Invoke-Module07Output {
     Convert-SiteAuditorV3AgentMapToMarkdown -AgentMap $agentMap | Set-Content -Path $agentMapMdPath -Encoding UTF8
 
     $reportPath = Join-Path $runRoot "RUN_REPORT.json"
-    $report | ConvertTo-Json -Depth 20 | Set-Content -Path $reportPath -Encoding UTF8
+    $report | ConvertTo-Json -Depth 40 | Set-Content -Path $reportPath -Encoding UTF8
 
     $taskPath = $null
     if ($task) {

@@ -4,42 +4,22 @@ on:
   workflow_dispatch:
     inputs:
       target_url:
-        description: "URL or page to audit"
+        description: "URL or site to audit"
         required: true
         default: "https://example.com"
-      scan_profile:
-        description: "Audit depth profile"
-        required: true
-        default: "STANDARD"
-        type: choice
-        options:
-          - STANDARD
-          - DEEP
-      audit_action:
-        description: "Audit session action"
+      run_mode:
+        description: "Operator run mode"
         required: true
         default: "START"
         type: choice
         options:
           - START
           - NEXT
-          - FINAL_SUMMARY
-      session_id:
-        description: "Existing session ID for NEXT or FINAL_SUMMARY; leave blank for START"
-        required: false
-        default: ""
-      batch_size:
-        description: "Batch size, capped by agent at 250"
-        required: true
-        default: "250"
-      auto_audit:
-        description: "Enable automatic audit continuation policy"
-        required: true
-        default: "false"
-        type: choice
-        options:
-          - "false"
-          - "true"
+          - FULL
+
+permissions:
+  contents: read
+  actions: read
 
 jobs:
   run-v3:
@@ -54,14 +34,48 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y zip powershell python3
 
-      - name: Prepare request
+      - name: Guard START against existing open session
+        id: guard_start
+        if: ${{ github.event.inputs.run_mode == 'START' }}
         env:
           TARGET_URL: ${{ github.event.inputs.target_url }}
-          SCAN_PROFILE: ${{ github.event.inputs.scan_profile }}
-          AUDIT_ACTION: ${{ github.event.inputs.audit_action }}
-          SESSION_ID: ${{ github.event.inputs.session_id }}
-          BATCH_SIZE: ${{ github.event.inputs.batch_size }}
-          AUTO_AUDIT: ${{ github.event.inputs.auto_audit }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 agents/site_auditor_v3/tools/workflow_session_state.py guard-start \
+            --target-url "$TARGET_URL" \
+            --repo "${{ github.repository }}" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Restore prior session for NEXT
+        id: restore_next
+        if: ${{ github.event.inputs.run_mode == 'NEXT' }}
+        env:
+          TARGET_URL: ${{ github.event.inputs.target_url }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 agents/site_auditor_v3/tools/workflow_session_state.py restore-next \
+            --target-url "$TARGET_URL" \
+            --repo "${{ github.repository }}" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Resolve FULL entry mode
+        id: resolve_full
+        if: ${{ github.event.inputs.run_mode == 'FULL' }}
+        env:
+          TARGET_URL: ${{ github.event.inputs.target_url }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 agents/site_auditor_v3/tools/workflow_session_state.py resolve-full \
+            --target-url "$TARGET_URL" \
+            --repo "${{ github.repository }}" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Prepare START/NEXT request
+        if: ${{ github.event.inputs.run_mode != 'FULL' }}
+        env:
+          TARGET_URL: ${{ github.event.inputs.target_url }}
+          RUN_MODE: ${{ github.event.inputs.run_mode }}
+          RESTORED_SESSION_ID: ${{ steps.restore_next.outputs.session_id }}
         run: |
           python3 - <<'PY'
           import json
@@ -71,43 +85,87 @@ jobs:
           src = Path("agents/site_auditor_v3/tests/fixtures/link.request.json")
           dst = Path("/tmp/v3.request.json")
 
+          target_url = (os.environ.get("TARGET_URL") or "").strip()
+          run_mode = (os.environ.get("RUN_MODE") or "START").strip().upper()
+          restored_session_id = (os.environ.get("RESTORED_SESSION_ID") or "").strip()
+
+          if not target_url:
+              raise SystemExit("target_url is required")
+          if run_mode not in {"START", "NEXT"}:
+              raise SystemExit(f"Invalid START/NEXT run mode: {run_mode!r}")
+
           data = json.loads(src.read_text())
-          data["target_url"] = os.environ["TARGET_URL"]
-          data["scan_profile"] = os.environ.get("SCAN_PROFILE") or "STANDARD"
-          data["audit_action"] = (os.environ.get("AUDIT_ACTION") or "START").strip().upper()
+          data["target_url"] = target_url
+          data["scan_profile"] = "STANDARD"
+          data["batch_size"] = 250
+          data["auto_audit"] = False
+          data["run_mode"] = run_mode
 
-          session_id = (os.environ.get("SESSION_ID") or "").strip()
-          data["session_id"] = session_id or None
-
-          raw_batch_size = (os.environ.get("BATCH_SIZE") or "250").strip()
-          try:
-              parsed_batch_size = int(raw_batch_size)
-          except ValueError as exc:
-              raise SystemExit(f"Invalid BATCH_SIZE: {raw_batch_size!r}") from exc
-          if parsed_batch_size <= 0:
-              raise SystemExit(f"Invalid BATCH_SIZE: {raw_batch_size!r}; expected positive integer")
-          data["batch_size"] = parsed_batch_size
-
-          auto_audit = (os.environ.get("AUTO_AUDIT") or "false").strip().lower()
-          if auto_audit not in {"true", "false"}:
-              raise SystemExit(f"Invalid AUTO_AUDIT: {auto_audit!r}; expected true or false")
-          data["auto_audit"] = auto_audit == "true"
-
-          if data["audit_action"] in {"NEXT", "FINAL_SUMMARY"} and not data["session_id"]:
-              raise SystemExit("session_id is required when audit_action is NEXT or FINAL_SUMMARY")
+          if run_mode == "START":
+              data["audit_action"] = "START"
+              data["session_id"] = None
+          else:
+              if not restored_session_id:
+                  raise SystemExit("NEXT restore did not provide a session_id")
+              data["audit_action"] = "NEXT"
+              data["session_id"] = restored_session_id
 
           dst.write_text(json.dumps(data, indent=2) + "\n")
           print(dst.read_text())
           PY
 
-      - name: Run Site Auditor V3
+      - name: Run START/NEXT Site Auditor V3
+        if: ${{ github.event.inputs.run_mode != 'FULL' }}
         run: |
           chmod +x agents/site_auditor_v3/tests/run_and_validate.sh
           REQUEST_PATH=/tmp/v3.request.json ./agents/site_auditor_v3/tests/run_and_validate.sh
+
+      - name: Run FULL Site Auditor V3 loop
+        if: ${{ github.event.inputs.run_mode == 'FULL' }}
+        env:
+          TARGET_URL: ${{ github.event.inputs.target_url }}
+          FULL_ENTRY_ACTION: ${{ steps.resolve_full.outputs.entry_action }}
+          FULL_SESSION_ID: ${{ steps.resolve_full.outputs.session_id }}
+        run: |
+          chmod +x agents/site_auditor_v3/tests/run_and_validate.sh
+          python3 agents/site_auditor_v3/tools/workflow_full_loop.py \
+            --target-url "$TARGET_URL" \
+            --entry-action "$FULL_ENTRY_ACTION" \
+            --session-id "$FULL_SESSION_ID" \
+            --state-out-dir "agents/site_auditor_v3/_session_state"
+
+      - name: Locate latest RUN_REPORT
+        id: latest_report
+        run: |
+          REPORT="$(find agents/site_auditor_v3/runs -mindepth 2 -maxdepth 2 -name RUN_REPORT.json -printf '%T@ %p\n' | sort -n | tail -n1 | cut -d' ' -f2-)"
+          if [ -z "$REPORT" ] || [ ! -f "$REPORT" ]; then
+            echo "RUN_REPORT not found after agent run" >&2
+            exit 1
+          fi
+          echo "path=$REPORT" >> "$GITHUB_OUTPUT"
+          echo "LATEST_RUN_REPORT=$REPORT"
+
+      - name: Prepare resumable session-state artifact
+        id: session_state
+        env:
+          TARGET_URL: ${{ github.event.inputs.target_url }}
+        run: |
+          python3 agents/site_auditor_v3/tools/workflow_session_state.py publish \
+            --target-url "$TARGET_URL" \
+            --run-report "${{ steps.latest_report.outputs.path }}" \
+            --out-dir "agents/site_auditor_v3/_session_state" \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Upload V3 runpack
         uses: actions/upload-artifact@v6
         with:
           name: site-auditor-v3-runpack
           path: agents/site_auditor_v3/_deliver/*
+          if-no-files-found: error
+
+      - name: Upload resumable session state
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ steps.session_state.outputs.artifact_name }}
+          path: ${{ steps.session_state.outputs.artifact_path }}
           if-no-files-found: error
