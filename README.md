@@ -1,36 +1,33 @@
 # E-Factory Agent Repo
 
-Purpose:
-- keep canonical source layout for active agents
-- separate canonical source files from quarantined legacy material
-- keep the repository root non-mixed and predictable
+## Purpose
+Canonical source repository for the active AGENTOPS execution line.
 
-Current AGENTOPS build/test focus:
-- `SITE_AUDITOR_V3` — `agents/site_auditor_v3/`
-- Current development contour: session-ledger / long-run audit orchestration.
+## Active line
+- `SITE_AUDITOR_V3`
+- source root: `agents/site_auditor_v3/`
+- operator surface: `.github/workflows/site-auditor-v3.yml`
 
-Retained older agent line:
-- `SITE_AUDITOR_V2` — `agents/site_auditor_v2/`
-- Retained in-repo, but not the current AGENTOPS build/test focus.
+## Current product contour
+The agent is a universal audit engine.
+Current website/site runs are one execution lane, not the total product boundary.
 
-Support / legacy agents:
-- `GH_BATCH`
-- `SITE_AUDITOR_AGENT`
+Current proven orchestration model:
+- START = open a scoped audit session and process the first bounded batch
+- NEXT = restore the matching open session and process one next batch
+- FULL = start or resume a session and continue until completion
+- one unified artifact = report + map + session state + ledger truth
 
-Canonical root layout:
-- `agents/` = source-of-truth agent code and related assets
-- `scripts/` = operational scripts used by canonical workflows
-- `config/` = active configuration
-- `docs/` = documentation, closeout notes, and migration records
-- `tests/` = automated checks and validation assets
-- `_quarantine/` = retained legacy/non-canonical material (not deleted)
-- `_foreign/` = retained non-canonical web/content trees
+## Canonical repo layout
+- `agents/site_auditor_v3/` — active source, contracts, docs, tests, tools
+- `.github/workflows/` — operator workflow entrypoint
+- `.codex/` — controlled patch-execution configuration
 - `.gitignore`
+- `AGENTS.md`
 - `README.md`
 
-Rules for this repo:
-1. Active agent source must live under `agents/`.
-2. Runtime/output and queue-era folders must not remain at root.
-3. Legacy web/content trees must not remain at root.
-4. Legacy artifacts are preserved by moving them into `_quarantine/` or `_foreign/`.
-5. Entrypoints for active agents must remain valid after cleanup.
+## Repo hygiene rules
+1. Runtime outputs, session state, deliverables, caches and local diagnostics do not live in git.
+2. Historical audit snapshots and one-off closeout files do not remain in repo root.
+3. Current operator truth must not reference removed V2-era paths or placeholder directories.
+4. Agent capability truth belongs in generated artifacts and current V3 docs, not in stale task-report leftovers.

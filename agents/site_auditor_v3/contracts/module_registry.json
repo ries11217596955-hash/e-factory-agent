@@ -177,9 +177,7 @@
       "writes_state_paths": [
         "capture"
       ],
-      "tool_paths": [
-        "agents/site_auditor_v3/tools/capture_visuals.mjs"
-      ],
+      "tool_paths": [],
       "timeout_sec": 300,
       "stop_on_status": [
         "FAIL"

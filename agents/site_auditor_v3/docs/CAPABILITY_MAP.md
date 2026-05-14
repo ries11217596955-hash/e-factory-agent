@@ -1,37 +1,50 @@
-# CAPABILITY_MAP
+# CAPABILITY_MAP — SITE_AUDITOR_V3
 
-Known now:
-- registry-driven orchestrator
-- LINK request intake
-- route capability: STUB / TRANSITIONAL (documentation-only placeholder)
-- selection capability: STUB / TRANSITIONAL (not complete)
-- capture capability: STUB / TRANSITIONAL (not complete)
-- reconcile capability: STUB / TRANSITIONAL (not complete)
-- decision capability: STUB / TRANSITIONAL (not complete)
-- output packaging capability: STUB / TRANSITIONAL (not complete)
+## Current proven capabilities
 
-Weak now:
-- real route discovery
-- real link checks
-- real CTA checks
-- real screenshots
-- real evidence index
-- real RUN_REPORT
+### 1. Operator run modes
+- GitHub Actions exposes:
+  - `START`
+  - `NEXT`
+  - `FULL`
 
-Missing now:
-- self-diagnostic
-- self-build
-- ZIP mode
-- REPO mode
-- PROMPT/THEMATIC mode
-- suspiciously clean logic
-- benchmark layer
-- trust/risk layer
+### 2. Session-ledger orchestration
+- START creates a scoped audit session.
+- NEXT restores the matching open session automatically.
+- FULL starts or resumes a session and advances it until completion.
 
-## Structural Debt
-- Fallback decision action exists in `07_output.ps1`.
-- Output fail-path fallback exists.
-- This capability map is documentation truth, not runtime proof.
+### 3. Unified artifact truth
+One artifact carries:
+- `RUN_REPORT.json`
+- `AGENT_MAP.json`
+- `AGENT_MAP.md`
+- `TASK.json`
+- `SESSION_STATE.json`
+- session ledger truth
+- artifact manifest / packaging truth
 
-Next capability:
-RUN_REPORT as operator re-entry file.
+### 4. Inventory before batching
+- route inventory is discovered before audit batching
+- audit batches are capped separately from discovery scope
+- current batch model = up to 250 pages per bounded pass
+
+### 5. Inventory/report truth alignment
+- `RUN_REPORT.route_discovery_result`
+- session ledger inventory
+- audit continuation state
+
+must describe the same session truth.
+
+### 6. Generated agent map
+`AGENT_MAP` is generated from current runtime/contracts and exposes:
+- module topology
+- system capabilities
+- runtime session snapshot
+
+## Still open product layer
+The next major product layer is not basic orchestration.
+It is a scalable session aggregation/finalization layer that can combine current and future reporting streams into one final audit outcome.
+
+## Guard
+This map is a current capability summary.
+Runtime PASS/FAIL still belongs to artifacts and validator output.
