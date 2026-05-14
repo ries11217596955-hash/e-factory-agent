@@ -6,8 +6,10 @@ The operator UI intentionally exposes only:
 - run_mode = START | NEXT | FULL
 
 This helper keeps the workflow from leaking session internals back to the owner.
-It restores resumable session state for NEXT and prepares updated state artifacts
-for upload after START/NEXT runs.
+It provides:
+- START guard: block a new START when an unfinished session already exists for the same URL.
+- NEXT restore: recover one matching open session from prior workflow artifacts.
+- Session publish: prepare resumable state artifacts after successful START/NEXT runs.
 """
 
 from __future__ import annotations
@@ -191,6 +193,12 @@ def latest_per_session(artifacts: Iterable[SessionArtifact]) -> list[SessionArti
     return list(chosen.values())
 
 
+def load_latest_matching_sessions(repo: str, token: str, scope_key: str) -> list[SessionArtifact]:
+    artifact_records = list_matching_artifacts(repo, token, scope_key)
+    extracted = [read_state_from_artifact(record, token) for record in artifact_records]
+    return latest_per_session(extracted)
+
+
 def write_github_output(path: str | None, values: dict[str, str]) -> None:
     if not path:
         for key, value in values.items():
@@ -201,6 +209,42 @@ def write_github_output(path: str | None, values: dict[str, str]) -> None:
     with out_path.open("a", encoding="utf-8") as handle:
         for key, value in values.items():
             handle.write(f"{key}={value}\n")
+
+
+def guard_start(args: argparse.Namespace) -> int:
+    try:
+        normalized_target = normalize_target_url(args.target_url)
+    except SessionStateError as exc:
+        fail(exc.code, exc.message)
+
+    scope_key = scope_key_for_target(normalized_target)
+    token = args.token or os.environ.get("GITHUB_TOKEN") or ""
+    if not token:
+        fail("GITHUB_TOKEN_REQUIRED", "GITHUB_TOKEN is required to check whether an audit session is already open")
+
+    try:
+        latest = load_latest_matching_sessions(args.repo, token, scope_key)
+    except SessionStateError as exc:
+        fail(exc.code, exc.message)
+
+    open_sessions = [item for item in latest if item.status == "OPEN" and item.pending_count > 0]
+    if open_sessions:
+        session_ids = ", ".join(sorted(item.session_id for item in open_sessions))
+        fail(
+            "OPEN_SESSION_ALREADY_EXISTS_FOR_URL",
+            f"An unfinished audit session already exists for this URL: {session_ids}. Use NEXT or FULL instead of START.",
+        )
+
+    print(f"START_GUARD_OK_TARGET_URL={normalized_target}")
+    print("START_GUARD_OPEN_SESSIONS=0")
+    write_github_output(
+        args.github_output,
+        {
+            "scope_key": scope_key,
+            "normalized_target_url": normalized_target,
+        },
+    )
+    return 0
 
 
 def restore_next(args: argparse.Namespace) -> int:
@@ -215,9 +259,7 @@ def restore_next(args: argparse.Namespace) -> int:
         fail("GITHUB_TOKEN_REQUIRED", "GITHUB_TOKEN is required to restore a prior audit session")
 
     try:
-        artifact_records = list_matching_artifacts(args.repo, token, scope_key)
-        extracted = [read_state_from_artifact(record, token) for record in artifact_records]
-        latest = latest_per_session(extracted)
+        latest = load_latest_matching_sessions(args.repo, token, scope_key)
     except SessionStateError as exc:
         fail(exc.code, exc.message)
 
@@ -345,6 +387,13 @@ def publish_state(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Site Auditor V3 workflow session-state helper")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    guard = subparsers.add_parser("guard-start", help="Block START when an unfinished session already exists for target_url")
+    guard.add_argument("--target-url", required=True)
+    guard.add_argument("--repo", required=True, help="owner/repo")
+    guard.add_argument("--token", default="")
+    guard.add_argument("--github-output", default="")
+    guard.set_defaults(func=guard_start)
 
     restore = subparsers.add_parser("restore-next", help="Restore one open session for target_url before NEXT")
     restore.add_argument("--target-url", required=True)
