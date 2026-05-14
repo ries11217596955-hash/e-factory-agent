@@ -140,7 +140,7 @@ function New-SiteAuditorV3AgentMap {
         },
         [ordered]@{
             capability_id = "session_aggregation_and_finalization"
-            status = "ACTIVE"
+            status = "IMPLEMENTED_PENDING_RUNTIME_PROOF"
             owner = "session finalization engine + runtime/workflow entrypoints"
             summary = "Completed audit sessions are transformed into a stream-aware aggregate model, final operator report, final action plan, and findings index, with FINALIZED session-state publication."
             evidence = @(
