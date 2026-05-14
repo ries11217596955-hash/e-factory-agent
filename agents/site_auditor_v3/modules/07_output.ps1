@@ -71,14 +71,19 @@ function Invoke-Module07Output {
     $decisionReason = if ($decisionData -and $decisionData.decision_reason) { @($decisionData.decision_reason) } else { @("Decision module unavailable; diagnostic fallback emitted") }
     $decision = if ($decisionData) { $decisionData } else { [ordered]@{ status = "NOT_RUN"; source = "07_output_fallback" } }
 
+    # Route discovery truth must be the same execution snapshot that fed route_feedback
+    # and session-ledger promotion. Re-running live discovery during output generation
+    # can change counts mid-run and create contradictory report vs. ledger inventory.
     $routeDiscoveryResult = $null
-    $handlerPath = "agents/site_auditor_v3/modules/internal_command_handlers.ps1"
-    if (Test-Path -LiteralPath $handlerPath) {
-        . (Resolve-Path $handlerPath).Path
-        $discovery = Invoke-InternalCommand -Command @{ type="internal"; handler="route_discovery"; args=@{} } -PipelineState $PipelineState
-        if ($discovery -and $discovery.status -eq "OK") {
-            $routeDiscoveryResult = $discovery.data
-        }
+    if ($PipelineState.bootstrap_execution -and
+        $PipelineState.bootstrap_execution.execution_result -and
+        $PipelineState.bootstrap_execution.execution_result.data) {
+        $routeDiscoveryResult = $PipelineState.bootstrap_execution.execution_result.data
+    } elseif ($PipelineState.execution -and
+              $PipelineState.execution.execution_result -and
+              $PipelineState.execution.execution_result.data -and
+              $PipelineState.execution.execution_result.data.capability_id -eq "route_discovery") {
+        $routeDiscoveryResult = $PipelineState.execution.execution_result.data
     }
 
     $task = $null
