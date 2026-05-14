@@ -1,6 +1,0 @@
-=== LEGACY / OLD / BACKUP / TMP SUSPECTS ===
-./.git/logs/refs/remotes/origin/codex/add-report.json-copy-to-root-reports
-./.git/logs/refs/remotes/origin/codex/copy-action_report.txt-to-target-directory
-./.git/refs/remotes/origin/codex/add-report.json-copy-to-root-reports
-./.git/refs/remotes/origin/codex/copy-action_report.txt-to-target-directory
-./node_modules/playwright/lib/isomorphic/folders.js

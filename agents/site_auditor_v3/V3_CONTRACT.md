@@ -47,7 +47,6 @@ No fake static AGENT_MAP.
 
 04_capture.ps1
 - owns visual_capture_input.json and visual_manifest.json
-- uses tools/capture_visuals.mjs
 - output: capture_result.json object
 
 05_reconcile.ps1
