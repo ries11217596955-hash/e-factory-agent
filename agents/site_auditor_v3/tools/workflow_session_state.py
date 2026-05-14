@@ -107,7 +107,39 @@ def api_json(url: str, token: str) -> dict[str, Any]:
         raise SessionStateError("GITHUB_API_ERROR", f"GitHub API request failed ({exc.code}): {body}") from exc
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Keep GitHub artifact redirects visible so the signed URL can be fetched cleanly."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        return None
+
+
+def _download_redirect_target(redirect_url: str) -> bytes:
+    signed_request = urllib.request.Request(
+        redirect_url,
+        headers={"User-Agent": "site-auditor-v3-session-state"},
+    )
+    try:
+        with urllib.request.urlopen(signed_request) as response:
+            return response.read()
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise SessionStateError(
+            "GITHUB_ARTIFACT_SIGNED_URL_ERROR",
+            f"Signed artifact URL download failed ({exc.code}): {body}",
+        ) from exc
+
+
 def api_bytes(url: str, token: str) -> bytes:
+    """Download a workflow artifact ZIP through GitHub's signed redirect flow.
+
+    GitHub's artifact endpoint returns a temporary redirect to object storage. The
+    authenticated GitHub request must use GITHUB_TOKEN, but the second request to
+    the signed object-storage URL must be made without the GitHub Authorization
+    header. urllib's default redirect behavior obscures that split and caused the
+    Actions NEXT/FULL restore path to fail with Azure XML 401 responses.
+    """
+
     request = urllib.request.Request(
         url,
         headers={
@@ -117,10 +149,30 @@ def api_bytes(url: str, token: str) -> bytes:
             "User-Agent": "site-auditor-v3-session-state",
         },
     )
+    opener = urllib.request.build_opener(_NoRedirectHandler())
+
     try:
-        with urllib.request.urlopen(request) as response:
+        with opener.open(request) as response:
+            status = getattr(response, "status", response.getcode())
+            if status in {301, 302, 303, 307, 308}:
+                redirect_url = response.headers.get("Location")
+                if not redirect_url:
+                    raise SessionStateError(
+                        "GITHUB_ARTIFACT_REDIRECT_MISSING",
+                        "Artifact download endpoint returned a redirect without a Location header.",
+                    )
+                return _download_redirect_target(redirect_url)
             return response.read()
     except urllib.error.HTTPError as exc:
+        if exc.code in {301, 302, 303, 307, 308}:
+            redirect_url = exc.headers.get("Location")
+            if not redirect_url:
+                raise SessionStateError(
+                    "GITHUB_ARTIFACT_REDIRECT_MISSING",
+                    "Artifact download endpoint returned a redirect without a Location header.",
+                ) from exc
+            return _download_redirect_target(redirect_url)
+
         body = exc.read().decode("utf-8", errors="replace")
         raise SessionStateError("GITHUB_ARTIFACT_DOWNLOAD_ERROR", f"Artifact download failed ({exc.code}): {body}") from exc
 
