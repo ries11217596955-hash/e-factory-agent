@@ -63,6 +63,13 @@ if ($null -ne $outputModule -and $outputModule.enabled) {
 
     $outResult = & $outFn -PipelineState $pipeline_state -InputData @{}
     $pipeline_state[$outputModule.writes_state_paths[0]] = $outResult.data
+
+    if ($outResult -and $outResult.data -and $outResult.data.run_report) {
+        $finalizerPath = "agents/site_auditor_v3/tools/finalize_session.ps1"
+        if (Test-Path -LiteralPath $finalizerPath) {
+            & $finalizerPath -RunReportPath ([string]$outResult.data.run_report)
+        }
+    }
 }
 
 $pipeline_state | ConvertTo-Json -Depth 20
