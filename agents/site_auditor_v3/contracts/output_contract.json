@@ -1,5 +1,5 @@
 {
-  "schema_version": "3.0.0",
+  "schema_version": "3.1.0",
   "pipeline_id": "site_auditor_v3",
   "runpack_root_template": "agents/site_auditor_v3/runs/{run_id}",
   "operator_entrypoint": "RUN_REPORT.json",
@@ -16,6 +16,30 @@
         "FAIL"
       ],
       "path": "SELF_DIAGNOSTIC.json"
+    },
+    {
+      "when_session_finalization_status_in": [
+        "FINALIZED"
+      ],
+      "path": "SESSION_AGGREGATE.json"
+    },
+    {
+      "when_session_finalization_status_in": [
+        "FINALIZED"
+      ],
+      "path": "FINAL_OPERATOR_REPORT.md"
+    },
+    {
+      "when_session_finalization_status_in": [
+        "FINALIZED"
+      ],
+      "path": "FINAL_ACTION_PLAN.json"
+    },
+    {
+      "when_session_finalization_status_in": [
+        "FINALIZED"
+      ],
+      "path": "FINAL_FINDINGS_INDEX.json"
     }
   ],
   "evidence_globs": [
@@ -34,7 +58,6 @@
     "agents/site_auditor_v3/contracts/**/*.runtime.*",
     "agents/site_auditor_v3/runs/*/MODULE_*.json",
     "agents/site_auditor_v3/runs/*/PHASE_*.json",
-    "agents/site_auditor_v3/runs/*/TRANSCRIPT*",
-    "agents/site_auditor_v3/runs/*/*.md"
+    "agents/site_auditor_v3/runs/*/TRANSCRIPT*"
   ]
 }
