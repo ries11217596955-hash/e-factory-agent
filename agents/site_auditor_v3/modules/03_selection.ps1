@@ -25,19 +25,23 @@ function Invoke-SelectionModule {
         $ledger = [ordered]@{
             session_id = $sessionId
             base_url = [string]$inputState.base_url
+            target_url = [string]$inputState.target_url
             inventory_url_count = $pendingUrls.Count
             batch_size = $batchSize
             audited_urls = @()
             pending_urls = $pendingUrls
             failed_urls = @()
             completed_batch_ids = @()
+            batch_history = @()
             last_completed_run_id = $null
             aggregate_findings = [ordered]@{ critical = 0; high = 0; medium = 0; low = 0 }
+            cumulative_findings = @()
+            cumulative_finding_actions = @()
             coverage_percent = 0
             next_action = if ($nextPending.Count -eq 0) { "FINAL_SUMMARY" } else { "NEXT_BATCH" }
             auto_audit = [bool]$inputState.auto_audit
         }
-        $ledger | ConvertTo-Json -Depth 20 | Set-Content -Path $ledgerPath -Encoding UTF8
+        $ledger | ConvertTo-Json -Depth 30 | Set-Content -Path $ledgerPath -Encoding UTF8
     } else {
         if (-not (Test-Path -LiteralPath $ledgerPath)) {
             return @{ status = "FAIL"; data = @{ error_code = "LEDGER_NOT_FOUND"; error_message = "session ledger not found for action $action" } }
