@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -67,11 +68,39 @@ def write_request(target_url: str, audit_action: str, session_id: str | None) ->
     return path
 
 
+def resolve_bash_executable() -> str:
+    """Resolve bash for both GitHub Linux runners and Windows operator diagnostics."""
+    direct = shutil.which("bash")
+    if direct:
+        return direct
+
+    candidates = []
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        candidates.append(Path(local_app_data) / "Programs" / "Git" / "bin" / "bash.exe")
+    candidates.extend(
+        [
+            Path(r"C:\Program Files\Git\bin\bash.exe"),
+            Path(r"C:\Program Files (x86)\Git\bin\bash.exe"),
+        ]
+    )
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+
+    fail("bash executable not found; install Git Bash or run FULL from a runner with bash available")
+    return ""
+
+
 def run_wrapper(request_path: Path) -> Path:
     env = os.environ.copy()
     env["REQUEST_PATH"] = str(request_path)
+    bash_executable = resolve_bash_executable()
+    wrapper_cmd = f"./{WRAPPER.as_posix()}"
     print(f"FULL_LOOP_REQUEST={request_path}")
-    subprocess.run(["bash", str(WRAPPER)], check=True, env=env)
+    print(f"FULL_LOOP_BASH={bash_executable}")
+    subprocess.run([bash_executable, "-lc", wrapper_cmd], check=True, env=env)
     return locate_latest_report()
 
 
