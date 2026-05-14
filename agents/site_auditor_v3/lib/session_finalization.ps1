@@ -115,7 +115,7 @@ function New-SiteAuditorV3ReportStream {
         [Parameter(Mandatory)][string]$Source,
         [Parameter(Mandatory)][int]$RecordsCount,
         [Parameter(Mandatory)]$AggregateMetrics,
-        [Parameter(Mandatory)][object[]]$TopFindings,
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$TopFindings,
         [Parameter(Mandatory)]$SeverityCounts,
         [Parameter(Mandatory)][string[]]$AggregationNotes
     )
