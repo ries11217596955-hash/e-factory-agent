@@ -125,6 +125,13 @@ RUN_REPORT_PATH="$LATEST_REPORT" python3 "$ROOT/tests/guard_v3_architecture.py"
 echo "=== VALIDATE SELF BUILD LOOP ==="
 RUN_REPORT_PATH="$LATEST_REPORT" python3 "$ROOT/tests/validate_self_build_loop.py"
 
+echo "=== FINALIZE SESSION IF READY ==="
+pwsh -NoProfile -File "$ROOT/tools/finalize_session.ps1" \
+  -RunReportPath "$LATEST_REPORT"
+
+echo "=== VALIDATE SESSION FINALIZATION ==="
+RUN_REPORT_PATH="$LATEST_REPORT" python3 "$ROOT/tests/validate_session_finalization.py"
+
 echo "=== SHORT SUMMARY ==="
 python3 - "$LATEST_REPORT" <<'PY'
 import json, sys
@@ -135,6 +142,7 @@ print("verdict:", j["verdict"])
 print("score:", j["audit_result"]["score"])
 print("next_capability:", j["agent_capability_state"]["next_capability_to_build"])
 print("limitations:", j["diagnostic_summary"]["limitations"])
+print("finalization:", (j.get("finalization") or {}).get("status", "NOT_FINALIZED"))
 PY
 
 echo "=== OPERATOR BRIEF FROM RUN_REPORT ==="
@@ -178,6 +186,8 @@ print("route_discovery_count:", get(["route_discovery_result", "discovered_count
 print("evidence_routes_discovered:", get(["evidence_summary", "routes_discovered"], "MISSING"))
 print("evidence_routes_selected:", get(["evidence_summary", "routes_selected"], "MISSING"))
 print("visual_first_url:", get(["evidence_summary", "visual_capture", "visual_records", 0, "url"], "MISSING"))
+print("finalization_status:", get(["finalization", "status"], "NOT_FINALIZED"))
+print("finalization_verdict:", get(["finalization", "final_verdict"], "MISSING"))
 PY
 
 echo "=== PACKAGE RUNPACK ==="
@@ -198,6 +208,15 @@ import sys
 run_dir, run_id = sys.argv[1], sys.argv[2]
 deliverable = os.path.abspath(os.path.join("agents/site_auditor_v3/_deliver", f"SITE_AUDITOR_V3_RUNPACK_{run_id}.zip"))
 expected_files = ["RUN_REPORT.json", "TASK.json", "AGENT_MAP.json", "AGENT_MAP.md"]
+finalization_files = [
+    "SESSION_AGGREGATE.json",
+    "FINAL_OPERATOR_REPORT.md",
+    "FINAL_ACTION_PLAN.json",
+    "FINAL_FINDINGS_INDEX.json",
+]
+
+if any(os.path.isfile(os.path.join(run_dir, name)) for name in finalization_files):
+    expected_files.extend(finalization_files)
 
 produced_files = []
 for name in sorted(os.listdir(run_dir)):
@@ -252,6 +271,7 @@ report["packaging"] = {
     "manifest": "ARTIFACT_MANIFEST.json",
     "produced_files_count": len(manifest.get("produced_files", [])),
     "missing_expected_files": manifest.get("missing_expected_files", []),
+    "extra_files": manifest.get("extra_files", []),
     "note": "Validation wrapper created runpack ZIP."
 }
 with open(report_path, 'w', encoding='utf-8') as f:
