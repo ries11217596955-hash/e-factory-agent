@@ -58,7 +58,20 @@ jobs:
             --repo "${{ github.repository }}" \
             --github-output "$GITHUB_OUTPUT"
 
-      - name: Prepare request
+      - name: Resolve FULL entry mode
+        id: resolve_full
+        if: ${{ github.event.inputs.run_mode == 'FULL' }}
+        env:
+          TARGET_URL: ${{ github.event.inputs.target_url }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 agents/site_auditor_v3/tools/workflow_session_state.py resolve-full \
+            --target-url "$TARGET_URL" \
+            --repo "${{ github.repository }}" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Prepare START/NEXT request
+        if: ${{ github.event.inputs.run_mode != 'FULL' }}
         env:
           TARGET_URL: ${{ github.event.inputs.target_url }}
           RUN_MODE: ${{ github.event.inputs.run_mode }}
@@ -78,8 +91,8 @@ jobs:
 
           if not target_url:
               raise SystemExit("target_url is required")
-          if run_mode not in {"START", "NEXT", "FULL"}:
-              raise SystemExit(f"Invalid RUN_MODE: {run_mode!r}; expected START, NEXT, or FULL")
+          if run_mode not in {"START", "NEXT"}:
+              raise SystemExit(f"Invalid START/NEXT run mode: {run_mode!r}")
 
           data = json.loads(src.read_text())
           data["target_url"] = target_url
@@ -91,24 +104,35 @@ jobs:
           if run_mode == "START":
               data["audit_action"] = "START"
               data["session_id"] = None
-          elif run_mode == "NEXT":
+          else:
               if not restored_session_id:
                   raise SystemExit("NEXT restore did not provide a session_id")
               data["audit_action"] = "NEXT"
               data["session_id"] = restored_session_id
-          else:
-              raise SystemExit(
-                  "RUN_MODE=FULL is not executable yet: FULL loop orchestration is the next implementation step."
-              )
 
           dst.write_text(json.dumps(data, indent=2) + "\n")
           print(dst.read_text())
           PY
 
-      - name: Run Site Auditor V3
+      - name: Run START/NEXT Site Auditor V3
+        if: ${{ github.event.inputs.run_mode != 'FULL' }}
         run: |
           chmod +x agents/site_auditor_v3/tests/run_and_validate.sh
           REQUEST_PATH=/tmp/v3.request.json ./agents/site_auditor_v3/tests/run_and_validate.sh
+
+      - name: Run FULL Site Auditor V3 loop
+        if: ${{ github.event.inputs.run_mode == 'FULL' }}
+        env:
+          TARGET_URL: ${{ github.event.inputs.target_url }}
+          FULL_ENTRY_ACTION: ${{ steps.resolve_full.outputs.entry_action }}
+          FULL_SESSION_ID: ${{ steps.resolve_full.outputs.session_id }}
+        run: |
+          chmod +x agents/site_auditor_v3/tests/run_and_validate.sh
+          python3 agents/site_auditor_v3/tools/workflow_full_loop.py \
+            --target-url "$TARGET_URL" \
+            --entry-action "$FULL_ENTRY_ACTION" \
+            --session-id "$FULL_SESSION_ID" \
+            --state-out-dir "agents/site_auditor_v3/_session_state"
 
       - name: Locate latest RUN_REPORT
         id: latest_report
