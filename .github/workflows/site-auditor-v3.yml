@@ -204,6 +204,16 @@ jobs:
               f"sessions/{session_id}/AUDIT_SESSION_LEDGER.json",
           ]
 
+          finalized_contract = [
+              "SESSION_AGGREGATE.json",
+              "FINAL_OPERATOR_REPORT.md",
+              "FINAL_ACTION_PLAN.json",
+              "FINAL_FINDINGS_INDEX.json",
+          ]
+          finalization_status = str(state.get("finalization_status") or "")
+          if finalization_status == "FINALIZED":
+              expected_files.extend(finalized_contract)
+
           produced_files = sorted(
               path.relative_to(root).as_posix()
               for path in root.rglob("*")
@@ -221,6 +231,7 @@ jobs:
           manifest.update({
               "packaging_mode": "UNIFIED_SESSION_ARTIFACT",
               "deliverable": str(state.get("artifact_name") or root.name),
+              "finalization_status": finalization_status or "NOT_FINALIZED",
               "produced_files": produced_files,
               "expected_files": expected_files,
               "missing_expected_files": missing_expected_files,
@@ -235,10 +246,11 @@ jobs:
               "artifact_created": True,
               "deliverable": str(state.get("artifact_name") or root.name),
               "manifest": "ARTIFACT_MANIFEST.json",
+              "finalization_status": finalization_status or "NOT_FINALIZED",
               "produced_files_count": len(produced_files),
               "missing_expected_files": missing_expected_files,
               "extra_files": extra_files,
-              "note": "GitHub Actions uploaded one unified report artifact containing run output, session state, and ledger truth.",
+              "note": "GitHub Actions uploaded one unified report artifact containing run output, session state, ledger truth, and finalization outputs when the session is finalized.",
           }
 
           for report_name in ("RUN_REPORT.json", "LATEST_RUN_REPORT.json"):
@@ -255,6 +267,7 @@ jobs:
           print("UNIFIED_MANIFEST_EXPECTED_FILES=OK")
           print(f"UNIFIED_MANIFEST_EXTRA_FILES={len(extra_files)}")
           print("UNIFIED_PACKAGING_MODE=UNIFIED_SESSION_ARTIFACT")
+          print(f"UNIFIED_FINALIZATION_STATUS={finalization_status or 'NOT_FINALIZED'}")
           PY
 
       - name: Upload unified V3 report artifact
