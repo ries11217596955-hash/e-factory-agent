@@ -34,6 +34,18 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y zip powershell python3
 
+      - name: Guard START against existing open session
+        id: guard_start
+        if: ${{ github.event.inputs.run_mode == 'START' }}
+        env:
+          TARGET_URL: ${{ github.event.inputs.target_url }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 agents/site_auditor_v3/tools/workflow_session_state.py guard-start \
+            --target-url "$TARGET_URL" \
+            --repo "${{ github.repository }}" \
+            --github-output "$GITHUB_OUTPUT"
+
       - name: Restore prior session for NEXT
         id: restore_next
         if: ${{ github.event.inputs.run_mode == 'NEXT' }}
