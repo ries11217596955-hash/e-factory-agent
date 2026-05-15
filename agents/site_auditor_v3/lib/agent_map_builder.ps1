@@ -44,8 +44,9 @@ function New-SiteAuditorV3AgentMap {
                 "08_route_feedback" { "Normalize execution route discovery into route feedback state"; break }
                 "08_route_promotion" { "Promote route feedback into promoted audit/selection state"; break }
                 "09_capability_builder" { "Produce build state and build recommendation only"; break }
-                "10_post_build_decision" { "Apply build truth gate and final decision action override"; break }
-                "07_output" { "Compose operator artifacts, cumulative session truth, and AGENT_MAP"; break }
+                "09_5_capability_discovery" { "Resolve an exhausted self-build queue into the next universal capability pack"; break }
+                "10_post_build_decision" { "Apply build/discovery truth gates and final decision action override"; break }
+                "07_output" { "Compose operator artifacts, cumulative session truth, self-build truth, and AGENT_MAP"; break }
                 default { "Module responsibility must be declared" }
             }
             reads_state_paths = @($m.reads_state_paths)
@@ -87,6 +88,7 @@ function New-SiteAuditorV3AgentMap {
     $routeFeedback = if ($PipelineState.route_feedback) { $PipelineState.route_feedback } else { $null }
     $routeScopeStatus = if ($routeFeedback -and $routeFeedback.scope_status) { [string]$routeFeedback.scope_status } else { "UNKNOWN" }
     $routeDiscovered = if ($routeFeedback -and $null -ne $routeFeedback.pages_discovered_count) { [int]$routeFeedback.pages_discovered_count } else { $null }
+    $capabilityDiscovery = if ($PipelineState.capability_discovery) { $PipelineState.capability_discovery } else { $null }
 
     $systemCapabilities = @(
         [ordered]@{
@@ -154,15 +156,29 @@ function New-SiteAuditorV3AgentMap {
                 "agents/site_auditor_v3/tools/workflow_session_state.py",
                 "hosted FULL artifact: FINALIZATION_VALIDATION=PASS, SESSION_STATE_STATUS=FINALIZED, FULL_LOOP_STATUS=COMPLETED"
             )
+        },
+        [ordered]@{
+            capability_id = "capability_discovery_engine"
+            status = "IMPLEMENTED_PENDING_RUNTIME_PROOF"
+            owner = "capability discovery catalog + runtime module + output/task truth alignment"
+            summary = "When the fixed self-build queue is exhausted, the agent selects the next universal capability pack from a catalog and emits a concrete TASK for that pack instead of looping on an abstract capability_discovery placeholder."
+            evidence = @(
+                "agents/site_auditor_v3/contracts/capability_discovery_catalog.json",
+                "agents/site_auditor_v3/modules/09_5_capability_discovery.ps1",
+                "agents/site_auditor_v3/modules/internal_command_handlers.ps1",
+                "agents/site_auditor_v3/modules/10_post_build_decision.ps1",
+                "agents/site_auditor_v3/modules/07_output.ps1",
+                "agents/site_auditor_v3/tests/validate_self_build_loop.py"
+            )
         }
     )
 
     return [ordered]@{
-        schema_version = "1.2.1"
+        schema_version = "1.3.0"
         artifact = "AGENT_MAP"
         run_id = if ($PipelineState.run -and $PipelineState.run.run_id) { $PipelineState.run.run_id } else { "unknown" }
         product_scope = "Universal audit engine; website LINK is current execution lane only"
-        agent_loop = "input -> inventory truth -> batch audit -> evidence -> decision -> session aggregation/finalization -> next loop"
+        agent_loop = "input -> inventory truth -> batch audit -> evidence -> decision -> session aggregation/finalization -> capability discovery -> next universal capability pack"
         registry_source = $registryPath
         entrypoint = $registry.entrypoint_path
         module_count = @($modules).Count
@@ -175,18 +191,22 @@ function New-SiteAuditorV3AgentMap {
             route_scope_status = $routeScopeStatus
             discovered_page_routes = $routeDiscovered
             finalization_owner = "tools/finalize_session.ps1"
+            capability_discovery_status = if ($capabilityDiscovery -and $capabilityDiscovery.discovery_status) { [string]$capabilityDiscovery.discovery_status } else { "NOT_TRIGGERED" }
+            selected_next_capability = if ($capabilityDiscovery -and $capabilityDiscovery.selected_capability) { [string]$capabilityDiscovery.selected_capability } else { $null }
         }
         current_bottleneck = $currentBottleneck
         protected_architecture_rules = @(
             "06_decision does not own action mapping",
             "07_output does not own next_step shape",
             "09_capability_builder does not emit decision_action",
+            "09_5_capability_discovery resolves universal next capability only after self-build requests capability_discovery",
             "build_truth_gate required when build_status exists",
             "module registry is SSOT for module order and state reads/writes",
             "build capability packs, not one-off isolated checks or one module per finding type",
             "operator session continuity must be visible in report artifacts and AGENT_MAP",
             "output must reuse already-produced discovery truth, not re-crawl live routes during report composition",
-            "session finalization must aggregate through report streams and disclose future unaggregated streams instead of collapsing into a one-off summary"
+            "session finalization must aggregate through report streams and disclose future unaggregated streams instead of collapsing into a one-off summary",
+            "capability discovery must select a universal product capability, never a repair task for one test target"
         )
         runpack_links = [ordered]@{
             run_report = "RUN_REPORT.json"
@@ -211,7 +231,8 @@ function New-SiteAuditorV3AgentMap {
                 "manual module map edits",
                 "new module for every isolated finding type",
                 "one-parameter-at-a-time auditor construction when a capability pack is required",
-                "single-report FINAL_SUMMARY shortcuts that bypass stream-aware session aggregation"
+                "single-report FINAL_SUMMARY shortcuts that bypass stream-aware session aggregation",
+                "target-specific repair findings promoted into universal product roadmap"
             )
         }
     }
@@ -236,6 +257,8 @@ function Convert-SiteAuditorV3AgentMapToMarkdown {
     $lines.Add("- route_scope_status: $($AgentMap.runtime_session_snapshot.route_scope_status)")
     $lines.Add("- discovered_page_routes: $($AgentMap.runtime_session_snapshot.discovered_page_routes)")
     $lines.Add("- finalization_owner: $($AgentMap.runtime_session_snapshot.finalization_owner)")
+    $lines.Add("- capability_discovery_status: $($AgentMap.runtime_session_snapshot.capability_discovery_status)")
+    $lines.Add("- selected_next_capability: $($AgentMap.runtime_session_snapshot.selected_next_capability)")
     $lines.Add("")
     $lines.Add("## Current bottleneck")
     $lines.Add("- owner_module: $($AgentMap.current_bottleneck.owner_module)")
