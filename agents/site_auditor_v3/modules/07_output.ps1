@@ -14,7 +14,7 @@ function Invoke-Module07Output {
     New-Item -ItemType Directory -Force -Path $runRoot | Out-Null
 
     $pipelineStatus = [ordered]@{}
-    foreach ($key in @("input","route_audit","selection","capture","reconcile","decision","output")) {
+    foreach ($key in @("input","route_audit","selection","capture","reconcile","decision","capability_discovery","output")) {
         if ($PipelineState.ContainsKey($key)) { $pipelineStatus[$key] = "OK" }
         else { $pipelineStatus[$key] = "SKIPPED" }
     }
@@ -50,6 +50,27 @@ function Invoke-Module07Output {
         }
     }
 
+    $capabilityDiscovery = if ($PipelineState.capability_discovery) { $PipelineState.capability_discovery } else { $null }
+    $taskOverride = $null
+    if ($capabilityDiscovery -and $capabilityDiscovery.discovery_status -eq "SELECTED") {
+        $selectedCapability = [string]$capabilityDiscovery.selected_capability
+        if (-not [string]::IsNullOrWhiteSpace($selectedCapability)) {
+            $cap.next_capability_to_build = $selectedCapability
+            $cap.reason = "capability discovery selected the next universal build pack"
+            $cap.capability_discovery = $capabilityDiscovery
+
+            $selectedTaskContract = if ($capabilityDiscovery.selected_task_contract) { $capabilityDiscovery.selected_task_contract } else { @{} }
+            $taskOverride = [ordered]@{
+                selected_capability = $selectedCapability
+                task_type = if ($selectedTaskContract.task_type) { [string]$selectedTaskContract.task_type } else { "BUILD_CAPABILITY" }
+                state_key = if ($selectedTaskContract.state_key) { [string]$selectedTaskContract.state_key } else { $selectedCapability }
+                required_fields = if ($selectedTaskContract.required_fields) { @($selectedTaskContract.required_fields) } else { @("capability_id","build_status","validation") }
+                selection_reason = if ($capabilityDiscovery.selection_reason) { [string]$capabilityDiscovery.selection_reason } else { $null }
+                why_universal = if ($capabilityDiscovery.why_universal) { [string]$capabilityDiscovery.why_universal } else { $null }
+                diagnostic_reason = "capability discovery resolved the next universal build pack"
+            }
+        }
+    }
 
     $decisionData = if ($PipelineState.decision) { $PipelineState.decision } else { $null }
     $verdict = if ($decisionData -and $decisionData.audit_verdict) { [string]$decisionData.audit_verdict } else { "INCONCLUSIVE" }
@@ -93,13 +114,12 @@ function Invoke-Module07Output {
     else {
         $handlerPath = (Resolve-Path "agents/site_auditor_v3/modules/internal_command_handlers.ps1").Path
         . $handlerPath
-        $internalCommand = @{ type = "internal"; handler = "prepare_capability_task"; args = @{} }
+        $internalCommand = @{ type = "internal"; handler = "prepare_capability_task"; args = if ($taskOverride) { $taskOverride } else { @{} } }
         $internalResult = Invoke-InternalCommand -Command $internalCommand -PipelineState $PipelineState
         if ($internalResult -and $internalResult.status -eq "OK" -and $internalResult.data -and $internalResult.data.result) {
             $task = $internalResult.data.result
         }
     }
-
 
     $fallbackDecisionAction = [ordered]@{
         action_id = "repair_failed_module"
@@ -264,6 +284,7 @@ function Invoke-Module07Output {
 
         diagnostic_summary = $diag
         agent_capability_state = $cap
+        capability_discovery = $capabilityDiscovery
 
         agent_map = [ordered]@{
             json = "AGENT_MAP.json"
@@ -272,10 +293,10 @@ function Invoke-Module07Output {
 
         decision_action = $safeDecisionAction
         execution = if ($PipelineState.execution) { $PipelineState.execution } else { $null }
-          build = if ($PipelineState.build) { $PipelineState.build } else { $null }
-          route_discovery_result = $routeDiscoveryResult
-          task = $task
-          build_truth_gate = if ($PipelineState.post_build_decision -and $PipelineState.post_build_decision.build_truth_gate) { $PipelineState.post_build_decision.build_truth_gate } else { $null }
+        build = if ($PipelineState.build) { $PipelineState.build } else { $null }
+        route_discovery_result = $routeDiscoveryResult
+        task = $task
+        build_truth_gate = if ($PipelineState.post_build_decision -and $PipelineState.post_build_decision.build_truth_gate) { $PipelineState.post_build_decision.build_truth_gate } else { $null }
 
         next_step = $safeNextStep
 
