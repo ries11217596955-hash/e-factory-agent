@@ -265,23 +265,60 @@ function Invoke-RouteDiscoveryInternal {
 function Invoke-PrepareCapabilityTaskInternal {
     param([Parameter(Mandatory)]$PipelineState)
 
+    $selfBuild = if ($PipelineState.decision -and $PipelineState.decision.self_build) { $PipelineState.decision.self_build } else { $null }
+    $nextCapability = if ($selfBuild -and $selfBuild.next_capability_to_build) { [string]$selfBuild.next_capability_to_build } else { "route_discovery" }
+    $completedCapabilities = if ($selfBuild -and $selfBuild.completed_capabilities) { @($selfBuild.completed_capabilities) } else { @() }
+    $missingCapabilities = if ($selfBuild -and $selfBuild.missing_capabilities) { @($selfBuild.missing_capabilities) } else { @() }
+    $weakCapabilities = if ($selfBuild -and $selfBuild.weak_capabilities) { @($selfBuild.weak_capabilities) } else { @() }
+
+    if ($nextCapability -eq "capability_discovery") {
+        return @{
+            status = "OK"
+            data = @{
+                result = @{
+                    capability_id = "capability_discovery"
+                    task_type = "DISCOVER_CAPABILITY"
+                    input = @{
+                        selected = "capability_discovery"
+                        completed_capabilities = @($completedCapabilities)
+                        missing_capabilities = @($missingCapabilities)
+                        weak_capabilities = @($weakCapabilities)
+                        source = "RUN_REPORT.agent_capability_state.next_capability_to_build"
+                    }
+                    expected_output = @{
+                        state_key = "capability_discovery"
+                        required_fields = @("candidate_capabilities","selected_capability","selection_reason")
+                    }
+                    diagnostic = @{
+                        reason = "self-build queue exhausted; discover the next universal audit capability pack"
+                    }
+                }
+            }
+        }
+    }
+
     return @{
         status = "OK"
         data = @{
             result = @{
-                capability_id = "route_discovery"
+                capability_id = $nextCapability
                 task_type = "BUILD_CAPABILITY"
                 input = @{
-                    candidates = @("route_discovery")
-                    selected = "route_discovery"
-                    evidence_gaps = @("baseline_coverage_or_route_discovery_needed")
+                    candidates = @($nextCapability)
+                    selected = $nextCapability
+                    evidence_gaps = if ($nextCapability -eq "route_discovery") { @("baseline_coverage_or_route_discovery_needed") } else { @("self_build_selected_capability") }
+                    source = "RUN_REPORT.agent_capability_state.next_capability_to_build"
                 }
                 expected_output = @{
-                    state_key = "route_discovery"
-                    required_fields = @("discovered_routes","rejected_routes","checked_count","discovered_count")
+                    state_key = $nextCapability
+                    required_fields = if ($nextCapability -eq "route_discovery") {
+                        @("discovered_routes","rejected_routes","checked_count","discovered_count")
+                    } else {
+                        @("capability_id","build_status","validation")
+                    }
                 }
                 diagnostic = @{
-                    reason = "execution-ready route discovery selected from coverage gap"
+                    reason = "task capability derived from self-build truth"
                 }
             }
         }
