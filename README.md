@@ -8,15 +8,22 @@ Canonical source repository for the active AGENTOPS execution line.
 - source root: `agents/site_auditor_v3/`
 - operator surface: `.github/workflows/site-auditor-v3.yml`
 
-## Current product contour
-The agent is a universal audit engine.
+## Product boundary
+The agent is a **universal audit engine**.
 Current website/site runs are one execution lane, not the total product boundary.
 
-Current proven orchestration model:
-- START = open a scoped audit session and process the first bounded batch
-- NEXT = restore the matching open session and process one next batch
-- FULL = start or resume a session and continue until completion
+## Current proven execution contour
+The agent already proves:
+- `START` = open a scoped audit session and process the first bounded batch
+- `NEXT` = restore the matching open session and process one next batch
+- `FULL` = start or resume a session and continue until completion
 - one unified artifact = report + map + session state + ledger truth
+- completed session finalization = aggregate truth + final operator report + final action plan + findings index
+- self-build truth alignment = `RUN_REPORT` and `TASK.json` agree
+- capability discovery = exhausted queue resolves into a concrete universal next pack
+
+Current selected next universal product pack:
+- `repair_execution_layer`
 
 ## Canonical repo layout
 - `agents/site_auditor_v3/` — active source, contracts, docs, tests, tools
@@ -27,7 +34,8 @@ Current proven orchestration model:
 - `README.md`
 
 ## Repo hygiene rules
-1. Runtime outputs, session state, deliverables, caches and local diagnostics do not live in git.
+1. Runtime outputs, session state, deliverables, caches, and local diagnostics do not live in git.
 2. Historical audit snapshots and one-off closeout files do not remain in repo root.
 3. Current operator truth must not reference removed V2-era paths or placeholder directories.
 4. Agent capability truth belongs in generated artifacts and current V3 docs, not in stale task-report leftovers.
+5. Target-specific findings from a test fixture must not be promoted into the universal product roadmap.
