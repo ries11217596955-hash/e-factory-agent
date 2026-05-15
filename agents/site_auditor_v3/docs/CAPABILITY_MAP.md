@@ -42,7 +42,7 @@ must describe the same session truth.
 - runtime session snapshot
 
 ### 7. Session aggregation and finalization
-Completed audit sessions now finalize automatically after 100% coverage.
+Completed audit sessions finalize automatically after 100% coverage.
 
 Finalization layer produces:
 - `SESSION_AGGREGATE.json`
@@ -63,10 +63,8 @@ Aggregation is stream-aware, not a one-off summary. Current streams:
 
 Future reporting streams must attach to the same aggregation model instead of creating isolated final-summary outputs.
 
-## Current implementation awaiting runtime proof
-
 ### 8. Capability discovery engine
-When the fixed self-build queue is exhausted, the agent now resolves the abstract placeholder:
+When the fixed self-build queue is exhausted, the agent resolves the abstract placeholder:
 
 ```text
 capability_discovery
@@ -76,18 +74,28 @@ into a concrete **universal** next capability pack selected from a catalog.
 
 Current catalog selection:
 - selected next pack: `repair_execution_layer`
-- reason: the finalization layer now emits `FINAL_ACTION_PLAN.json`, so the next universal product layer is a safe execution/repair layer that consumes the plan contract, not a target-specific site fix.
+- reason: the finalization layer emits `FINAL_ACTION_PLAN.json`, so the next universal product layer is a safe repair/execution layer that consumes the plan contract, not a target-specific site fix.
 
-Discovery truth must align across:
+Discovery truth is aligned across:
 - `RUN_REPORT.capability_discovery.selected_capability`
 - `RUN_REPORT.agent_capability_state.next_capability_to_build`
 - `TASK.json.capability_id`
 
-The capability discovery engine is implemented but not yet promoted to proven status until the terminal/hosted proof passes.
+Terminal FULL proof confirmed:
+- `CAPABILITY_DISCOVERY_STATUS=SELECTED`
+- `DISCOVERED_NEXT_CAPABILITY=repair_execution_layer`
+- `NEXT_CAPABILITY=repair_execution_layer`
+- `TASK_CAPABILITY=repair_execution_layer`
+- `TASK_TYPE=BUILD_CAPABILITY`
 
-## Still open product layer
-The next product pack to build after proving capability discovery is:
+## Active next product pack
+The next AGENTOPS product pack to build is:
 - `repair_execution_layer`
+
+This pack must remain universal:
+- consume the final action-plan contract;
+- avoid target-specific repair logic;
+- preserve evidence-backed decision flow.
 
 After that:
 - cross-session comparison / trend layer
