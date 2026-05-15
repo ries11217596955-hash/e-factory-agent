@@ -1,5 +1,5 @@
 {
-  "schema_version": "3.0.0",
+  "schema_version": "3.1.0",
   "pipeline_id": "site_auditor_v3",
   "entrypoint_path": "agents/site_auditor_v3/run.ps1",
   "output_contract_path": "agents/site_auditor_v3/contracts/output_contract.json",
@@ -283,17 +283,43 @@
       "writes_final_outputs": false
     },
     {
-      "module_id": "10_post_build_decision",
-      "ordinal": 10,
+      "module_id": "09_5_capability_discovery",
+      "ordinal": 9,
       "enabled": true,
-      "file_path": "agents/site_auditor_v3/modules/10_post_build_decision.ps1",
-      "entry_function": "Invoke-Module10PostBuildDecision",
+      "file_path": "agents/site_auditor_v3/modules/09_5_capability_discovery.ps1",
+      "entry_function": "Invoke-Module095CapabilityDiscovery",
       "depends_on": [
         "09_capability_builder"
       ],
       "reads_state_paths": [
         "decision",
         "build"
+      ],
+      "writes_state_paths": [
+        "capability_discovery"
+      ],
+      "tool_paths": [
+        "agents/site_auditor_v3/contracts/capability_discovery_catalog.json"
+      ],
+      "timeout_sec": 30,
+      "stop_on_status": [
+        "FAIL"
+      ],
+      "writes_final_outputs": false
+    },
+    {
+      "module_id": "10_post_build_decision",
+      "ordinal": 10,
+      "enabled": true,
+      "file_path": "agents/site_auditor_v3/modules/10_post_build_decision.ps1",
+      "entry_function": "Invoke-Module10PostBuildDecision",
+      "depends_on": [
+        "09_5_capability_discovery"
+      ],
+      "reads_state_paths": [
+        "decision",
+        "build",
+        "capability_discovery"
       ],
       "writes_state_paths": [
         "post_build_decision"
@@ -322,6 +348,7 @@
         "reconcile",
         "decision",
         "build",
+        "capability_discovery",
         "post_build_decision",
         "route_feedback",
         "route_promotion"
