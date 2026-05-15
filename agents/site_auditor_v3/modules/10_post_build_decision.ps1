@@ -6,6 +6,7 @@ function Invoke-Module10PostBuildDecision {
 
     $baseDecision = $PipelineState.decision
     $build = $PipelineState.build
+    $capabilityDiscovery = $PipelineState.capability_discovery
     $buildRecommendation = if ($build -and $build.build_recommendation) {
         $build.build_recommendation
     } elseif ($build -and $build.next_action) {
@@ -23,6 +24,41 @@ function Invoke-Module10PostBuildDecision {
         build_status = $buildStatus
         target_file = $targetFile
         reason = ""
+    }
+
+    if ($capabilityDiscovery -and $capabilityDiscovery.discovery_status -eq "SELECTED") {
+        $selectedCapability = [string]$capabilityDiscovery.selected_capability
+        $selectedClass = [string]$capabilityDiscovery.selected_capability_class
+        $selectionReason = [string]$capabilityDiscovery.selection_reason
+
+        if ($buildStatus -eq "SKIPPED") {
+            $buildTruthGate.reason = "no build task"
+        } else {
+            $buildTruthGate.reason = "capability discovery selected next universal build pack"
+        }
+        $buildTruthGate.discovery_status = "SELECTED"
+        $buildTruthGate.selected_capability = $selectedCapability
+
+        return @{
+            status = "OK"
+            data = @{
+                decision_action = @{
+                    action_id = "build_selected_capability_pack"
+                    action = "build selected universal capability pack"
+                    why = $selectionReason
+                    target_module = $selectedCapability
+                    selected_capability = $selectedCapability
+                    selected_capability_class = $selectedClass
+                    source = "capability_discovery"
+                    priority = "highest"
+                    next_command_hint = ("use TASK.json to build {0}" -f $selectedCapability)
+                }
+                source = "capability_discovery"
+                reason = "capability discovery resolved next universal build pack"
+                build_truth_gate = $buildTruthGate
+                capability_discovery = $capabilityDiscovery
+            }
+        }
     }
 
     if ($buildStatus -eq "GENERATED") {

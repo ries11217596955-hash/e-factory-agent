@@ -263,15 +263,33 @@ function Invoke-RouteDiscoveryInternal {
 }
 
 function Invoke-PrepareCapabilityTaskInternal {
-    param([Parameter(Mandatory)]$PipelineState)
+    param(
+        [Parameter(Mandatory)]$PipelineState,
+        [Parameter()]$TaskOverride
+    )
 
     $selfBuild = if ($PipelineState.decision -and $PipelineState.decision.self_build) { $PipelineState.decision.self_build } else { $null }
-    $nextCapability = if ($selfBuild -and $selfBuild.next_capability_to_build) { [string]$selfBuild.next_capability_to_build } else { "route_discovery" }
     $completedCapabilities = if ($selfBuild -and $selfBuild.completed_capabilities) { @($selfBuild.completed_capabilities) } else { @() }
     $missingCapabilities = if ($selfBuild -and $selfBuild.missing_capabilities) { @($selfBuild.missing_capabilities) } else { @() }
     $weakCapabilities = if ($selfBuild -and $selfBuild.weak_capabilities) { @($selfBuild.weak_capabilities) } else { @() }
 
-    if ($nextCapability -eq "capability_discovery") {
+    $overrideCapability = if ($TaskOverride -and $TaskOverride.selected_capability) { [string]$TaskOverride.selected_capability } else { "" }
+    $nextCapability = if (-not [string]::IsNullOrWhiteSpace($overrideCapability)) {
+        $overrideCapability
+    } elseif ($selfBuild -and $selfBuild.next_capability_to_build) {
+        [string]$selfBuild.next_capability_to_build
+    } else {
+        "route_discovery"
+    }
+
+    $taskTypeOverride = if ($TaskOverride -and $TaskOverride.task_type) { [string]$TaskOverride.task_type } else { "" }
+    $stateKeyOverride = if ($TaskOverride -and $TaskOverride.state_key) { [string]$TaskOverride.state_key } else { "" }
+    $requiredFieldsOverride = if ($TaskOverride -and $TaskOverride.required_fields) { @($TaskOverride.required_fields) } else { @() }
+    $diagnosticReasonOverride = if ($TaskOverride -and $TaskOverride.diagnostic_reason) { [string]$TaskOverride.diagnostic_reason } else { "" }
+    $selectionReason = if ($TaskOverride -and $TaskOverride.selection_reason) { [string]$TaskOverride.selection_reason } else { $null }
+    $whyUniversal = if ($TaskOverride -and $TaskOverride.why_universal) { [string]$TaskOverride.why_universal } else { $null }
+
+    if ($nextCapability -eq "capability_discovery" -and [string]::IsNullOrWhiteSpace($overrideCapability)) {
         return @{
             status = "OK"
             data = @{
@@ -297,28 +315,43 @@ function Invoke-PrepareCapabilityTaskInternal {
         }
     }
 
+    $taskType = if (-not [string]::IsNullOrWhiteSpace($taskTypeOverride)) { $taskTypeOverride } else { "BUILD_CAPABILITY" }
+    $stateKey = if (-not [string]::IsNullOrWhiteSpace($stateKeyOverride)) { $stateKeyOverride } else { $nextCapability }
+    $requiredFields = if ($requiredFieldsOverride.Count -gt 0) {
+        @($requiredFieldsOverride)
+    } elseif ($nextCapability -eq "route_discovery") {
+        @("discovered_routes","rejected_routes","checked_count","discovered_count")
+    } else {
+        @("capability_id","build_status","validation")
+    }
+    $diagnosticReason = if (-not [string]::IsNullOrWhiteSpace($diagnosticReasonOverride)) {
+        $diagnosticReasonOverride
+    } elseif (-not [string]::IsNullOrWhiteSpace($overrideCapability)) {
+        "task capability derived from capability discovery selection"
+    } else {
+        "task capability derived from self-build truth"
+    }
+
     return @{
         status = "OK"
         data = @{
             result = @{
                 capability_id = $nextCapability
-                task_type = "BUILD_CAPABILITY"
+                task_type = $taskType
                 input = @{
                     candidates = @($nextCapability)
                     selected = $nextCapability
                     evidence_gaps = if ($nextCapability -eq "route_discovery") { @("baseline_coverage_or_route_discovery_needed") } else { @("self_build_selected_capability") }
-                    source = "RUN_REPORT.agent_capability_state.next_capability_to_build"
+                    source = if (-not [string]::IsNullOrWhiteSpace($overrideCapability)) { "RUN_REPORT.capability_discovery.selected_capability" } else { "RUN_REPORT.agent_capability_state.next_capability_to_build" }
+                    selection_reason = $selectionReason
+                    why_universal = $whyUniversal
                 }
                 expected_output = @{
-                    state_key = $nextCapability
-                    required_fields = if ($nextCapability -eq "route_discovery") {
-                        @("discovered_routes","rejected_routes","checked_count","discovered_count")
-                    } else {
-                        @("capability_id","build_status","validation")
-                    }
+                    state_key = $stateKey
+                    required_fields = @($requiredFields)
                 }
                 diagnostic = @{
-                    reason = "task capability derived from self-build truth"
+                    reason = $diagnosticReason
                 }
             }
         }
@@ -332,7 +365,7 @@ function Invoke-InternalCommand {
     )
 
     if ($Command.handler -eq "prepare_capability_task") {
-        return Invoke-PrepareCapabilityTaskInternal -PipelineState $PipelineState
+        return Invoke-PrepareCapabilityTaskInternal -PipelineState $PipelineState -TaskOverride $Command.args
     }
 
     if ($Command.handler -eq "route_discovery") {

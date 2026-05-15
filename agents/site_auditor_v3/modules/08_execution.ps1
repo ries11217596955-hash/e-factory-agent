@@ -85,8 +85,20 @@ function Invoke-Module08Execution {
         network = $false
     }
 
+    $deferAbstractCapabilityTask = (
+        $actionId -eq "prepare_next_capability_task" -and
+        $PipelineState.decision -and
+        $PipelineState.decision.self_build -and
+        [string]$PipelineState.decision.self_build.next_capability_to_build -eq "capability_discovery"
+    )
+
     $executionResult = $null
-    if ($plan.mode -eq "SAFE_EXECUTE" -and $plan.command.type -eq "internal") {
+    if ($deferAbstractCapabilityTask) {
+        $plan.mode = "DEFERRED"
+        $plan.status = "DEFERRED_TO_CAPABILITY_DISCOVERY"
+        $plan.defer_reason = "abstract capability_discovery placeholder must be resolved by 09_5_capability_discovery before TASK.json is generated"
+    }
+    elseif ($plan.mode -eq "SAFE_EXECUTE" -and $plan.command.type -eq "internal") {
         $executionResult = Invoke-InternalCommand -Command $plan.command -PipelineState $PipelineState
     }
 

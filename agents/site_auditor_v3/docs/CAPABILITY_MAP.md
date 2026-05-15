@@ -63,10 +63,37 @@ Aggregation is stream-aware, not a one-off summary. Current streams:
 
 Future reporting streams must attach to the same aggregation model instead of creating isolated final-summary outputs.
 
+## Current implementation awaiting runtime proof
+
+### 8. Capability discovery engine
+When the fixed self-build queue is exhausted, the agent now resolves the abstract placeholder:
+
+```text
+capability_discovery
+```
+
+into a concrete **universal** next capability pack selected from a catalog.
+
+Current catalog selection:
+- selected next pack: `repair_execution_layer`
+- reason: the finalization layer now emits `FINAL_ACTION_PLAN.json`, so the next universal product layer is a safe execution/repair layer that consumes the plan contract, not a target-specific site fix.
+
+Discovery truth must align across:
+- `RUN_REPORT.capability_discovery.selected_capability`
+- `RUN_REPORT.agent_capability_state.next_capability_to_build`
+- `TASK.json.capability_id`
+
+The capability discovery engine is implemented but not yet promoted to proven status until the terminal/hosted proof passes.
+
 ## Still open product layer
-The next major product layer is no longer basic orchestration or finalization.
-It is the repair/execution layer that consumes `FINAL_ACTION_PLAN.json`, followed later by cross-session comparison and benchmark layers.
+The next product pack to build after proving capability discovery is:
+- `repair_execution_layer`
+
+After that:
+- cross-session comparison / trend layer
+- benchmark layer
 
 ## Guard
 This map is a current capability summary.
 Runtime PASS/FAIL still belongs to artifacts and validator output.
+Target-specific findings must never be promoted into the universal product roadmap.
