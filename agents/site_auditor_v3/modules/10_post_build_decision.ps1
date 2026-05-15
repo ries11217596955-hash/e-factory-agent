@@ -31,7 +31,11 @@ function Invoke-Module10PostBuildDecision {
         $selectedClass = [string]$capabilityDiscovery.selected_capability_class
         $selectionReason = [string]$capabilityDiscovery.selection_reason
 
-        $buildTruthGate.reason = "capability discovery selected next universal build pack"
+        if ($buildStatus -eq "SKIPPED") {
+            $buildTruthGate.reason = "no build task"
+        } else {
+            $buildTruthGate.reason = "capability discovery selected next universal build pack"
+        }
         $buildTruthGate.discovery_status = "SELECTED"
         $buildTruthGate.selected_capability = $selectedCapability
 
