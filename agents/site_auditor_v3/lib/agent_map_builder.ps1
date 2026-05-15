@@ -159,22 +159,23 @@ function New-SiteAuditorV3AgentMap {
         },
         [ordered]@{
             capability_id = "capability_discovery_engine"
-            status = "IMPLEMENTED_PENDING_RUNTIME_PROOF"
+            status = "ACTIVE_PROVEN_TERMINAL_FULL"
             owner = "capability discovery catalog + runtime module + output/task truth alignment"
-            summary = "When the fixed self-build queue is exhausted, the agent selects the next universal capability pack from a catalog and emits a concrete TASK for that pack instead of looping on an abstract capability_discovery placeholder."
+            summary = "When the fixed self-build queue is exhausted, the agent selects the next universal capability pack from a catalog and emits a concrete TASK for that pack instead of looping on an abstract capability_discovery placeholder. Terminal FULL proof confirmed selection and truth alignment."
             evidence = @(
                 "agents/site_auditor_v3/contracts/capability_discovery_catalog.json",
                 "agents/site_auditor_v3/modules/09_5_capability_discovery.ps1",
                 "agents/site_auditor_v3/modules/internal_command_handlers.ps1",
                 "agents/site_auditor_v3/modules/10_post_build_decision.ps1",
                 "agents/site_auditor_v3/modules/07_output.ps1",
-                "agents/site_auditor_v3/tests/validate_self_build_loop.py"
+                "agents/site_auditor_v3/tests/validate_self_build_loop.py",
+                "terminal FULL proof: CAPABILITY_DISCOVERY_STATUS=SELECTED, NEXT_CAPABILITY=repair_execution_layer, TASK_CAPABILITY=repair_execution_layer, TASK_TYPE=BUILD_CAPABILITY"
             )
         }
     )
 
     return [ordered]@{
-        schema_version = "1.3.0"
+        schema_version = "1.3.1"
         artifact = "AGENT_MAP"
         run_id = if ($PipelineState.run -and $PipelineState.run.run_id) { $PipelineState.run.run_id } else { "unknown" }
         product_scope = "Universal audit engine; website LINK is current execution lane only"
