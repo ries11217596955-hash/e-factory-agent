@@ -59,6 +59,18 @@ function Invoke-Module07Output {
             $cap.reason = "capability discovery selected the next universal build pack"
             $cap.capability_discovery = $capabilityDiscovery
 
+            if ($PipelineState.decision -and $PipelineState.decision.self_build) {
+                $PipelineState.decision.self_build.next_capability_to_build = $selectedCapability
+                $PipelineState.decision.self_build.reason = "capability discovery selected the next universal build pack"
+                $PipelineState.decision.self_build.capability_discovery = $capabilityDiscovery
+            }
+            if ($PipelineState.decision -and $PipelineState.decision.self_diagnostic) {
+                $PipelineState.decision.self_diagnostic.next_build_step = $selectedCapability
+            }
+            if ($diag -and $diag.ContainsKey("next_build_step")) {
+                $diag.next_build_step = $selectedCapability
+            }
+
             $selectedTaskContract = if ($capabilityDiscovery.selected_task_contract) { $capabilityDiscovery.selected_task_contract } else { @{} }
             $taskOverride = [ordered]@{
                 selected_capability = $selectedCapability
