@@ -171,15 +171,30 @@ function New-SiteAuditorV3AgentMap {
                 "agents/site_auditor_v3/tests/validate_self_build_loop.py",
                 "terminal FULL proof: CAPABILITY_DISCOVERY_STATUS=SELECTED, NEXT_CAPABILITY=repair_execution_layer, TASK_CAPABILITY=repair_execution_layer, TASK_TYPE=BUILD_CAPABILITY"
             )
+        },
+        [ordered]@{
+            capability_id = "repair_execution_layer"
+            status = "IMPLEMENTED_PENDING_RUNTIME_PROOF"
+            owner = "repair execution contract + planning engine + post-finalization preparation tool"
+            summary = "Finalized audit sessions are transformed into a safe, universal repair-execution plan with explicit safety gates, execution classes, one next repair action, and operator-facing repair report artifacts. v1 is plan-only and does not mutate target or repository state."
+            evidence = @(
+                "agents/site_auditor_v3/contracts/repair_execution_contract.json",
+                "agents/site_auditor_v3/lib/repair_execution.ps1",
+                "agents/site_auditor_v3/tools/prepare_repair_execution.ps1",
+                "agents/site_auditor_v3/tests/validate_repair_execution_layer.py",
+                "agents/site_auditor_v3/run.ps1",
+                "agents/site_auditor_v3/tests/run_and_validate.sh",
+                ".github/workflows/site-auditor-v3.yml"
+            )
         }
     )
 
     return [ordered]@{
-        schema_version = "1.3.1"
+        schema_version = "1.4.0"
         artifact = "AGENT_MAP"
         run_id = if ($PipelineState.run -and $PipelineState.run.run_id) { $PipelineState.run.run_id } else { "unknown" }
         product_scope = "Universal audit engine; website LINK is current execution lane only"
-        agent_loop = "input -> inventory truth -> batch audit -> evidence -> decision -> session aggregation/finalization -> capability discovery -> next universal capability pack"
+        agent_loop = "input -> inventory truth -> batch audit -> evidence -> decision -> session aggregation/finalization -> repair execution plan -> capability discovery / next universal capability pack"
         registry_source = $registryPath
         entrypoint = $registry.entrypoint_path
         module_count = @($modules).Count
@@ -192,6 +207,7 @@ function New-SiteAuditorV3AgentMap {
             route_scope_status = $routeScopeStatus
             discovered_page_routes = $routeDiscovered
             finalization_owner = "tools/finalize_session.ps1"
+            repair_execution_owner = "tools/prepare_repair_execution.ps1"
             capability_discovery_status = if ($capabilityDiscovery -and $capabilityDiscovery.discovery_status) { [string]$capabilityDiscovery.discovery_status } else { "NOT_TRIGGERED" }
             selected_next_capability = if ($capabilityDiscovery -and $capabilityDiscovery.selected_capability) { [string]$capabilityDiscovery.selected_capability } else { $null }
         }
@@ -207,7 +223,8 @@ function New-SiteAuditorV3AgentMap {
             "operator session continuity must be visible in report artifacts and AGENT_MAP",
             "output must reuse already-produced discovery truth, not re-crawl live routes during report composition",
             "session finalization must aggregate through report streams and disclose future unaggregated streams instead of collapsing into a one-off summary",
-            "capability discovery must select a universal product capability, never a repair task for one test target"
+            "capability discovery must select a universal product capability, never a repair task for one test target",
+            "repair execution v1 must remain plan-only and must not auto-mutate target or repository state"
         )
         runpack_links = [ordered]@{
             run_report = "RUN_REPORT.json"
@@ -222,6 +239,8 @@ function New-SiteAuditorV3AgentMap {
             final_operator_report = "FINAL_OPERATOR_REPORT.md"
             final_action_plan = "FINAL_ACTION_PLAN.json"
             final_findings_index = "FINAL_FINDINGS_INDEX.json"
+            repair_execution_plan = "REPAIR_EXECUTION_PLAN.json"
+            repair_execution_report = "REPAIR_EXECUTION_REPORT.md"
         }
         operator_reminder = [ordered]@{
             rule = "Choose one bottleneck. Patch only owner module. Build capability packs, not one-off checks. Verify with wrapper and guards."
@@ -233,7 +252,8 @@ function New-SiteAuditorV3AgentMap {
                 "new module for every isolated finding type",
                 "one-parameter-at-a-time auditor construction when a capability pack is required",
                 "single-report FINAL_SUMMARY shortcuts that bypass stream-aware session aggregation",
-                "target-specific repair findings promoted into universal product roadmap"
+                "target-specific repair findings promoted into universal product roadmap",
+                "auto-applying repair execution actions before the repair layer is explicitly upgraded beyond PLAN_ONLY"
             )
         }
     }
@@ -258,6 +278,7 @@ function Convert-SiteAuditorV3AgentMapToMarkdown {
     $lines.Add("- route_scope_status: $($AgentMap.runtime_session_snapshot.route_scope_status)")
     $lines.Add("- discovered_page_routes: $($AgentMap.runtime_session_snapshot.discovered_page_routes)")
     $lines.Add("- finalization_owner: $($AgentMap.runtime_session_snapshot.finalization_owner)")
+    $lines.Add("- repair_execution_owner: $($AgentMap.runtime_session_snapshot.repair_execution_owner)")
     $lines.Add("- capability_discovery_status: $($AgentMap.runtime_session_snapshot.capability_discovery_status)")
     $lines.Add("- selected_next_capability: $($AgentMap.runtime_session_snapshot.selected_next_capability)")
     $lines.Add("")

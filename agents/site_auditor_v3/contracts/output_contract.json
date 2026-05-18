@@ -1,5 +1,5 @@
 {
-  "schema_version": "3.1.0",
+  "schema_version": "3.2.0",
   "pipeline_id": "site_auditor_v3",
   "runpack_root_template": "agents/site_auditor_v3/runs/{run_id}",
   "operator_entrypoint": "RUN_REPORT.json",
@@ -40,6 +40,20 @@
         "FINALIZED"
       ],
       "path": "FINAL_FINDINGS_INDEX.json"
+    },
+    {
+      "when_repair_execution_status_in": [
+        "PLAN_READY",
+        "NO_ACTIONS"
+      ],
+      "path": "REPAIR_EXECUTION_PLAN.json"
+    },
+    {
+      "when_repair_execution_status_in": [
+        "PLAN_READY",
+        "NO_ACTIONS"
+      ],
+      "path": "REPAIR_EXECUTION_REPORT.md"
     }
   ],
   "evidence_globs": [

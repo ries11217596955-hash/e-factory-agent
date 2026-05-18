@@ -214,6 +214,19 @@ jobs:
           if finalization_status == "FINALIZED":
               expected_files.extend(finalized_contract)
 
+          report_path = root / "RUN_REPORT.json"
+          if not report_path.is_file():
+              raise SystemExit("RUN_REPORT.json missing from unified artifact")
+          report = json.loads(report_path.read_text(encoding="utf-8"))
+          repair_execution = report.get("repair_execution") or {}
+          repair_execution_status = str(repair_execution.get("status") or "")
+          repair_contract = [
+              "REPAIR_EXECUTION_PLAN.json",
+              "REPAIR_EXECUTION_REPORT.md",
+          ]
+          if repair_execution_status in {"PLAN_READY", "NO_ACTIONS"}:
+              expected_files.extend(repair_contract)
+
           produced_files = sorted(
               path.relative_to(root).as_posix()
               for path in root.rglob("*")
@@ -232,6 +245,7 @@ jobs:
               "packaging_mode": "UNIFIED_SESSION_ARTIFACT",
               "deliverable": str(state.get("artifact_name") or root.name),
               "finalization_status": finalization_status or "NOT_FINALIZED",
+              "repair_execution_status": repair_execution_status or "NOT_PREPARED",
               "produced_files": produced_files,
               "expected_files": expected_files,
               "missing_expected_files": missing_expected_files,
@@ -247,19 +261,20 @@ jobs:
               "deliverable": str(state.get("artifact_name") or root.name),
               "manifest": "ARTIFACT_MANIFEST.json",
               "finalization_status": finalization_status or "NOT_FINALIZED",
+              "repair_execution_status": repair_execution_status or "NOT_PREPARED",
               "produced_files_count": len(produced_files),
               "missing_expected_files": missing_expected_files,
               "extra_files": extra_files,
-              "note": "GitHub Actions uploaded one unified report artifact containing run output, session state, ledger truth, and finalization outputs when the session is finalized.",
+              "note": "GitHub Actions uploaded one unified report artifact containing run output, session state, ledger truth, finalization outputs when finalized, and repair-execution outputs when prepared.",
           }
 
           for report_name in ("RUN_REPORT.json", "LATEST_RUN_REPORT.json"):
-              report_path = root / report_name
-              if not report_path.is_file():
+              report_file = root / report_name
+              if not report_file.is_file():
                   raise SystemExit(f"{report_name} missing from unified artifact")
-              report = json.loads(report_path.read_text(encoding="utf-8"))
-              report["packaging"] = packaging
-              report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+              report_data = json.loads(report_file.read_text(encoding="utf-8"))
+              report_data["packaging"] = packaging
+              report_file.write_text(json.dumps(report_data, indent=2) + "\n", encoding="utf-8")
 
           if missing_expected_files:
               raise SystemExit(f"Unified artifact missing expected files: {missing_expected_files}")
@@ -268,6 +283,7 @@ jobs:
           print(f"UNIFIED_MANIFEST_EXTRA_FILES={len(extra_files)}")
           print("UNIFIED_PACKAGING_MODE=UNIFIED_SESSION_ARTIFACT")
           print(f"UNIFIED_FINALIZATION_STATUS={finalization_status or 'NOT_FINALIZED'}")
+          print(f"UNIFIED_REPAIR_EXECUTION_STATUS={repair_execution_status or 'NOT_PREPARED'}")
           PY
 
       - name: Upload unified V3 report artifact

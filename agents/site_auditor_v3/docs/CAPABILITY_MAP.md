@@ -88,16 +88,40 @@ Terminal FULL proof confirmed:
 - `TASK_CAPABILITY=repair_execution_layer`
 - `TASK_TYPE=BUILD_CAPABILITY`
 
+## Current implementation awaiting runtime proof
+
+### 9. Repair execution layer
+The agent now prepares a safe universal repair-execution surface after finalization:
+
+```text
+FINAL_ACTION_PLAN.json
+→ REPAIR_EXECUTION_PLAN.json
+→ REPAIR_EXECUTION_REPORT.md
+```
+
+Repair execution v1 is intentionally **PLAN_ONLY**:
+- it does not mutate the audited target;
+- it does not mutate the repository;
+- it classifies the repair queue before any later execution layer is allowed to act.
+
+Current execution classes:
+- `AGENT_REPAIR_CANDIDATE`
+- `TARGET_REPAIR_GUIDANCE`
+- `OPERATOR_REVIEW`
+
+Required truth outputs:
+- `RUN_REPORT.repair_execution`
+- `REPAIR_EXECUTION_PLAN.json`
+- `REPAIR_EXECUTION_REPORT.md`
+
+This layer is implemented but not yet promoted to proven status until terminal / hosted runtime proof passes.
+
 ## Active next product pack
-The next AGENTOPS product pack to build is:
+The current active implementation pack is:
 - `repair_execution_layer`
 
-This pack must remain universal:
-- consume the final action-plan contract;
-- avoid target-specific repair logic;
-- preserve evidence-backed decision flow.
-
-After that:
+After repair execution is proven, later product layers remain:
+- broader audit intelligence capability packs
 - cross-session comparison / trend layer
 - benchmark layer
 
@@ -105,3 +129,4 @@ After that:
 This map is a current capability summary.
 Runtime PASS/FAIL still belongs to artifacts and validator output.
 Target-specific findings must never be promoted into the universal product roadmap.
+Repair execution v1 must remain plan-only until an explicit later pack upgrades the mutation policy.
