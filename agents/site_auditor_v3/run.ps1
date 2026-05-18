@@ -65,9 +65,15 @@ if ($null -ne $outputModule -and $outputModule.enabled) {
     $pipeline_state[$outputModule.writes_state_paths[0]] = $outResult.data
 
     if ($outResult -and $outResult.data -and $outResult.data.run_report) {
+        $runReportPath = [string]$outResult.data.run_report
         $finalizerPath = "agents/site_auditor_v3/tools/finalize_session.ps1"
         if (Test-Path -LiteralPath $finalizerPath) {
-            & $finalizerPath -RunReportPath ([string]$outResult.data.run_report)
+            & $finalizerPath -RunReportPath $runReportPath
+        }
+
+        $repairExecutionPath = "agents/site_auditor_v3/tools/prepare_repair_execution.ps1"
+        if (Test-Path -LiteralPath $repairExecutionPath) {
+            & $repairExecutionPath -RunReportPath $runReportPath
         }
     }
 }
