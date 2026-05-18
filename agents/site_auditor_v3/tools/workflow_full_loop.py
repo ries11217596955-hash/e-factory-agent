@@ -5,7 +5,8 @@ FULL is an operator intent, not a separate runtime primitive:
 - start fresh when no open session exists for the URL;
 - resume the one open session when it exists;
 - keep running bounded audit batches until the ledger reports no pending pages;
-- finalize the completed session into aggregate operator artifacts once coverage reaches 100%.
+- finalize the completed session into aggregate operator artifacts once coverage reaches 100%;
+- expose repair-execution preparation truth once a finalized session produced it.
 
 The underlying runtime still executes normal START/NEXT batches. This helper only
 orchestrates those batches inside one workflow run and republishes resumable
@@ -228,6 +229,7 @@ def run_full(args: argparse.Namespace) -> int:
         audit_session = report.get("audit_session") or {}
         session_summary = report.get("session_summary") or {}
         finalization = report.get("finalization") or {}
+        repair_execution = report.get("repair_execution") or {}
 
         current_session_id = str(audit_session.get("session_id") or current_session_id or "") or None
         next_action = str(audit_session.get("next_action") or "UNKNOWN")
@@ -236,6 +238,8 @@ def run_full(args: argparse.Namespace) -> int:
         coverage = audit_session.get("coverage_percent")
         completed_batches = int(session_summary.get("batches_completed") or iteration)
         finalization_status = str(finalization.get("status") or "NOT_FINALIZED")
+        repair_execution_status = str(repair_execution.get("status") or "NOT_PREPARED")
+        repair_next = repair_execution.get("one_next_execution_action") or {}
 
         print(f"FULL_LOOP_REPORT={last_report}")
         print(f"FULL_LOOP_NEXT_ACTION={next_action}")
@@ -243,6 +247,9 @@ def run_full(args: argparse.Namespace) -> int:
         print(f"FULL_LOOP_TOTAL_PENDING={total_pending}")
         print(f"FULL_LOOP_COVERAGE={coverage}")
         print(f"FULL_LOOP_FINALIZATION_STATUS={finalization_status}")
+        print(f"FULL_LOOP_REPAIR_EXECUTION_STATUS={repair_execution_status}")
+        print(f"FULL_LOOP_REPAIR_EXECUTION_NEXT_CLASS={repair_next.get('execution_class', 'MISSING')}")
+        print(f"FULL_LOOP_REPAIR_EXECUTION_NEXT_DISPOSITION={repair_next.get('disposition', 'MISSING')}")
 
         if next_action == "NEXT_BATCH" and total_pending > 0:
             current_action = "NEXT"
@@ -253,10 +260,13 @@ def run_full(args: argparse.Namespace) -> int:
         if next_action in {"FINAL_SUMMARY", "REVIEW_FINAL_OPERATOR_REPORT"} and total_pending == 0:
             if finalization_status != "FINALIZED":
                 fail("completed session reached finalization gate but FINALIZATION did not produce FINALIZED report state")
+            if repair_execution_status not in {"PLAN_READY", "NO_ACTIONS"}:
+                fail("completed session finalized but REPAIR_EXECUTION did not produce an accepted plan status")
             print("FULL_LOOP_STATUS=COMPLETED")
             print(f"FULL_LOOP_COMPLETED_BATCHES={completed_batches}")
             print(f"FULL_LOOP_FINAL_REPORT={last_report}")
             print("FULL_LOOP_FINAL_ARTIFACTS=SESSION_AGGREGATE.json,FINAL_OPERATOR_REPORT.md,FINAL_ACTION_PLAN.json,FINAL_FINDINGS_INDEX.json")
+            print("FULL_LOOP_REPAIR_ARTIFACTS=REPAIR_EXECUTION_PLAN.json,REPAIR_EXECUTION_REPORT.md")
             return 0
 
         if next_action == "STOP_NEEDS_REPAIR":
