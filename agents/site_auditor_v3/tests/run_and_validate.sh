@@ -129,8 +129,15 @@ echo "=== FINALIZE SESSION IF READY ==="
 pwsh -NoProfile -File "$ROOT/tools/finalize_session.ps1" \
   -RunReportPath "$LATEST_REPORT"
 
+echo "=== PREPARE REPAIR EXECUTION IF FINALIZED ==="
+pwsh -NoProfile -File "$ROOT/tools/prepare_repair_execution.ps1" \
+  -RunReportPath "$LATEST_REPORT"
+
 echo "=== VALIDATE SESSION FINALIZATION ==="
 RUN_REPORT_PATH="$LATEST_REPORT" python3 "$ROOT/tests/validate_session_finalization.py"
+
+echo "=== VALIDATE REPAIR EXECUTION LAYER ==="
+RUN_REPORT_PATH="$LATEST_REPORT" python3 "$ROOT/tests/validate_repair_execution_layer.py"
 
 echo "=== SHORT SUMMARY ==="
 python3 - "$LATEST_REPORT" <<'PY'
@@ -143,6 +150,7 @@ print("score:", j["audit_result"]["score"])
 print("next_capability:", j["agent_capability_state"]["next_capability_to_build"])
 print("limitations:", j["diagnostic_summary"]["limitations"])
 print("finalization:", (j.get("finalization") or {}).get("status", "NOT_FINALIZED"))
+print("repair_execution:", (j.get("repair_execution") or {}).get("status", "NOT_PREPARED"))
 PY
 
 echo "=== OPERATOR BRIEF FROM RUN_REPORT ==="
@@ -170,6 +178,8 @@ decision = get(["decision_action"], {}) or {}
 route_first = get(["route_discovery_result", "discovered_routes", 0], {}) or {}
 operator_control = get(["operator_control"], {}) or {}
 operator_control_keys = ", ".join(operator_control.keys()) if isinstance(operator_control, dict) else "MISSING"
+repair = get(["repair_execution"], {}) or {}
+repair_next = get(["repair_execution", "one_next_execution_action"], {}) or {}
 
 print("read_full_report:", p)
 print("full_control_book:", "RUN_REPORT.json -> operator_control")
@@ -188,6 +198,9 @@ print("evidence_routes_selected:", get(["evidence_summary", "routes_selected"], 
 print("visual_first_url:", get(["evidence_summary", "visual_capture", "visual_records", 0, "url"], "MISSING"))
 print("finalization_status:", get(["finalization", "status"], "NOT_FINALIZED"))
 print("finalization_verdict:", get(["finalization", "final_verdict"], "MISSING"))
+print("repair_execution_status:", repair.get("status", "NOT_PREPARED"))
+print("repair_execution_next_class:", repair_next.get("execution_class", "MISSING"))
+print("repair_execution_next_disposition:", repair_next.get("disposition", "MISSING"))
 PY
 
 echo "=== PACKAGE RUNPACK ==="
@@ -214,9 +227,15 @@ finalization_files = [
     "FINAL_ACTION_PLAN.json",
     "FINAL_FINDINGS_INDEX.json",
 ]
+repair_execution_files = [
+    "REPAIR_EXECUTION_PLAN.json",
+    "REPAIR_EXECUTION_REPORT.md",
+]
 
 if any(os.path.isfile(os.path.join(run_dir, name)) for name in finalization_files):
     expected_files.extend(finalization_files)
+if any(os.path.isfile(os.path.join(run_dir, name)) for name in repair_execution_files):
+    expected_files.extend(repair_execution_files)
 
 produced_files = []
 for name in sorted(os.listdir(run_dir)):
