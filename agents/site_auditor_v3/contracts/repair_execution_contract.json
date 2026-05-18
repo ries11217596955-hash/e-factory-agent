@@ -1,0 +1,70 @@
+{
+  "schema_version": "1.0.0",
+  "contract_id": "site_auditor_v3_repair_execution_layer",
+  "purpose": "Transform FINAL_ACTION_PLAN.json into a safe, universal repair-execution plan without mutating a target or repo by default.",
+  "input_contract": {
+    "required_artifacts": [
+      "RUN_REPORT.json",
+      "FINAL_ACTION_PLAN.json"
+    ],
+    "required_run_report_state": {
+      "finalization_status": "FINALIZED"
+    },
+    "required_final_action_plan_fields": [
+      "artifact",
+      "session_id",
+      "verdict",
+      "action_count",
+      "actions",
+      "one_next_action"
+    ]
+  },
+  "classification_policy": {
+    "mutation_policy": "PLAN_ONLY",
+    "allow_target_mutation": false,
+    "allow_repo_mutation": false,
+    "execution_classes": [
+      "AGENT_REPAIR_CANDIDATE",
+      "TARGET_REPAIR_GUIDANCE",
+      "OPERATOR_REVIEW"
+    ],
+    "agent_internal_target_modules": [
+      "route_audit",
+      "capture",
+      "visual_capture",
+      "reconcile",
+      "post_build_decision",
+      "capability_discovery",
+      "capability_integration"
+    ],
+    "target_guidance_modules": [
+      "content",
+      "conversion"
+    ]
+  },
+  "output_contract": {
+    "required_artifacts": [
+      "REPAIR_EXECUTION_PLAN.json",
+      "REPAIR_EXECUTION_REPORT.md"
+    ],
+    "required_run_report_block": "repair_execution",
+    "required_plan_fields": [
+      "artifact",
+      "schema_version",
+      "status",
+      "session_id",
+      "source_final_action_plan",
+      "plan_contract",
+      "safety_gate",
+      "queue_summary",
+      "execution_queue",
+      "one_next_execution_action"
+    ]
+  },
+  "status_model": [
+    "PLAN_READY",
+    "NO_ACTIONS",
+    "BLOCKED_INVALID_INPUT"
+  ],
+  "safety_rule": "This layer creates an execution-ready plan and classification truth. It does not directly apply target or repository changes."
+}
